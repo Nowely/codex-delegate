@@ -76,7 +76,7 @@ schema-0.150.1/       the pinned protocol schema the driver is written against
 Developed and measured on **macOS with codex-cli 0.150.1**, and on nothing else. Linux should work — the
 driver uses only portable Node APIs — but no one has run it there, and two of its guards
 (`O_NOFOLLOW`/`O_NONBLOCK` on the lock file, `os.userInfo()` for the home anchor) are exactly the kind of
-thing that behaves differently elsewhere. The pinned `schema-0.150.1/` is 94% of this repository by size
+thing that behaves differently elsewhere. The pinned `schema-0.150.1/` is 92% of this repository by size
 and is generated output, not hand-written.
 
 Seven adversarial review passes ran against this code. They found, among other things, a live sandbox
@@ -106,6 +106,7 @@ pushed by device management) restricts what is allowed:
 ```toml
 allowed_approval_policies = ["untrusted", "on-request"]
 allowed_sandbox_modes    = ["read-only", "workspace-write"]
+allowed_web_search_modes = ["cached"]
 ```
 
 `never` is not in that set, so Codex clamps it and says so:
@@ -134,9 +135,12 @@ decorrelated opinion bought and a crippled one delivered. No flag reaches this: 
 is `[--background] [--write] [--resume-last|--resume|--fresh] [--model] [--effort]`, and the suppression is
 caused by the parameter it always sends, not by a setting anyone can change.
 
-The failure is silent where it counts: a review comes back with a confident verdict having run nothing. The
-greppable fingerprint is `(exit ?)` in `~/.claude/plugins/data/codex-openai-codex/state/*/jobs/*.log` — it means
-Codex ran no commands at all and answered from the prompt alone.
+The failure is silent where it counts: a review comes back with a confident verdict having run nothing.
+`(exit ?)` in `~/.claude/plugins/data/codex-openai-codex/state/*/jobs/*.log` is a related fingerprint, but
+it does **not** mean what this file used to say. The plugin emits it per command-execution item whose
+`exitCode` came back null, so a log containing it necessarily contains a command execution — it marks a
+command whose status is unknown, not a turn that ran nothing. A turn that truly ran nothing has no such
+line at all, which is exactly why the absence is the harder thing to notice.
 
 This is not a session artifact. Reproduced in a clean process with an empty environment:
 

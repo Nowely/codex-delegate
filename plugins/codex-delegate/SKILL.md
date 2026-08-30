@@ -108,7 +108,7 @@ default row.
 Two judgement calls sit behind the default. A panel of only Claudes shares one bias, so the seat whose job
 is to disagree is the one worth decorrelating — that is where a Codex seat earns its cost. A mechanical
 fan-out (gather these facts, list these call sites) gets none, because decorrelation buys nothing when
-there is nothing to disagree about, and each Codex seat costs ~0.5 GB and a ~7 s floor.
+there is nothing to disagree about, and each Codex seat costs ~180 MB and ~7 s of turn overhead.
 
 The scale applies to single-agent work too: "only codex" on one task means Codex does the task and you
 coordinate and check it, rather than doing it yourself.
@@ -206,7 +206,10 @@ Raising it costs latency, not correctness; the `~7 s` startup floor barely moves
 minutes. Buying a decorrelated seat and then running it at `low` is buying cheap disagreement.
 
 Run `codex debug models` for the ladder the current model actually advertises — the driver validates
-against `low|medium|high|xhigh|max|ultra`, and a model that gains a level will be ahead of it.
+against `none|minimal|low|medium|high|xhigh|max|ultra`, and a model that gains a level will be ahead of it.
+That set is a permissive union of two partial lists, on purpose: what a given model accepts is per-model and
+only knowable at runtime, so a value this driver allows can still be refused by the server — which now exits
+2 carrying the server's own list, rather than 1.
 
 **Model.** Do not hardcode one. Without `--model` the thread uses whatever `~/.codex/config.toml` sets,
 which is normally the strongest model available; pass `--model <slug>` only when the user names one in
@@ -233,12 +236,12 @@ Measured 2026-08-30 on this repo. Re-check after a codex upgrade.
 | --- | --- | --- |
 | `Explore` (read-only) | `--level read --cwd <repo>` | matches for reading, grep, git, node, lint, format, **and node-environment vitest projects** — but only with `--configLoader runner`, since a plain invocation makes Vite write `node_modules/.vite-temp` beside the repo config and fail `EPERM`. Browser-mode projects cannot run here: vitest's server binds loopback TCP, which the profile refuses (`EPERM ::1:<port>`). `pnpm run typecheck` also fails — `packages/react/app` and `packages/vue/app` are `composite: true`, so tsc writes `tsbuildinfo` into the repo even under `--noEmit`; per-package typecheck of a non-composite package works. |
 | analysis that needs to write | `--level write --cwd <tmpdir>` | reads the repo by absolute path and has somewhere to write. Nothing checks that the cwd is outside a repo — that check left with the `scratch` level, so point `--cwd` somewhere harmless yourself. |
-| agent with `isolation: "worktree"` | `--level write --network --cwd <worktree>` | full: installs its own deps, edits, runs tests — **including browser tests**, see below |
+| agent with `isolation: "worktree"` | `--level write --network --cwd <worktree>` | edits and runs tests, **including browser tests**, see below. Installing deps needs one more thing: a package manager writes to a cache in the HOME the sandbox does not grant, so a bare `npm install` is refused and the run exits 6 with the command named. Point the cache inside the worktree — `npm install --cache "$PWD/.npm-cache"` — and it succeeds. `pnpm install --frozen-lockfile` works against an already-warm store. |
 | the same, committing | `--level write --commit` | full: `git add` and `git commit` succeed |
-| fan-out of many agents | many concurrent invocations | ~0.5 GB RSS and a ~7 s startup floor each — memory-bound, not protocol-bound. 6–8 is comfortable and 12 ran clean, but that wave size was measured 2026-08-29 **before** the isolated home and not re-verified; derive the budget from free memory, not from the remembered number. Isolation made each delegation cheaper: a host-home run spawns a private copy of every MCP server in `~/.codex/config.toml` (measured: 3 extra processes against an 18-process baseline), an isolated one spawns none, because there is no config for them to be declared in. |
+| fan-out of many agents | many concurrent invocations | memory-bound, not protocol-bound. Per seat, its own process tree attributed by ppid, sampled at 1 Hz: **181 MB median, 202 MB peak, 4 processes** isolated; **471 MB median, 485 MB peak, 7 processes** on `--host-home`, the extra three being a private copy of every MCP server in the caller's config. The `~0.5 GB` this row used to quote was the host-home figure, so it over-budgeted an isolated fan-out by ~2.7×. At 181 MB a wave of 12 is ~2.2 GB. The `~7 s` is **not** process startup — spawn plus `initialize` is 0.08–0.09 s; it is end-to-end turn overhead, measured as total minus a 45 s sleep: **6.6 s** isolated, **8.2 s** host-home. |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home. `--host-home` gives the seat the caller's MCP servers back, and their nondeterminism with it. Nothing in this repo has needed them: browser tests run from the worktree's own playwright at write level, not over MCP. |
-| web search | `--web-search live` | off unless asked, so a turn does not depend on what the index says today |
-| a schema-validated return | `--answer-json` | asks for one bare JSON object and reports `answerJson` / `answerJsonError`. Weaker than a subagent's schema: there is no tool layer to retry a bad shape, so the caller sees the miss rather than being protected from it. |
+| web search | `--web-search cached\|indexed\|live` | off unless asked, so a turn does not depend on what the index says today. `cached` is measured working — three `web_search_end` events with live results. Which modes you may ask for is a device policy: where one is set, an unpermitted mode is refused before the model is called, exit 2, naming what is allowed. |
+| a schema-validated return | `--answer-json` | asks for one bare JSON object and reports `answerJson` / `answerJsonError`. Weaker than a subagent's schema in two ways: there is no tool layer to retry a bad shape, so the caller sees the miss rather than being protected from it; and only the SYNTAX is checked, so an array or a bare number parses happily and `answerJson.someField` is then `undefined` rather than an error. Measured upside: the instruction is strong — two deliberate attempts to make the model answer in prose both came back as bare JSON. |
 | a subagent's short return, with the detail left in its transcript | `--brief`, plus `answerPath` always | full: the whole answer is written to `~/.codex-delegate/answers/<threadId>.md` on every run, so the inline `answer` can be capped at 20 lines without losing anything. The cap is applied by the driver, not asked of the model — measured: told to answer in 20 lines the model returned 29, and the clip still held. `answerTruncated` says whether it fired. |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
@@ -306,21 +309,25 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | --- | --- |
 | 0 | turn completed and at least one command really executed |
 | 1 | turn did not complete (`failed` / `interrupted`) — the answer is partial |
-| 2 | usage error, nothing ran |
+| 2 | your arguments were rejected — **usually** before anything ran, but also when the SERVER refused a parameter mid-turn (an effort this model does not take, say), in which case commands may already have executed. The message carries the server's own wording |
 | 3 | timed out |
-| 4 | transport failure — codex missing, crashed, or interrupted |
+| 4 | transport failure — codex missing or crashed, **and** every sandbox, approval-policy and reviewer assertion. Ten of the suite's cases exit 4 for "the rights you asked for were not the rights you got", which is the opposite of a retry |
 | 5 | no command matching the expectation succeeded — the answer is unverified prose |
 | 6 | an escalation was refused — see below |
 | 7 | something asked for a human: an unanswerable server request or an MCP form. No sandbox change fixes it |
 | 8 | the turn produced commentary but never a final answer |
 | 9 | `--verify` ran and failed: whatever the model said, the work is not there |
 | 10 | the cwd is locked by another run, or a resumed thread still has a turn open |
-| 11 | a command ran and **failed**, whatever the answer claims. Only a **passing** `--verify` overrules it |
+| 11 | a command ran and **failed**, or a file change did, whatever the answer claims. Only a **passing** `--verify` overrules it |
 | 12 | `--verify` could not be run at all — fix the verifier, not the work. See the table below |
 
 These are ordered, not independent. The first condition that holds wins, and the order is
-**3 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 11**. So a run that both timed out and refused an escalation reports 3,
-and a code of 0 means every one of them was checked and none applied.
+**3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 11**. So a run that both timed out and refused an escalation reports
+3, and a code of 0 means every one of them was checked and none applied.
+
+2 sits second because a parameter the server refused is the caller's to fix, not something to retry — and
+it is the one rung that can carry work with it, so do not read it as "nothing happened". 4 is not on the
+ladder at all: it is raised the moment an assertion fails, before any of this is reached.
 
 9 sits above 5, 8 and 11 deliberately: those three infer that something went wrong from the command list,
 while 9 measured the end state directly. 12 sits above 9 because "the check could not run" and "the check
@@ -358,9 +365,9 @@ never confused with "not requested".
 
 Two things it does not do. A passing `--verify` does not waive a `--expect-command` you declared — a stale
 `dist/` satisfies `test -f dist/index.js` for a build that never ran, so the end state can be right while
-the work drifted. And it cannot rescue a turn that did not complete: codes 1 and 3 stand regardless, though
-the verdict is still recorded, because "the turn died but the work landed" and "the turn died and the work
-is missing" call for different next steps.
+the work drifted. And it cannot rescue a turn that did not complete: codes 1 and 3 stand
+regardless, and the verifier is **not run at all** — `verifySkipped` says why. An earlier version of this
+page claimed the verdict was still recorded; it is not, and the paragraph above says so correctly.
 
     --verify 'test -f done.txt && grep -q PROOF done.txt'
     --verify 'pnpm -w exec vitest run --project docs'
@@ -423,6 +430,14 @@ for work that had succeeded. Pass `--verify` with the end condition you actually
 what that waiver is for. The same applies to any red-green task: reproducing a bug, bisecting, proving a
 guard bites.
 
+**Hardening your own tool, phrased as attacking it, is refused.** A seat asked to find where a guard could
+be "defeated", to build a "hostile" home directory and to "break" a policy check came back
+`turnStatus: failed`, `codexErrorInfo: "cyberPolicy"` — OpenAI's safety classifier, on a task whose whole
+purpose was defensive. Two earlier cases died the same way. The work is legitimate and the fix is not a
+trick: describe it as what it is — robustness under unusual filesystem states, config shapes and
+concurrency — and the same seat does the same work. The driver reports the refusal legibly (exit 1, the
+cause in `turnError`), so this costs a rerun rather than a mystery.
+
 ## Flags
 
 `--level read|write` (default `read`) · `--cwd <dir>` (required) · `--prompt <text>`, or omit it and pipe
@@ -432,7 +447,8 @@ the prompt on stdin — the better shape for a long one ·
 directory writable · `--writable <dir>` for an extra writable root, repeatable · `--network` for egress ·
 `--allow-no-commands` for a turn that legitimately needs to run nothing (it waives the command floor, never
 a `--expect-command` you declared) · `--expect-command <regex>` · `--verify '<shell>'` ·
-`--resume <threadId>` to continue a thread · `--ephemeral` to make one non-resumable ·
+`--resume <threadId>` to continue a thread · `--ephemeral` to make one non-resumable · `--timeout` is capped
+at 7200 seconds and a piped prompt at 512 KB ·
 `--web-search cached|indexed|live` (off by default; a managed device may permit only some of them, and the driver refuses a mode the policy forbids rather than letting the server silently substitute one) · `--answer-json` to demand one bare JSON object and
 report whether it arrived · `--brief` to cap the inline answer at 20 lines · `--host-home` to run against
 the caller's `~/.codex` instead of the private home · `--help`.
