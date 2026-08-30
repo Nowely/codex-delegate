@@ -34,6 +34,11 @@ const READ_PROFILE = "codex_delegate_read";
 // not a subset: rejecting `max` as a usage error while the user's own config.toml asked for it is the
 // driver overruling the caller about the one thing it has no opinion on.
 const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max", "ultra"]);
+// The server's own list, learned from the error it emits for anything else. A Claude seat can search the
+// web; a Codex seat could not, because this was pinned to `disabled` with no way to ask. Still disabled by
+// default: a search makes the turn depend on what the index says today, and most delegations here are
+// about this repository, not about the world.
+const WEB_SEARCH = new Set(["cached", "indexed", "live"]);
 const MAX_PROMPT_BYTES = 512 * 1024;
 // --timeout is the caller's whole budget, so anything the driver spends after the turn — the verifier —
 // has to come out of what is left of it rather than out of a private allowance.
@@ -68,6 +73,11 @@ Rights
 
 Turn
   --prompt TEXT      the task; omit to read it from stdin
+  --web-search cached|indexed|live
+                     off by default: a search makes the turn depend on what the
+                     index says today
+  --answer-json      demand one bare JSON object as the answer; the report then
+                     carries answerJson and answerJsonError
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
   --timeout SECONDS  default 900, at most 7200
@@ -121,6 +131,8 @@ function parseArgs(argv) {
       case "--expect-command": o.expect = need(++i, a); break;
       case "--verify": o.verify = need(++i, a); break;
       case "--network": o.network = true; break;
+      case "--web-search": o.webSearch = need(++i, a); break;
+      case "--answer-json": o.answerJson = true; break;
       case "--host-home": o.hostHome = true; break;
       case "--json": o.json = true; break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
@@ -129,6 +141,10 @@ function parseArgs(argv) {
     }
   }
   if (!LEVELS.has(o.level)) fail(EXIT.USAGE, `--level must be one of ${[...LEVELS].join("|")}`);
+  // The server enumerates these itself and rejects anything else at startup, which would surface as a
+  // transport failure long after the caller could act on it.
+  if (o.webSearch !== undefined && !WEB_SEARCH.has(o.webSearch))
+    fail(EXIT.USAGE, `--web-search must be one of ${[...WEB_SEARCH].join("|")}`);
   if (o.effort !== undefined && !EFFORTS.has(o.effort))
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
   if (!Number.isFinite(o.timeout) || o.timeout <= 0 || o.timeout > 7200)
@@ -549,7 +565,7 @@ function setup() {
   }
 
   const config = [
-    ["web_search", "disabled"],
+    ["web_search", opts.webSearch ?? "disabled"],
     // A reader that cannot write $TMPDIR cannot start vitest at all (it mkdirs there before running).
     // Extending ":read-only" opens exactly that and nothing else — /tmp stays excluded.
     ...(opts.level === "read" ? [
@@ -785,6 +801,19 @@ function handleMessage(msg) {
   }
 }
 
+// A Claude subagent can be handed a schema and the tool layer retries until the shape matches. There is no
+// such layer here, so --answer-json asks for the shape and then reports honestly whether it arrived: a
+// caller that machine-reads the answer must be able to tell a parse failure from a null field. The fence
+// strip is not politeness — instructed or not, a fenced block is the single most common way the answer
+// comes back unparseable, and treating it as a failure would throw away a good answer.
+function parseAnswerJson(text) {
+  if (typeof text !== "string" || text.trim() === "") return { answerJson: null, answerJsonError: "no answer" };
+  const fenced = text.trim().match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
+  const body = fenced ? fenced[1] : text.trim();
+  try { return { answerJson: JSON.parse(body), answerJsonError: null }; }
+  catch (e) { return { answerJson: null, answerJsonError: e.message }; }
+}
+
 // `reason` is set when the run is being cut short (a timeout) rather than ending on its own. Everything
 // streamed so far is still in memory, and a run that did four useful greps before the clock ran out
 // should hand those back rather than throw them away.
@@ -927,7 +956,11 @@ function finish(reason) {
     // null only when no --expect-command was given, so a caller can tell "not asked" from "asked and missed".
     expectationOk: opts.expectRe ? expected.length > 0 : null,
     verify: verifyResult, verifySkipped,
-    answerPhase: final?.phase ?? null, commentaryOnly, answer
+    answerPhase: final?.phase ?? null, commentaryOnly, answer,
+    // Only present when --answer-json asked for it, so a caller can tell "did not ask" from "asked and the
+    // model answered in prose anyway". Absent rather than null in the ordinary case, because a null here
+    // would read as a failed parse.
+    ...(opts.answerJson ? parseAnswerJson(answer) : {})
   };
 
   let out;
@@ -1089,10 +1122,17 @@ async function main() {
   // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
   const developerInstructions = [
     "You are being driven by a Claude Code coordinator, unattended. Nobody will answer a question.",
-    "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
+    opts.webSearch
+      ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
+      : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
     "If a command cannot run, reply with the single token COMMAND_BLOCKED for that step and continue.",
     "Never report a test as passing unless you ran it and saw the count in this turn.",
-    "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful."
+    "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful.",
+    // The coordinator machine-reads this answer. Saying so is what makes the JSON arrive bare; without it
+    // the model reaches for a fenced block, and a fence is not JSON.
+    ...(opts.answerJson
+      ? ["Your final answer must be ONE JSON object and nothing else: no prose before or after, no markdown code fence."]
+      : [])
   ].join(" ");
 
   // Sending `sandbox` at all suppresses the permission profile — the server reports
