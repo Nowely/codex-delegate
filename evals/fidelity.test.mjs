@@ -30,15 +30,17 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.join(HERE, "fake-app-server.mjs");
+const DRIVER = path.join(HERE, "..", "scripts", "driver.mjs");
 const READ_PROFILE = "codex_delegate_read";
 
 const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? null; } };
 
-// One handshake against whichever binary is named, with the driver's own -c payload and params.
-function handshake(bin, args, params, { timeoutMs = 60000, env = process.env } = {}) {
+// Replay the request captured from the driver against whichever server is named. `args` already ends in
+// app-server: appending it here would make this test almost-the-driver rather than the driver.
+function handshake(bin, args, request, { timeoutMs = 60000, env = process.env } = {}) {
   return new Promise((resolve) => {
     let child;
-    try { child = spawn(bin, [...args, "app-server"], { stdio: ["pipe", "pipe", "pipe"], env }); }
+    try { child = spawn(bin, args, { cwd: request.spawnCwd, stdio: ["pipe", "pipe", "pipe"], env }); }
     catch (e) {
       return resolve(e?.code === "ENOENT"
         ? { unavailable: e.message }
@@ -77,24 +79,33 @@ function handshake(bin, args, params, { timeoutMs = 60000, env = process.env } =
       let m; try { m = JSON.parse(line); } catch { return; }
       if (m.id === 1) {
         if (m.error) { done({ failure: { kind: "JSON-RPC error", detail: `initialize returned ${JSON.stringify(m.error)}` } }); return; }
-        send({ jsonrpc: "2.0", method: "initialized" });
-        send({ jsonrpc: "2.0", id: 2, method: "thread/start", params });
+        send({ jsonrpc: "2.0", method: "initialized", params: request.initializedParams });
+        send({ jsonrpc: "2.0", id: 2, method: request.threadMethod, params: request.threadParams });
       }
       if (m.id === 2) done(m.error
         ? { failure: { kind: "JSON-RPC error", detail: `thread/start returned ${JSON.stringify(m.error)}` } }
         : { result: m.result });
     });
-    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "fidelity", title: "fidelity", version: "0" } } });
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: request.initializeParams });
   });
 }
 
-// The fields whose shape the driver actually reasons about. Compared canonically, because the server
-// returns realpaths while a caller's config may not.
+// The fields whose shape the driver actually reasons about. Workspace roots are canonicalised because
+// that is exactly what the driver's assertions do. Writable roots deliberately are NOT: the live server
+// canonicalises :tmpdir roots, but echoes configured write roots and subtracts cwd by exact spelling.
+// Canonicalising that field here erased the distinction this suite is meant to pin.
+const idShape = (id) => typeof id === "string" && id.length ? "<non-empty string>" : (id ?? null);
 function shapeOf(r) {
   const sb = r?.sandbox ?? {};
   return {
+    threadId: idShape(r?.thread?.id),
+    cwd: r?.cwd ?? null,
+    model: r?.model ?? null,
+    modelProvider: r?.modelProvider ?? null,
+    reasoningEffort: r?.reasoningEffort ?? null,
+    serviceTier: r?.serviceTier ?? null,
     sandboxType: sb.type ?? null,
-    writableRoots: (sb.writableRoots ?? []).map(canon).sort(),
+    writableRoots: [...(sb.writableRoots ?? [])].sort(),
     networkAccess: Boolean(sb.networkAccess),
     excludeSlashTmp: sb.excludeSlashTmp ?? null,
     workspaceRoots: (r?.runtimeWorkspaceRoots ?? []).map(canon).sort(),
@@ -104,109 +115,294 @@ function shapeOf(r) {
   };
 }
 
+// Three live differences were hidden outside the old subset. `model` is now compared under a fixed
+// inherited config. The other two are thread.cwd and thread.ephemeral: the fixture's nested Thread is
+// intentionally canned history metadata (/tmp and false), while this driver reads neither field (it uses
+// the top-level cwd/runtimeWorkspaceRoots and its own request flag). Comparing them would turn harmless
+// fixture metadata into permanent noise. Volatile ids/timestamps and new response-only metadata such as
+// instructionSources/multiAgentMode are excluded for the same reason; thread.id is the exception because
+// the driver uses it to attribute every event and to start the turn, so its required non-empty shape is
+// compared above and asserted independently below.
+
 const workDirs = [];
 const freshDir = (n) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), `fidelity-${n}-`)); workDirs.push(d); return d; };
+let cleaned = false;
+function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  for (const d of workDirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
+}
+// `finally` below covers ordinary exceptions. The exit hook also covers an asynchronous stream error —
+// notably stdout EPIPE when a caller closes a pipe — which otherwise bypasses that control flow.
+process.once("exit", cleanup);
 
-// The header claimed this suite writes nothing. It was false: the server records a trusted-project entry in
-// CODEX_HOME/config.toml for every unseen cwd it is handed, and since every case here mints a fresh temp
-// cwd, the caller's own config grew a dead entry per case per run — 195 `fidelity-*` tables out of 326 by
-// the time anyone measured it. A private home fixes that, and it makes the comparison truer besides: the
-// driver now runs isolated too, so what the live server reads is the `-c` payload and nothing a user
-// happens to keep in their own config.
-const CODEX_HOME = freshDir("home");
-const liveEnv = (env) => ({ ...(env ?? process.env), CODEX_HOME });
-
-const readCfg = [
-  "-c", "web_search=disabled",
-  "-c", `permissions.${READ_PROFILE}.extends=":read-only"`,
-  "-c", `permissions.${READ_PROFILE}.filesystem={":tmpdir"="write"}`,
-  "-c", `default_permissions="${READ_PROFILE}"`,
-];
-const writeCfg = (roots, net) => [
-  "-c", "web_search=disabled",
-  "-c", `sandbox_workspace_write.writable_roots=[${roots.map((r) => JSON.stringify(r)).join(",")}]`,
-  "-c", `sandbox_workspace_write.network_access=${net}`,
-];
-const baseParams = (cwd, extra = {}) => ({
-  cwd, model: null, approvalPolicy: "on-request", approvalsReviewer: "user",
-  developerInstructions: "fidelity probe", serviceName: "fidelity", ephemeral: true, ...extra,
+// Capture the driver's real app-server argv and initialize/thread requests without starting a turn. The
+// preload changes only os.userInfo().homedir for this child, so the driver's passwd-anchored isolated home
+// lands under our temp directory instead of ~/.codex-delegate. The capture server exits as soon as it sees
+// thread/start and never replies to it, so the driver cannot issue turn/start.
+const CAPTURE_MARKER = "FIDELITY_DRIVER_CAPTURE ";
+const captureRoot = freshDir("capture");
+const captureBin = path.join(captureRoot, "bin");
+const capturePreload = path.join(captureRoot, "passwd-home.cjs");
+const captureServer = path.join(captureBin, "codex");
+fs.mkdirSync(captureBin);
+fs.writeFileSync(capturePreload, String.raw`"use strict";
+const os = require("node:os");
+const realUserInfo = os.userInfo;
+os.userInfo = () => {
+  const homedir = process.env.FIDELITY_PASSWD_HOME;
+  if (!homedir) throw new Error("FIDELITY_PASSWD_HOME is missing");
+  return { ...realUserInfo(), homedir };
+};
+`);
+fs.writeFileSync(captureServer, String.raw`#!/usr/bin/env node
+"use strict";
+const readline = require("node:readline");
+const MARKER = "FIDELITY_DRIVER_CAPTURE ";
+let initializeParams = null;
+let initializedParams = null;
+const send = (o) => process.stdout.write(JSON.stringify(o) + "\n");
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  let m;
+  try { m = JSON.parse(line); } catch { return; }
+  if (m.method === "initialize") {
+    initializeParams = m.params;
+    send({ jsonrpc: "2.0", id: m.id, result: {
+      userAgent: "fidelity-capture", codexHome: process.env.CODEX_HOME,
+      platformFamily: "unix", platformOs: process.platform
+    } });
+    return;
+  }
+  if (m.method === "initialized") { initializedParams = m.params; return; }
+  if (m.method === "thread/start" || m.method === "thread/resume") {
+    const captured = {
+      spawnArgs: process.argv.slice(2), spawnCwd: process.cwd(), codexHome: process.env.CODEX_HOME,
+      initializeParams, initializedParams, threadMethod: m.method, threadParams: m.params
+    };
+    process.stderr.write(MARKER + JSON.stringify(captured) + "\n", () => process.exit(86));
+  }
 });
+`, { mode: 0o700 });
 
-// Each case is a request both servers must answer alike. They exist because each one is a place where the
-// fixture and the real server HAVE diverged, or plainly could.
+// All four production-inherited scalars are present, but their values are fixed by the test. `fake-model`
+// matches the fixture's deterministic fallback, `high` is also sent as the driver's real --effort
+// override so the fixture can observe it without pretending to parse config.toml, and `auto` resolves to
+// the protocol's null service tier. The fifth scalar and table prove isolation did not broaden silently.
+const CALLER_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\npersonality = "none"\nservice_tier = "auto"\nmodel_verbosity = "low"\n\n[mcp_servers.must_not_escape]\ncommand = "false"\n`;
+const ISOLATED_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\npersonality = "none"\nservice_tier = "auto"\n`;
+
+function captureDriver(spec) {
+  const passwdHome = freshDir("passwd");
+  const callerCodex = path.join(passwdHome, ".codex");
+  fs.mkdirSync(callerCodex);
+  fs.writeFileSync(path.join(callerCodex, "config.toml"), CALLER_CONFIG, { mode: 0o600 });
+
+  const driverArgs = [DRIVER, "--level", spec.level, "--cwd", spec.cwd,
+    "--effort", "high", "--ephemeral", "--prompt", "fidelity probe"];
+  for (const root of spec.writable ?? []) driverArgs.push("--writable", root);
+  if (spec.network) driverArgs.push("--network");
+  const baseEnv = spec.env ?? process.env;
+  const driverEnv = {
+    ...baseEnv,
+    FIDELITY_PASSWD_HOME: passwdHome,
+    PATH: `${captureBin}${path.delimiter}${baseEnv.PATH ?? ""}`,
+  };
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--require", capturePreload, ...driverArgs], {
+      stdio: ["ignore", "pipe", "pipe"], env: driverEnv,
+    });
+    let stdout = "", stderr = "", settled = false;
+    child.stdout.on("data", (d) => { stdout += d; });
+    child.stderr.on("data", (d) => { stderr += d; });
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bell);
+      fn(value);
+    };
+    child.once("error", (e) => finish(reject, new Error(`cannot run driver capture: ${e.message}`)));
+    child.once("close", () => {
+      const lines = stderr.split("\n").filter((line) => line.startsWith(CAPTURE_MARKER));
+      if (lines.length !== 1) {
+        const detail = `${stderr}\n${stdout}`.trim().replace(/\s+/g, " ").slice(0, 400);
+        finish(reject, new Error(`driver emitted ${lines.length} capture records${detail ? `: ${detail}` : ""}`));
+        return;
+      }
+      let captured;
+      try { captured = JSON.parse(lines[0].slice(CAPTURE_MARKER.length)); }
+      catch (e) { finish(reject, new Error(`driver capture was not JSON: ${e.message}`)); return; }
+      const expectedHome = path.join(passwdHome, ".codex-delegate", "home");
+      if (captured.codexHome !== expectedHome)
+        { finish(reject, new Error(`driver used CODEX_HOME ${JSON.stringify(captured.codexHome)}, expected ${JSON.stringify(expectedHome)}`)); return; }
+      if (captured.threadMethod !== "thread/start")
+        { finish(reject, new Error(`driver sent ${JSON.stringify(captured.threadMethod)}, expected thread/start`)); return; }
+      if (captured.spawnArgs?.at(-1) !== "app-server")
+        { finish(reject, new Error(`driver argv did not end in app-server: ${JSON.stringify(captured.spawnArgs)}`)); return; }
+      // Keys whose EFFECT no response field carries, so replaying the same argv against both servers can
+      // never notice their absence — both would simply agree without them. Asserting they were SENT is the
+      // only place this is visible: dropping web_search silently gives every delegation the caller's own
+      // search setting, which is the opposite of the default the skill publishes.
+      for (const key of ["web_search"]) {
+        if (!captured.spawnArgs.some((a, i) => captured.spawnArgs[i - 1] === "-c" && a.startsWith(`${key}=`)))
+          { finish(reject, new Error(`driver did not send -c ${key}=…: ${JSON.stringify(captured.spawnArgs)}`)); return; }
+      }
+      let isolated;
+      try { isolated = fs.readFileSync(path.join(expectedHome, "config.toml"), "utf8"); }
+      catch (e) { finish(reject, new Error(`cannot read driver's isolated config: ${e.message}`)); return; }
+      // A byte compare, so ADDING an inherited scalar reddens all nine cases at once. That is intended —
+      // what the driver carries across the isolation boundary is a decision, not an implementation detail —
+      // but the message has to say what changed, or the next person sees nine failures naming nothing.
+      if (isolated !== ISOLATED_CONFIG)
+        { finish(reject, new Error(`driver isolated config drifted\n  expected: ${JSON.stringify(ISOLATED_CONFIG)}\n  got:      ${JSON.stringify(isolated)}`)); return; }
+      finish(resolve, {
+        ...captured,
+        replayEnv: { ...baseEnv, CODEX_HOME: expectedHome },
+      });
+    });
+    const bell = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch {}
+      finish(reject, new Error("driver capture timed out before thread/start"));
+    }, 10000);
+  });
+}
+
+function replaceConfig(request, key, value) {
+  const args = [...request.spawnArgs];
+  const prefix = `${key}=`;
+  const indexes = args.flatMap((arg, i) => args[i - 1] === "-c" && arg.startsWith(prefix) ? [i] : []);
+  if (indexes.length !== 1) throw new Error(`expected one ${key} in driver argv, found ${indexes.length}`);
+  args[indexes[0]] = `${key}=${value}`;
+  return { ...request, spawnArgs: args };
+}
+
+function misspellConfig(request, key, misspelling) {
+  const args = [...request.spawnArgs];
+  const prefix = `${key}=`;
+  const indexes = args.flatMap((arg, i) => args[i - 1] === "-c" && arg.startsWith(prefix) ? [i] : []);
+  if (indexes.length !== 1) throw new Error(`expected one ${key} in driver argv, found ${indexes.length}`);
+  args[indexes[0]] = `${misspelling}${args[indexes[0]].slice(key.length)}`;
+  return { ...request, spawnArgs: args };
+}
+
+const WRITE_ROOTS = "sandbox_workspace_write.writable_roots";
+
+// Every request starts with a real driver capture. Three cases then alter one captured config value to
+// probe server boundary rules the driver normally pre-normalises: alias subtraction, exact deduplication,
+// and a misspelled profile field. Params, all other -c values, cwd, environment, and isolated home remain
+// exactly what the driver produced.
 const CASES = [
   { name: "read level, ordinary cwd",
     why: "the baseline: one writable root, the profile applied, /tmp excluded",
-    build: () => { const d = freshDir("read"); return { args: readCfg, params: baseParams(d) }; } },
+    build: () => ({ level: "read", cwd: freshDir("read") }) },
 
   { name: "read level, cwd IS $TMPDIR",
-    why: "the server subtracts the workspace root from writableRoots — the fixture reported it for months",
-    build: () => { const d = freshDir("readtmp"); return { args: readCfg, params: baseParams(d), env: { ...process.env, TMPDIR: d } }; } },
+    why: "the canonicalised :tmpdir root equals the driver's realpath'd cwd and must be subtracted",
+    build: () => { const d = freshDir("readtmp"); return { level: "read", cwd: d, env: { ...process.env, TMPDIR: d } }; } },
 
   { name: "write level, no extra roots",
     why: "writableRoots is empty and the cwd appears only under runtimeWorkspaceRoots",
-    build: () => { const d = freshDir("write"); return { args: writeCfg([], false), params: baseParams(d, { sandbox: "workspace-write" }) }; } },
+    build: () => ({ level: "write", cwd: freshDir("write") }) },
 
   { name: "write level, one extra root",
     why: "the extra root is reported, the cwd still is not",
-    build: () => { const d = freshDir("wr1"); const e = freshDir("wr1x"); return { args: writeCfg([e], false), params: baseParams(d, { sandbox: "workspace-write" }) }; } },
+    build: () => ({ level: "write", cwd: freshDir("wr1"), writable: [freshDir("wr1x")] }) },
 
   { name: "write level, the cwd named as a writable root",
-    why: "the exact request that failed live with exit 4 while all 77 cases stayed green",
-    build: () => { const d = freshDir("wrself"); return { args: writeCfg([d], false), params: baseParams(d, { sandbox: "workspace-write" }) }; } },
+    why: "write roots are compared to cwd by spelling, so a symlink spelling of cwd is not subtracted",
+    build: () => {
+      const d = freshDir("wrself"), aliasDir = freshDir("wrself-alias"), alias = path.join(aliasDir, "cwd-link");
+      fs.symlinkSync(d, alias, "dir");
+      return { level: "write", cwd: d, writable: [alias],
+        mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([alias])) };
+    } },
+
+  // The base rule the alias case above refines, and it went uncovered when that case was rewritten to use
+  // a symlink: the driver filters the cwd out of its own roots, so nothing reaches this branch of the
+  // server unless the request is mutated to put it back. Measured while it was missing — deleting the
+  // fixture's cwd subtraction left all three suites green.
+  { name: "write level, the cwd's own spelling sent as a writable root",
+    why: "the server subtracts the cwd from writableRoots when the spellings match exactly",
+    build: () => {
+      const d = freshDir("wrcwd");
+      return { level: "write", cwd: d, mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([canon(d)])) };
+    } },
 
   { name: "write level, a root named twice",
-    why: "the server dedupes; a driver that does not compares two entries against one",
-    build: () => { const d = freshDir("wrdup"); const e = freshDir("wrdupx"); return { args: writeCfg([e, e], false), params: baseParams(d, { sandbox: "workspace-write" }) }; } },
+    why: "write-root deduplication is by exact spelling, not canonical identity",
+    build: () => {
+      const d = freshDir("wrdup"), e = freshDir("wrdupx"), aliasDir = freshDir("wrdup-alias"), alias = path.join(aliasDir, "root-link");
+      fs.symlinkSync(e, alias, "dir");
+      return { level: "write", cwd: d, writable: [e, alias],
+        mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([canon(e), alias])) };
+    } },
 
   { name: "write level, network requested",
     why: "networkAccess must follow the flag and nothing else",
-    build: () => { const d = freshDir("wrnet"); return { args: writeCfg([], true), params: baseParams(d, { sandbox: "workspace-write" }) }; } },
+    build: () => ({ level: "write", cwd: freshDir("wrnet"), network: true }) },
 
   { name: "read level, the filesystem grant misspelled",
     why: "a typo inside the profile silently drops the grant while the id still reads back correctly",
-    build: () => { const d = freshDir("typo"); return {
-      args: ["-c", "web_search=disabled", "-c", `permissions.${READ_PROFILE}.extends=":read-only"`,
-             "-c", `permissions.${READ_PROFILE}.filesysten={":tmpdir"="write"}`,
-             "-c", `default_permissions="${READ_PROFILE}"`],
-      params: baseParams(d) }; } },
+    build: () => ({ level: "read", cwd: freshDir("typo"),
+      mutate: (r) => misspellConfig(r, `permissions.${READ_PROFILE}.filesystem`, `permissions.${READ_PROFILE}.filesysten`) }) },
 ];
 
-let failed = 0, skipped = 0;
-for (const c of CASES) {
-  const { args, params, env } = c.build();
-  const live = await handshake("codex", ["--strict-config", ...args], params, { env: liveEnv(env) });
-  if (live.unavailable) {
-    skipped++;
-    console.log(`SKIP  ${c.name}\n      codex binary absent (spawn ENOENT): ${live.unavailable.slice(0, 120)}`);
-    continue;
-  }
-  if (live.failure) {
+async function main() {
+  let failed = 0, skipped = 0;
+  for (const c of CASES) {
+    let request, spec;
+    try {
+      spec = c.build();
+      request = await captureDriver(spec);
+      if (spec.mutate) request = spec.mutate(request);
+    } catch (e) {
+      failed++;
+      console.log(`FAIL  ${c.name}\n      could not derive the request from scripts/driver.mjs: ${e.message.slice(0, 240)}`);
+      continue;
+    }
+
+    const live = await handshake("codex", request.spawnArgs, request, { env: request.replayEnv });
+    if (live.unavailable) {
+      skipped++;
+      console.log(`SKIP  ${c.name}\n      codex binary absent (spawn ENOENT): ${live.unavailable.slice(0, 120)}`);
+      continue;
+    }
+    if (live.failure) {
+      failed++;
+      console.log(`FAIL  ${c.name}\n      protocol drift (live ${live.failure.kind}; not a missing binary): ${live.failure.detail.slice(0, 160)}`);
+      continue;
+    }
+    const fake = await handshake(process.execPath, [FAKE, ...request.spawnArgs], request, {
+      env: { ...request.replayEnv, FAKE_SCENARIO: "happy" },
+    });
+    if (fake.unavailable || fake.failure) {
+      failed++;
+      const why = fake.failure ? `${fake.failure.kind}: ${fake.failure.detail}` : `binary absent: ${fake.unavailable}`;
+      console.log(`FAIL  ${c.name}\n      the fixture did not answer: ${why.slice(0, 160)}`);
+      continue;
+    }
+
+    const L = shapeOf(live.result), F = shapeOf(fake.result);
+    const diffs = new Set(Object.keys(L).filter((k) => JSON.stringify(L[k]) !== JSON.stringify(F[k])));
+    // Required on the live response and operationally load-bearing. If both sides ever omit it together,
+    // equality alone is not enough: that shared mistake must still make the suite red.
+    if (L.threadId !== "<non-empty string>" || F.threadId !== "<non-empty string>") diffs.add("threadId");
+    if (!diffs.size) { console.log(`ok    ${c.name}`); continue; }
     failed++;
-    console.log(`FAIL  ${c.name}\n      protocol drift (live ${live.failure.kind}; not a missing binary): ${live.failure.detail.slice(0, 160)}`);
-    continue;
-  }
-  const fake = await handshake(process.execPath, [FAKE, ...args], params, { env: { ...(env ?? process.env), FAKE_SCENARIO: "happy" } });
-  if (fake.unavailable || fake.failure) {
-    failed++;
-    const why = fake.failure ? `${fake.failure.kind}: ${fake.failure.detail}` : `binary absent: ${fake.unavailable}`;
-    console.log(`FAIL  ${c.name}\n      the fixture did not answer: ${why.slice(0, 160)}`);
-    continue;
+    console.log(`FAIL  ${c.name}\n      ${c.why}`);
+    for (const k of diffs) console.log(`      ${k}: live=${JSON.stringify(L[k])}  fixture=${JSON.stringify(F[k])}`);
   }
 
-  const L = shapeOf(live.result), F = shapeOf(fake.result);
-  const diffs = Object.keys(L).filter((k) => JSON.stringify(L[k]) !== JSON.stringify(F[k]));
-  if (!diffs.length) { console.log(`ok    ${c.name}`); continue; }
-  failed++;
-  console.log(`FAIL  ${c.name}\n      ${c.why}`);
-  for (const k of diffs) console.log(`      ${k}: live=${JSON.stringify(L[k])}  fixture=${JSON.stringify(F[k])}`);
+  const ran = CASES.length - skipped;
+  console.log(!ran ? `\n${skipped} skipped (codex binary absent); no live comparisons ran`
+    : skipped ? `\n${skipped} skipped (codex binary absent), ${failed ? `${failed}/${ran} failed or diverged` : `all ${ran} cases that ran agree`}`
+    : failed ? `\n${failed}/${CASES.length} failed or diverged` : `\nall ${CASES.length} agree`);
+  // An ENOENT skip is not a pass, but it is not a defect either: exit 0 so CI without codex stays usable.
+  // Every case that reached a process must agree for the suite to exit 0.
+  return failed ? 1 : 0;
 }
 
-for (const d of workDirs) fs.rmSync(d, { recursive: true, force: true });
-const ran = CASES.length - skipped;
-console.log(!ran ? `\n${skipped} skipped (codex binary absent); no live comparisons ran`
-  : skipped ? `\n${skipped} skipped (codex binary absent), ${failed ? `${failed}/${ran} failed or diverged` : `all ${ran} cases that ran agree`}`
-  : failed ? `\n${failed}/${CASES.length} failed or diverged` : `\nall ${CASES.length} agree`);
-// An ENOENT skip is not a pass, but it is not a defect either: exit 0 so CI without codex stays usable.
-// Every case that reached a process must agree for the suite to exit 0.
-process.exit(failed ? 1 : 0);
+let exitCode = 1;
+try { exitCode = await main(); }
+finally { cleanup(); }
+process.exitCode = exitCode;

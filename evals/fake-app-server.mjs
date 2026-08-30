@@ -165,7 +165,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       // Who may approve is a separate axis from what the sandbox permits: under "auto_review" the server
       // decides approvals itself and this driver never sees an escalation, while the sandbox object stays
       // byte-identical. Echoed, so a driver that stops pinning it is visible.
-      approvalsReviewer: SCENARIO === "reviewer-auto" ? "auto_review" : (m.params?.approvalsReviewer ?? "user"),
+      // `?? "user"` defeated the sentence above: it is exactly what the driver sends, so a driver that
+      // stopped sending the field got it back anyway and the assert passed. Line 164 already avoids this by
+      // defaulting to a value the driver never sends; null does the same while claiming nothing about what
+      // the real server would choose, which is not measured.
+      approvalsReviewer: SCENARIO === "reviewer-auto" ? "auto_review" : (m.params?.approvalsReviewer ?? null),
       activePermissionProfile: profile,
       sandbox: sb
     }));
