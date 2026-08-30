@@ -7,6 +7,36 @@ git worktree.
 `SKILL.md` is the operating manual the agent reads mid-task. This file is the rationale: why this exists
 at all, what it replaces, and what would make it unnecessary.
 
+## Goals
+
+Three, in the author's framing. Everything here is meant to be judged against them, and a change that
+serves none of them is out of scope.
+
+**1. Trust the delegation.** The failure this exists to rule out is not a wrong answer — it is a seat that
+did nothing and reported as though it had. So every run leaves a receipt no intermediary can forge, the
+rollout at `~/.codex/sessions/…/rollout-*-<threadId>.jsonl`, carrying the originator, the model provider
+and the whole turn. The exit code is derived from the event stream rather than from a process status that
+is always 0, and `--verify` runs a check the model cannot author.
+
+**2. Determinism — the call succeeds, without surprises.** The same invocation should do the same thing,
+and when it refuses it should say so in terms the caller can act on. Hence a private `CODEX_HOME` per
+turn: measured over 157 delegations on the development machine, 95 spent their FIRST tool call reading the
+caller's plugin cache instead of the task, and one ended having only announced that it had to run a
+plugin's workflow first. Hence also a parameter the server rejects exiting 2 with the server's own
+message rather than 1 with a JSON blob — "fix your flag" and "the turn died" are different instructions.
+
+**3. Full parity with your own subagents.** Delegating must not cost the coordinator capability. What a
+Claude subagent can do, a Codex seat should do too — and where it cannot, the difference is stated and
+configurable rather than discovered mid-task. That spans rights (a read level that still runs tests, a
+write level that owns a worktree, `--commit`), reach (`--web-search`), the shape of what comes back
+(`--answer-json`, `--brief`, and the full answer always written to disk so a summary costs nothing), and
+the honest price of isolation: an isolated seat has no MCP tools, and `--host-home` trades determinism
+back for the caller's own environment. `SKILL.md` carries the parity table, measured rather than assumed.
+
+A fourth thing is a rule rather than a goal. Whenever a run ends up with a Codex seat, the composition is
+announced before the seats run, never in the write-up — a panel that silently shares one model's bias
+looks identical to a decorrelated one in the output.
+
 ## Install
 
 Claude Code loads skills from `~/.claude/skills/<name>/`. Symlink this repository there, so the checkout

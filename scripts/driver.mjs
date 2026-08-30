@@ -42,6 +42,10 @@ const EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "m
 // default: a search makes the turn depend on what the index says today, and most delegations here are
 // about this repository, not about the world.
 const WEB_SEARCH = new Set(["cached", "indexed", "live"]);
+// --brief is about the coordinator's context, not the seat's thoroughness: the full answer is always
+// written to disk, so capping what comes back inline costs nothing but a second read when it matters.
+const BRIEF_LINES = 20;
+const BRIEF_BYTES = 4000;
 const MAX_PROMPT_BYTES = 512 * 1024;
 // --timeout is the caller's whole budget, so anything the driver spends after the turn — the verifier —
 // has to come out of what is left of it rather than out of a private allowance.
@@ -81,6 +85,11 @@ Turn
                      index says today
   --answer-json      demand one bare JSON object as the answer; the report then
                      carries answerJson and answerJsonError
+  --brief            ask for a summary, not a working note, and cap what comes
+                     back inline — parity with a subagent whose detail stays in
+                     a transcript. The full answer is always written to
+                     ~/.codex-delegate/answers/<threadId>.md and its path is in
+                     the report as answerPath, with or without this flag.
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
   --timeout SECONDS  default 900, at most 7200
@@ -136,6 +145,7 @@ function parseArgs(argv) {
       case "--network": o.network = true; break;
       case "--web-search": o.webSearch = need(++i, a); break;
       case "--answer-json": o.answerJson = true; break;
+      case "--brief": o.brief = true; break;
       case "--host-home": o.hostHome = true; break;
       case "--json": o.json = true; break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
@@ -858,6 +868,30 @@ function parseAnswerJson(text) {
 // streamed so far is still in memory, and a run that did four useful greps before the clock ran out
 // should hand those back rather than throw them away.
 // codexErrorInfo is either a bare string or a one-key tagged object; reading .type gives "unknown".
+// Written beside nothing in particular, on purpose: the rollout under ~/.codex/sessions is the server's
+// record of the turn, and this is the driver's record of what it handed back. Failing to write one is not
+// worth failing a finished turn over, so a write error costs the path and nothing else.
+function persistAnswer(text) {
+  if (!text) return null;
+  const dir = path.join(passwdHome("the answer log"), ".codex-delegate", "answers");
+  const name = `${rootThreadId ?? `no-thread-${process.pid}`}.md`;
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
+    return path.join(dir, name);
+  } catch { return null; }
+}
+
+// Cuts on a line boundary and says where the rest is, because an answer that stops mid-sentence with no
+// forwarding address is worse than a long one.
+function clip(text, maxLines, maxBytes, where) {
+  const lines = text.split("\n");
+  let out = lines.length > maxLines ? lines.slice(0, maxLines).join("\n") : text;
+  if (out.length > maxBytes) out = `${out.slice(0, maxBytes)}…`;
+  if (out === text) return text;
+  return `${out}\n\n[clipped: ${lines.length} lines, ${text.length} bytes${where ? ` — full answer at ${where}` : ""}]`;
+}
+
 // The server nests the upstream API error as a JSON STRING inside turnError.message, so the useful part —
 // which parameter, and what it would have accepted — is invisible to a caller reading errKind alone.
 function invalidRequest(e) {
@@ -915,7 +949,11 @@ function finish(reason) {
   const nonBlank = messages.filter((m) => String(m.text).trim());
   const phased = nonBlank.filter((m) => m.phase === "final_answer");
   const final = phased.at(-1) ?? (nonBlank.every((m) => m.phase == null) ? nonBlank.at(-1) ?? null : null);
-  const answer = final?.text ?? "";
+  const fullAnswer = final?.text ?? "";
+  const answerPath = persistAnswer(fullAnswer);
+  // Capped only when asked. A caller who did not ask for --brief gets exactly what the model said, because
+  // silently truncating an answer is how a coordinator ends up acting on half a sentence.
+  const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
   const commentaryOnly = !final && messages.length > 0;
 
   // --verify runs on its OWN schedule, not as a reward for having passed the weaker gates. It used to be
@@ -1021,7 +1059,11 @@ function finish(reason) {
     // null only when no --expect-command was given, so a caller can tell "not asked" from "asked and missed".
     expectationOk: opts.expectRe ? expected.length > 0 : null,
     verify: verifyResult, verifySkipped,
-    answerPhase: final?.phase ?? null, commentaryOnly, answer,
+    answerPhase: final?.phase ?? null, commentaryOnly,
+    // Always on disk, so `answer` can be capped without losing anything: the coordinator reads the head and
+    // opens the file only when the head is not enough. This is the shape a Claude subagent already has —
+    // a short return plus a transcript — and the seat had no equivalent.
+    answer, answerPath, answerTruncated: answer !== fullAnswer,
     // Only present when --answer-json asked for it, so a caller can tell "did not ask" from "asked and the
     // model answered in prose anyway". Absent rather than null in the ordinary case, because a null here
     // would read as a failed parse.
@@ -1197,6 +1239,13 @@ async function main() {
     // the model reaches for a fenced block, and a fence is not JSON.
     ...(opts.answerJson
       ? ["Your final answer must be ONE JSON object and nothing else: no prose before or after, no markdown code fence."]
+      : []),
+    // Parity with a Claude subagent, whose final text is a summary while the detail stays in a transcript
+    // the coordinator opens only if it needs to. Without this a Codex seat hands back its whole working
+    // note — one returned 13 KB of prose straight into the coordinator's context.
+    ...(opts.brief
+      ? [`Answer in at most ${BRIEF_LINES} lines: the conclusion, then only what changes what the reader does next.`,
+         "Put anything longer — diffs, transcripts, tables, evidence — in a file under $TMPDIR and give its absolute path."]
       : [])
   ].join(" ");
 
