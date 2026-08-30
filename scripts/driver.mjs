@@ -108,6 +108,7 @@ Isolation
 
 Report
   --json             machine-readable on stdout; otherwise a human footer
+  -h, --help         this text
 
 Exit codes, in the order they are decided
   0 ok        2 usage      4 transport   10 busy (another run holds the lock)
