@@ -250,6 +250,29 @@ const lockDir = () => path.join(passwdHome("the cwd lock"), ".codex-delegate", "
 //
 // Anchored on passwd for the same reason the lock is: $HOME is attacker- and accident-mutable, and two
 // runs under two HOME values would silently use two different homes.
+// Isolating the ENVIRONMENT must not isolate the ACCOUNT. `--effort` and `--model` are documented as
+// inheriting ~/.codex/config.toml when omitted, and an isolated home has no config.toml at all — so the
+// first cut of this silently answered a caller who had asked for `max` at the model's own default, which
+// is the exact silent downgrade the comment above EFFORTS exists to prevent. Measured before the fix:
+// reasoningEffort came back `max` on the host home and `null` isolated, for the same command.
+//
+// Only these four, and only as top-level scalars: they choose which model answers and how it is spoken to.
+// Everything that pulls in outside behaviour — plugins, skills, mcp_servers, projects — is what isolation
+// is for and stays behind.
+const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
+function inheritedConfig() {
+  let text;
+  try { text = fs.readFileSync(path.join(passwdHome("the inherited Codex settings"), ".codex", "config.toml"), "utf8"); }
+  catch { return []; }          // no config of their own to inherit; the account's defaults decide
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (/^\s*\[/.test(line)) break;   // a table header: everything past it belongs to something we isolate
+    const m = line.match(/^\s*([a-z_]+)\s*=\s*("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/);
+    if (m && INHERITED.includes(m[1])) out.push([m[1], m[2]]);
+  }
+  return out;
+}
+
 function isolatedHome() {
   const base = passwdHome("the isolated Codex home");
   const home = path.join(base, ".codex-delegate", "home");
@@ -270,6 +293,20 @@ function isolatedHome() {
       if (current !== null) fs.unlinkSync(link);
       fs.symlinkSync(target, link);
     } catch (e) { fail(EXIT.USAGE, `cannot link ${link} -> ${target}: ${e.message}`); }
+  }
+  // Written into the home rather than sent as -c on purpose. The driver's contract is that omitting
+  // --effort sends NO override so the config decides, and two protocol cases pin exactly that; carrying the
+  // value as an override would have satisfied the caller and broken the contract. Here the server reads it
+  // the same way it reads the caller's own file, and the -c payload is untouched.
+  // Rewritten every run, which also keeps the server's trusted-project appends from accumulating.
+  const cfg = path.join(home, "config.toml");
+  const tmp = `${cfg}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, inheritedConfig().map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600 });
+    fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch {}
+    fail(EXIT.USAGE, `cannot write the isolated config ${cfg}: ${e.message}`);
   }
   return home;
 }
