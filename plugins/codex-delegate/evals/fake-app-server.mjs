@@ -1,0 +1,331 @@
+#!/usr/bin/env node
+// A scripted stand-in for `codex app-server`, used by protocol.test.mjs.
+//
+// It speaks just enough of the protocol to drive scripts/driver.mjs through the paths that a live server
+// makes hard to reach on demand: events attributed to the wrong turn, a completion that overtakes the
+// response it depends on, a command that ran and failed, a server request nobody can answer.
+//
+// The scenario name arrives in FAKE_SCENARIO. Each scenario is a function of the request it is replying
+// to, returning the raw lines to emit — deliberately as ONE write where the point is that the client
+// cannot rely on chunk boundaries.
+
+import fs from "node:fs";
+import os from "node:os";
+const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? ""; } };
+import readline from "node:readline";
+
+const SCENARIO = process.env.FAKE_SCENARIO ?? "happy";
+// The driver passes its config as `-c key=value` spawn args, so the fixture can report back what it was
+// actually told — which is the only way to test that a flag the driver DID NOT send stayed unsent.
+const CFG = Object.fromEntries(process.argv.slice(2)
+  .filter((a, i, all) => all[i - 1] === "-c" && a.includes("="))
+  .map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
+// Must match READ_PROFILE in scripts/driver.mjs. The driver refuses to run when the server reports any
+// other profile, so a fixture that names a different one silently turns every case into a transport error.
+const READ_PROFILE = "codex_delegate_read";
+const THREAD = "thr_root";
+const TURN = "turn_root";
+const OTHER_TURN = "turn_stale";
+const OTHER_THREAD = "thr_sub";
+
+const w = (...objs) => process.stdout.write(objs.map((o) => JSON.stringify(o)).join("\n") + "\n");
+const reply = (id, result) => ({ jsonrpc: "2.0", id, result });
+const note = (method, params) => ({ jsonrpc: "2.0", method, params });
+
+// Every message below carries the fields the pinned schema marks required. A fixture that omits them, or
+// invents one the server does not send, makes the suite pass while production fails — that has happened
+// here once already, with a top-level turnId on TurnCompletedNotification.
+let seq = 0;
+const now = () => 1780000000000 + (seq += 1);
+const thread = (id) => ({
+  id, sessionId: id, cliVersion: "0.150.1", createdAt: 1780000000, updatedAt: 1780000000,
+  cwd: "/tmp", ephemeral: false, modelProvider: "openai", preview: "", projectId: null,
+  source: "vscode", status: { type: SCENARIO === "resume-active" ? "active" : "idle" }, turns: []
+});
+
+const cmd = (turnId, threadId, { exitCode = 0, status = "completed", command = "echo hi" } = {}) =>
+  note("item/completed", {
+    threadId, turnId, completedAtMs: now(),
+    item: { id: `item_${seq}`, type: "commandExecution", command, exitCode, status,
+            cwd: "/tmp", commandActions: [], aggregatedOutput: "", processId: null, durationMs: 1 }
+  });
+
+const msg = (turnId, threadId, text, phase = "final_answer") =>
+  note("item/completed", { threadId, turnId, completedAtMs: now(),
+    item: { id: `item_${seq}`, type: "agentMessage", text, phase } });
+
+// Matches TurnCompletedNotification exactly: threadId and turn, and NO top-level turnId. A fixture that
+// invents a field the server does not send makes the driver pass here and fail in production.
+const done = (turnId, threadId, status = "completed", error = null) =>
+  note("turn/completed", { threadId, turn: { id: turnId, status, error, items: [] } });
+
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  let m;
+  try { m = JSON.parse(line); } catch { return; }
+  if (!m.method) return;
+
+  if (m.method === "initialize") { w(reply(m.id, { userAgent: "fake", codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" })); return; }
+  if (m.method === "initialized") return;
+
+  if (m.method === "thread/start" || m.method === "thread/resume") {
+    // EVERY field below is derived from what the driver actually SENT — its -c config (CFG) and its
+    // thread/start params — never from a literal. A literal here is a fixture that agrees with itself: it
+    // let the driver stop sending the read-level permission config, or stop pinning approvalsReviewer,
+    // with every case still green. Where a scenario needs a specific server behaviour it overrides the
+    // derived value explicitly, so the override is visible rather than being the default.
+    const writeLevel = m.params?.sandbox !== undefined;
+    const tmp = process.env.TMPDIR ?? os.tmpdir();
+
+    // The profile applies only if the driver asked for one AND defined it. Sending `sandbox` suppresses
+    // it, exactly as the live server does.
+    const wantId = (CFG["default_permissions"] ?? "").replace(/^"|"$/g, "");
+    const defined = wantId && CFG[`permissions.${wantId}.extends`] !== undefined;
+    let profile = (writeLevel || !defined) ? null
+      : { id: wantId, extends: (CFG[`permissions.${wantId}.extends`] ?? "").replace(/^"|"$/g, "") };
+    if (SCENARIO === "profile-missing") profile = null;
+    if (SCENARIO === "profile-wrong") profile = { id: ":workspace", extends: null };
+
+    // The $TMPDIR grant exists only because the profile's filesystem entry asked for it — misspell that
+    // field and the live server silently drops the grant while keeping the profile id.
+    const granted = defined && CFG[`permissions.${wantId}.filesystem`] !== undefined;
+    // The cwd is subtracted at both levels: workspaceWrite implies it, and it is reported under
+    // runtimeWorkspaceRoots instead. Compared canonically, because the driver sends a realpath'd cwd
+    // (/private/var/... on macOS) while TMPDIR is usually the raw /var/... form.
+    // Measured against the live server, and it is not symmetric: the server CANONICALISES each root but
+    // echoes the cwd exactly as it was given, then subtracts by comparing the two. So a cwd sent in raw
+    // /var/... form keeps a root that the same directory sent as /private/var/... loses. The driver always
+    // sends a realpath'd cwd, so the subtraction is what happens in practice — but a fixture that
+    // canonicalises both sides diverges here, and this suite exists to catch exactly that.
+    // Two sources, two rules — measured, not assumed, and they are NOT the same:
+    //   read  : the `:tmpdir` root is CANONICALISED, then compared against the cwd exactly as given.
+    //   write : `writable_roots` are echoed VERBATIM, and subtraction is a plain string comparison of the
+    //           root as given against the cwd as given.
+    // The driver realpaths everything before sending, so in practice both reduce to "the cwd is dropped".
+    // A fixture that canonicalised both sides agreed with the server only by accident.
+    const readRoots = (!granted || canon(tmp) === m.params?.cwd) ? [] : [canon(tmp)];
+    const writeRoots = [...new Set(JSON.parse(CFG["sandbox_workspace_write.writable_roots"] ?? "[]"))]
+      .filter((r) => r !== m.params?.cwd);
+
+    let sb = writeLevel
+      ? { type: "workspaceWrite", writableRoots: writeRoots,
+          networkAccess: CFG["sandbox_workspace_write.network_access"] === "true",
+          excludeTmpdirEnvVar: false, excludeSlashTmp: false }
+      : granted
+        ? { type: "workspaceWrite", writableRoots: readRoots,
+            networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: true }
+        // No filesystem grant means a plain read-only sandbox with no roots at all.
+        : { type: "readOnly", networkAccess: false };
+    // Deliberate server misbehaviours, each overriding the derived value so the override is obvious.
+    if (SCENARIO === "profile-effect-dropped") sb = { type: "readOnly", networkAccess: false };
+    if (SCENARIO === "profile-widened") sb = { ...sb, writableRoots: [...(sb.writableRoots ?? []), process.cwd()] };
+    if (SCENARIO === "profile-networked" || SCENARIO === "write-networked") sb = { ...sb, networkAccess: true };
+    // A workspace that does not contain the cwd: nothing in the sandbox object reveals this.
+    // The workspace roots are the cwd AS GIVEN plus every extra writable root — measured; a fixture that
+    // reported the cwd alone hid whether the driver's extra roots reached the server at all.
+    const workspace = SCENARIO === "workspace-elsewhere"
+      ? ["/tmp/somewhere-else"]
+      // The cwd as given, then the extra roots as given, deduped by exact string — the server does no
+      // canonicalisation here either.
+      : [...new Set([m.params?.cwd ?? "/tmp", ...(writeLevel ? writeRoots : [])])];
+
+    w(reply(m.id, {
+      thread: thread(THREAD),
+      // Echoed, so a driver that starts hardcoding a model is visible.
+      model: m.params?.model ?? (CFG["model"] ?? "fake-model").replace(/^"|"$/g, ""),
+      modelProvider: "openai", cwd: m.params?.cwd ?? "/tmp",
+      // null when the driver sent no -c override, exactly as the live server reports an inherited value.
+      reasoningEffort: CFG["model_reasoning_effort"] ?? null,
+      runtimeWorkspaceRoots: workspace,
+      // Echoed: SKILL.md publishes on-request as a contract, and nothing was checking it.
+      // Clamping is what an MDM profile actually does to a policy it does not permit — the failure this
+      // whole driver exists to route around, and it is invisible in every other field.
+      approvalPolicy: SCENARIO === "policy-clamped" ? "untrusted" : (m.params?.approvalPolicy ?? "never"),
+      // Who may approve is a separate axis from what the sandbox permits: under "auto_review" the server
+      // decides approvals itself and this driver never sees an escalation, while the sandbox object stays
+      // byte-identical. Echoed, so a driver that stops pinning it is visible.
+      approvalsReviewer: SCENARIO === "reviewer-auto" ? "auto_review" : (m.params?.approvalsReviewer ?? "user"),
+      activePermissionProfile: profile,
+      sandbox: sb
+    }));
+    return;
+  }
+
+  if (m.method === "turn/start") {
+    const R = reply(m.id, { turn: { id: TURN, status: "inProgress", items: [], error: null } });
+    switch (SCENARIO) {
+      // Everything the driver should accept.
+      case "happy":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
+      // A command from an EARLIER turn on our own thread, plus that turn's answer. Nothing belonging to
+      // the current turn ever runs. Thread-only filtering accepts this and reports success.
+      case "stale-turn":
+        w(R, cmd(OTHER_TURN, THREAD), msg(OTHER_TURN, THREAD, "answer from an old turn"), done(TURN, THREAD));
+        break;
+
+      // The completion overtakes the response that establishes the turn id — same write, so the client
+      // sees them in one synchronous burst.
+      case "early-completion":
+        w(done(TURN, THREAD), cmd(TURN, THREAD), msg(TURN, THREAD, "raced answer"), R);
+        break;
+
+      // A subagent on another thread does the work and finishes.
+      case "foreign-thread":
+        w(R, cmd(TURN, OTHER_THREAD), msg(TURN, OTHER_THREAD, "subagent answer"), done(TURN, THREAD));
+        break;
+
+      // The only command ran and failed. `false` exits 1.
+      case "command-failed":
+        w(R, cmd(TURN, THREAD, { exitCode: 1, status: "failed", command: "false" }),
+          msg(TURN, THREAD, "claiming success anyway"), done(TURN, THREAD));
+        break;
+
+      // A request no unattended client can satisfy.
+      case "needs-user":
+        w(R, { jsonrpc: "2.0", id: 9003, method: "item/tool/requestUserInput", params: { threadId: THREAD, turnId: TURN, itemId: "item_q", isBlocking: true, questions: [{ id: "q1", prompt: "which?" }] } });
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "carried on regardless"), done(TURN, THREAD)), 30);
+        break;
+
+      // An MCP form. Declining is right; calling it a sandbox problem is not.
+      case "elicitation":
+        w(R, { jsonrpc: "2.0", id: 9001, method: "mcpServer/elicitation/request", params: { threadId: THREAD, turnId: TURN, serverName: "fake", mode: "form", message: "fill this in", requestedSchema: { type: "object", properties: {} } } });
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "carried on"), done(TURN, THREAD)), 30);
+        break;
+
+      // An approval refused, and consequently nothing ran.
+      case "escalated":
+        w(R, { jsonrpc: "2.0", id: 9002, method: "item/commandExecution/requestApproval",
+               params: { threadId: THREAD, turnId: TURN, itemId: "item_a", startedAtMs: now(), command: "rm -rf /" } });
+        setTimeout(() => w(msg(TURN, THREAD, "could not proceed"), done(TURN, THREAD)), 30);
+        break;
+
+      case "turn-failed":
+        w(R, cmd(TURN, THREAD), done(TURN, THREAD, "failed", { codexErrorInfo: "usageLimitExceeded", message: "quota" }));
+        break;
+
+      // A successful command that is not the one the caller demanded.
+      case "wrong-command":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,10p ~/.codex/skills/x/SKILL.md" }),
+          msg(TURN, THREAD, "read my own docs"), done(TURN, THREAD));
+        break;
+
+      // Commentary only: no final answer at all.
+      case "no-answer":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "thinking out loud", "commentary"), done(TURN, THREAD));
+        break;
+
+      // An item that arrives AFTER the turn has completed. finish() has already settled, so it must not
+      // be able to retroactively supply the evidence the turn lacked.
+      case "late-item":
+        w(R, done(TURN, THREAD));
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "arrived too late")), 40);
+        break;
+
+      // Two completions for the same turn. The second must not re-open or re-report anything.
+      case "double-completion":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD), done(TURN, THREAD, "failed"));
+        break;
+
+      // A completion for OUR turn id but delivered on a foreign thread.
+      case "completion-foreign-thread":
+        w(R, done(TURN, OTHER_THREAD));
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "real work"), done(TURN, THREAD)), 40);
+        break;
+
+      // turn/start fails outright. There is no turn, so there can be no success.
+      case "turn-start-error":
+        w({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "no capacity" } });
+        break;
+
+      // A response carrying an id nobody sent, then the real one.
+      case "unknown-response-id":
+        w({ jsonrpc: "2.0", id: 4242, result: { thread: { id: "bogus" }, turn: { id: "bogus" } } },
+          R, cmd(TURN, THREAD), msg(TURN, THREAD, "fine"), done(TURN, THREAD));
+        break;
+
+      // A blocking request that arrives BEFORE the turn/start response, so no root turn id exists yet.
+      case "early-request":
+        w({ jsonrpc: "2.0", id: 9101, method: "item/tool/requestUserInput",
+            params: { threadId: THREAD, turnId: TURN, itemId: "item_q", isBlocking: true, questions: [] } },
+          R, cmd(TURN, THREAD), msg(TURN, THREAD, "carried on"), done(TURN, THREAD));
+        break;
+
+      // MCP elicitation with a null turnId, which the schema allows.
+      case "mcp-null-turn":
+        w(R, { jsonrpc: "2.0", id: 9102, method: "mcpServer/elicitation/request",
+               params: { threadId: THREAD, turnId: null, serverName: "fake", mode: "form", message: "?", requestedSchema: { type: "object" } } });
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "carried on"), done(TURN, THREAD)), 30);
+        break;
+
+      // A request carrying no thread or turn at all.
+      case "no-ids-request":
+        w(R, { jsonrpc: "2.0", id: 9103, method: "attestation/generate", params: {} });
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "carried on"), done(TURN, THREAD)), 30);
+        break;
+
+      // A final answer made only of whitespace.
+      case "blank-answer":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "   \n  "), done(TURN, THREAD));
+        break;
+
+      // A command that FAILED while carrying no numeric exit code — the schema allows exitCode null with
+      // status "failed", and keying the failure set on the code alone let this exit 0 under an answer
+      // claiming the suite passed, while the footer printed "NEVER RAN pnpm test".
+      case "failed-null-exit":
+        w(R, cmd(TURN, THREAD, { command: "cat README.md" }),
+          cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: null, status: "failed" }),
+          msg(TURN, THREAD, "All tests pass."), done(TURN, THREAD));
+        break;
+
+      // An approval refused on a SUBAGENT's thread. The refusal is sent regardless of whose thread asked,
+      // so that subagent really was blocked; recording it only for the root thread reported a clean run.
+      case "escalated-subagent":
+        w(R, { jsonrpc: "2.0", id: 9201, method: "item/commandExecution/requestApproval",
+               params: { threadId: OTHER_THREAD, turnId: TURN, itemId: "item_s", startedAtMs: now(), command: "rm -rf /" } });
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "done"), done(TURN, THREAD)), 30);
+        break;
+
+      // A turn that WROTE files: one applied, one that failed to apply. Neither reached the report or the
+      // exit ladder before — a write-level run said nothing about what it had written.
+      case "file-changes":
+        w(R, cmd(TURN, THREAD),
+          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: "item_f1", type: "fileChange", status: "completed",
+                    changes: [{ path: "/tmp/wrote.txt", kind: { type: "add" }, diff: "+hello" }] } }),
+          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: "item_f2", type: "fileChange", status: "failed",
+                    changes: [{ path: "/tmp/nope.txt", kind: { type: "update", move_path: null }, diff: "+x" }] } }),
+          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: "item_f3", type: "fileChange", status: "completed",
+                    changes: [{ path: "/tmp/old.txt", kind: { type: "update", move_path: "/tmp/new.txt" }, diff: "rename" }] } }),
+          msg(TURN, THREAD, "Wrote both files."), done(TURN, THREAD));
+        break;
+
+      // A skill-file read succeeds, the real command fails, and the answer claims it passed. The report
+      // must show the failure; the old one filtered it out of both lists.
+      case "hidden-failure":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,10p SKILL.md" }),
+          cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: 1, status: "failed" }),
+          msg(TURN, THREAD, "I ran the suite and everything passes."), done(TURN, THREAD));
+        break;
+
+      // A turn slow enough that holding the lock dominates the process's lifetime. The lock suite needs
+      // this: with a fast turn, several runs acquire and release in SEQUENCE and all exit 0, which is
+      // correct behaviour and indistinguishable — by exit code alone — from the concurrency bug.
+      case "slow-turn":
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "slow but fine"), done(TURN, THREAD)), 1200);
+        w(R);
+        break;
+
+      // An answer with no phase at all, which the schema permits.
+      case "null-phase":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "unphased but real", null), done(TURN, THREAD));
+        break;
+
+      default:
+        w(R, done(TURN, THREAD));
+    }
+    return;
+  }
+});
