@@ -53,6 +53,47 @@ class Bail extends Error {}
 
 // ---------------------------------------------------------------- arguments
 
+const USAGE = `codex-delegate — run one Codex turn with rights declared per call.
+
+  node driver.mjs --level read|write --cwd DIR [options] --prompt TEXT
+  node driver.mjs --level read --cwd DIR < task.txt
+
+Rights
+  --level read       read anything, write only $TMPDIR; no lock is taken, so read
+                     seats run in parallel over one directory
+  --level write      workspace-write over --cwd; takes a per-directory lock
+  --writable DIR     grant one more root (write level only, repeatable)
+  --network          allow egress (write level only)
+  --commit           also grant the git common dir, for a turn that commits
+
+Turn
+  --prompt TEXT      the task; omit to read it from stdin
+  --model NAME       omit to use whatever config.toml chose
+  --effort ${[...EFFORTS].join("|")}
+  --timeout SECONDS  default 900, at most 7200
+  --resume THREAD    continue a thread; --ephemeral leaves no thread behind
+
+Gate — what counts as the turn having done the work
+  --expect-command RE   a command matching RE must have run
+  --verify CMD          run CMD after the turn; its exit code decides
+  --allow-no-commands   accept a turn that ran nothing
+
+Isolation
+  by default the turn runs against a private CODEX_HOME, so the caller's own
+  plugins, skills and memories cannot steer it and it writes no trust records
+  back; auth.json and sessions stay linked to the real home
+  --host-home        use the caller's ~/.codex instead, plugins and all
+
+Report
+  --json             machine-readable on stdout; otherwise a human footer
+
+Exit codes, in the order they are decided
+  0 ok        2 usage      4 transport   10 busy (another run holds the lock)
+  3 timeout   1 turn not completed       7 wanted input   6 escalated
+  12 verify unmeasurable  9 verify failed   5 no commands  8 no answer
+  11 a command failed
+`;
+
 function parseArgs(argv) {
   // No effort default. Sending one unconditionally silently downgraded whatever config.toml asked for —
   // measured: a user whose config said `max` got `low` on every delegation. --model already works this
@@ -80,7 +121,10 @@ function parseArgs(argv) {
       case "--expect-command": o.expect = need(++i, a); break;
       case "--verify": o.verify = need(++i, a); break;
       case "--network": o.network = true; break;
+      case "--host-home": o.hostHome = true; break;
       case "--json": o.json = true; break;
+      // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
+      case "-h": case "--help": process.stdout.write(USAGE); process.exit(EXIT.OK); break;
       default: fail(EXIT.USAGE, `unknown argument: ${a}`);
     }
   }
@@ -174,6 +218,45 @@ function passwdHome(what) {
   catch (e) { fail(EXIT.USAGE, `cannot resolve your home directory from the passwd database, which ${what} needs (${e.code ?? e.message}); this happens for a uid with no passwd entry`); }
 }
 const lockDir = () => path.join(passwdHome("the cwd lock"), ".codex-delegate", "locks");
+
+// Codex reads its plugins, skills, memories and project-trust records out of CODEX_HOME, so delegating
+// into the caller's own home makes every turn a function of whatever they happen to have installed.
+// Measured over the 157 delegations this machine had already run: 95 of them spent their FIRST tool call
+// reading ~/.codex/plugins/cache rather than the task, 209 of 919 tool calls went there, and one turn
+// ended having done nothing but announce that it had to run a plugin's workflow first. A private home
+// removes that input entirely — and, as a side effect, stops each run appending a trusted-project record
+// to the caller's config.toml, which is how that file reached 36 KB of dead temp directories.
+//
+// Two things are linked back rather than isolated. auth.json, so a token refresh still lands in the real
+// file instead of expiring inside a cache directory. sessions, because the rollout it holds is the only
+// evidence OUTSIDE this process that the turn ran at all: a caller who cannot find the rollout cannot tell
+// a seat that did the work from a wrapper that reported success without doing any.
+//
+// Anchored on passwd for the same reason the lock is: $HOME is attacker- and accident-mutable, and two
+// runs under two HOME values would silently use two different homes.
+function isolatedHome() {
+  const base = passwdHome("the isolated Codex home");
+  const home = path.join(base, ".codex-delegate", "home");
+  try { fs.mkdirSync(home, { recursive: true, mode: 0o700 }); }
+  catch (e) { fail(EXIT.USAGE, `cannot create the isolated Codex home ${home}: ${e.message}`); }
+  for (const name of ["auth.json", "sessions"]) {
+    const link = path.join(home, name), target = path.join(base, ".codex", name);
+    if (!fs.existsSync(target)) continue;   // nothing to share yet; codex creates its own
+    let current = null;
+    try { current = fs.readlinkSync(link); } catch (e) {
+      // Anything that is not a symlink is a real file someone put there, possibly holding real state.
+      // Replacing it silently is how a token or a session archive disappears, so stop and say which.
+      if (e.code !== "ENOENT")
+        fail(EXIT.USAGE, `${link} exists but is not a symbolic link; move it aside or pass --host-home`);
+    }
+    if (current === target) continue;
+    try {
+      if (current !== null) fs.unlinkSync(link);
+      fs.symlinkSync(target, link);
+    } catch (e) { fail(EXIT.USAGE, `cannot link ${link} -> ${target}: ${e.message}`); }
+  }
+  return home;
+}
 // A retry is consumed only by reclaiming a stale lock or by the lock vanishing under us, and each needs a
 // distinct peer state transition — so the bound covers the plausible fan-out width, not a spin. Measured
 // contention (100 concurrent pairs) needed zero retries, so this is headroom, not a working budget.
@@ -414,6 +497,7 @@ function assertReadSandbox(thread) {
 // Assigned by setup(), which runs inside main()'s try — a Bail thrown at module top level would be an
 // uncaught exception and would print a stack trace instead of the intended usage error.
 let opts, cwd, sandbox, spawnArgs;
+let codexHome = null;   // null means the caller's own ~/.codex, which --host-home asks for
 let roots = [];
 
 function setup() {
@@ -487,6 +571,7 @@ function setup() {
     ] : [])
   ];
   spawnArgs = ["--strict-config", ...config.flatMap(([k, v]) => ["-c", `${k}=${v}`]), "app-server"];
+  codexHome = opts.hostHome ? null : isolatedHome();
 }
 
 // ---------------------------------------------------------------- transport
@@ -826,6 +911,9 @@ function finish(reason) {
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
     writableRoots: roots, network: Boolean(opts.network),
+    // Which Codex installation answered. Two runs that differ only in this can differ in everything else,
+    // so a report that omits it cannot be compared with another.
+    codexHome,
     // What was REQUESTED; null means the thread inherited config.toml. reasoningEffort below is what the
     // server actually selected, which is the one worth reading back.
     effort: opts.effort ?? null, reasoningEffort: selectedEffort,
@@ -849,6 +937,9 @@ function finish(reason) {
     const L = [answer, ""];
     L.push(`--- verification -----------------------------------------`);
     L.push(`level=${opts.level} sandbox=${effectiveSandbox?.type ?? sandbox} turn=${turnStatus} answerPhase=${final?.phase ?? "none"}`);
+    // Only the surprising case is worth a line: on the host home the caller's plugins and skills were in
+    // the turn, so this run is not comparable with an isolated one.
+    if (codexHome === null) L.push("home=host — the caller's plugins and skills were loaded into this turn");
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
     L.push(`commands: ${ran.length} succeeded` +
       `${failedCmds.length ? `, ${failedCmds.length} FAILED` : ""}` +
@@ -940,7 +1031,10 @@ async function main() {
   prompt = prompt.trim();
   if (!prompt) fail(EXIT.USAGE, "empty prompt");
 
-  child = spawn("codex", spawnArgs, { cwd, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  child = spawn("codex", spawnArgs, {
+    cwd, stdio: ["pipe", "pipe", "pipe"], detached: true,
+    env: codexHome === null ? process.env : { ...process.env, CODEX_HOME: codexHome },
+  });
   child.stderr.setEncoding("utf8");
   // Bounded: a run may legitimately last two hours, and abort() prints this whole buffer. Keep the TAIL,
   // because the last words before a crash are the useful ones, and say how much was dropped.
