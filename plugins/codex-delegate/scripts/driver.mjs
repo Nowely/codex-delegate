@@ -33,7 +33,10 @@ const READ_PROFILE = "codex_delegate_read";
 // The full ladder the model catalogue advertises (`codex debug models` -> supported_reasoning_levels),
 // not a subset: rejecting `max` as a usage error while the user's own config.toml asked for it is the
 // driver overruling the caller about the one thing it has no opinion on.
-const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max", "ultra"]);
+// `none` and `minimal` come from the server's own rejection message, which enumerates what it accepts;
+// they were refused here as usage errors while the server took them. `ultra` is not in that message but a
+// live turn with it completed, so the set is the union rather than either list alone.
+const EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 // The server's own list, learned from the error it emits for anything else. A Claude seat can search the
 // web; a Codex seat could not, because this was pinned to `disabled` with no way to ask. Still disabled by
 // default: a search makes the turn depend on what the index says today, and most delegations here are
@@ -855,6 +858,24 @@ function parseAnswerJson(text) {
 // streamed so far is still in memory, and a run that did four useful greps before the clock ran out
 // should hand those back rather than throw them away.
 // codexErrorInfo is either a bare string or a one-key tagged object; reading .type gives "unknown".
+// The server nests the upstream API error as a JSON STRING inside turnError.message, so the useful part —
+// which parameter, and what it would have accepted — is invisible to a caller reading errKind alone.
+function invalidRequest(e) {
+  try { return JSON.parse(e?.message ?? "")?.error?.type === "invalid_request_error"; }
+  catch { return false; }
+}
+
+// Printing turnError.message raw puts a pretty-printed JSON blob in the footer, so the one sentence that
+// says which parameter was wrong scrolls past behind punctuation. Unwrap it when it is there.
+function errText(e) {
+  const raw = e?.message ?? "";
+  try {
+    const inner = JSON.parse(raw)?.error;
+    if (inner?.message) return `${inner.message}${inner.param ? ` (param: ${inner.param})` : ""}`;
+  } catch { /* not the nested shape; the raw text is the best there is */ }
+  return raw;
+}
+
 function errKind(e) {
   const i = e?.codexErrorInfo ?? e?.type;
   if (typeof i === "string") return i;
@@ -948,6 +969,13 @@ function finish(reason) {
   // likely incomplete — detectable without reading the prose.
   let code = EXIT.OK;
   if (turnStatus === "timedOut") code = EXIT.TIMEOUT;
+  // A parameter the SERVER rejected is the caller's to fix, not something to retry, so it must not land on
+  // the same rung as "the turn died". The set of reasoning efforts is per-model and only knowable at
+  // runtime — measured: `minimal` is in the server's own generic list and is refused by this account's
+  // model, which answered `unsupported_value ... Supported values are: none, low, medium, high, xhigh,
+  // max`. As exit 1 that reads as "retry"; as exit 2 it reads as "you passed something this model does not
+  // take", and the cause line carries the server's list verbatim.
+  else if (turnStatus !== "completed" && invalidRequest(turnError)) code = EXIT.USAGE;
   else if (turnStatus !== "completed") code = EXIT.TURN_NOT_COMPLETED;
   // An unattended interaction the driver could not answer means the turn proceeded without something it
   // asked for. That is never a success, and it is not an escalation either — no sandbox change fixes it.
@@ -1053,7 +1081,7 @@ function finish(reason) {
     if (interactions.length) L.push(`UNANSWERABLE server requests — no sandbox change fixes these: ${interactions.join(", ")}`);
     if (turnStatus !== "completed") {
       L.push(`TURN ${String(turnStatus).toUpperCase()} — the answer above is incomplete.`);
-      if (turnError) L.push(`  cause: ${errKind(turnError)} — ${turnError.message ?? ""}`);
+      if (turnError) L.push(`  cause: ${errKind(turnError)} — ${errText(turnError)}`);
       if (stderrBuf.trim()) L.push(`  stderr: ${stderrBuf.trim().split("\n").slice(-3).join(" | ")}` +
         (stderrDropped ? `  [+${stderrDropped} earlier bytes dropped]` : ""));
     }
