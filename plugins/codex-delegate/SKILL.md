@@ -307,9 +307,9 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 
 | Exit | Meaning |
 | --- | --- |
-| 0 | turn completed and at least one command really executed |
+| 0 | turn completed, every check you declared passed, and a command really executed — **unless** you passed `--allow-no-commands`, which waives exactly that clause |
 | 1 | turn did not complete (`failed` / `interrupted`) — the answer is partial |
-| 2 | your arguments were rejected — **usually** before anything ran, but also when the SERVER refused a parameter mid-turn (an effort this model does not take, say), in which case commands may already have executed. The message carries the server's own wording |
+| 2 | your arguments were rejected — usually before anything ran, but also when the turn failed with an `invalid_request_error`, in which case commands may already have executed. That covers a parameter this model does not take, and equally a context window overrun or a prompt the API refused; the message carries the server's own wording, so read it rather than assuming which |
 | 3 | timed out |
 | 4 | transport failure — codex missing or crashed, **and** every sandbox, approval-policy and reviewer assertion. Ten of the suite's cases exit 4 for "the rights you asked for were not the rights you got", which is the opposite of a retry |
 | 5 | no command matching the expectation succeeded — the answer is unverified prose |
@@ -325,9 +325,15 @@ These are ordered, not independent. The first condition that holds wins, and the
 **3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 11**. So a run that both timed out and refused an escalation reports
 3, and a code of 0 means every one of them was checked and none applied.
 
-2 sits second because a parameter the server refused is the caller's to fix, not something to retry — and
-it is the one rung that can carry work with it, so do not read it as "nothing happened". 4 is not on the
-ladder at all: it is raised the moment an assertion fails, before any of this is reached.
+2 sits second because a request the server refused is the caller's to fix, not something to retry. Do not
+read it as "nothing happened": commands may already have run. That is not special to 2 — 1, 6, 7, 8, 9 and
+11 all carry executed work too. The only code that means nothing ran is 2 raised during argument parsing,
+which you can tell apart because it has no report at all.
+
+4 is mostly not on the ladder: it is raised the moment an assertion fails, before any of this is reached.
+Its one exception is the last thing the process does — if stdout does not drain within 5 s the report did
+not reach you, so a run that had decided on some other code exits 4 instead. A truncated report is a
+transport failure whatever the turn did.
 
 9 sits above 5, 8 and 11 deliberately: those three infer that something went wrong from the command list,
 while 9 measured the end state directly. 12 sits above 9 because "the check could not run" and "the check

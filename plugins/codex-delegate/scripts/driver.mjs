@@ -101,20 +101,28 @@ Gate — what counts as the turn having done the work
   --allow-no-commands   accept a turn that ran nothing
 
 Isolation
-  by default the turn runs against a private CODEX_HOME, so the caller's own
+  by default the turn runs against a CODEX_HOME private to this driver — one
+  directory shared by every run, not a fresh one per turn — so the caller's own
   plugins, skills and memories cannot steer it and it writes no trust records
-  back; auth.json and sessions stay linked to the real home
+  back; auth.json and sessions stay linked to the real home, and the caches and
+  databases codex keeps there persist between runs, which is what makes an
+  isolated run faster than a host-home one rather than slower
   --host-home        use the caller's ~/.codex instead, plugins and all
 
 Report
   --json             machine-readable on stdout; otherwise a human footer
   -h, --help         this text
 
-Exit codes, in the order they are decided
-  0 ok        2 usage      4 transport   10 busy (another run holds the lock)
-  3 timeout   1 turn not completed       7 wanted input   6 escalated
-  12 verify unmeasurable  9 verify failed   5 no commands  8 no answer
-  11 a command failed
+Exit codes. These three are raised outside the ladder, at the moment they happen:
+  2  your arguments, or a request the server refused
+  4  transport, and every sandbox / approval assertion; also a report that
+     could not be written to stdout
+  10 another run holds the lock on this directory
+
+The rest are a ladder, first match wins, in this order:
+  3 timed out ... 1 turn did not complete ... 7 wanted input ... 6 escalated
+  ... 12 verify unmeasurable ... 9 verify failed ... 5 no commands
+  ... 8 no answer ... 11 a command or a file change failed
 `;
 
 function parseArgs(argv) {
@@ -275,13 +283,25 @@ const lockDir = () => path.join(passwdHome("the cwd lock"), ".codex-delegate", "
 // is for and stays behind.
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
 function inheritedConfig() {
+  const file = path.join(passwdHome("the inherited Codex settings"), ".codex", "config.toml");
   let text;
-  try { text = fs.readFileSync(path.join(passwdHome("the inherited Codex settings"), ".codex", "config.toml"), "utf8"); }
-  catch { return []; }          // no config of their own to inherit; the account's defaults decide
+  try { text = fs.readFileSync(file, "utf8"); }
+  catch (e) {
+    // No file is the ordinary case: the account's defaults decide, silently. A file that EXISTS and cannot
+    // be read is not that — it means the caller's model and effort are being dropped, which is the silent
+    // downgrade this whole function exists to prevent, so it gets said out loud.
+    if (e.code !== "ENOENT")
+      process.stderr.write(`codex-delegate: cannot read ${file} (${e.code}); model and effort fall back to the account default\n`);
+    return [];
+  }
   const out = [];
   for (const line of text.split("\n")) {
     if (/^\s*\[/.test(line)) break;   // a table header: everything past it belongs to something we isolate
-    const m = line.match(/^\s*([a-z_]+)\s*=\s*("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/);
+    // TOML has two string forms and this used to accept one. A config written `effort = 'max'` — valid,
+    // and what several editors emit — matched nothing, so the isolated config came out empty and the
+    // caller silently got the model's own default. Literal strings have no escapes, which is why the two
+    // alternatives differ.
+    const m = line.match(/^\s*([a-z_]+)\s*=\s*("(?:[^"\\]|\\.)*"|'[^'\n]*')\s*(?:#.*)?$/);
     if (m && INHERITED.includes(m[1])) out.push([m[1], m[2]]);
   }
   return out;
@@ -296,17 +316,23 @@ function inheritedConfig() {
 // Absent file, non-macOS, unreadable plist, no such key: all mean "no policy narrows this", which is the
 // common case and must not be an error.
 const MANAGED_PREFS = "/Library/Managed Preferences/com.openai.codex.plist";
+// Returns the permitted modes, or null for "nothing narrows this", or throws for "there IS a policy here
+// and I could not read it". That last case used to return null too, which is failing OPEN on the one check
+// standing between a caller and a mode they did not get — an unreadable or malformed profile is exactly
+// when you want to stop, not to assume permission.
 function managedWebSearchModes() {
   if (!fs.existsSync(MANAGED_PREFS)) return null;
   const r = spawnSync("plutil", ["-extract", "requirements_toml_base64", "raw", "-o", "-", MANAGED_PREFS],
     { encoding: "utf8" });
-  if (r.status !== 0 || !r.stdout) return null;
+  // No such key is a real answer: the profile constrains other things and says nothing about search.
+  if (r.status !== 0) return /does not exist|Could not extract/i.test(String(r.stderr ?? "")) ? null : undefined;
+  if (!r.stdout) return undefined;
   let toml;
-  try { toml = Buffer.from(r.stdout.trim(), "base64").toString("utf8"); } catch { return null; }
+  try { toml = Buffer.from(r.stdout.trim(), "base64").toString("utf8"); } catch { return undefined; }
   const m = toml.match(/^\s*allowed_web_search_modes\s*=\s*\[([^\]]*)\]/m);
   if (!m) return null;
-  const modes = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-  return modes.length ? modes : null;
+  const modes = [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]);
+  return modes.length ? modes : undefined;   // an empty list permits nothing, which is not "unrestricted"
 }
 
 function isolatedHome() {
@@ -336,9 +362,13 @@ function isolatedHome() {
   // the same way it reads the caller's own file, and the -c payload is untouched.
   // Rewritten every run, which also keeps the server's trusted-project appends from accumulating.
   const cfg = path.join(home, "config.toml");
-  const tmp = `${cfg}.${process.pid}.tmp`;
+  // Random, not the pid. Two runs in different PID namespaces over one mounted home share a pid, and then
+  // both write the same temp name — measured as a partial read and an ENOENT from the loser's rename.
+  // "wx" on top of that: it fails rather than following a symlink someone left at the predictable name,
+  // which would have redirected this write onto whatever it pointed at.
+  const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(tmp, inheritedConfig().map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600 });
+    fs.writeFileSync(tmp, inheritedConfig().map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
@@ -639,6 +669,8 @@ function setup() {
 
   if (opts.webSearch) {
     const allowed = managedWebSearchModes();
+    if (allowed === undefined)
+      fail(EXIT.USAGE, `this device has a managed Codex policy at ${MANAGED_PREFS} that could not be read, so whether --web-search ${opts.webSearch} is permitted cannot be established; the server would substitute a mode silently and no response field would say which`);
     if (allowed && !allowed.includes(opts.webSearch))
       fail(EXIT.USAGE, `--web-search ${opts.webSearch} is not permitted by this device's managed policy, which allows ${allowed.join("|")}; the server would silently apply one of those and no response field would say so`);
   }
@@ -902,9 +934,14 @@ function parseAnswerJson(text) {
 // worth failing a finished turn over, so a write error costs the path and nothing else.
 function persistAnswer(text) {
   if (!text) return null;
-  const dir = path.join(passwdHome("the answer log"), ".codex-delegate", "answers");
-  const name = `${rootThreadId ?? `no-thread-${process.pid}`}.md`;
   try {
+    // Inside the try, and this is the whole point of the function's contract. passwdHome() does not
+    // return an error, it calls fail(), which sets the exit code and throws — so with this line outside,
+    // a uid with no passwd entry turned "the answer log could not be written" into an exception raised
+    // while building the report of a turn that had already succeeded. Measured: the process stayed alive
+    // through four of its own timeout periods rather than exiting.
+    const dir = path.join(passwdHome("the answer log"), ".codex-delegate", "answers");
+    const name = `${rootThreadId ?? `no-thread-${process.pid}`}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
     return path.join(dir, name);
@@ -1083,7 +1120,7 @@ function finish(reason) {
     // server actually selected, which is the one worth reading back.
     effort: opts.effort ?? null, reasoningEffort: selectedEffort,
     model: selectedModel, turnStatus, turnError, threadId: rootThreadId,
-    commandsRun: ran.length, commandsMatchingExpectation: expected.length,
+    commandsSucceeded: ran.length, commandsMatchingExpectation: expected.length,
     commandsFailed: failedCmds.length, commandsBlocked: blocked.length,
     // For a rename the file that EXISTS afterwards is the destination; report that, not the source.
     filesTouched: fileChanges.filter((f) => f.status === "completed").map((f) => f.move ?? f.path),
