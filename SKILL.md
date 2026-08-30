@@ -416,14 +416,22 @@ its name: [references/config-drift.md](references/config-drift.md).
 
 `--level read|write` (default `read`) · `--cwd <dir>` (required) · `--prompt <text>`, or omit it and pipe
 the prompt on stdin — the better shape for a long one ·
-`--effort low|medium|high|xhigh|max|ultra` (omit to inherit `~/.codex/config.toml`) · `--model <slug>` · `--timeout <sec>` (default 900) ·
+`--effort none|minimal|low|medium|high|xhigh|max|ultra` (omit to inherit `~/.codex/config.toml`) · `--model <slug>` · `--timeout <sec>` (default 900) ·
 `--json` for the machine-readable report including every command · `--commit` to make the repository's git
 directory writable · `--writable <dir>` for an extra writable root, repeatable · `--network` for egress ·
 `--allow-no-commands` for a turn that legitimately needs to run nothing (it waives the command floor, never
 a `--expect-command` you declared) · `--expect-command <regex>` · `--verify '<shell>'` ·
-`--resume <threadId>` to continue a thread · `--ephemeral` to make one non-resumable.
+`--resume <threadId>` to continue a thread · `--ephemeral` to make one non-resumable ·
+`--web-search cached|indexed|live` (off by default) · `--answer-json` to demand one bare JSON object and
+report whether it arrived · `--host-home` to run against the caller's `~/.codex` instead of the private
+home · `--help`.
 
 `--commit`, `--writable` and `--network` all require `--level write`.
+
+Every run uses a private `CODEX_HOME` at `~/.codex-delegate/home`, so the caller's plugins, skills and MCP
+servers are not in the turn and no trusted-project record is written back. `auth.json` and `sessions` are
+symlinked to the real home, and `model`, `model_reasoning_effort`, `personality` and `service_tier` are
+copied in, so the account still decides who answers and how hard. The report carries `codexHome`.
 
 ## Multiple rounds
 
