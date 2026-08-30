@@ -113,27 +113,29 @@ there is nothing to disagree about, and each Codex seat costs ~0.5 GB and a ~7 s
 The scale applies to single-agent work too: "only codex" on one task means Codex does the task and you
 coordinate and check it, rather than doing it yourself.
 
-### Raise the seat yourself; a wrapper agent is the thing that fails
+### Verify the seat; wrapping it is a choice, not a mistake
 
-Run the driver directly, one background shell per seat. `--level read` takes **no lock**, so any number of
-read seats work over the same directory at once — verified with two concurrent `codex app-server`
-processes on one checkout. You then read the JSON yourself, and nothing stands between Codex's answer and
-you.
+Two shapes, and the difference between them is not trust — it is who summarises.
+
+**Direct.** Run the driver yourself, one background shell per seat. `--level read` takes **no lock**, so
+any number of read seats work over the same directory at once (verified: three concurrent
+`codex app-server` processes on one checkout). Nothing stands between Codex's answer and you.
 
     node ~/.claude/skills/codex-delegate/scripts/driver.mjs --level read --cwd <repo> \
-      --json --effort max --timeout 1800 < seat-task.txt
+      --json --brief --effort max --timeout 1800 < seat-task.txt
 
-Prefer this over handing the seat to a subagent, because the subagent is where the trust breaks. A
-measured case: a wrapper started a background Codex job, returned immediately with
-`suitesPass: "unknown — task forwarded to background job"` and `findings: []`, and the panel counted it as
-a seat that reported. **A seat that did nothing is indistinguishable from a seat that found nothing**, and
-the write-up still claimed the panel was decorrelated.
+Use `--brief` here or you pay for it in context: an unbounded seat hands back its whole working note, and
+one returned 13 KB of prose into a coordinator that only needed the verdict.
 
-The same failure is available to any agent named after a model, whichever plugin supplies it. The rule is
-not about one agent's name: if something other than you ran the driver, ask it for the receipt.
+**Wrapped.** A subagent around the seat is legitimate and sometimes better: it can summarise, reconcile
+several runs, or sit inside a workflow where you cannot open a shell. What it must not be is unverified.
+The measured failure was not "a wrapper" but "a wrapper nobody checked": one started a background Codex
+job, returned at once with `suitesPass: "unknown — task forwarded to background job"` and `findings: []`,
+and the panel counted it as a seat that had reported. **A seat that did nothing is indistinguishable from
+a seat that found nothing** — and the write-up still called the panel decorrelated.
 
-**When a wrapper is unavoidable** — inside a workflow, where you cannot open a shell — demand the evidence
-it cannot fabricate. Require the run's `threadId` in the seat's return, then check it yourself:
+So whichever shape you pick, demand the evidence a wrapper cannot fabricate. Require the run's `threadId`
+in the seat's return, then check it yourself:
 
     ls ~/.codex/sessions/*/*/*/rollout-*-<threadId>.jsonl
 
@@ -237,6 +239,7 @@ Measured 2026-08-30 on this repo. Re-check after a codex upgrade.
 | a subagent's MCP tools | **none, by default** | the price of the isolated home. `--host-home` gives the seat the caller's MCP servers back, and their nondeterminism with it. Nothing in this repo has needed them: browser tests run from the worktree's own playwright at write level, not over MCP. |
 | web search | `--web-search live` | off unless asked, so a turn does not depend on what the index says today |
 | a schema-validated return | `--answer-json` | asks for one bare JSON object and reports `answerJson` / `answerJsonError`. Weaker than a subagent's schema: there is no tool layer to retry a bad shape, so the caller sees the miss rather than being protected from it. |
+| a subagent's short return, with the detail left in its transcript | `--brief`, plus `answerPath` always | full: the whole answer is written to `~/.codex-delegate/answers/<threadId>.md` on every run, so the inline `answer` can be capped at 20 lines without losing anything. The cap is applied by the driver, not asked of the model — measured: told to answer in 20 lines the model returned 29, and the clip still held. `answerTruncated` says whether it fired. |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 plus a private copy of every MCP server in `~/.codex/config.toml`. If you run several workflows whose
@@ -423,8 +426,11 @@ directory writable · `--writable <dir>` for an extra writable root, repeatable 
 a `--expect-command` you declared) · `--expect-command <regex>` · `--verify '<shell>'` ·
 `--resume <threadId>` to continue a thread · `--ephemeral` to make one non-resumable ·
 `--web-search cached|indexed|live` (off by default) · `--answer-json` to demand one bare JSON object and
-report whether it arrived · `--host-home` to run against the caller's `~/.codex` instead of the private
-home · `--help`.
+report whether it arrived · `--brief` to cap the inline answer at 20 lines · `--host-home` to run against
+the caller's `~/.codex` instead of the private home · `--help`.
+
+The full answer is written to `~/.codex-delegate/answers/<threadId>.md` on every run and its path is in
+the report as `answerPath`, so `--brief` costs a second read rather than information.
 
 `--commit`, `--writable` and `--network` all require `--level write`.
 

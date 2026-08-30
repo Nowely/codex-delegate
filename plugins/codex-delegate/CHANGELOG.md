@@ -19,3 +19,15 @@ schema it is written against.
   looks healthy.
 - Three suites: `protocol` (52 cases), `lock` (25), and `fidelity` (8), the last of which handshakes
   against the real `codex` and diffs it against the test fixture.
+- **A private `CODEX_HOME` per run.** Codex reads plugins, skills and memories out of it, so delegating
+  into the caller's own home made every turn a function of what they had installed: of the 157 delegations
+  measured on the development machine, 95 spent their FIRST tool call reading `~/.codex/plugins/cache`
+  instead of the task, 209 of 919 tool calls went there, and one turn ended having only announced that it
+  had to run a plugin's workflow first. `auth.json` and `sessions` stay linked to the real home, and
+  `model`, `model_reasoning_effort`, `personality` and `service_tier` are carried in, so the account still
+  decides who answers. `--host-home` opts out, and costs the determinism back.
+- `--web-search cached|indexed|live` and `--answer-json`, closing two gaps against a Claude subagent: a
+  seat could not look anything up, and its answer could not be machine-read.
+- A parameter the server refuses now exits 2 with the server's own message, rather than 1 with a JSON blob
+  — "fix your flag" and "the turn died" are different instructions.
+- `--help`, which was previously an unknown-argument error.
