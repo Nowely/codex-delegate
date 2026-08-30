@@ -17,7 +17,7 @@ schema it is written against.
 - The sandbox the server reports is asserted against what was asked for, at both levels, and so are the
   approval policy and the approvals reviewer — a clamped policy denies every command while the run still
   looks healthy.
-- Three suites: `protocol` (52 cases), `lock` (25), and `fidelity` (8), the last of which handshakes
+- Three suites: `protocol` (59 cases), `lock` (32), and `fidelity` (9), the last of which handshakes
   against the real `codex` and diffs it against the test fixture.
 - **A private `CODEX_HOME` per run.** Codex reads plugins, skills and memories out of it, so delegating
   into the caller's own home made every turn a function of what they had installed: of the 157 delegations
