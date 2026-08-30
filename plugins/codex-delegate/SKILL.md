@@ -415,6 +415,14 @@ catches them is **blind inside `permissions.<profile>.*`** — where this skill'
 you add or change a `-c` key, validate it first and verify a permission profile by its effect rather than
 its name: [references/config-drift.md](references/config-drift.md).
 
+**A seat whose method is to make things fail will exit 11**, and it is your flag choice that is wrong, not
+the seat. Measured on three seats doing mutation testing: each ran a suite against a deliberately broken
+copy dozens of times, so `commandsFailed` was 24, 17 and 9 — and `EXIT.COMMAND_FAILED` announced a failure
+for work that had succeeded. Pass `--verify` with the end condition you actually want
+(`--verify 'node evals/protocol.test.mjs'`); a passing check overrules failed commands, which is exactly
+what that waiver is for. The same applies to any red-green task: reproducing a bug, bisecting, proving a
+guard bites.
+
 ## Flags
 
 `--level read|write` (default `read`) · `--cwd <dir>` (required) · `--prompt <text>`, or omit it and pipe
