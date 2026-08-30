@@ -113,29 +113,40 @@ there is nothing to disagree about, and each Codex seat costs ~0.5 GB and a ~7 s
 The scale applies to single-agent work too: "only codex" on one task means Codex does the task and you
 coordinate and check it, rather than doing it yourself.
 
-### Raise a Codex seat through this driver, never through the plugin's agent
+### Raise the seat yourself; a wrapper agent is the thing that fails
 
-Reaching for `codex:codex-rescue` because it is the thing named "codex" is the obvious mistake, and it was
-made here repeatedly before anyone noticed. That agent goes through `codex-companion.mjs`, which selects
-`sandbox: request.write ? "workspace-write" : "read-only"` — and a plain `read-only` has **no `$TMPDIR`
-grant**, so the seat cannot create a temp directory and therefore cannot run a test suite, a build, or
-anything that stages a file. Measured: a review seat reported
-`EPERM: operation not permitted, mkdtemp '.../T/codex-delegate-test-XXXXXX'` and every one of its findings
-came from reading the code, while the Claude seats beside it ran both suites.
+Run the driver directly, one background shell per seat. `--level read` takes **no lock**, so any number of
+read seats work over the same directory at once — verified with two concurrent `codex app-server`
+processes on one checkout. You then read the JSON yourself, and nothing stands between Codex's answer and
+you.
 
-That is the exact parity gap `--level read` exists to close, so a panel that reaches for the plugin buys a
-decorrelated opinion and receives a crippled one — and the report does not say so.
+    node ~/.claude/skills/codex-delegate/scripts/driver.mjs --level read --cwd <repo> \
+      --json --effort max --timeout 1800 < seat-task.txt
 
-In a workflow, give the seat an ordinary agent and put the driver in its prompt:
+Prefer this over handing the seat to a subagent, because the subagent is where the trust breaks. A
+measured case: a wrapper started a background Codex job, returned immediately with
+`suitesPass: "unknown — task forwarded to background job"` and `findings: []`, and the panel counted it as
+a seat that reported. **A seat that did nothing is indistinguishable from a seat that found nothing**, and
+the write-up still claimed the panel was decorrelated.
 
-    Do this work by running:
-      node ~/.claude/skills/codex-delegate/scripts/driver.mjs --level read --cwd <repo> --json --prompt '<task>'
-    Return Codex's answer verbatim. Do not add findings of your own, do not summarise, and do not
-    substitute your own analysis if the run fails — report the failure instead.
+The same failure is available to any agent named after a model, whichever plugin supplies it. The rule is
+not about one agent's name: if something other than you ran the driver, ask it for the receipt.
 
-The wrapper is a Claude, but the judgement is Codex's, which is what the seat was bought for. The last two
-sentences are load-bearing: a wrapper that quietly answers the question itself when the delegation fails
-recreates the homogeneous panel the seat existed to prevent, and nothing downstream can tell.
+**When a wrapper is unavoidable** — inside a workflow, where you cannot open a shell — demand the evidence
+it cannot fabricate. Require the run's `threadId` in the seat's return, then check it yourself:
+
+    ls ~/.codex/sessions/*/*/*/rollout-*-<threadId>.jsonl
+
+The rollout carries `originator`, `model_provider: "openai"`, the `cwd` and the whole turn. A wrapper that
+forwarded the work has no thread id to give — the round-7 seat above returned a *task* id,
+`task-mtfzrffs-0mbqya`, which matches no rollout and would have been caught in milliseconds. Isolation
+keeps this working: `sessions` stays symlinked to the real home precisely so the receipt lands where a
+verifier looks.
+
+And tell the wrapper what its job is not:
+
+    Return Codex's answer verbatim, with the run's threadId and exitCode. Do not summarise, do not add
+    findings of your own, and if the run fails report the failure rather than answering yourself.
 
 ## Levels
 
@@ -222,7 +233,10 @@ Measured 2026-08-30 on this repo. Re-check after a codex upgrade.
 | analysis that needs to write | `--level write --cwd <tmpdir>` | reads the repo by absolute path and has somewhere to write. Nothing checks that the cwd is outside a repo — that check left with the `scratch` level, so point `--cwd` somewhere harmless yourself. |
 | agent with `isolation: "worktree"` | `--level write --network --cwd <worktree>` | full: installs its own deps, edits, runs tests — **including browser tests**, see below |
 | the same, committing | `--level write --commit` | full: `git add` and `git commit` succeed |
-| fan-out of many agents | many concurrent invocations | ~0.5 GB RSS and a ~7 s startup floor each — memory-bound, not protocol-bound. About half that RSS is a private copy of the MCP servers in `~/.codex/config.toml`, so a machine with none pays roughly half. 6–8 is comfortable and 12 ran clean, but that wave size was measured 2026-08-29 and not re-verified — derive the budget from free memory, not from the remembered number. |
+| fan-out of many agents | many concurrent invocations | ~0.5 GB RSS and a ~7 s startup floor each — memory-bound, not protocol-bound. 6–8 is comfortable and 12 ran clean, but that wave size was measured 2026-08-29 **before** the isolated home and not re-verified; derive the budget from free memory, not from the remembered number. Isolation made each delegation cheaper: a host-home run spawns a private copy of every MCP server in `~/.codex/config.toml` (measured: 3 extra processes against an 18-process baseline), an isolated one spawns none, because there is no config for them to be declared in. |
+| a subagent's MCP tools | **none, by default** | the price of the isolated home. `--host-home` gives the seat the caller's MCP servers back, and their nondeterminism with it. Nothing in this repo has needed them: browser tests run from the worktree's own playwright at write level, not over MCP. |
+| web search | `--web-search live` | off unless asked, so a turn does not depend on what the index says today |
+| a schema-validated return | `--answer-json` | asks for one bare JSON object and reports `answerJson` / `answerJsonError`. Weaker than a subagent's schema: there is no tool layer to retry a bad shape, so the caller sees the miss rather than being protected from it. |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 plus a private copy of every MCP server in `~/.codex/config.toml`. If you run several workflows whose
