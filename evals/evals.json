@@ -1,0 +1,231 @@
+{
+  "skill_name": "codex-delegate",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Ask codex to review this diff.",
+      "expected_output": "Fires. The user named Codex explicitly; run at --level read against the repo.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Chooses --level read, because a review needs no write access",
+        "Does NOT use the openai-codex plugin (codex:rescue / codex-companion.mjs)"
+      ],
+      "covers": "trigger: user names Codex"
+    },
+    {
+      "id": 2,
+      "prompt": "Run this past the other model and see if it disagrees with me.",
+      "expected_output": "Fires. 'The other model' names a second opinion without saying Codex.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Chooses --level read"
+      ],
+      "covers": "trigger: indirect reference to a second model"
+    },
+    {
+      "id": 3,
+      "prompt": "Set up a panel of four reviewers to tear this design apart before I commit to it.",
+      "expected_output": "Fires. A panel of only Claudes shares one bias; the dissenting seat should be Codex.",
+      "files": [],
+      "expectations": [
+        "Considers giving at least one seat to Codex via codex-delegate",
+        "Does NOT hand the whole panel to Codex",
+        "Keeps the remaining seats as Claude subagents"
+      ],
+      "covers": "trigger: panel needing a decorrelated seat"
+    },
+    {
+      "id": 4,
+      "prompt": "This function is supposed to return the number of visible characters but it returns one too many for any input ending in a combining mark:\n\n  function visibleLength(s) {\n    return [...s].length\n  }\n\nI tried normalising with NFC and I tried stripping \\u0300-\\u036f, and both were wrong for different inputs. I'm out of ideas.",
+      "expected_output": "Fires. Two failed hypotheses, and the premise is true by construction — the bug is in the prompt.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Chooses --level write in a worktree so Codex can run the test itself",
+        "Passes --network so dependencies can be installed in the fresh worktree"
+      ],
+      "covers": "trigger: dead end after two failed hypotheses (self-contained, no repo state)"
+    },
+    {
+      "id": 5,
+      "prompt": "Here is my line-wrapping routine:\n\n  function wrap(text, width) {\n    const out = []\n    let line = ''\n    for (const w of text.split(' ')) {\n      if ((line + ' ' + w).trim().length > width) { out.push(line.trim()); line = w }\n      else line += ' ' + w\n    }\n    out.push(line.trim())\n    return out\n  }\n\nWrite a second, independent implementation so I can compare the two approaches.",
+      "expected_output": "Fires. A second implementation for comparison, with the subject supplied so the premise holds.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Uses an isolated worktree rather than the main working tree"
+      ],
+      "covers": "trigger: second implementation for comparison (self-contained)"
+    },
+    {
+      "id": 6,
+      "prompt": "What is the capital of France?",
+      "expected_output": "Does NOT fire. Trivia.",
+      "files": [],
+      "expectations": [
+        "Does NOT invoke the codex-delegate skill",
+        "Answers directly"
+      ],
+      "covers": "negative: trivia"
+    },
+    {
+      "id": 7,
+      "prompt": "Find every file that imports TokenModel.",
+      "expected_output": "Does NOT fire for a Codex seat. Mechanical fact-gathering is where the default composition is ZERO: decorrelation buys nothing when there is nothing to disagree about, and each seat costs ~0.5 GB and a ~7 s floor.",
+      "files": [],
+      "expectations": [
+        "Does NOT invoke the codex-delegate skill",
+        "Uses local search tools instead",
+        "Does NOT read 'fan out' as a reason to add a Codex seat"
+      ],
+      "covers": "negative: mechanical fan-out — the default composition here is zero Codex, not one"
+    },
+    {
+      "id": 8,
+      "prompt": "Here is a helper I just wrote:\n\n  function clamp(v, lo, hi) {\n    const tmp = Math.max(lo, v)\n    return Math.min(tmp, hi)\n  }\n\nRename `tmp` to `pendingRange` in it.",
+      "expected_output": "Does NOT fire. A one-identifier rename in code supplied in the prompt is faster done directly than delegated.",
+      "files": [],
+      "expectations": [
+        "Does NOT invoke the codex-delegate skill",
+        "Performs the rename directly, on the code given"
+      ],
+      "covers": "negative: trivial edit (self-contained — the earlier version named an identifier that does not exist in this repo, so the expectation was unachievable and the case measured nothing)"
+    },
+    {
+      "id": 9,
+      "prompt": "Open packages/core/src/codex-samples.ts and fix the type error on line 12.",
+      "expected_output": "Does NOT fire. 'codex' appears only as part of a filename, not as a request for the tool.",
+      "files": [],
+      "expectations": [
+        "Does NOT invoke the codex-delegate skill",
+        "Treats 'codex' as part of a path, not as a tool name"
+      ],
+      "covers": "negative: the word codex as a substring, adversarial"
+    },
+    {
+      "id": 10,
+      "prompt": "Have codex run the full test suite in an isolated copy and tell me what fails.",
+      "expected_output": "Fires, and must pick the worktree path plus the browser-test workaround.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Creates a git worktree and passes --level write with --network",
+        "Knows the browser-mode projects need the --single-process override config, or says so",
+        "Removes the worktree itself after harvesting, and does not ask Codex to remove it"
+      ],
+      "covers": "behaviour: worktree lifecycle and browser tests"
+    },
+    {
+      "id": 11,
+      "prompt": "Codex reviewed the file and says all the tests pass. Should I merge?",
+      "expected_output": "Must not take the claim at face value: browser tests cannot run at read level.",
+      "files": [],
+      "expectations": [
+        "Does NOT accept 'the tests pass' from Codex's prose",
+        "Checks the command list or the --json report for a command with a numeric exitCode",
+        "Re-runs the browser-mode projects locally before recommending a merge"
+      ],
+      "covers": "behaviour: the honesty gate proves a command ran, not the right one"
+    },
+    {
+      "id": 12,
+      "prompt": "Delegate this to codex on GPT-5.6-sol at maximum reasoning.",
+      "expected_output": "Fires, passes the named model, and does not silently accept an unsupported effort.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill with --model gpt-5.6-sol",
+        "Notes that the driver's effort ladder stops at xhigh and does not accept max",
+        "Does NOT hardcode a model when the user has not named one"
+      ],
+      "covers": "behaviour: model and effort are per call, never hardcoded"
+    },
+    {
+      "id": 13,
+      "prompt": "Here is a file with three lint problems — an unused import, a == where === belongs, and a missing await:\n\n  import {readFile, writeFile} from 'node:fs/promises'\n  export async function load(p) {\n    const raw = readFile(p, 'utf8')\n    if (raw == '') return null\n    return JSON.parse(raw)\n  }\n\nGet codex to fix them and commit the fix on a branch.",
+      "expected_output": "Fires. Must surface the commit blast radius before granting --commit.",
+      "files": [],
+      "expectations": [
+        "Recognises that --commit grants write access to the main clone's git directory, config, hooks and all refs",
+        "Raises that with the user before running, rather than after",
+        "Does NOT grant commit rights when handing back a diff would do"
+      ],
+      "covers": "behaviour: commit blast radius is settled up front (self-contained)"
+    },
+    {
+      "id": 14,
+      "prompt": "Fan out ten codex agents to audit each package in parallel.",
+      "expected_output": "Fires, but must cap the fan-out on memory grounds rather than obeying the number.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Warns that concurrency is memory-bound at roughly 6-8 delegations, ~420MB each",
+        "Proposes running in waves instead of ten at once, or checks free memory first"
+      ],
+      "covers": "behaviour: concurrency budget is per machine"
+    },
+    {
+      "id": 15,
+      "prompt": "Codex said the lock is safe because `wx` is exclusive. I disagree: exclusive creation says nothing about the RECLAIM path, where a peer can unlink a lock it did not create. Put that back to codex and see if it holds up.",
+      "expected_output": "Fires and continues the EXISTING thread. The counter-argument is supplied, so the only question is whether the agent resumes rather than restating context in a fresh thread.",
+      "files": [],
+      "expectations": [
+        "Uses --resume <threadId> if a thread id from the prior round is available",
+        "Does NOT restate the whole original context in a fresh thread",
+        "Knows a recall-only follow-up needs --allow-no-commands"
+      ],
+      "covers": "behaviour: multi-round via thread resume (self-contained — the earlier version left the disputed claim and the counter-argument blank, so the agent had nothing to send and refusing to invent one was correct)"
+    },
+    {
+      "id": 16,
+      "prompt": "Set up two reviewers on this design, one of them codex.",
+      "expected_output": "Fires. The mix is stated explicitly: exactly one of the two seats is Codex, and the composition is announced before the seats run.",
+      "files": [],
+      "expectations": [
+        "Runs exactly two seats, exactly one of them Codex",
+        "Gives the Codex seat the job of disagreeing, not the summarising job",
+        "States the composition BEFORE running, naming which seat is Codex",
+        "Attributes each finding to its seat in the result"
+      ],
+      "covers": "composition: an explicit ratio is honoured exactly and announced"
+    },
+    {
+      "id": 17,
+      "prompt": "Tear this migration plan apart from every angle you can think of. No codex, just you.",
+      "expected_output": "Fires only to read the composition rule, then runs ZERO Codex seats. 'No codex' overrides the panel default.",
+      "files": [],
+      "expectations": [
+        "Runs no Codex seats at all",
+        "Does NOT argue for a Codex seat or add one 'for decorrelation'",
+        "Still says plainly that the panel is all-Claude and therefore shares one bias"
+      ],
+      "covers": "composition: an explicit zero overrides the default, and the cost is stated not hidden"
+    },
+    {
+      "id": 18,
+      "prompt": "Fix the failing test in packages/core. Only codex.",
+      "expected_output": "Fires. 'Only codex' applies to single-agent work too: Codex does the task, the coordinator orchestrates and verifies rather than doing it.",
+      "files": [],
+      "expectations": [
+        "Hands the task itself to Codex rather than doing it directly",
+        "Uses --level write in a worktree, not --level read, because the task edits files",
+        "Still verifies the result independently (--verify or reading the command list)",
+        "Says up front that Codex is doing the work"
+      ],
+      "covers": "composition: the scale applies to a single agent, not only to panels"
+    },
+    {
+      "id": 19,
+      "prompt": "Get a second opinion on whether this lock implementation is actually correct.",
+      "expected_output": "Fires. Nothing was said about the mix, so the default applies: a disagreeing seat goes to Codex, and that is stated up front.",
+      "files": [],
+      "expectations": [
+        "Includes at least one Codex seat under the default",
+        "Announces that the second opinion is coming from Codex before running it",
+        "Does NOT silently substitute a Claude seat if the Codex seat returns nothing"
+      ],
+      "covers": "composition: the unstated default puts the dissenting seat on Codex"
+    }
+  ]
+}
