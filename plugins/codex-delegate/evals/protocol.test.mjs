@@ -36,7 +36,28 @@ const CASES = [
   { scenario: "needs-user",       expect: EXIT.INTERACTION,         why: "a request no unattended client can answer is never a success" },
   { scenario: "elicitation",      expect: EXIT.INTERACTION,         why: "an MCP form needs a human, not a wider sandbox" },
   { scenario: "escalated",        expect: EXIT.ESCALATED,           why: "a refused approval outranks 'nothing ran' — it explains why" },
+  { scenario: "escalated-file-change", expect: EXIT.ESCALATED,
+    why: "file-change approvals use decline, not the legacy abort shape, and must remain sandbox escalations",
+    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "item/fileChange/requestApproval"
+      || `file-change refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+  { scenario: "escalated-apply-patch", expect: EXIT.ESCALATED,
+    why: "the legacy apply-patch approval uses abort and must not fall through as an interaction",
+    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "applyPatchApproval"
+      || `apply-patch refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+  { scenario: "escalated-exec-command", expect: EXIT.ESCALATED,
+    why: "the legacy exec-command approval uses abort and must not fall through as an interaction",
+    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "execCommandApproval"
+      || `exec-command refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+  { scenario: "escalated-permissions", expect: EXIT.ESCALATED,
+    why: "a permissions request is refused with an empty granted profile and must remain a sandbox escalation",
+    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "item/permissions/requestApproval"
+      || `permissions refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
   { scenario: "turn-failed",      expect: EXIT.TURN_NOT_COMPLETED,  why: "arrival of turn/completed is not success; the status is" },
+  { scenario: "stalled-turn",     expect: EXIT.TIMEOUT, args: ["--timeout", "0.25", "--verify", "true"],
+    why: "an expired turn budget is exit 3 and cannot verify a tree the model may still be writing",
+    assert: (r) => r.ok === false && r.exitCode === EXIT.TIMEOUT && r.turnStatus === "timedOut"
+        && r.verify === null && r.verifySkipped === "turn-timed-out"
+      || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
   { scenario: "hidden-failure",  expect: EXIT.COMMAND_FAILED,     why: "a failed command is a failed run, whatever the answer claims; one incidental success must not mask it" },
   { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--verify", "true"],
@@ -69,6 +90,12 @@ const CASES = [
     why: "more writable roots than asked for is also a sandbox nobody reasoned about; widening must fail as loudly as narrowing" },
   { scenario: "profile-networked", expect: EXIT.TRANSPORT,
     why: "`--level read --network` is a usage error because read never grants egress; a profile that grants it anyway must not slip past the guard holding that very field" },
+  { scenario: "write-root-widened", expect: EXIT.TRANSPORT, args: ["--level", "write"],
+    why: "write level must reject a writable root the driver never sent, even when every other sandbox field matches",
+    assertStderr: (t) => /writable roots/.test(t) || `stderr did not name the writable roots: ${JSON.stringify(t)}` },
+  { scenario: "write-full-access", expect: EXIT.TRANSPORT, args: ["--level", "write"],
+    why: "write level must reject dangerFullAccess before an otherwise healthy turn can run",
+    assertStderr: (t) => /sandbox type/.test(t) || `stderr did not name the sandbox type: ${JSON.stringify(t)}` },
   { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", "yes abcdefghij | head -c 100000000; exit 0"],
     why: "a verifier that exits 0 but overruns maxBuffer measured nothing — it must not be reported as 'the work is not there'",
     assert: (r) => r.verify?.measured === false && r.verify?.ok === false
@@ -152,32 +179,35 @@ function run(c) {
        "--prompt", "irrelevant, the server is scripted", ...(c.args ?? [])],
       { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario, ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
         stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
+    let out = "", err = "";
     p.stdout.on("data", (d) => { out += d; });
+    p.stderr.on("data", (d) => { err += d; });
     // A bounded case, because a HANG is worse than a failure: an undeclared variable in the driver once
     // threw inside an event handler and the suite stalled forever instead of reporting anything. The
     // scripted server answers in milliseconds, so anything near this bound is a defect, not slowness.
     const bell = setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, 30000);
-    p.on("close", (code) => { clearTimeout(bell); resolve({ code, out }); });
+    p.on("close", (code) => { clearTimeout(bell); resolve({ code, out, err }); });
   });
 }
 
 let failed = 0;
 for (const c of CASES) {
   const label = `${c.scenario}${c.args?.length ? ` ${c.args.join(" ")}` : ""}`;
-  const { code, out } = await run(c);
+  const { code, out, err } = await run(c);
   let report = null;
   try { report = JSON.parse(out); } catch {}
   // An exit code alone cannot catch a report that destroys information — two runs with opposite verify
   // results once printed byte-identically at the same code. `assert` returns true, or a reason string.
-  const assertion = c.assertText ? c.assertText(out) : (c.assert && report ? c.assert(report) : true);
+  const assertion = c.assertStderr ? c.assertStderr(err)
+    : c.assertText ? c.assertText(out)
+      : c.assert ? (report ? c.assert(report) : "expected a JSON report, but stdout was not JSON") : true;
   const ok = code === c.expect && assertion === true;
   if (!ok) {
     failed++;
     let detail = "";
     if (report) {
       detail = ` [turn=${report.turnStatus} cmds=${report.commandsRun} match=${report.commandsMatchingExpectation} esc=${report.escalations?.length} int=${report.interactions?.length} answer=${JSON.stringify(String(report.answer).slice(0, 40))}]`;
-    } else { detail = ` [no JSON report: ${out.slice(0, 80)}]`; }
+    } else { detail = ` [no JSON report: ${out.slice(0, 80)}; stderr: ${err.slice(0, 160)}]`; }
     const wrong = code !== c.expect ? `expected ${c.expect}, got ${code}` : `exit ${code} correct, but the report is wrong: ${assertion}`;
     console.log(`FAIL  ${label}: ${wrong}${detail}\n      ${c.why}`);
   } else {

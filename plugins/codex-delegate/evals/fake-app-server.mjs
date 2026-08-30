@@ -11,6 +11,7 @@
 
 import fs from "node:fs";
 import os from "node:os";
+import { isDeepStrictEqual } from "node:util";
 const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? ""; } };
 import readline from "node:readline";
 
@@ -59,15 +60,31 @@ const msg = (turnId, threadId, text, phase = "final_answer") =>
 const done = (turnId, threadId, status = "completed", error = null) =>
   note("turn/completed", { threadId, turn: { id: turnId, status, error, items: [] } });
 
+let requestedThread = null;
+let pendingApproval = null;
+
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
-  if (!m.method) return;
+  if (!m.method) {
+    if (!pendingApproval || m.id !== pendingApproval.id) return;
+    const p = pendingApproval;
+    pendingApproval = null;
+    const refusedAsSpecified = isDeepStrictEqual(m.result, p.expected);
+    // A recognised approval with the wrong response shape still records an escalation in the driver.
+    // Emit a command only for the schema-valid refusal so the protocol case pins the response as well as
+    // the method classification, without making a malformed response wait for the suite's outer timeout.
+    w(...(refusedAsSpecified ? [cmd(p.turnId, p.threadId, { command: `echo ${p.method}` })] : []),
+      msg(p.turnId, p.threadId, `${p.method} ${refusedAsSpecified ? "refused" : "answered incorrectly"}`),
+      done(p.turnId, p.threadId));
+    return;
+  }
 
   if (m.method === "initialize") { w(reply(m.id, { userAgent: "fake", codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" })); return; }
   if (m.method === "initialized") return;
 
   if (m.method === "thread/start" || m.method === "thread/resume") {
+    requestedThread = m.params;
     // EVERY field below is derived from what the driver actually SENT — its -c config (CFG) and its
     // thread/start params — never from a literal. A literal here is a fixture that agrees with itself: it
     // let the driver stop sending the read-level permission config, or stop pinning approvalsReviewer,
@@ -119,6 +136,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (SCENARIO === "profile-effect-dropped") sb = { type: "readOnly", networkAccess: false };
     if (SCENARIO === "profile-widened") sb = { ...sb, writableRoots: [...(sb.writableRoots ?? []), process.cwd()] };
     if (SCENARIO === "profile-networked" || SCENARIO === "write-networked") sb = { ...sb, networkAccess: true };
+    // The widened root is derived from the requested cwd, rather than a fixture-only literal that could
+    // accidentally agree with a driver bug. Its parent exists and is strictly broader than the cwd.
+    if (SCENARIO === "write-root-widened")
+      sb = { ...sb, writableRoots: [...(sb.writableRoots ?? []), canon(`${m.params.cwd}/..`)] };
+    if (SCENARIO === "write-full-access") sb = { type: "dangerFullAccess" };
     // A workspace that does not contain the cwd: nothing in the sandbox object reveals this.
     // The workspace roots are the cwd AS GIVEN plus every extra writable root — measured; a fixture that
     // reported the cwd alone hid whether the driver's extra roots reached the server at all.
@@ -152,10 +174,27 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
   if (m.method === "turn/start") {
     const R = reply(m.id, { turn: { id: TURN, status: "inProgress", items: [], error: null } });
+    const prompt = m.params?.input?.[0]?.text ?? "";
+    const askApproval = (method, params, expected) => {
+      const id = 9300 + Number(m.id);
+      pendingApproval = { id, method, expected, threadId: m.params.threadId, turnId: TURN };
+      w(R, { jsonrpc: "2.0", id, method, params });
+    };
     switch (SCENARIO) {
       // Everything the driver should accept.
       case "happy":
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
+      // Write-level sandbox guards must stop the turn before any of this otherwise-valid work runs.
+      case "write-root-widened":
+      case "write-full-access":
+        w(R, cmd(TURN, m.params.threadId), msg(TURN, m.params.threadId, "the answer"), done(TURN, m.params.threadId));
+        break;
+
+      // The turn/start response is enough to establish the turn, but no terminal notification follows.
+      case "stalled-turn":
+        w(R);
         break;
 
       // A command from an EARLIER turn on our own thread, plus that turn's answer. Nothing belonging to
@@ -198,6 +237,37 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         w(R, { jsonrpc: "2.0", id: 9002, method: "item/commandExecution/requestApproval",
                params: { threadId: THREAD, turnId: TURN, itemId: "item_a", startedAtMs: now(), command: "rm -rf /" } });
         setTimeout(() => w(msg(TURN, THREAD, "could not proceed"), done(TURN, THREAD)), 30);
+        break;
+
+      // Each approval method has its own response schema. These requests derive their ids, cwd, command
+      // and proposed changes from the turn/thread requests; only the protocol discriminants are literals.
+      case "escalated-file-change":
+        askApproval("item/fileChange/requestApproval", {
+          threadId: m.params.threadId, turnId: TURN, itemId: `item_${m.id}`,
+          startedAtMs: now(), reason: prompt
+        }, { decision: "decline" });
+        break;
+
+      case "escalated-apply-patch":
+        askApproval("applyPatchApproval", {
+          conversationId: m.params.threadId, callId: `call_${m.id}`,
+          fileChanges: { [`${requestedThread.cwd}/approval-${m.id}.txt`]: { type: "add", content: prompt } }
+        }, { decision: "abort" });
+        break;
+
+      case "escalated-exec-command":
+        askApproval("execCommandApproval", {
+          conversationId: m.params.threadId, callId: `call_${m.id}`, command: [prompt],
+          cwd: requestedThread.cwd, parsedCmd: [{ type: "unknown", cmd: prompt }]
+        }, { decision: "abort" });
+        break;
+
+      case "escalated-permissions":
+        askApproval("item/permissions/requestApproval", {
+          threadId: m.params.threadId, turnId: TURN, itemId: `item_${m.id}`,
+          cwd: requestedThread.cwd, startedAtMs: now(),
+          permissions: { fileSystem: { write: [requestedThread.cwd] }, network: null }, reason: prompt
+        }, { permissions: { fileSystem: null, network: null } });
         break;
 
       case "turn-failed":
