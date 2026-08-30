@@ -38,20 +38,20 @@ const CASES = [
   { scenario: "escalated",        expect: EXIT.ESCALATED,           why: "a refused approval outranks 'nothing ran' — it explains why" },
   { scenario: "escalated-file-change", expect: EXIT.ESCALATED,
     why: "file-change approvals use decline, not the legacy abort shape, and must remain sandbox escalations",
-    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "item/fileChange/requestApproval"
-      || `file-change refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+    assert: (r) => r.commandsSucceeded === 1 && r.escalations?.[0]?.method === "item/fileChange/requestApproval"
+      || `file-change refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsSucceeded, escalations: r.escalations })}` },
   { scenario: "escalated-apply-patch", expect: EXIT.ESCALATED,
     why: "the legacy apply-patch approval uses abort and must not fall through as an interaction",
-    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "applyPatchApproval"
-      || `apply-patch refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+    assert: (r) => r.commandsSucceeded === 1 && r.escalations?.[0]?.method === "applyPatchApproval"
+      || `apply-patch refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsSucceeded, escalations: r.escalations })}` },
   { scenario: "escalated-exec-command", expect: EXIT.ESCALATED,
     why: "the legacy exec-command approval uses abort and must not fall through as an interaction",
-    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "execCommandApproval"
-      || `exec-command refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+    assert: (r) => r.commandsSucceeded === 1 && r.escalations?.[0]?.method === "execCommandApproval"
+      || `exec-command refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsSucceeded, escalations: r.escalations })}` },
   { scenario: "escalated-permissions", expect: EXIT.ESCALATED,
     why: "a permissions request is refused with an empty granted profile and must remain a sandbox escalation",
-    assert: (r) => r.commandsRun === 1 && r.escalations?.[0]?.method === "item/permissions/requestApproval"
-      || `permissions refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsRun, escalations: r.escalations })}` },
+    assert: (r) => r.commandsSucceeded === 1 && r.escalations?.[0]?.method === "item/permissions/requestApproval"
+      || `permissions refusal was not accepted by the fixture: ${JSON.stringify({ commands: r.commandsSucceeded, escalations: r.escalations })}` },
   { scenario: "turn-failed",      expect: EXIT.TURN_NOT_COMPLETED,  why: "arrival of turn/completed is not success; the status is" },
   { scenario: "stalled-turn",     expect: EXIT.TIMEOUT, args: ["--timeout", "0.25", "--verify", "true"],
     why: "an expired turn budget is exit 3 and cannot verify a tree the model may still be writing",
@@ -206,7 +206,7 @@ for (const c of CASES) {
     failed++;
     let detail = "";
     if (report) {
-      detail = ` [turn=${report.turnStatus} cmds=${report.commandsRun} match=${report.commandsMatchingExpectation} esc=${report.escalations?.length} int=${report.interactions?.length} answer=${JSON.stringify(String(report.answer).slice(0, 40))}]`;
+      detail = ` [turn=${report.turnStatus} cmds=${report.commandsSucceeded} match=${report.commandsMatchingExpectation} esc=${report.escalations?.length} int=${report.interactions?.length} answer=${JSON.stringify(String(report.answer).slice(0, 40))}]`;
     } else { detail = ` [no JSON report: ${out.slice(0, 80)}; stderr: ${err.slice(0, 160)}]`; }
     const wrong = code !== c.expect ? `expected ${c.expect}, got ${code}` : `exit ${code} correct, but the report is wrong: ${assertion}`;
     console.log(`FAIL  ${label}: ${wrong}${detail}\n      ${c.why}`);
