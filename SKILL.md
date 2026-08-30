@@ -433,7 +433,7 @@ directory writable · `--writable <dir>` for an extra writable root, repeatable 
 `--allow-no-commands` for a turn that legitimately needs to run nothing (it waives the command floor, never
 a `--expect-command` you declared) · `--expect-command <regex>` · `--verify '<shell>'` ·
 `--resume <threadId>` to continue a thread · `--ephemeral` to make one non-resumable ·
-`--web-search cached|indexed|live` (off by default) · `--answer-json` to demand one bare JSON object and
+`--web-search cached|indexed|live` (off by default; a managed device may permit only some of them, and the driver refuses a mode the policy forbids rather than letting the server silently substitute one) · `--answer-json` to demand one bare JSON object and
 report whether it arrived · `--brief` to cap the inline answer at 20 lines · `--host-home` to run against
 the caller's `~/.codex` instead of the private home · `--help`.
 

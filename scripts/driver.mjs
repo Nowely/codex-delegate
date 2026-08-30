@@ -286,6 +286,28 @@ function inheritedConfig() {
   return out;
 }
 
+// A managed device can narrow what a turn is allowed to do, and thread/start echoes only some of it.
+// `approvalPolicy` comes back in the response and is asserted there; the web-search mode does not appear in
+// ThreadStartResponse at all, so a caller who asked for `live` on this machine got `cached` and nothing
+// said so — measured against a profile carrying `allowed_web_search_modes = ["cached"]`. The policy file
+// is the only place that difference is visible before the turn, so read it and refuse early rather than
+// letting the caller believe a mode they did not get.
+// Absent file, non-macOS, unreadable plist, no such key: all mean "no policy narrows this", which is the
+// common case and must not be an error.
+const MANAGED_PREFS = "/Library/Managed Preferences/com.openai.codex.plist";
+function managedWebSearchModes() {
+  if (!fs.existsSync(MANAGED_PREFS)) return null;
+  const r = spawnSync("plutil", ["-extract", "requirements_toml_base64", "raw", "-o", "-", MANAGED_PREFS],
+    { encoding: "utf8" });
+  if (r.status !== 0 || !r.stdout) return null;
+  let toml;
+  try { toml = Buffer.from(r.stdout.trim(), "base64").toString("utf8"); } catch { return null; }
+  const m = toml.match(/^\s*allowed_web_search_modes\s*=\s*\[([^\]]*)\]/m);
+  if (!m) return null;
+  const modes = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  return modes.length ? modes : null;
+}
+
 function isolatedHome() {
   const base = passwdHome("the isolated Codex home");
   const home = path.join(base, ".codex-delegate", "home");
@@ -612,6 +634,12 @@ function setup() {
     // Granting it is sometimes necessary but never incidental, so say so out loud.
     process.stderr.write(`codex-delegate: --commit grants write access to ${resolved} (config, hooks, all refs)\n`);
     if (resolved !== cwd && !roots.includes(resolved)) roots.push(resolved);
+  }
+
+  if (opts.webSearch) {
+    const allowed = managedWebSearchModes();
+    if (allowed && !allowed.includes(opts.webSearch))
+      fail(EXIT.USAGE, `--web-search ${opts.webSearch} is not permitted by this device's managed policy, which allows ${allowed.join("|")}; the server would silently apply one of those and no response field would say so`);
   }
 
   const config = [
