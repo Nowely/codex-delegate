@@ -1042,7 +1042,11 @@ function finish(reason) {
 
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
-    writableRoots: roots, network: Boolean(opts.network),
+    // Named for what it is. As `writableRoots` beside a `sandbox` object that also has `writableRoots`, it
+    // read as the grant, so a report showing `[]` while the server had widened the sandbox was one glance
+    // from being believed. The grant is `sandbox.writableRoots`; assertWriteSandbox now refuses any
+    // difference between them, but the field should not have needed that to be unambiguous.
+    writableRootsRequested: roots, network: Boolean(opts.network),
     // Which Codex installation answered. Two runs that differ only in this can differ in everything else,
     // so a report that omits it cannot be compared with another.
     codexHome,

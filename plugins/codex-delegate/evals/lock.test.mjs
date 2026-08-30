@@ -47,8 +47,8 @@ function freshDir(name) {
 function run(dir, { scenario = "happy", timeout = 30, args = [], env = {} } = {}) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath,
-      [DRIVER, "--level", "write", "--cwd", dir, "--timeout", String(timeout), "--json",
-       "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
+      [DRIVER, "--level", "write", ...(dir === null ? [] : ["--cwd", dir]),
+       "--timeout", String(timeout), "--json", "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
       { env: (() => {
           const e = { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario, ...env };
           // `undefined` in a spawn env is stringified, so an unset variable has to be deleted outright.
@@ -65,6 +65,39 @@ function run(dir, { scenario = "happy", timeout = 30, args = [], env = {} } = {}
 
 const CASES = [];
 const test = (name, why, fn) => CASES.push({ name, why, fn });
+
+test("parseArgs rejects the listed invalid arguments before the turn starts",
+  "each usage guard is part of the CLI contract; letting any one through either starts a turn with unintended rights or fails later for a misleading reason",
+  async () => {
+    // A real repository makes the --commit/--level check independent of the later
+    // "--commit needs a git repository" guard.
+    const d = freshDir("invalid-args");
+    const init = spawnSync("git", ["init", "-q", d], { encoding: "utf8" });
+    if (init.status !== 0) return "git init failed: " + String(init.stderr).trim();
+    const invalid = [
+      { label: "missing --cwd", dir: null, args: [], flags: ["--cwd"], message: "--cwd is required" },
+      { label: "unknown --level", dir: d, args: ["--level", "execute"], flags: ["--level"], message: "--level must be one of" },
+      { label: "non-numeric --timeout", dir: d, args: ["--timeout", "soon"], flags: ["--timeout"], message: "--timeout must be a positive number" },
+      { label: "zero --timeout", dir: d, args: ["--timeout", "0"], flags: ["--timeout"], message: "--timeout must be a positive number" },
+      { label: "over-limit --timeout", dir: d, args: ["--timeout", "7201"], flags: ["--timeout"], message: "--timeout must be a positive number" },
+      { label: "unknown --effort", dir: d, args: ["--effort", "heroic"], flags: ["--effort"], message: "--effort must be one of" },
+      { label: "--commit at read level", dir: d, args: ["--level", "read", "--commit"], flags: ["--commit", "--level"], message: "--commit requires --level write" },
+      { label: "--ephemeral with --resume", dir: d, args: ["--ephemeral", "--resume", "thr_existing"], flags: ["--ephemeral", "--resume"], message: "--ephemeral and --resume are contradictory" },
+      { label: "invalid --expect-command regexp", dir: d, args: ["--expect-command", "["], flags: ["--expect-command"], message: "--expect-command is not a valid regular expression" },
+      { label: "unknown --web-search", dir: d, args: ["--web-search", "fresh"], flags: ["--web-search"], message: "--web-search must be one of" },
+      { label: "empty flag value", dir: d, args: ["--model", ""], flags: ["--model"], message: "--model requires a non-empty value" },
+      { label: "flag-like value", dir: d, args: ["--model", "--json"], flags: ["--model"], message: "--model requires a non-empty value" },
+    ];
+    const misses = [];
+    for (const spec of invalid) {
+      const { code, err } = await run(spec.dir, { args: spec.args });
+      const message = err.trim().replace(/\s+/g, " ");
+      if (code !== EXIT.USAGE || !spec.flags.every((flag) => message.includes(flag)) || !message.includes(spec.message))
+        misses.push(spec.label + ": expected exit 2 and " + JSON.stringify(spec.message) +
+          ", got " + code + " (" + message.slice(0, 180) + ")");
+    }
+    return misses.length ? misses.join("; ") : true;
+  });
 
 test("lock is not written into the protected directory, at any moment during the run",
   "at --level write with --commit a turn's `git add -A` stages and commits the driver's own lock file — so it is the presence DURING the turn that matters, not what survives it",
@@ -95,6 +128,31 @@ test("lock is released when the run ends",
     await run(d);
     if (fs.existsSync(lockFor(d))) return `lock ${lockFor(d)} still present after the run`;
     return true;
+  });
+
+test("a run releases only the lock it owns",
+  "a peer can replace the lock after this run loses ownership; unconditional cleanup then deletes the peer's live lock and admits a second writer",
+  async () => {
+    const d = freshDir("release-owner");
+    const p = lockFor(d);
+    const pending = run(d, { scenario: "slow-turn" });
+    const deadline = Date.now() + 5000;
+    while (!fs.existsSync(p) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    if (!fs.existsSync(p)) {
+      const { code, err } = await pending;
+      return "the run never acquired " + p + " (exit " + code + ": " + err.trim().slice(0, 120) + ")";
+    }
+    // Replace, rather than overwrite, the driver's lock: the pathname now belongs to a peer.
+    fs.rmSync(p);
+    const peer = JSON.stringify({ pid: process.pid, cwd: fs.realpathSync(d), started: "peer" });
+    fs.writeFileSync(p, peer);
+    const { code, err } = await pending;
+    let after = null;
+    try { after = fs.readFileSync(p, "utf8"); } catch {}
+    fs.rmSync(p, { force: true });
+    if (code !== EXIT.OK) return "the original run exited " + code + ": " + err.trim().slice(0, 120);
+    return after === peer ? true : "releaseLock removed or changed the peer's replacement lock";
   });
 
 test("a second run in the same directory is refused",
@@ -296,6 +354,33 @@ test("the home refusal survives a hostile or absent $HOME",
     return true;
   });
 
+test("--writable refuses the passwd home directory and names it",
+  "the extra-root entry point must pass through the same protected-root guard as --cwd",
+  async () => {
+    const root = fs.realpathSync(os.userInfo().homedir);
+    const { code, err } = await run(freshDir("writable-home"), { args: ["--writable", root] });
+    if (code !== EXIT.USAGE) return "--writable " + root + " returned " + code + ", expected 2";
+    return err.includes("refusing to grant write access to " + root + ":") ? true : "the refusal did not name " + root + ": " + err.trim().slice(0, 160);
+  });
+
+test("--writable refuses the filesystem root and names it",
+  "granting / through an extra root is the same unrestricted write grant as using it for --cwd",
+  async () => {
+    const root = fs.realpathSync("/");
+    const { code, err } = await run(freshDir("writable-root"), { args: ["--writable", root] });
+    if (code !== EXIT.USAGE) return "--writable " + root + " returned " + code + ", expected 2";
+    return err.includes("refusing to grant write access to " + root + ":") ? true : "the refusal did not name " + root + ": " + err.trim().slice(0, 160);
+  });
+
+test("--writable refuses the parent of the passwd home and names it",
+  "an ancestor grant contains the whole home even though the requested path is not the home itself",
+  async () => {
+    const root = fs.realpathSync(path.dirname(os.userInfo().homedir));
+    const { code, err } = await run(freshDir("writable-home-parent"), { args: ["--writable", root] });
+    if (code !== EXIT.USAGE) return "--writable " + root + " returned " + code + ", expected 2";
+    return err.includes("refusing to grant write access to " + root + ":") ? true : "the refusal did not name " + root + ": " + err.trim().slice(0, 160);
+  });
+
 test("two runs on one cwd take one lock however $HOME moves",
   "the lock key was rooted at os.homedir(), which PREFERS $HOME — so two runs under different HOME values took two different locks in two different homes and both proceeded",
   async () => {
@@ -323,6 +408,62 @@ test("the write sandbox is exactly what the flags asked for, echoed back",
     if (JSON.stringify(r.sandbox?.writableRoots) !== JSON.stringify([fs.realpathSync(extra)]))
       return `writable roots wrong: ${JSON.stringify(r.sandbox?.writableRoots)}`;
     return true;
+  });
+
+test("--commit applies the protected-root guard to the resolved git common dir",
+  "the common dir becomes an extra writable root, so resolving it must not bypass checkRoot",
+  async () => {
+    const d = freshDir("commit-guard-cwd");
+    const bin = freshDir("commit-guard-bin");
+    fs.writeFileSync(path.join(bin, "git"),
+      "#!/bin/sh\nprintf '%s\\n' \"$FAKE_GIT_COMMON_DIR\"\n", { mode: 0o755 });
+    const root = fs.realpathSync(os.userInfo().homedir);
+    const { code, err } = await run(d, {
+      args: ["--commit"],
+      env: {
+        PATH: bin + ":" + shimDir + ":" + process.env.PATH,
+        FAKE_GIT_COMMON_DIR: root,
+      },
+    });
+    if (code !== EXIT.USAGE)
+      return "--commit with protected common dir " + root + " returned " + code + ", expected 2";
+    return err.includes("refusing to grant write access to " + root + ":") ? true : "the refusal did not name " + root + ": " + err.trim().slice(0, 160);
+  });
+
+test("--commit sends the main clone's common dir from a linked worktree as writable",
+  "using the per-worktree git dir, or resolving the common dir without pushing it into roots, prevents commits from a linked worktree",
+  async () => {
+    const main = freshDir("commit-main");
+    let g = spawnSync("git", ["init", "-q", main], { encoding: "utf8" });
+    if (g.status !== 0) return "git init failed: " + String(g.stderr).trim();
+    fs.writeFileSync(path.join(main, "seed"), "seed\n");
+    g = spawnSync("git", ["-C", main, "add", "seed"], { encoding: "utf8" });
+    if (g.status !== 0) return "git add failed: " + String(g.stderr).trim();
+    g = spawnSync("git", ["-C", main, "-c", "user.name=Lock Eval", "-c", "user.email=lock@example.invalid",
+      "commit", "-qm", "seed"], { encoding: "utf8" });
+    if (g.status !== 0) return "git commit failed: " + String(g.stderr).trim();
+    const linked = path.join(freshDir("commit-linked-parent"), "worktree");
+    g = spawnSync("git", ["-C", main, "worktree", "add", "--detach", linked, "HEAD"], { encoding: "utf8" });
+    if (g.status !== 0) return "git worktree add failed: " + String(g.stderr).trim();
+    g = spawnSync("git", ["-C", linked, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { encoding: "utf8" });
+    if (g.status !== 0) return "git common-dir query failed: " + String(g.stderr).trim();
+    const common = fs.realpathSync(g.stdout.trim());
+    const mainGit = fs.realpathSync(path.join(main, ".git"));
+    if (common !== mainGit)
+      return "test setup expected " + mainGit + " as the linked common dir, got " + common;
+    const { code, out, err } = await run(linked, { args: ["--commit"] });
+    if (code !== EXIT.OK)
+      return "linked-worktree --commit exited " + code + ": " + err.trim().slice(0, 180);
+    let report = null;
+    try { report = JSON.parse(out); } catch {}
+    if (!report) return "linked-worktree --commit produced no JSON report";
+    const sent = report.sandbox?.writableRoots;
+    if (JSON.stringify(sent) !== JSON.stringify([common]))
+      return "writable roots were " + JSON.stringify(sent) + ", expected the main common dir " + common;
+    return err.includes(common)
+      ? true
+      : "the --commit notice did not name " + common + ": " + err.trim().slice(0, 160);
   });
 
 test("a write run whose workspace is not the cwd is refused",
