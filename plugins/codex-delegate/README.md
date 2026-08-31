@@ -21,26 +21,34 @@ is always 0 — so a seat that did nothing cannot report as though it had.
 
 ## Install
 
-Via the [`skills` CLI](https://github.com/vercel-labs/skills) (directory: [skills.sh](https://skills.sh)):
+As a plugin — the full set: the skill plus the `codex-seat` subagent (the repo is its own marketplace):
+
+```
+/plugin marketplace add Nowely/codex-delegate
+/plugin install codex-delegate@codex-delegate
+```
+
+Skill only, via the [`skills` CLI](https://github.com/vercel-labs/skills) (directory: [skills.sh](https://skills.sh)):
 
 ```bash
 npx skills add Nowely/codex-delegate -g -a claude-code
 ```
 
-`-g` installs user-wide into `~/.claude/skills/`; drop it for a project-local install. Or from source —
-clone and symlink, so the checkout stays the single source of truth:
+Or from source — clone and symlink, so the checkout stays the single source of truth (add the second
+symlink if you want the `codex-seat` agent without the plugin route):
 
 ```bash
 git clone https://github.com/Nowely/codex-delegate.git
-ln -s "$PWD/codex-delegate" ~/.claude/skills/codex-delegate
+ln -s "$PWD/codex-delegate/skills/codex-delegate" ~/.claude/skills/codex-delegate
+ln -s "$PWD/codex-delegate/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
 ```
 
-Verify the install — costs nothing, calls no model:
+Verify the install from a checkout — costs nothing, calls no model:
 
 ```bash
-node ~/.claude/skills/codex-delegate/evals/protocol.test.mjs   # the protocol and the result gates
-node ~/.claude/skills/codex-delegate/evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
-node ~/.claude/skills/codex-delegate/evals/fidelity.test.mjs   # does the fixture still match YOUR codex?
+node evals/protocol.test.mjs   # the protocol and the result gates
+node evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
+node evals/fidelity.test.mjs   # does the fixture still match YOUR codex?
 ```
 
 The third is the one to watch after a `codex` upgrade: it performs a real handshake and diffs it
@@ -49,7 +57,7 @@ against the fixture, so protocol drift shows up as a failing case instead of a c
 ## First run
 
 ```bash
-node ~/.claude/skills/codex-delegate/scripts/driver.mjs --cwd . --brief \
+node skills/codex-delegate/scripts/driver.mjs --cwd . --brief \
   --prompt 'TASK: describe this repository in two sentences, after listing its files.
 CHECK: name three real files.
 RETURN: the two sentences.'
@@ -61,7 +69,11 @@ really ran, and every declared check passed; `threadId` continues the conversati
 the originator, the model provider and the whole transcript.
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
-agent reads mid-task, including when to give a panel seat to Codex at all.
+agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed, a
+seat is one native subagent call — `Agent(subagent_type: "codex-seat", prompt: "SEAT: read\nTASK: …")`
+(or `agentType: "codex-seat"` inside a workflow): a pinned relay that maps the SEAT header to driver
+flags, runs it once, and returns Codex's answer verbatim with the thread id and receipt, never an
+answer of its own.
 
 ## Rights, per call
 
@@ -79,7 +91,8 @@ agent reads mid-task, including when to give a panel seat to Codex at all.
   commentary. `SKILL.md` documents the ladder.
 - **`--verify '<shell>'`** runs after the turn, executed by the driver, invisible to the model: the one
   check the model cannot author. `--expect-command <regex>` additionally demands that the work matched
-  a declared signature.
+  a declared signature, and `--output-schema <file>` demands a JSON answer matching a schema — enforced
+  by the server during generation, re-checked by the driver, with one corrective turn before failing.
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
   were asked for — sandbox type, writable roots, network, approval policy, approvals reviewer — and a
   mismatch refuses the run instead of proceeding under an unknown sandbox.
@@ -119,11 +132,12 @@ then re-run the other two suites and re-check the parity table in `SKILL.md`.
 ## Layout
 
 ```
-SKILL.md              the operating manual the agent reads mid-task
-scripts/driver.mjs    the driver: one file, no dependencies, only Node builtins
-references/           the depth SKILL.md points at rather than carrying
-evals/                three suites — protocol, lock, and fidelity against the live server
-schema-0.150.1/       the pinned protocol schema the driver is written against
+skills/codex-delegate/           the skill: SKILL.md (the operating manual), scripts/driver.mjs
+                                 (one file, no dependencies, only Node builtins), references/
+agents/codex-seat.md             the relay subagent the plugin ships
+.claude-plugin/                  plugin + marketplace manifests
+evals/                           three suites — protocol, lock, and fidelity against the live server
+schema-0.150.1/                  the pinned protocol schema the driver is written against
 ```
 
 ## Status

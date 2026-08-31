@@ -11,7 +11,7 @@ description: >-
   they forbid it ("no codex", "just you"): a refusal is still a composition this skill decides, and an
   all-Claude panel owes the user one line naming its shared bias. Skip for trivia and mechanical
   fact-gathering; knowing the answer is not a reason to skip a requested second opinion.
-version: 0.2.0
+version: 0.3.0
 license: MIT
 ---
 
@@ -19,11 +19,13 @@ license: MIT
 
 ## What to type
 
-A read seat — the common case, and what a panel's dissenting seat needs. The JSON report and a
-resumable thread are the defaults; `--brief` keeps the inline answer out of your context budget:
+The driver lives at `scripts/driver.mjs` under THIS skill's base directory (announced when this file
+loads) — set `DRIVER` to that absolute path once per session. A read seat — the common case, and what a
+panel's dissenting seat needs. The JSON report and a resumable thread are the defaults; `--brief` keeps
+the inline answer out of your context budget:
 
 ```bash
-node ~/.claude/skills/codex-delegate/scripts/driver.mjs --cwd "$REPO" --brief \
+node "$DRIVER" --cwd "$REPO" --brief \
   --expect-command '<regex of the real work, e.g. vitest|tsc>' \
   --prompt 'TASK:   <what to do>
 CHECK:  <the ground truth to verify against>
@@ -36,7 +38,7 @@ turn there, and removes the tree afterwards only when the turn completed AND `gi
 is empty. Every other outcome preserves the tree, and the report says why and how to remove it:
 
 ```bash
-node ~/.claude/skills/codex-delegate/scripts/driver.mjs --worktree "$REPO" \
+node "$DRIVER" --worktree "$REPO" \
   --verify '<the end state you demand, e.g. test -f done.txt>' --prompt '<task>'
 ```
 
@@ -58,10 +60,14 @@ exfiltration surface.
   suites before trusting a run — the protocol carries no stability promise:
 
 ```bash
-node ~/.claude/skills/codex-delegate/evals/protocol.test.mjs   # the protocol and the result gates
-node ~/.claude/skills/codex-delegate/evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
-node ~/.claude/skills/codex-delegate/evals/fidelity.test.mjs   # does the fixture still answer like YOUR codex?
+node <repo-or-plugin-root>/evals/protocol.test.mjs   # the protocol and the result gates
+node <repo-or-plugin-root>/evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
+node <repo-or-plugin-root>/evals/fidelity.test.mjs   # does the fixture still answer like YOUR codex?
 ```
+
+The suites live beside the skill in the repository (or plugin root), two directories up from this
+file's base directory; a bare `npx skills` install carries only the skill itself, so run them from a
+checkout.
 
 The `openai-codex` plugin is not a substitute where rights matter: it hardcodes an approval policy an
 MDM profile clamps, and its always-sent `sandbox` parameter suppresses the permission profile that makes
@@ -107,15 +113,20 @@ any number of read seats work over one directory at once. Use `--brief`, or an u
 whole working note into your context.
 
 **Wrapped.** A subagent around the seat is legitimate — it can summarise, reconcile runs, or sit inside
-a workflow. What it must not be is unverified: a seat that did nothing is indistinguishable from a seat
-that found nothing. Demand the run's `threadId` and `exitCode` in the wrapper's return, and read
-`receiptPath` in the report — the driver locates the rollout under `~/.codex/sessions` itself, and
-`receiptOk: false` on a run that claims success is a red flag (the rollout carries the originator, the
-model provider and the whole turn; a wrapper that forwarded the work has no thread id to give). Tell
-the wrapper its job:
+a workflow. The standard wrapper is the **`codex-seat` agent** shipped with the plugin: call it as
+`Agent(subagent_type: "codex-seat", prompt: "SEAT: read\nTASK: …")` or, in a workflow,
+`agent(prompt, {agentType: "codex-seat"})` — its relay contract (verbatim answer, threadId, exitCode,
+receipt, structured failure) is baked into the definition, so there is nothing to re-instruct. Where it
+is not installed, a hand-rolled wrapper must be told its job:
 
     Return Codex's answer verbatim, with the run's threadId and exitCode. Do not summarise, do not add
     findings of your own, and if the run fails report the failure rather than answering yourself.
+
+Either way, a wrapper must not be unverified: a seat that did nothing is indistinguishable from a seat
+that found nothing. Demand the run's `threadId` and `exitCode` in the return, and read `receiptPath` in
+the report — the driver locates the rollout under `~/.codex/sessions` itself, and `receiptOk: false` on
+a run that claims success is a red flag (the rollout carries the originator, the model provider and the
+whole turn; a wrapper that forwarded the work has no thread id to give).
 
 ## Levels
 
@@ -173,7 +184,7 @@ Measured 2026-08-30 on this repo (driver 0.1.0); re-check after a codex upgrade.
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home; `--host-home` restores them, and their nondeterminism |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
-| a schema-validated return | `--answer-json` | syntax-checked only: no retry layer, and an array or bare number parses happily. The instruction is strong — measured attempts to elicit prose came back as bare JSON |
+| a schema-validated return | `--output-schema <file>` | the server constrains generation with the schema, the driver validates the result independently (type/required/properties/enum/items), and a mismatch spends ONE corrective turn on the same thread before exit 13 — the retry a subagent's tool layer provides. `--answer-json` remains the lighter syntax-only demand |
 | a short return + transcript | `--brief`, plus `answerPath` always | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
@@ -228,8 +239,9 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | 10 | the cwd is locked by another run, or a resumed thread still has a turn open |
 | 11 | a command ran and **failed**, or a file change did. Only a **passing** `--verify` overrules it |
 | 12 | `--verify` could not be run at all — fix the verifier, not the work |
+| 13 | the answer never matched `--output-schema`, even after the corrective turn — `schemaErrors` says how |
 
-These are ordered, first match wins: **3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 11**. Every code decided
+These are ordered, first match wins: **3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 13 → 11**. Every code decided
 after the turn can carry executed work — 3 most of all. The codes that mean nothing ran are decided
 before the turn: an argument-error 2 (prints no report), 10, and the assertion 4s.
 
@@ -292,9 +304,16 @@ concurrent run its own cwd (`--worktree` does). Internals:
 `--writable <dir>` (repeatable) · `--network` · `--expect-command <regex>` · `--verify '<shell>'` ·
 `--allow-no-commands` (waives the command floor, never a declared expectation) ·
 `--resume <threadId>` · `--ephemeral` (non-resumable; the receipt story still holds, but prefer the
-default) · `--web-search cached|indexed|live` (off by default) · `--answer-json` · `--brief` (cap the
-inline answer at 20 lines; the full text is at `answerPath`) · `--host-home` (the caller's `~/.codex`
-instead of the private home) · `--footer` (human footer instead of the default JSON) · `--help`.
+default) · `--web-search cached|indexed|live` (off by default) · `--answer-json` ·
+`--output-schema <file>` (a validated object with one corrective retry; exit 13 on a final mismatch) ·
+`--brief` (cap the inline answer at 20 lines; the full text is at `answerPath`) · `--host-home` (the
+caller's `~/.codex` instead of the private home) · `--footer` (human footer instead of the default
+JSON) · `--help`.
+
+Observability: `threadId` is printed to stderr as soon as the thread exists — tail the live rollout
+under `~/.codex/sessions` during a long turn — and the report's `tokenUsage` carries the server's own
+accounting of what the seat cost. `--writable` refuses `~/.codex` and `~/.codex-delegate` outright:
+the first holds the receipts a seat is verified by, the second this driver's locks and answer log.
 
 `--commit`, `--writable` and `--network` require write level. Unless `--host-home` is given, a run uses
 a private `CODEX_HOME` at `~/.codex-delegate/home` — shared by every run — so the caller's plugins,

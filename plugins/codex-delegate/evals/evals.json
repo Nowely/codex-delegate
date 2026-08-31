@@ -226,6 +226,51 @@
         "Does NOT silently substitute a Claude seat if the Codex seat returns nothing"
       ],
       "covers": "composition: the unstated default puts the dissenting seat on Codex"
+    },
+    {
+      "id": 20,
+      "prompt": "Сделай ревью этого диффа, и половину работы отдай codex.",
+      "expected_output": "Fires. The user names Codex and states the mix (half); Russian phrasing must trigger like English.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Honours the stated half-codex mix",
+        "Announces the composition before the seats run"
+      ],
+      "covers": "trigger (ru): user names Codex and a mix"
+    },
+    {
+      "id": 21,
+      "prompt": "Собери панель из четырёх ревьюеров, пусть разнесут этот дизайн перед тем, как я закоммичусь.",
+      "expected_output": "Fires. A review panel needs a decorrelated seat; no English keyword present — semantic match must carry it.",
+      "files": [],
+      "expectations": [
+        "Considers giving at least one seat to Codex via codex-delegate",
+        "Does NOT hand the whole panel to Codex"
+      ],
+      "covers": "trigger (ru): panel with no codex/gpt token"
+    },
+    {
+      "id": 22,
+      "prompt": "Проверь моё решение через gpt — пусть попробует его опровергнуть.",
+      "expected_output": "Fires. 'через gpt' is in the description's trigger list verbatim.",
+      "files": [],
+      "expectations": [
+        "Invokes the codex-delegate skill",
+        "Chooses --level read"
+      ],
+      "covers": "trigger (ru): user names GPT"
+    },
+    {
+      "id": 23,
+      "prompt": "Переименуй файл codex-delegate.test.ts в delegate.test.ts и поправь импорты.",
+      "expected_output": "Stays silent. 'codex' as part of a filename is not a delegation request — the Russian mirror of case 9.",
+      "files": [],
+      "expectations": [
+        "Does NOT invoke the codex-delegate skill",
+        "Just renames the file"
+      ],
+      "covers": "negative (ru): skill name inside a filename"
     }
   ]
 }

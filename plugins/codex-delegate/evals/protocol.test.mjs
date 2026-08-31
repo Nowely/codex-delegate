@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DRIVER = path.join(HERE, "..", "scripts", "driver.mjs");
+const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
 const FAKE = path.join(HERE, "fake-app-server.mjs");
 
 // The driver spawns `codex` from PATH, so the shim has to be called exactly that.
@@ -25,7 +25,16 @@ const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-delegate-test-"));
 fs.writeFileSync(path.join(shimDir, "codex"),
   `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
 
-const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12 };
+const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
+
+// A schema file for the --output-schema cases, and a non-executable file for the verify-126 branch.
+const schemaFile = path.join(shimDir, "verdict.schema.json");
+fs.writeFileSync(schemaFile, JSON.stringify({
+  type: "object", required: ["verdict"],
+  properties: { verdict: { type: "string", enum: ["ok", "bad"] }, count: { type: "integer" } }
+}));
+const notExec = path.join(shimDir, "not-executable");
+fs.writeFileSync(notExec, "#!/bin/sh\necho unreachable\n", { mode: 0o644 });
 
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
@@ -203,7 +212,34 @@ const CASES = [
     assert: (r) => /allow-no-commands/.test(r.hint ?? "") || `exit 5 carried no hint: ${JSON.stringify(r.hint)}` },
   { scenario: "wrong-command",    expect: EXIT.NO_COMMANDS, args: ["--expect-command", "vitest"],
     why: "with a declared expectation the hint would be a lie — --allow-no-commands never waives an expectation",
-    assert: (r) => r.hint === undefined || `a hint appeared beside a declared expectation: ${JSON.stringify(r.hint)}` }
+    assert: (r) => r.hint === undefined || `a hint appeared beside a declared expectation: ${JSON.stringify(r.hint)}` },
+
+  // --- --output-schema: the server constrains, the driver checks, one corrective turn is spent ---
+  { scenario: "schema-good",      expect: EXIT.OK, args: ["--output-schema", schemaFile],
+    why: "a first-try match spends no corrective turn and reports the parsed object",
+    assert: (r) => (r.outputAttempts === 1 && r.outputSchemaOk === true && r.answerJson?.verdict === "ok")
+      || `schema-good report wrong: ${JSON.stringify({ a: r.outputAttempts, ok: r.outputSchemaOk, j: r.answerJson })}` },
+  { scenario: "schema-retry",     expect: EXIT.OK, args: ["--output-schema", schemaFile],
+    why: "prose on the first attempt gets ONE corrective turn carrying the validation errors, mirroring a Claude subagent's tool-layer retry",
+    assert: (r) => (r.outputAttempts === 2 && r.outputSchemaOk === true && r.answerJson?.verdict === "ok" && r.commandsSucceeded === 2)
+      || `schema-retry report wrong: ${JSON.stringify({ a: r.outputAttempts, ok: r.outputSchemaOk, j: r.answerJson, c: r.commandsSucceeded })}` },
+  { scenario: "schema-never",     expect: EXIT.SCHEMA, args: ["--output-schema", schemaFile],
+    why: "a shape that never arrives is exit 13, not an exit 0 whose caller must remember to read answerJsonError",
+    assert: (r) => (r.outputAttempts === 2 && r.outputSchemaOk === false && Array.isArray(r.schemaErrors) && r.schemaErrors.length > 0)
+      || `schema-never report wrong: ${JSON.stringify({ a: r.outputAttempts, ok: r.outputSchemaOk, e: r.schemaErrors })}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", "/nonexistent/schema.json"],
+    why: "an unreadable schema is the caller's error, raised before anything runs",
+    assertStderr: (t) => /--output-schema cannot read/.test(t) || `stderr did not name the schema file: ${t.slice(0, 120)}` },
+
+  // --- accounting and the remaining untested branches ---
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "the server's own token accounting reaches the report, so a coordinator can budget a fan-out",
+    assert: (r) => r.tokenUsage?.total?.totalTokens === 135
+      || `tokenUsage missing or wrong: ${JSON.stringify(r.tokenUsage)}` },
+  { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", notExec],
+    why: "exit 126 — found but not executable — is 'fix the verifier', not 'the work is not there'; this branch had no test and could be deleted green",
+    assert: (r) => (r.verify?.measured === false && r.verify?.exitCode === 126)
+      || `a non-executable verifier was not classified as unmeasurable: ${JSON.stringify(r.verify)}` }
 ];
 
 function run(c) {

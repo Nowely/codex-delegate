@@ -92,13 +92,19 @@ event stream. That layer is the part upstream has not merged.
   machine. **Its fix was written and dropped**: PR `#508` stopped sending the hardcoded value, was
   third-party-verified, and was closed unmerged on 2026-08-11.
 - `#273`: the linked-worktree commit failure this skill solves with the git-common-dir writable root.
-- `#499` / `#641`: the `-32601` stubbing from the other side — answering those requests is most of
-  what this driver does.
+- `#499` / `#640` / `#641`: the `-32601` stubbing from the other side — every approval and MCP
+  request auto-rejected; answering those requests is most of what this driver does.
+- `#412` (open since 2026-07-04): the write-path symptom as users meet it — `/codex:rescue` "always
+  returns a read-only sandbox error", reported from an unmanaged Windows machine.
+- `#240` (open since 2026-04-23): the override mechanism itself — "plugin overrides Codex sandbox
+  config", from the bwrap angle.
 - Maintainer engagement: every participant on #482/#508 is `NONE`, and 0 of the last 40 closed PRs
   were merged (measured 2026-08-31; an earlier count said 2 of 40). Do not plan around upstream.
 
 A merged #426 plus a merged successor to #508 is the day the write path can go back to the plugin.
-None of the open issues mentions the managed-profile case; filing it is worth doing and unclaimed.
+The managed-profile case is not reported as such, but its every ingredient is — the hardcoded policy
+(#426), the override (#240/#482), the symptom (#412), the auto-rejection (#499/#640/#641) — so a
+separate MDM report would add little, and none was filed from here.
 
 ## What the plugin does better, and is worth adopting
 
