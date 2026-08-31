@@ -86,6 +86,13 @@ Rights
   ~/.codex and ~/.codex-delegate and anything inside them: they hold the
   rollout receipts and this driver's own state
 
+  --seat-file F      read the seat's declaration from F — one "FIELD: value" per
+                     line (SEAT/EFFORT/TIMEOUT/EXPECT/VERIFY/NETWORK/MODEL/
+                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/COMMIT/BRIEF/
+                     ALLOW_NO_COMMANDS), values taken literally to end of line.
+                     For a wrapper: write the values, do not build a command
+                     line out of them. Explicit flags override the file.
+
 Turn
   --prompt TEXT      the task; omit to read it from stdin
   --web-search cached|indexed|live
@@ -156,6 +163,56 @@ So 2 means either, and they are told apart by the report: an argument error
 prints none. Codes decided after the turn can all carry executed work.
 `;
 
+// --seat-file exists so a WRAPPER never has to build a shell command line out of values it was handed.
+// A relay agent that interpolates a caller-supplied --verify or --expect-command into `sh -c` is one
+// quoting slip away from executing whatever that value says — and --verify runs unsandboxed, with the
+// caller's own rights, by design. Here the wrapper writes the values verbatim into a file and the
+// driver parses them itself: there is no shell between the header and the flags, so no escaping to get
+// wrong and nothing for an injected quote to break out of.
+//
+// The format is one `FIELD: value` per line, value taken literally to end of line (so quotes, $, ;, |
+// and backticks are just characters). Unknown fields, repeats and anything the flags reject are usage
+// errors — a malformed seat file must never silently become a different seat.
+const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE"]);
+function argvFromSeatFile(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, "utf8"); }
+  catch (e) { fail(EXIT.USAGE, `--seat-file cannot read ${file}: ${e.message}`); }
+  if (Buffer.byteLength(raw) > 64 * 1024) fail(EXIT.USAGE, "--seat-file exceeds 64KB");
+  const out = [], seen = new Set();
+  for (const line of raw.split("\n")) {
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const at = line.indexOf(":");
+    if (at < 0) fail(EXIT.USAGE, `--seat-file: line is not FIELD: value — ${JSON.stringify(line.slice(0, 60))}`);
+    const field = line.slice(0, at).trim().toUpperCase();
+    const value = line.slice(at + 1).trim();
+    if (!SEAT_FIELDS.has(field)) fail(EXIT.USAGE, `--seat-file: unknown field ${JSON.stringify(field)}; allowed: ${[...SEAT_FIELDS].join(", ")}`);
+    if (field !== "WRITABLE" && seen.has(field)) fail(EXIT.USAGE, `--seat-file: ${field} appears more than once`);
+    seen.add(field);
+    // SEAT is the rights declaration and the only field that expands to more than one flag.
+    if (field === "SEAT") {
+      const [kind, ...rest] = value.split(/\s+/);
+      const arg = rest.join(" ");
+      if (kind === "read") { out.push("--level", "read", ...(arg ? ["--cwd", arg] : [])); }
+      else if (kind === "worktree") { if (!arg) fail(EXIT.USAGE, "--seat-file: SEAT worktree needs a repository path"); out.push("--worktree", arg); }
+      else if (kind === "write") { if (!arg) fail(EXIT.USAGE, "--seat-file: SEAT write needs a directory"); out.push("--level", "write", "--cwd", arg); }
+      else fail(EXIT.USAGE, `--seat-file: SEAT must be read | worktree <repo> | write <dir>, got ${JSON.stringify(value)}`);
+      continue;
+    }
+    const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands", BRIEF: "--brief", COMMIT: "--commit" };
+    if (BOOLS[field]) {
+      if (!/^(yes|true|1)$/i.test(value)) fail(EXIT.USAGE, `--seat-file: ${field} must be yes or omitted, got ${JSON.stringify(value)}`);
+      out.push(BOOLS[field]);
+      continue;
+    }
+    if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
+    const FLAGS = { EFFORT: "--effort", TIMEOUT: "--timeout", EXPECT: "--expect-command", VERIFY: "--verify",
+                    MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema", WRITABLE: "--writable" };
+    out.push(FLAGS[field], value);
+  }
+  return out;
+}
+
 function parseArgs(argv) {
   // No effort default. Sending one unconditionally silently downgraded whatever config.toml asked for —
   // measured: a user whose config said `max` got `low` on every delegation. --model already works this
@@ -171,6 +228,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
+      case "--seat-file": o.seatFile = need(++i, a); break;
       case "--level": o.level = need(++i, a); o.levelExplicit = true; break;
       case "--cwd": o.cwd = need(++i, a); break;
       case "--worktree": o.worktree = need(++i, a); break;
@@ -897,7 +955,20 @@ let codexHome = null;   // null means the caller's own ~/.codex, which --host-ho
 let roots = [];
 
 async function setup() {
-  opts = parseArgs(process.argv.slice(2));
+  // A seat file is expanded into ordinary argv and re-parsed, so every flag guard, every mutual
+  // exclusion and every value check applies to it unchanged — a second parser would be a second set of
+  // rules to keep in sync, which is how a wrapper's rights quietly stop matching the CLI's.
+  // Command-line flags are appended after the file's, so an explicit flag still wins where the two
+  // disagree (--timeout is the common case: the harness bounding a seat it did not author).
+  // Scanned for the flag alone, not parsed: a full parse first would reject the command line for
+  // missing exactly what the seat file is about to supply (--cwd).
+  const argv = process.argv.slice(2);
+  const at = argv.indexOf("--seat-file");
+  if (at >= 0 && (argv[at + 1] === undefined || argv[at + 1].startsWith("--")))
+    fail(EXIT.USAGE, "--seat-file requires a non-empty value");
+  opts = at >= 0
+    ? parseArgs([...argvFromSeatFile(argv[at + 1]), ...argv.filter((_, i) => i !== at && i !== at + 1)])
+    : parseArgs(argv);
 
   // Two levels, mirroring Claude's own subagents: a reader that can run things but not touch your files,
   // and a writer confined to a directory you chose. Everything else is a modifier.

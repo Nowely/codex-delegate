@@ -124,6 +124,15 @@ is not installed, a hand-rolled wrapper must be told its job:
     Return Codex's answer verbatim, with the run's threadId and exitCode. Do not summarise, do not add
     findings of your own, and if the run fails report the failure rather than answering yourself.
 
+A wrapper — shipped or hand-rolled — declares the seat with `--seat-file <file>`: one `FIELD: value`
+per line (`SEAT`, `EFFORT`, `TIMEOUT`, `EXPECT`, `VERIFY`, `NETWORK`, `MODEL`, `WEB_SEARCH`,
+`OUTPUT_SCHEMA`, `WRITABLE`, `COMMIT`, `BRIEF`, `ALLOW_NO_COMMANDS`), each value taken literally to
+end of line and mapped to the same flags with the same guards. That exists so a relay never builds a
+shell command line out of values it was handed: `--expect-command "x' --level write --commit '"`
+interpolated into `sh -c` grants write level and the git directory, while in a seat file it stays one
+regex (pinned, and verified live). Explicit flags still override the file, so a harness can bound a
+seat it did not author.
+
 Either way, a wrapper must not be unverified: a seat that did nothing is indistinguishable from a seat
 that found nothing. Demand the run's `threadId` and `exitCode` in the return, and read `receiptPath` in
 the report — the driver locates the rollout under `~/.codex/sessions` itself, and `receiptOk: false` on
@@ -303,7 +312,9 @@ concurrent run its own cwd (`--worktree` does). Internals:
 
 ## Flags
 
-`--cwd <dir>` (required unless `--worktree`) · `--worktree <repo>` (write level in a managed worktree)
+`--cwd <dir>` (required unless `--worktree` or a seat file supplies it) · `--seat-file <file>` (declare
+the seat in a file instead of on a command line — for wrappers) ·
+`--worktree <repo>` (write level in a managed worktree)
 · `--level read|write` (default `read`) · `--prompt <text>`, or pipe it on stdin (better for long ones;
 512 KB cap) · `--effort none|minimal|low|medium|high|xhigh|max|ultra` (omit to inherit config) ·
 `--model <slug>` (omit to inherit) · `--timeout <sec>` (default 900, max 7200) · `--commit` ·
