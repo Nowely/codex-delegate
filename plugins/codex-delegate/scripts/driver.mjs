@@ -74,6 +74,11 @@ Rights
   --level read       read anything, write only $TMPDIR; no lock is taken, so read
                      seats run in parallel over one directory
   --level write      workspace-write over --cwd; takes a per-directory lock
+  --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
+                     there at write level, and remove it afterwards only when the
+                     turn completed AND git reports no changes; every other
+                     outcome preserves the tree and the report says why and how
+                     to remove it (implies --level write; replaces --cwd)
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   --commit           also grant the git common dir, for a turn that commits
@@ -114,7 +119,10 @@ Isolation
   deadline starts, so a very short --timeout buys itself twice
 
 Report
-  --json             machine-readable on stdout; otherwise a human footer
+  --json             machine-readable on stdout — the default; the report also
+                     carries receiptPath/receiptOk, the rollout under
+                     ~/.codex/sessions that proves the turn really ran
+  --footer           a human footer instead of the JSON report
   -h, --help         this text
 
 Exit codes. Raised the moment they happen, before any turn could run:
@@ -138,7 +146,9 @@ function parseArgs(argv) {
   // No effort default. Sending one unconditionally silently downgraded whatever config.toml asked for —
   // measured: a user whose config said `max` got `low` on every delegation. --model already works this
   // way (null means "whatever the config chose"); effort now matches it.
-  const o = { level: "read", timeout: 900, writable: [] };
+  // JSON is the default report: the only real caller is an agent, and every documented recipe passed
+  // --json by hand while forgetting it cost a footer nobody parses. --footer opts back out for a human.
+  const o = { level: "read", timeout: 900, writable: [], json: true };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -147,8 +157,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
-      case "--level": o.level = need(++i, a); break;
+      case "--level": o.level = need(++i, a); o.levelExplicit = true; break;
       case "--cwd": o.cwd = need(++i, a); break;
+      case "--worktree": o.worktree = need(++i, a); break;
       case "--effort": o.effort = need(++i, a); break;
       case "--model": o.model = need(++i, a); break;
       case "--timeout": o.timeout = Number(need(++i, a)); break;
@@ -168,7 +179,8 @@ function parseArgs(argv) {
       case "--answer-json": o.answerJson = true; break;
       case "--brief": o.brief = true; break;
       case "--host-home": o.hostHome = true; break;
-      case "--json": o.json = true; break;
+      case "--json": o.json = true; break;   // the default; kept so existing recipes stay valid
+      case "--footer": o.json = false; break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
       case "-h": case "--help": process.stdout.write(USAGE); process.exit(EXIT.OK); break;
       default: fail(EXIT.USAGE, `unknown argument: ${a}`);
@@ -183,7 +195,13 @@ function parseArgs(argv) {
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
   if (!Number.isFinite(o.timeout) || o.timeout <= 0 || o.timeout > 7200)
     fail(EXIT.USAGE, "--timeout must be a positive number of seconds, at most 7200");
-  if (!o.cwd) fail(EXIT.USAGE, "--cwd is required");
+  // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
+  // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
+  if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
+  if (o.worktree && o.resume) fail(EXIT.USAGE, "--worktree and --resume are contradictory: resume a thread in the tree it started in, via --cwd");
+  if (o.worktree && o.levelExplicit && o.level === "read") fail(EXIT.USAGE, "--worktree requires --level write");
+  if (o.worktree) o.level = "write";
+  if (!o.cwd && !o.worktree) fail(EXIT.USAGE, "--cwd is required");
   if (o.commit && o.level !== "write") fail(EXIT.USAGE, "--commit requires --level write");
   if (o.ephemeral && o.resume) fail(EXIT.USAGE, "--ephemeral and --resume are contradictory");
   // Compile it now: an invalid pattern thrown from inside the report handler kills the run long after
@@ -615,6 +633,95 @@ function releaseLock() {
   lockPath = null;
 }
 
+// ---------------------------------------------------------------- worktree
+// --worktree is parity with a Claude subagent's isolation:"worktree": the driver creates a uniquely
+// named detached worktree, runs the turn inside it, and removes it afterwards ONLY when the tree is
+// provably worthless — the turn completed and `git status --porcelain` is empty. Untracked files show
+// in porcelain output, so a tree holding any work, tracked or not, is preserved rather than harvested
+// by force. A ledger entry under ~/.codex-delegate/worktrees/ is written before the turn so a crashed
+// run leaves a machine-readable trace instead of an anonymous directory.
+let worktreeInfo = null;
+const answersDir = () => path.join(os.userInfo().homedir, ".codex-delegate", "answers");
+
+function createWorktree(repo) {
+  const chk = spawnSync("git", ["-C", repo, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8" });
+  if (chk.status !== 0 || chk.stdout.trim() !== "true") fail(EXIT.USAGE, `--worktree needs a git work tree at ${repo}`);
+  const name = `codex-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+  const dir = path.join(repo, ".claude", "worktrees", name);
+  try { fs.mkdirSync(path.dirname(dir), { recursive: true }); }
+  catch (e) { fail(EXIT.USAGE, `cannot create ${path.dirname(dir)}: ${e.message}`); }
+  const add = spawnSync("git", ["-C", repo, "worktree", "add", "--detach", dir], { encoding: "utf8" });
+  if (add.status !== 0) fail(EXIT.USAGE, `git worktree add failed: ${String(add.stderr).trim().slice(0, 200)}`);
+  let ledger = null;
+  try {
+    const ledgerDir = path.join(passwdHome("the worktree ledger"), ".codex-delegate", "worktrees");
+    fs.mkdirSync(ledgerDir, { recursive: true, mode: 0o700 });
+    ledger = path.join(ledgerDir, `${name}.json`);
+    fs.writeFileSync(ledger, JSON.stringify({ path: dir, repo, pid: process.pid, started: new Date().toISOString() }), { mode: 0o600 });
+  } catch { ledger = null; }   // a missing trace must not refuse the run
+  process.stderr.write(`codex-delegate: created worktree ${dir}\n`);
+  worktreeInfo = { repo, dir, ledger, disposed: false };
+  return dir;
+}
+
+// Runs AFTER the turn settled and after --verify (the verifier executes in the tree). Removal never uses
+// --force: a clean tree needs none, and anything git refuses to remove is by definition worth looking at.
+function disposeWorktree(turnDone) {
+  if (!worktreeInfo || worktreeInfo.disposed) return null;
+  worktreeInfo.disposed = true;
+  const { repo, dir, ledger } = worktreeInfo;
+  const res = { worktreePath: dir, worktreeRemoved: false, worktreePreserved: null,
+                worktreeDiffStat: null, worktreeDiffPath: null, worktreeFleet: null };
+  const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
+  const clean = st.status === 0 && st.stdout.trim() === "";
+  if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
+  else if (st.status !== 0) res.worktreePreserved = "git status failed in the worktree";
+  else if (!clean) {
+    res.worktreePreserved = "the tree holds changes; harvest them, then remove";
+    const ds = spawnSync("git", ["-C", dir, "diff", "--stat"], { encoding: "utf8" });
+    if (ds.status === 0 && ds.stdout.trim()) res.worktreeDiffStat = ds.stdout.trim().slice(0, 2000);
+    // The tracked diff, saved beside the answer for harvesting without a shell. Untracked files are not
+    // in it — they are exactly why the tree itself is preserved.
+    const full = spawnSync("git", ["-C", dir, "diff"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    if (full.status === 0 && full.stdout) {
+      try {
+        const p = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}.diff`);
+        fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(p, full.stdout, { mode: 0o600 });
+        res.worktreeDiffPath = p;
+      } catch {}
+    }
+  } else {
+    const rm = spawnSync("git", ["-C", repo, "worktree", "remove", dir], { encoding: "utf8" });
+    if (rm.status === 0) res.worktreeRemoved = true;
+    else res.worktreePreserved = `git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
+  }
+  if (!res.worktreeRemoved) res.worktreeRemoveCommand = `git -C ${repo} worktree remove --force ${dir}`;
+  const fleet = spawnSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" });
+  if (fleet.status === 0)
+    res.worktreeFleet = fleet.stdout.split("\n").filter((l) => l.startsWith("worktree ") && l.includes("/.claude/worktrees/")).length;
+  if (ledger) { try { fs.rmSync(ledger, { force: true }); } catch {} }
+  return res;
+}
+
+// The synchronous last resort, for runs that end without reaching finish() — a usage error after the
+// tree was created, a Bail, a crash. A tree whose turn never started cannot hold work and is removed;
+// anything else is preserved out loud.
+function worktreeLastResort() {
+  if (!worktreeInfo || worktreeInfo.disposed) return;
+  worktreeInfo.disposed = true;
+  const { repo, dir, ledger } = worktreeInfo;
+  let removed = false;
+  if (!child) {
+    const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
+    if (st.status === 0 && st.stdout.trim() === "")
+      removed = spawnSync("git", ["-C", repo, "worktree", "remove", dir], { encoding: "utf8" }).status === 0;
+  }
+  if (removed) { if (ledger) { try { fs.rmSync(ledger, { force: true }); } catch {} } }
+  else process.stderr.write(`codex-delegate: worktree PRESERVED at ${dir} (run ended before disposition); ` +
+    `harvest it, then: git -C ${repo} worktree remove --force ${dir}\n`);
+}
+
 // The read level's whole safety argument is "$TMPDIR is writable and nothing else is", so that is what
 // gets checked — the EFFECT the server reports, not the NAME of the profile that was supposed to produce
 // it. Checking the name is not enough, measured: misspell a field inside permissions.<id> and the grant
@@ -720,6 +827,8 @@ async function setup() {
   if (opts.level === "read" && (opts.network || opts.writable.length))
     fail(EXIT.USAGE, "--network and --writable belong to --level write");
 
+  if (opts.worktree) opts.cwd = createWorktree(resolveDir(opts.worktree, "--worktree"));
+
   // --cwd is the primary writable root above read, so it needs the same guard as a hand-added root.
   cwd = resolveDir(opts.cwd, "--cwd");
   if (opts.level !== "read") checkRoot(cwd);
@@ -805,24 +914,43 @@ const STDERR_KEEP = 64 * 1024;
 // may print a banner one day — but discarding it silently means a malformed stream looks like a quiet one.
 let unparsedLines = 0;
 
+// detached:true gave the child its own process group, so the negative pid reaches its descendants
+// too — killing only the app-server pid leaves orphaned test servers behind.
+const killGroup = (sig) => { if (!child) return; try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch {} } };
+// Signal 0 to the NEGATIVE pid answers "does any member of the group still exist" without touching it.
+const groupAlive = () => { if (!child) return false; try { process.kill(-child.pid, 0); return true; } catch { return false; } };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Ends every child this driver started and WAITS for them, bounded: group SIGTERM, up to 2 s for the
+// group to disappear, then SIGKILL and up to 1 s more. The predecessor of this function armed the same
+// SIGKILL on an unref'd timer and then process.exit() discarded it, so a TERM-ignoring test server
+// survived every normal completion and every timeout. The timers here are ref'd on purpose — an exiting
+// driver must stay alive until the group is gone or the bound expires.
+//
+// The lock is released only AFTER that wait, so a next writer cannot enter the directory while this
+// run's descendants are still dying in it. Idempotent: every caller shares one promise, and a repeat
+// signal escalates the existing teardown instead of bypassing it.
+let shutdownDone = null;
 function shutdown() {
-  if (probeChild) {
-    try { process.kill(-probeChild.pid, "SIGKILL"); } catch { try { probeChild.kill("SIGKILL"); } catch {} }
-    probeChild = null;
-  }
-  if (closed || !child) { releaseLock(); return; }
-  closed = true;
-  try { child.stdin.end(); } catch {}
-  // detached:true gave the child its own process group, so the negative pid reaches its descendants
-  // too — killing only the app-server pid leaves orphaned test servers behind.
-  const killGroup = (sig) => { try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch {} } };
-  killGroup("SIGTERM");
-  // The lock covers this process's lifetime only, NOT the group's: the timer is unref'd and
-  // process.on("exit", releaseLock) frees the lock as soon as we exit, which is normally before SIGKILL
-  // lands. So a next writer can enter the directory while our descendants — test servers, browsers — are
-  // still dying in it. Serialising that properly means awaiting the group with a deadline; until then,
-  // do not read this lock as a guarantee that the directory is quiet.
-  setTimeout(() => { killGroup("SIGKILL"); releaseLock(); }, 2000).unref?.();
+  if (shutdownDone) return shutdownDone;
+  shutdownDone = (async () => {
+    if (probeChild) {
+      try { process.kill(-probeChild.pid, "SIGKILL"); } catch { try { probeChild.kill("SIGKILL"); } catch {} }
+      probeChild = null;
+    }
+    if (child) {
+      closed = true;
+      try { child.stdin.end(); } catch {}
+      killGroup("SIGTERM");
+      for (const end = Date.now() + 2000; groupAlive() && Date.now() < end; ) await sleep(50);
+      if (groupAlive()) {
+        killGroup("SIGKILL");
+        for (const end = Date.now() + 1000; groupAlive() && Date.now() < end; ) await sleep(50);
+      }
+    }
+    releaseLock();
+  })();
+  return shutdownDone;
 }
 
 function abort(code, msg) {
@@ -1022,6 +1150,27 @@ function parseAnswerJson(text) {
   catch (e) { return { answerJson: null, answerJsonError: e.message }; }
 }
 
+// The rollout under ~/.codex/sessions carries the originator, the model provider and the whole turn —
+// the receipt a wrapper cannot forge. Today's and yesterday's date directories are checked, because a
+// turn can cross midnight; a resumed thread older than that reports null, which means "not found in the
+// last two days", not "fabricated". A present receipt proves the turn ran; judge absence carefully.
+function findRollout(threadId) {
+  if (!threadId) return null;
+  try {
+    const base = path.join(os.userInfo().homedir, ".codex", "sessions");
+    for (let back = 0; back < 2; back++) {
+      const d = new Date(Date.now() - back * 86400000);
+      const dir = path.join(base, String(d.getFullYear()),
+        String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0"));
+      let names;
+      try { names = fs.readdirSync(dir); } catch { continue; }
+      const hit = names.find((n) => n.startsWith("rollout-") && n.includes(threadId));
+      if (hit) return path.join(dir, hit);
+    }
+  } catch {}
+  return null;
+}
+
 // `reason` is set when the run is being cut short (a timeout) rather than ending on its own. Everything
 // streamed so far is still in memory, and a run that did four useful greps before the clock ran out
 // should hand those back rather than throw them away.
@@ -1041,12 +1190,27 @@ function persistAnswer(text) {
     // which prints a refusal and sets the exit code. Inside a best-effort side write on a turn that had
     // already succeeded, that printed "codex-delegate: cannot resolve your home directory" to stderr and
     // then exited 0 — a refusal and a success in the same run.
-    const dir = path.join(os.userInfo().homedir, ".codex-delegate", "answers");
+    const dir = answersDir();
     const name = `${rootThreadId ?? `no-thread-${process.pid}`}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
+    pruneAnswers(dir);
     return path.join(dir, name);
   } catch { return null; }
+}
+
+// Bounded retention for the answer log, which used to grow without bound. Fourteen days and four
+// hundred entries are both far past any live coordinator's reach-back; the newest file — the one this
+// very run just wrote — is never eligible.
+function pruneAnswers(dir) {
+  try {
+    const now = Date.now();
+    const entries = fs.readdirSync(dir)
+      .map((n) => { try { return { n, t: fs.statSync(path.join(dir, n)).mtimeMs }; } catch { return null; } })
+      .filter(Boolean).sort((a, b) => b.t - a.t);
+    for (const [i, e] of entries.entries())
+      if (i > 0 && (now - e.t > 14 * 86400000 || i >= 400)) fs.rmSync(path.join(dir, e.n), { force: true });
+  } catch {}
 }
 
 // Cuts on a line boundary and says where the rest is, because an answer that stops mid-sentence with no
@@ -1152,8 +1316,11 @@ function finish(reason) {
       // maxBuffer: the default 1MB kills a verifier that prints a lot and reports status null / ENOBUFS,
       // turning a passing check into a failure.
       const budgetMs = Math.max(1000, Math.min(300000, opts.timeout * 1000 - (Date.now() - startedAtMs)));
+      // detached: the verifier gets its own process group, and the group is swept right after — Node's
+      // own timeout kills only the shell, so anything the verifier backgrounded used to outlive the run.
       const v = spawnSync("/bin/sh", ["-c", opts.verify],
-        { cwd, encoding: "utf8", timeout: budgetMs, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 });
+        { cwd, encoding: "utf8", timeout: budgetMs, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024, detached: true });
+      if (v.pid) { try { process.kill(-v.pid, "SIGKILL"); } catch {} }
       // "Exited non-zero" and "could not be run at all" are different facts and must not render alike:
       // one means the work is missing, the other means the verifier is broken, and they call for opposite
       // responses. The classification is on the OBSERVED EXIT STATUS, not on whether spawnSync also
@@ -1178,6 +1345,12 @@ function finish(reason) {
   }
   const verifyPassed = verifyResult?.ok === true;
   const verifyFailed = verifyResult != null && !verifyPassed;
+
+  // After the verifier (which runs in the tree), before the report (which carries the outcome).
+  const worktree = disposeWorktree(turnStatus === "completed");
+  // The receipt is the one artefact no wrapper can fabricate; locate it so the coordinator does not
+  // have to glob for it.
+  const receiptPath = findRollout(rootThreadId);
 
   // A refused escalation means the task hit the edge of the sandbox it was given, so the work is very
   // likely incomplete — detectable without reading the prose.
@@ -1238,6 +1411,15 @@ function finish(reason) {
     escalations, interactions, unparsedLines, expectCommand: opts.expect ?? null,
     // null only when no --expect-command was given, so a caller can tell "not asked" from "asked and missed".
     expectationOk: opts.expectRe ? expected.length > 0 : null,
+    // The rollout receipt, located rather than merely implied. receiptOk false is "not found in the last
+    // two days of ~/.codex/sessions", which a nonstandard layout can also produce — read the comment on
+    // findRollout before treating it as proof of fabrication.
+    receiptPath, receiptOk: receiptPath !== null,
+    ...(worktree ?? {}),
+    // A completed turn that ran nothing exits 5; when no expectation was declared, the one legitimate
+    // shape of that run (a recall-only follow-up) has a flag, and the report should name it.
+    ...(code === EXIT.NO_COMMANDS && !opts.expectRe
+      ? { hint: "if running nothing was the point, re-run with --allow-no-commands" } : {}),
     verify: verifyResult, verifySkipped,
     answerPhase: final?.phase ?? null, commentaryOnly,
     // Always on disk, so `answer` can be capped without losing anything: the coordinator reads the head and
@@ -1265,6 +1447,19 @@ function finish(reason) {
     // the turn, so this run is not comparable with an isolated one.
     if (codexHome === null) L.push("home=host — the caller's plugins and skills were loaded into this turn");
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
+    if (rootThreadId) L.push(receiptPath ? `receipt: ${receiptPath}`
+      : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
+    if (worktree) {
+      L.push(worktree.worktreeRemoved
+        ? `worktree: removed (clean) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
+        : `worktree: PRESERVED at ${worktree.worktreePath} — ${worktree.worktreePreserved}`);
+      if (!worktree.worktreeRemoved) {
+        if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
+        if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
+        L.push(`  harvest, then: ${worktree.worktreeRemoveCommand}`);
+        if ((worktree.worktreeFleet ?? 0) > 1) L.push(`  fleet: ${worktree.worktreeFleet} codex worktrees under this repo`);
+      }
+    }
     L.push(`commands: ${ran.length} succeeded` +
       `${failedCmds.length ? `, ${failedCmds.length} FAILED` : ""}` +
       `${blocked.length ? `, ${blocked.length} never ran` : ""}`);
@@ -1311,20 +1506,28 @@ function finish(reason) {
       if (stderrBuf.trim()) L.push(`  stderr: ${stderrBuf.trim().split("\n").slice(-3).join(" | ")}` +
         (stderrDropped ? `  [+${stderrDropped} earlier bytes dropped]` : ""));
     }
-    else if (ran.length === 0) L.push(`NOT TRUSTWORTHY: no command executed; the answer is unverified.`);
+    // Three different facts used to share one line: exit 5 proper, a waived no-command turn, and
+    // commands that all failed. Each now says what actually happened, and exit 5 names its waiver.
+    else if (code === EXIT.NO_COMMANDS) L.push(`NO COMMAND ${commands.length ? "SUCCEEDED" : "EXECUTED"}: the answer is unverified prose.` +
+      (opts.expectRe ? "" : " If running nothing was the point, re-run with --allow-no-commands."));
+    else if (ran.length === 0) L.push(commands.length
+      ? `NOT TRUSTWORTHY: commands ran but none succeeded; the answer is unverified.`
+      : `no command executed — waived by --allow-no-commands.`);
     L.push(`Note: a passing gate proves commands ran, not that the right ones did. Check the list.`);
     out = `${L.join("\n")}\n`;
   }
   process.exitCode = code;
   // Exit only once stdout has actually drained. A large report on a pipe is chunked, and exiting on the
   // next tick truncates it at the pipe buffer — measured at 262144 bytes for a 20MB report.
+  // process.exit waits for shutdown() now: exiting on the same tick used to discard the SIGKILL
+  // escalation timer, which is how a TERM-ignoring test server outlived every normal completion.
   flushing = true;
-  process.stdout.write(out, () => { flushing = false; shutdown(); process.exit(code); });
+  process.stdout.write(out, () => { flushing = false; shutdown().then(() => process.exit(code)); });
   // If stdout never drains, the report did not reach the caller — that is a transport failure, not
   // the success the run would otherwise have been.
   setTimeout(() => {
     process.stderr.write("codex-delegate: stdout did not drain; report may be truncated\n");
-    shutdown(); process.exit(EXIT.TRANSPORT);
+    shutdown().then(() => process.exit(EXIT.TRANSPORT));
   }, 5000).unref?.();
 }
 
@@ -1489,16 +1692,27 @@ async function main() {
 // and only SIGKILL reclaims it.
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
+    // A repeat signal while teardown is already running escalates the group straight to SIGKILL. The
+    // old path called process.exit() here, which discarded the pending escalation — the second Ctrl-C
+    // was precisely how a TERM-ignoring descendant got left behind.
+    if (shutdownDone) { killGroup("SIGKILL"); return; }
     if (settled) {
       if (flushing) return;   // the report is mid-write; let it finish or hit its own timer
-      shutdown(); process.exit(process.exitCode ?? EXIT.TRANSPORT);
+      shutdown().then(() => process.exit(process.exitCode ?? EXIT.TRANSPORT));
+      return;
     }
     abort(EXIT.TRANSPORT, `interrupted by ${sig}`);
-    setTimeout(() => process.exit(EXIT.TRANSPORT), 2500).unref?.();
+    shutdown().then(() => process.exit(EXIT.TRANSPORT));
   });
 }
 
-process.on("exit", releaseLock);
+// The synchronous last resort for exits that bypassed shutdown() — a crash, a code path that called
+// process.exit directly. After a clean teardown every one of these is a no-op.
+process.on("exit", () => {
+  if (child) killGroup("SIGKILL");
+  releaseLock();
+  worktreeLastResort();
+});
 
 main().catch((e) => {
   if (e instanceof Bail) { shutdown(); return; }
