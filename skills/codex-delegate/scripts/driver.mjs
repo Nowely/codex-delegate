@@ -82,6 +82,9 @@ Rights
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   --commit           also grant the git common dir, for a turn that commits
+  every write-level root — --cwd, --writable, the --commit git dir — refuses
+  ~/.codex and ~/.codex-delegate and anything inside them: they hold the
+  rollout receipts and this driver's own state
 
 Turn
   --prompt TEXT      the task; omit to read it from stdin
@@ -119,20 +122,27 @@ Isolation
   --host-home        use the caller's ~/.codex instead, plugins and all
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
-  min(5s, --timeout) and normally ~120 ms, but it is spent BEFORE the turn
-  deadline starts, so a very short --timeout buys itself twice
+  min(5 s, max(1 s, --timeout)) and normally ~120 ms. It counts against the one
+  --timeout budget, which is anchored at process start
 
 Report
   --json             machine-readable on stdout — the default; the report also
-                     carries receiptPath/receiptOk, the rollout under
-                     ~/.codex/sessions that proves the turn really ran
+                     carries receiptPath/receiptOk (the rollout under
+                     ~/.codex/sessions that proves the turn really ran) and
+                     tokenUsage (the server's own accounting for the root
+                     thread; cumulative across --resume)
   --footer           a human footer instead of the JSON report
+  threadId is announced on stderr as soon as the thread exists, so a long
+  turn's live rollout can be tailed
   -h, --help         this text
 
 Exit codes. Raised the moment they happen, before any turn could run:
   2  bad arguments
   4  transport, and every sandbox / approval assertion
-  10 another run holds the lock on this directory
+  10 another run holds the lock on this directory, or a resumed thread
+     still has a turn open
+  3  can also fire before the turn (a stalled probe or stdin under a short
+     --timeout); like an argument-error 2 it then prints no report
 
 Decided after the turn, first match wins, in this order:
   3 timed out ... 2 the server refused the request ... 1 turn did not complete
@@ -225,9 +235,31 @@ function parseArgs(argv) {
     catch (e) { fail(EXIT.USAGE, `--output-schema is not valid JSON: ${e.message}`); }
     if (o.outputSchema === null || typeof o.outputSchema !== "object" || Array.isArray(o.outputSchema))
       fail(EXIT.USAGE, "--output-schema must be a JSON Schema object");
-    const t = o.outputSchema.type;
-    if (t !== undefined && t !== "object" && !(Array.isArray(t) && t.includes("object")))
-      fail(EXIT.USAGE, '--output-schema must describe an object (the answer contract is one bare JSON object)');
+    // The answer contract is ONE bare JSON object, so the schema must say so unambiguously. A missing
+    // type, {}, a oneOf-only schema or type:["object","string"] all used to pass admission — and the
+    // shallow validator then certified ANY value, including a bare string, as a match.
+    if (o.outputSchema.type !== "object" &&
+        !(Array.isArray(o.outputSchema.type) && o.outputSchema.type.length === 1 && o.outputSchema.type[0] === "object"))
+      fail(EXIT.USAGE, '--output-schema must declare "type": "object" at the top level (the answer contract is one bare JSON object)');
+    // The validator implements a subset. Every keyword outside it is collected here and REPORTED, so
+    // outputSchemaOk can never silently mean "nothing was checked" — the server still enforces the full
+    // schema during generation; the driver's independent check just names what it could not re-verify.
+    const SUPPORTED = new Set(["type", "required", "properties", "enum", "items",
+      "description", "title", "$schema", "$id", "default", "examples"]);
+    const unchecked = new Set();
+    (function walk(s) {
+      if (Array.isArray(s)) return s.forEach(walk);
+      if (s === null || typeof s !== "object") return;
+      for (const [k, v] of Object.entries(s)) {
+        if (!SUPPORTED.has(k)) unchecked.add(k);
+        if (k === "properties" && v && typeof v === "object") Object.values(v).forEach(walk);
+        else if (k === "items") walk(v);
+      }
+    })(o.outputSchema);
+    if (Array.isArray(o.outputSchema.items)) unchecked.add("items(tuple form)");
+    o.schemaUnchecked = unchecked.size ? [...unchecked].sort() : null;
+    if (o.schemaUnchecked)
+      process.stderr.write(`codex-delegate: --output-schema uses keywords the driver's validator does not check (${o.schemaUnchecked.join(", ")}); the server still enforces them during generation, and the report lists them as schemaKeywordsUnchecked\n`);
     o.answerJson = true;   // the schema subsumes the bare-JSON demand
   }
   return o;
@@ -283,10 +315,23 @@ function checkRoot(dir) {
   // rollouts a seat is verified by (a writable ~/.codex/sessions makes the "unforgeable" receipt
   // forgeable), and ~/.codex-delegate holds the locks, the answer log and the isolated home. Refusing
   // only ~ itself left every one of them grantable — recorded as a known issue until now.
+  // Compared by IDENTITY, like every other guard in this function: the first version of this block was
+  // a string-prefix compare three lines under the comment explaining why string compares are bypassable
+  // here — and it was, by a case-variant spelling on a case-insensitive volume (~/.CODEX is the same
+  // inode as ~/.codex and realpath preserves the case it was given). Walking the TARGET's ancestors
+  // against the protected inode gives the "inside" semantics a single stat cannot.
   for (const name of [".codex", ".codex-delegate"]) {
-    const prot = canon(path.join(canon(passwdHome("the home-directory guard")), name));
-    if (dir === prot || dir.startsWith(`${prot}${path.sep}`))
-      fail(EXIT.USAGE, `refusing to grant write access to ${dir}: it is inside ${prot}, which holds the rollout receipts and this driver's own state`);
+    let prot = null;
+    try { prot = fs.statSync(path.join(canon(passwdHome("the home-directory guard")), name)); } catch { continue; }
+    for (let cur = dir; ; ) {
+      let st = null;
+      try { st = fs.statSync(cur); } catch {}
+      if (st && st.dev === prot.dev && st.ino === prot.ino)
+        fail(EXIT.USAGE, `refusing to grant write access to ${dir}: it is inside ~/${name}, which holds the rollout receipts and this driver's own state`);
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
   }
   return dir;
 }
@@ -681,6 +726,9 @@ let worktreeInfo = null;
 const answersDir = () => path.join(os.userInfo().homedir, ".codex-delegate", "answers");
 
 function createWorktree(repo) {
+  // Guarded BEFORE `git worktree add` mutates anything: a repo inside a protected root used to be
+  // checked out (running its hooks) and only then refused by the cwd check.
+  checkRoot(repo);
   const chk = spawnSync("git", ["-C", repo, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8" });
   if (chk.status !== 0 || chk.stdout.trim() !== "true") fail(EXIT.USAGE, `--worktree needs a git work tree at ${repo}`);
   const name = `codex-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
@@ -1030,9 +1078,13 @@ let selectedEffort = null;  // likewise: with no --effort this is whatever confi
 let effectiveSandbox = null;   // the sandbox the SERVER applied, not the one we asked for
 let verifyResult = null;    // the caller-run check, the one piece of evidence the model cannot author
 let tokenUsage = null;      // the latest thread/tokenUsage/updated payload: what this seat cost
-let outputAttempts = 0;     // turns spent under --output-schema; at most one corrective retry
-let lastSchemaErrors = null;
+let outputAttempts = 0;     // turns STARTED under --output-schema; at most one corrective retry
 let requestFn = null;       // main()'s request closure, hoisted so the corrective turn can reach it
+// Every turn id OUR turn/start calls returned. Evidence attribution checks membership here rather than
+// equality with the latest id: a first-turn item that raced past its own turn/completed used to be
+// replayed under the corrective turn's id and dropped, contradicting "the first turn's evidence stays
+// counted". A resumed thread's PRIOR turns are still excluded — their ids never came from us.
+const ownedTurns = new Set();
 
 // Fail CLOSED on BOTH ids. Thread alone is not enough: a stale item from an earlier turn on the same
 // thread, or a completion delivered before the turn/start response, would otherwise be accepted as ours.
@@ -1043,7 +1095,7 @@ let requestFn = null;       // main()'s request closure, hoisted so the correcti
 const turnIdOf = (p) => p?.turnId ?? p?.turn?.id ?? null;
 const isRoot = (p) =>
   rootThreadId !== null && (p?.threadId ?? null) === rootThreadId &&
-  rootTurnId !== null && turnIdOf(p) === rootTurnId;
+  turnIdOf(p) !== null && ownedTurns.has(turnIdOf(p));
 
 // Events can share a stdout chunk with the turn/start response and so arrive before rootTurnId is known.
 // Holding them keyed by their own turnId lets the right ones be replayed once the id is established,
@@ -1127,6 +1179,7 @@ function handleMessage(msg) {
     }
     if (msg.result && p.method === "turn/start") {
       rootTurnId = msg.result.turn?.id ?? null;
+      if (rootTurnId !== null) ownedTurns.add(rootTurnId);
       replayEarly();          // anything that shared this chunk can now be attributed
     }
     if (msg.error) {
@@ -1153,7 +1206,7 @@ function handleMessage(msg) {
   if (msg.method === "item/completed" && isRoot(p)) {
     const it = p.item;
     if (it?.type === "commandExecution") commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status });
-    if (it?.type === "agentMessage" && it.text) messages.push({ text: it.text, phase: it.phase ?? null });
+    if (it?.type === "agentMessage" && it.text) messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
     // A write-level run said nothing about what it WROTE. The schema carries it — FileChangeThreadItem
     // requires {changes:[{path,kind,diff}], status}, and PatchApplyStatus includes failed and declined —
     // so a patch that failed for a reason other than a refused approval was invisible in both the report
@@ -1172,12 +1225,17 @@ function handleMessage(msg) {
     }
   }
   // Best-effort accounting: what this seat cost, straight from the server. Only the root thread's
-  // usage counts — a subagent thread's tokens are its own.
-  if (msg.method === "thread/tokenUsage/updated" && (p?.threadId ?? null) === rootThreadId)
+  // usage counts — a subagent thread's tokens are its own. `total` is THREAD-cumulative: on --resume
+  // it includes every earlier invocation's turns; `last` is the most recent turn alone.
+  if (msg.method === "thread/tokenUsage/updated" && rootThreadId !== null && (p?.threadId ?? null) === rootThreadId)
     tokenUsage = p?.tokenUsage ?? null;
 
   // A subagent finishing its own turn, or an earlier turn on our own thread, must not end ours.
+  // The settled guard matters here specifically: after a timeout has already reported, a completion
+  // still in the pipe used to overwrite turnStatus and could START a corrective turn on a run that had
+  // just declared itself dead — a real server-side turn, killed moments later by the teardown.
   if (msg.method === "turn/completed" && isRoot(p)) {
+    if (settled) return;
     turnStatus = p?.turn?.status ?? "unknown";
     // Populated only when the turn failed, and it carries an enumerated cause worth acting on:
     // usageLimitExceeded / serverOverloaded -> back off and retry the same turn, do not re-prompt;
@@ -1187,10 +1245,10 @@ function handleMessage(msg) {
     // Under --output-schema a completed turn whose answer misses the shape gets ONE corrective turn on
     // the same thread — the validation errors and nothing else — mirroring the retry a Claude
     // subagent's tool layer provides. The commands and evidence of the first turn stay counted.
+    // outputAttempts counts turns STARTED (set in main and in startCorrectiveTurn), so a corrective
+    // turn cut off by the deadline is still an attempt the report admits to.
     if (opts.outputSchema && turnStatus === "completed") {
-      outputAttempts++;
       const errs = answerSchemaErrors(currentFinalAnswer());
-      lastSchemaErrors = errs.length ? errs : null;
       if (errs.length && outputAttempts < 2) { startCorrectiveTurn(errs); return; }
     }
     finish();
@@ -1198,11 +1256,21 @@ function handleMessage(msg) {
 }
 
 // The final-answer selection, shared by finish() and the schema-retry decision above so the two can
-// never disagree about which message is the answer.
+// never disagree about which message is the answer. Judged PER TURN, newest turn first: the schema
+// permits phase null, and a corrective turn whose valid answer arrived unphased used to lose to the
+// first turn's phased prose — the retry's whole product discarded by a tie-break across turns.
 function currentFinalMsg() {
-  const nonBlank = messages.filter((m) => String(m.text).trim());
-  const phased = nonBlank.filter((m) => m.phase === "final_answer");
-  return phased.at(-1) ?? (nonBlank.every((m) => m.phase == null) ? nonBlank.at(-1) ?? null : null);
+  const pick = (ms) => {
+    const nonBlank = ms.filter((m) => String(m.text).trim());
+    const phased = nonBlank.filter((m) => m.phase === "final_answer");
+    return phased.at(-1) ?? (nonBlank.every((m) => m.phase == null) ? nonBlank.at(-1) ?? null : null);
+  };
+  const turns = [...new Set(messages.map((m) => m.turnId))];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const found = pick(messages.filter((m) => m.turnId === turns[i]));
+    if (found) return found;
+  }
+  return null;
 }
 const currentFinalAnswer = () => currentFinalMsg()?.text ?? "";
 
@@ -1220,10 +1288,14 @@ function schemaErrors(value, schema, at = "$") {
     const ok = types.includes(vt) || (vt === "number" && types.includes("integer") && Number.isInteger(value));
     if (!ok) { errs.push(`${at}: expected ${types.join("|")}, got ${vt}`); return errs; }
   }
-  if (Array.isArray(schema?.enum) && !schema.enum.some((e) => JSON.stringify(e) === JSON.stringify(value)))
+  // Structural equality, not stringify: object-valued enum members serialised with reordered keys used
+  // to burn the corrective turn and exit 13 on a compliant answer.
+  if (Array.isArray(schema?.enum) && !schema.enum.some((e) => deepEqual(e, value)))
     errs.push(`${at}: not one of the permitted values`);
   if (typeOf(value) === "object") {
-    for (const k of schema?.required ?? []) if (!(k in value)) errs.push(`${at}.${k}: required and missing`);
+    // hasOwn, not `in`: JSON.parse objects inherit Object.prototype, so required:["toString"] was
+    // satisfied by every object.
+    for (const k of schema?.required ?? []) if (!Object.hasOwn(value, k)) errs.push(`${at}.${k}: required and missing`);
     for (const [k, sub] of Object.entries(schema?.properties ?? {})) if (k in value) errs.push(...schemaErrors(value[k], sub, `${at}.${k}`));
   }
   if (typeOf(value) === "array" && schema?.items && !Array.isArray(schema.items))
@@ -1231,9 +1303,21 @@ function schemaErrors(value, schema, at = "$") {
   return errs;
 }
 
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && deepEqual(a[k], b[k]));
+}
+
 function answerSchemaErrors(text) {
   const parsed = parseAnswerJson(text);
   if (parsed.answerJson === null) return [`the answer is not valid JSON: ${parsed.answerJsonError}`];
+  // The contract is one bare OBJECT, independent of how lax the schema is: an array or a scalar parses
+  // as JSON but is never an acceptable answer shape.
+  if (parsed.answerJson === null || typeof parsed.answerJson !== "object" || Array.isArray(parsed.answerJson))
+    return ["the answer is valid JSON but not an object"];
   return schemaErrors(parsed.answerJson, opts.outputSchema);
 }
 
@@ -1241,6 +1325,7 @@ function startCorrectiveTurn(errs) {
   // Hold the new turn's events until its id arrives, exactly as at startup — without this, an item
   // racing the turn/start response would be judged against the OLD turn id and dropped.
   rootTurnId = null;
+  outputAttempts++;
   process.stderr.write(`codex-delegate: the answer failed schema validation (${errs.length} error(s)); spending the corrective turn\n`);
   requestFn("turn/start", {
     threadId: rootThreadId,
@@ -1249,7 +1334,15 @@ function startCorrectiveTurn(errs) {
       "Reply again with ONE corrected JSON object and nothing else — no prose before or after, no code fence.",
       text_elements: [] }],
     model: opts.model ?? null, effort: null, outputSchema: opts.outputSchema
-  }).catch((e) => { if (!settled) abort(EXIT.TRANSPORT, `the corrective turn failed to start: ${e.message}`); });
+  }).catch((e) => {
+    // The FIRST turn completed and its evidence is all in memory; aborting here threw the whole report
+    // away and exited 4 for a turn/start refusal. Finish instead: the report carries the first answer,
+    // its schemaErrors and exit 13 — plus the refusal on stderr for the record.
+    if (settled) return;
+    process.stderr.write(`codex-delegate: the corrective turn failed to start (${e.message}); reporting the first attempt\n`);
+    turnStatus = "completed";
+    finish();
+  });
 }
 
 // A Claude subagent can be handed a schema and the tool layer retries until the shape matches. There is no
@@ -1431,7 +1524,12 @@ function finish(reason) {
       // verifier that traps it ran to completion and was still reported as timed out.
       // maxBuffer: the default 1MB kills a verifier that prints a lot and reports status null / ENOBUFS,
       // turning a passing check into a failure.
-      const budgetMs = Math.max(1000, Math.min(300000, opts.timeout * 1000 - (Date.now() - startedAtMs)));
+      // Bounded by what is LEFT of the caller's wall clock, with no floor: the old 1 s minimum let a
+      // completion arriving just before the deadline buy the verifier a second past the budget.
+      const remainingMs = startedAtMs + opts.timeout * 1000 - Date.now();
+      if (remainingMs < 100) { verifySkipped = "budget-exhausted"; verifyResult = null; }
+      else {
+      const budgetMs = Math.min(300000, remainingMs);
       // detached: the verifier gets its own process group, and the group is swept right after — Node's
       // own timeout kills only the shell, so anything the verifier backgrounded used to outlive the run.
       const v = spawnSync("/bin/sh", ["-c", opts.verify],
@@ -1457,6 +1555,7 @@ function finish(reason) {
         error: v.error ? String(v.error.code ?? v.error.message) : null,
         stdout: String(v.stdout ?? "").slice(-2000), stderr: String(v.stderr ?? "").slice(-2000)
       };
+      }
     }
   }
   const verifyPassed = verifyResult?.ok === true;
@@ -1524,7 +1623,11 @@ function finish(reason) {
     model: selectedModel, turnStatus, turnError, threadId: rootThreadId,
     // What the seat cost, straight from the server's own accounting; null when no usage event arrived.
     tokenUsage,
-    ...(opts.outputSchema ? { outputAttempts, outputSchemaOk: schemaErrs.length === 0, schemaErrors: schemaErrs.length ? schemaErrs.slice(0, 12) : null } : {}),
+    ...(opts.outputSchema ? { outputAttempts, outputSchemaOk: schemaErrs.length === 0,
+        schemaErrors: schemaErrs.length ? schemaErrs.slice(0, 12) : null,
+        // What the driver's shallow validator could NOT re-verify; the server still enforced these
+        // during generation. Null means the whole schema was within the checked subset.
+        schemaKeywordsUnchecked: opts.schemaUnchecked } : {}),
     commandsSucceeded: ran.length, commandsMatchingExpectation: expected.length,
     commandsFailed: failedCmds.length, commandsBlocked: blocked.length,
     // For a rename the file that EXISTS afterwards is the destination; report that, not the source.
@@ -1572,9 +1675,10 @@ function finish(reason) {
     if (rootThreadId) L.push(receiptPath ? `receipt: ${receiptPath}`
       : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
     if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
-    if (opts.outputSchema) L.push(schemaErrs.length
+    if (opts.outputSchema) L.push((schemaErrs.length
       ? `output-schema: FAILED after ${outputAttempts} attempt(s) — ${schemaErrs.slice(0, 3).join("; ")}`
-      : `output-schema: matched (${outputAttempts} attempt(s))`);
+      : `output-schema: matched (${outputAttempts} attempt(s))`)
+      + (opts.schemaUnchecked ? ` [unchecked keywords: ${opts.schemaUnchecked.join(", ")}]` : ""));
     if (worktree) {
       L.push(worktree.worktreeRemoved
         ? `worktree: removed (clean) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
@@ -1815,6 +1919,7 @@ async function main() {
   // should not have to wait for the end to learn which run it is.
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
 
+  if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
   await request("turn/start", {
     threadId: rootThreadId,
     input: [{ type: "text", text: prompt, text_elements: [] }],
@@ -1846,6 +1951,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
 // process.exit directly. After a clean teardown every one of these is a no-op.
 process.on("exit", () => {
   if (child) killGroup("SIGKILL");
+  if (probeChild) { try { process.kill(-probeChild.pid, "SIGKILL"); } catch {} }
   releaseLock();
   worktreeLastResort();
 });

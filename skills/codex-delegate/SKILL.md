@@ -35,7 +35,8 @@ RETURN: <exactly what to hand back>'
 Omit `--expect-command` when the task has no single command signature — the no-command floor still
 holds. A write seat: the driver creates a detached worktree under `$REPO/.claude/worktrees/`, runs the
 turn there, and removes the tree afterwards only when the turn completed AND `git status --porcelain`
-is empty. Every other outcome preserves the tree, and the report says why and how to remove it:
+is empty (a clean tree whose turn never even started is removed too). Every other outcome preserves
+the tree, and the report says why and how to remove it:
 
 ```bash
 node "$DRIVER" --worktree "$REPO" \
@@ -55,7 +56,8 @@ exfiltration surface.
 - Requirements: `codex` CLI on `PATH` and authenticated (`codex login status`), Node 18+. The model,
   reasoning effort, personality and service tier are inherited from the caller's `~/.codex/config.toml`
   unless overridden per call.
-- Protocol facts are pinned in `schema-<version>/` beside this file. If `codex --version` differs from
+- Protocol facts are pinned in `schema-<version>/` at the repository/plugin root (not shipped by a
+  bare `npx skills` install). If `codex --version` differs from
   the pinned version, regenerate (`codex app-server generate-json-schema --out schema-<v>/`) and run the
   suites before trusting a run — the protocol carries no stability promise:
 
@@ -174,7 +176,8 @@ must be reproducible.
 
 ## Parity with your own subagents
 
-Measured 2026-08-30 on this repo (driver 0.1.0); re-check after a codex upgrade.
+Measured 2026-08-30 on this repo (driver 0.1.0); the schema row re-measured 2026-08-31 on 0.3.0.
+Re-check after a codex upgrade.
 
 | Your subagent | Codex equivalent | Parity |
 | --- | --- | --- |
@@ -185,7 +188,7 @@ Measured 2026-08-30 on this repo (driver 0.1.0); re-check after a codex upgrade.
 | a subagent's MCP tools | **none, by default** | the price of the isolated home; `--host-home` restores them, and their nondeterminism |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
 | a schema-validated return | `--output-schema <file>` | the server constrains generation with the schema, the driver validates the result independently (type/required/properties/enum/items), and a mismatch spends ONE corrective turn on the same thread before exit 13 — the retry a subagent's tool layer provides. `--answer-json` remains the lighter syntax-only demand |
-| a short return + transcript | `--brief`, plus `answerPath` always | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
+| a short return + transcript | `--brief`, plus `answerPath` always | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines / 4 KB. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 (plus, on `--host-home` only, a private copy of every MCP server in the caller's config). Exceeding the
@@ -243,7 +246,9 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 
 These are ordered, first match wins: **3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 13 → 11**. Every code decided
 after the turn can carry executed work — 3 most of all. The codes that mean nothing ran are decided
-before the turn: an argument-error 2 (prints no report), 10, and the assertion 4s.
+before the turn: an argument-error 2 (prints no report), 10, the assertion 4s — and a 3 raised before
+the turn existed (a stalled config probe or stdin under a short `--timeout`), which also prints no
+report.
 
 A command counts as evidence only at `status: completed` with exit code 0; it counts as failed on
 status `failed`/`declined` OR a non-zero code. **Even then, a passing gate proves a command succeeded,
@@ -254,7 +259,8 @@ work); it greps the model's own command strings, so it is worth passing and neve
 **`--verify '<shell>'` is the sound check**: run by the driver in the cwd after the turn, invisible to
 the model, a non-zero exit fails the run with code 9 no matter what the answer claimed. It runs
 whenever the turn completed — even when other gates missed — and is skipped only when there is no sound
-end state (timeout, failed turn); `verifySkipped` says which. A passing `--verify` does not waive a
+end state (timeout, failed turn) or no wall clock left to run it in (`budget-exhausted`);
+`verifySkipped` says which. A passing `--verify` does not waive a
 declared `--expect-command` (a stale `dist/` satisfies `test -f dist/index.js` for a build that never
 ran), and it cannot rescue a turn that did not complete. How each gate can be fooled:
 [references/result-gates.md](references/result-gates.md).
@@ -306,14 +312,17 @@ concurrent run its own cwd (`--worktree` does). Internals:
 `--resume <threadId>` · `--ephemeral` (non-resumable; the receipt story still holds, but prefer the
 default) · `--web-search cached|indexed|live` (off by default) · `--answer-json` ·
 `--output-schema <file>` (a validated object with one corrective retry; exit 13 on a final mismatch) ·
-`--brief` (cap the inline answer at 20 lines; the full text is at `answerPath`) · `--host-home` (the
+`--brief` (cap the inline answer at 20 lines / 4 KB; the full text is at `answerPath`) · `--host-home` (the
 caller's `~/.codex` instead of the private home) · `--footer` (human footer instead of the default
 JSON) · `--help`.
 
 Observability: `threadId` is printed to stderr as soon as the thread exists — tail the live rollout
 under `~/.codex/sessions` during a long turn — and the report's `tokenUsage` carries the server's own
-accounting of what the seat cost. `--writable` refuses `~/.codex` and `~/.codex-delegate` outright:
-the first holds the receipts a seat is verified by, the second this driver's locks and answer log.
+accounting for the ROOT thread (Codex's own subagent threads under `ultra` are not included, and
+`total` is thread-cumulative: on `--resume` it counts earlier invocations too; read `last` for this
+turn alone). Every write-level root — `--cwd`, `--writable`, the git dir `--commit` grants — refuses
+`~/.codex` and `~/.codex-delegate` and anything inside them, by inode identity: the first holds the
+receipts a seat is verified by, the second this driver's locks and answer log.
 
 `--commit`, `--writable` and `--network` require write level. Unless `--host-home` is given, a run uses
 a private `CODEX_HOME` at `~/.codex-delegate/home` — shared by every run — so the caller's plugins,

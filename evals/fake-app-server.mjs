@@ -226,11 +226,33 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, '{"verdict":"ok","count":3}'), done(TURN, THREAD));
         break;
 
-      // --output-schema: prose first, a valid object on the corrective turn.
+      // --output-schema: PHASED prose first, an UNPHASED valid object on the corrective turn — the
+      // schema permits phase null, and a cross-turn tie-break once let the first turn's phased prose
+      // beat the retry's whole product.
       case "schema-retry":
         w(R, cmd(thisTurn, THREAD),
-          msg(thisTurn, THREAD, turnStarts === 1 ? "I think the verdict is ok." : '{"verdict":"ok","count":3}'),
+          turnStarts === 1
+            ? msg(thisTurn, THREAD, "I think the verdict is ok.")
+            : msg(thisTurn, THREAD, '{"verdict":"ok","count":3}', null),
           done(thisTurn, THREAD));
+        break;
+
+      // --output-schema: the corrective turn/start itself is refused by the server.
+      case "schema-retry-refused":
+        if (turnStarts === 1)
+          w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "not json at all"), done(TURN, THREAD));
+        else
+          w({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "no capacity for a second turn" } });
+        break;
+
+      // The turn completes AFTER the driver's deadline already fired and reported. Nothing here may
+      // start new work: the settled guard is the only thing between this and a corrective turn on a
+      // run that declared itself timed out.
+      case "late-completion":
+        w(R);
+        // 450ms: after the driver's 400ms deadline has reported, before its teardown finishes — the
+        // only window in which an unguarded completion could start new work.
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "too late"), done(TURN, THREAD)), 450);
         break;
 
       // --output-schema: wrong shape on both attempts (valid JSON, missing the required key).
