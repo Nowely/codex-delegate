@@ -22,13 +22,19 @@ a run that judged the *stale* lock dead could arrive late and delete the *fresh*
 one cwd is **not** evidence of that bug: runs that acquire in sequence all legitimately succeed. Only
 overlapping hold intervals are.
 
-That marker is abandoned when its **owner** is gone, never on a timer. A clock got it wrong in both
-directions: it stole the marker from an owner merely stalled past the deadline — a laptop sleep, a
+That marker is abandoned when its **owner** is gone — liveness, not a clock, decides. A deadline got it
+wrong in both directions: it stole the marker from an owner merely stalled past it — a laptop sleep, a
 `SIGSTOP`, a wall-clock step — reopening the very window the marker closes; and it made a provably free
-directory report `BUSY` for the whole deadline whenever a run was killed mid-reclaim.
+directory report `BUSY` for the whole deadline whenever a run was killed mid-reclaim. One clock
+survives, as a backstop and nothing else: a marker whose mtime is over an hour old is abandonable even
+if a live process still bears its pid, because after an hour that pid is more likely recycled than
+stalled.
 
-The lock covers the driver's lifetime, not its descendants'. It is released at process exit, while
-test servers and browsers spawned by the turn may still be dying — so it serialises invocations, not
-directories. What it does not cover at all is a shared scratch directory being deleted out from under a
-run by other work on the machine; give every concurrent run its own uniquely named cwd.
+The lock is released **after** the driver has waited its child process group out — SIGTERM, up to 2 s,
+then SIGKILL and up to 1 s more — so a next writer does not walk into a directory where the previous
+run's test servers are still dying. That wait is bounded: a group member alive after those three
+seconds does not hold the lock any longer, and a driver killed with `SIGKILL` releases nothing at all
+(the next run reclaims the stale lock after finding its pid dead). It still serialises invocations
+rather than directories. What it does not cover at all is a shared scratch directory being deleted out
+from under a run by other work on the machine; give every concurrent run its own uniquely named cwd.
 

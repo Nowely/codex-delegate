@@ -2,9 +2,9 @@
 
 A Claude Code skill that hands coding work to OpenAI Codex as a subagent, with the rights for each call
 declared up front: analysis that reads and runs but writes nothing of yours, or writing and running
-tests inside a git worktree the driver manages itself. Every run leaves a receipt no intermediary can
-forge, and the exit code is derived from what actually happened rather than from a process status that
-is always 0 — so a seat that did nothing cannot report as though it had.
+tests inside a git worktree the driver manages itself. Every run leaves a receipt — a rollout the driver
+locates, opens and checks — and the exit code is derived from what actually happened rather than from a
+process status that is always 0, so a seat that did nothing cannot report as though it had.
 
 ## Prerequisites
 
@@ -40,9 +40,13 @@ symlink if you want the `codex-seat` agent without the plugin route):
 ```bash
 git clone https://github.com/Nowely/codex-delegate.git
 cd codex-delegate
+mkdir -p ~/.claude/skills ~/.claude/agents          # absent on a machine that has never run Claude Code
 ln -s "$PWD/skills/codex-delegate" ~/.claude/skills/codex-delegate
 ln -s "$PWD/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
 ```
+
+The `mkdir -p` is not decoration: without it both `ln -s` calls fail with `No such file or directory`
+on a fresh account, which is exactly the account this route is written for.
 
 Verify the install from the checkout (plugin installs carry the suites too, under the plugin root) —
 costs nothing, calls no model:
@@ -65,10 +69,11 @@ CHECK: name three real files.
 RETURN: the two sentences.'
 ```
 
-The JSON report (the default) ends with the verdict: `exitCode: 0` means the turn completed, a command
-really ran, and every declared check passed; `threadId` continues the conversation via `--resume`; and
-`receiptPath` points at the rollout under `~/.codex/sessions` — the proof the turn really ran, carrying
-the originator, the model provider and the whole transcript.
+The JSON report (the default) ends with the verdict: `exitCode: 0` means the turn completed, every
+declared check passed, and a command really ran — unless `--allow-no-commands` waived exactly that last
+clause. `threadId` continues the conversation via `--resume`. `receiptPath` points at the rollout under
+`~/.codex/sessions`, and `receiptOk` says the driver opened it and found a `session_meta` record naming
+this thread; `receiptOriginator` and `receiptModelProvider` come from that record.
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
 agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed, a
@@ -98,8 +103,11 @@ answer of its own.
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
   were asked for — sandbox type, writable roots, network, approval policy, approvals reviewer — and a
   mismatch refuses the run instead of proceeding under an unknown sandbox.
-- **A receipt per run.** `receiptPath`/`receiptOk` in every report locate the rollout; a wrapper that
-  forwarded the work instead of doing it has no thread id to give.
+- **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout, open it, and check that its
+  opening `session_meta` record names this thread — a filename match alone is as strong as `touch`.
+  `receiptOriginator`, `receiptModelProvider` and `receiptCwd` come out of that record. It is evidence
+  against a wrapper that forwarded the work rather than doing it; it is not evidence against one that
+  fabricated the whole report, which anything writing the report could do.
 - **Isolation by default.** Runs use a private `CODEX_HOME`, so your plugins, skills and MCP servers
   stay out of the turn and no trust records are written back; `--host-home` opts out.
 
@@ -144,9 +152,12 @@ schema-0.150.1/                  the pinned protocol schema the driver is writte
 
 ## Status
 
-Young code, adversarially reviewed: nine review passes by mixed Claude/Codex panels, which found —
-among other things — a live sandbox bypass and a broken mutual-exclusion guarantee, both fixed and
-pinned by tests. Changes and known issues are recorded per release on the
+Young code, adversarially reviewed by mixed Claude/Codex panels. What that produced is checkable in the
+repository rather than in the claim: the home-directory guard is pinned against case variants, symlinks
+and a hostile `$HOME`; the lock's critical section is pinned against overlapping holders; a seat file
+cannot introduce a verifier; `$TMPDIR` is guarded like every other writable root; and each suite is
+mutation-checked, with the surviving mutants and what was done about them listed in
+[`evals/README.md`](evals/README.md). Changes and known issues are recorded per release on the
 [releases page](https://github.com/Nowely/codex-delegate/releases); the codex build each release was
 measured against is stated there, because that axis — not the skill's own code — is what usually
 breaks. MIT — see [LICENSE](LICENSE).

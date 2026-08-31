@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "The codex-delegate plugin: Codex seats for Claude Code, with rights declared per call and a receipt per run.",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "plugins": [
     {
       "name": "codex-delegate",
       "description": "Delegate tasks to OpenAI Codex as verifiable subagent seats: rights declared per call, exit codes derived from evidence, a rollout receipt per run.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "author": {
         "name": "Nowely"
       },
