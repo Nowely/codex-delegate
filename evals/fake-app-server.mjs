@@ -9,6 +9,7 @@
 // to, returning the raw lines to emit — deliberately as ONE write where the point is that the client
 // cannot rely on chunk boundaries.
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
@@ -409,6 +410,19 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "slow but fine"), done(TURN, THREAD)), 1200);
         w(R);
         break;
+
+      // A descendant that ignores SIGTERM — the shape of a test server or watcher a turn leaves running.
+      // It inherits this process's group, so the driver's group teardown is the only thing that can end
+      // it; its pid goes back in the answer so the suite can check the body.
+      case "spawn-survivor": {
+        const s = spawn("/bin/sh", ["-c", 'trap "" TERM; sleep 30'], { stdio: "ignore" });
+        // Give the shell time to install its trap before the turn ends: the group SIGTERM can win that
+        // race, and a survivor that dies of the race makes the case pass against a driver that never
+        // escalates to SIGKILL at all.
+        w(R);
+        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, `survivor ${s.pid}`), done(TURN, THREAD)), 200);
+        break;
+      }
 
       // An answer with no phase at all, which the schema permits.
       case "null-phase":

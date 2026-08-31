@@ -557,6 +557,95 @@ test("a case-variant --cwd is the same directory",
     return code === EXIT.BUSY ? true : `expected 10 via the case-variant spelling, got ${code}`;
   });
 
+// A real repository for the --worktree cases: the driver creates and disposes of the worktree itself,
+// so these pin the whole lifecycle — clean removal, dirty preservation, timeout preservation.
+function freshRepo(name) {
+  const d = freshDir(name);
+  let g = spawnSync("git", ["init", "-q", d], { encoding: "utf8" });
+  if (g.status !== 0) return null;
+  fs.writeFileSync(path.join(d, "seed"), "seed\n");
+  g = spawnSync("git", ["-C", d, "add", "seed"], { encoding: "utf8" });
+  if (g.status !== 0) return null;
+  g = spawnSync("git", ["-C", d, "-c", "user.name=Lock Eval", "-c", "user.email=lock@example.invalid",
+    "commit", "-qm", "seed"], { encoding: "utf8" });
+  return g.status === 0 ? d : null;
+}
+const worktreesUnder = (repo) => {
+  const dir = path.join(repo, ".claude", "worktrees");
+  try { return fs.readdirSync(dir); } catch { return []; }
+};
+
+test("--worktree removes a clean tree and reports the disposition",
+  "the manual lifecycle was ignored often enough to leave 64 worktrees and 41 GB behind; parity with isolation:\"worktree\" means the driver itself removes what it can prove worthless",
+  async () => {
+    const repo = freshRepo("wt-clean");
+    if (!repo) return "git setup failed";
+    const { code, out, err } = await run(null, { args: ["--worktree", repo] });
+    if (code !== EXIT.OK) return `a clean --worktree run exited ${code}: ${err.trim().slice(0, 160)}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    if (!r) return "no JSON report";
+    if (r.worktreeRemoved !== true) return `a provably clean tree was not removed: ${JSON.stringify({ removed: r.worktreeRemoved, why: r.worktreePreserved })}`;
+    const left = worktreesUnder(repo);
+    if (left.length) return `worktree directories left behind: ${JSON.stringify(left)}`;
+    if (!err.includes("created worktree")) return "stderr never announced the worktree";
+    return true;
+  });
+
+test("--worktree preserves a tree that holds changes, and says how to remove it",
+  "auto-removing a changed tree destroys the only copy of the work; untracked files show in porcelain and must block removal exactly like tracked ones",
+  async () => {
+    const repo = freshRepo("wt-dirty");
+    if (!repo) return "git setup failed";
+    // The verifier runs inside the worktree after the turn — the cheapest honest way to dirty the tree.
+    const { code, out } = await run(null, { args: ["--worktree", repo, "--verify", "touch untracked-work.txt"] });
+    if (code !== EXIT.OK) return `the run exited ${code}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    if (!r) return "no JSON report";
+    try {
+      if (r.worktreeRemoved !== false) return "a tree holding work was removed";
+      if (!r.worktreePreserved || !/harvest/.test(r.worktreePreserved)) return `no preservation reason: ${JSON.stringify(r.worktreePreserved)}`;
+      if (!r.worktreeRemoveCommand || !r.worktreeRemoveCommand.includes("worktree remove")) return "no removal command in the report";
+      if (!fs.existsSync(path.join(r.worktreePath, "untracked-work.txt"))) return "the preserved tree lost the work";
+    } finally {
+      if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+    }
+    return true;
+  });
+
+test("--worktree preserves the tree on a timeout",
+  "a timeout is the case most likely to leave a half-written tree; removal on anything but a settled clean state is data loss",
+  async () => {
+    const repo = freshRepo("wt-timeout");
+    if (!repo) return "git setup failed";
+    const { code, out } = await run(null, { scenario: "stalled-turn", timeout: 1, args: ["--worktree", repo] });
+    if (code !== 3) return `expected exit 3, got ${code}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    try {
+      if (!r) return "no JSON report";
+      if (r.worktreeRemoved !== false) return "a timed-out tree was removed";
+      if (!fs.existsSync(r.worktreePath)) return "the tree is gone despite worktreeRemoved:false";
+    } finally {
+      if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+    }
+    return true;
+  });
+
+test("the answer log is pruned by age",
+  "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
+  async () => {
+    const answers = path.join(os.homedir(), ".codex-delegate", "answers");
+    fs.mkdirSync(answers, { recursive: true, mode: 0o700 });
+    const planted = path.join(answers, `zzz-prune-eval-${crypto.randomBytes(4).toString("hex")}.md`);
+    fs.writeFileSync(planted, "stale");
+    const old = (Date.now() - 30 * 86400000) / 1000;
+    fs.utimesSync(planted, old, old);
+    const { code } = await run(freshDir("prune"), {});
+    if (code !== EXIT.OK) { fs.rmSync(planted, { force: true }); return `the run exited ${code}`; }
+    const survived = fs.existsSync(planted);
+    fs.rmSync(planted, { force: true });
+    return survived ? "a 30-day-old answer survived the prune" : true;
+  });
+
 let failed = 0;
 for (const c of CASES) {
   let verdict;

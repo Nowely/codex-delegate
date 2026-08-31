@@ -168,14 +168,49 @@ const CASES = [
       || `expected a recorded signal, got ${JSON.stringify(r.verify)}` },
   { scenario: "happy",            expect: EXIT.OK, args: ["--expect-command", "echo", "--verify", "true"],
     why: "both checks agreeing is the ordinary success, and both verdicts appear in the report",
-    assert: (r) => r.expectationOk === true && r.verify?.ok === true || `report lost a verdict: ${JSON.stringify({ e: r.expectationOk, v: r.verify })}` }
+    assert: (r) => r.expectationOk === true && r.verify?.ok === true || `report lost a verdict: ${JSON.stringify({ e: r.expectationOk, v: r.verify })}` },
+
+  // --- teardown: nothing this driver started may outlive it ---
+  { scenario: "spawn-survivor",   expect: EXIT.OK,
+    why: "a TERM-ignoring descendant — a test server, a watcher — used to survive every normal completion, because process.exit() discarded the SIGKILL escalation timer; the group teardown must wait it out",
+    assert: (r) => {
+      const pid = Number((String(r.answer).match(/survivor (\d+)/) ?? [])[1]);
+      if (!pid) return `the fixture did not report its survivor pid: ${JSON.stringify(r.answer)}`;
+      try { process.kill(pid, 0); return `survivor ${pid} is still alive after the driver exited`; }
+      catch { return true; }
+    } },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--verify", 'sh -c \'trap "" TERM; echo $$ > "$TMPDIR/verify-survivor.pid"; sleep 30\' & sleep 0.2; exit 0'],
+    why: "the verifier runs in its own process group and the group is swept afterwards — anything it backgrounded used to outlive the run",
+    assert: (r) => {
+      if (r.verify?.ok !== true) return `the verifier itself did not pass: ${JSON.stringify(r.verify)}`;
+      let pid = 0;
+      try { pid = Number(fs.readFileSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "verify-survivor.pid"), "utf8").trim()); } catch {}
+      if (!pid) return "the verifier's background child never wrote its pid";
+      try { process.kill(pid, 0); return `the verifier's background child ${pid} outlived the run`; }
+      catch { return true; }
+    } },
+
+  // --- report shape: defaults, receipt, exit-5 hint ---
+  { scenario: "happy",            expect: EXIT.OK, json: "omit",
+    why: "JSON is the default report — the only real caller is an agent, and every recipe hand-passed --json",
+    assert: (r) => r.ok === true || `expected a JSON report by default, got ${JSON.stringify(r).slice(0, 60)}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "the report locates the rollout receipt itself; a scripted thread id matches nothing real, so the honest answer is receiptOk false with a null path",
+    assert: (r) => (r.receiptOk === false && r.receiptPath === null)
+      || `receipt fields wrong for a fixture run: ${JSON.stringify({ ok: r.receiptOk, path: r.receiptPath })}` },
+  { scenario: "stale-turn",       expect: EXIT.NO_COMMANDS,
+    why: "exit 5 with no declared expectation names the flag that waives it, so a recall-only caller has a self-serve path",
+    assert: (r) => /allow-no-commands/.test(r.hint ?? "") || `exit 5 carried no hint: ${JSON.stringify(r.hint)}` },
+  { scenario: "wrong-command",    expect: EXIT.NO_COMMANDS, args: ["--expect-command", "vitest"],
+    why: "with a declared expectation the hint would be a lie — --allow-no-commands never waives an expectation",
+    assert: (r) => r.hint === undefined || `a hint appeared beside a declared expectation: ${JSON.stringify(r.hint)}` }
 ];
 
 function run(c) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath,
       [DRIVER, "--level", "read", "--cwd", shimDir, "--timeout", "20",
-       ...(c.json === false ? [] : ["--json"]),
+       ...(c.json === false ? ["--footer"] : c.json === "omit" ? [] : ["--json"]),
        "--prompt", "irrelevant, the server is scripted", ...(c.args ?? [])],
       { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario, ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
         stdio: ["ignore", "pipe", "pipe"] });
