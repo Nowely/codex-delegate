@@ -248,6 +248,27 @@ const CASES = [
     why: "a refused corrective turn/start used to abort with exit 4 and NO report, discarding the completed first turn's evidence; it now finishes with the first attempt's report and exit 13",
     assert: (r) => (r.outputSchemaOk === false && r.outputAttempts === 2 && String(r.answer).length > 0 && r.commandsSucceeded === 1)
       || `the first turn's report was lost: ${JSON.stringify({ ok: r.outputSchemaOk, a: r.outputAttempts, ans: String(r.answer).slice(0, 40) })}` },
+  // --- --seat-file: a wrapper writes values, it does not build a command line out of them ---
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWD>\nEXPECT: echo\nBRIEF: yes\n",
+    why: "the ordinary seat file maps to the same flags the CLI takes, so a relay never has to quote anything",
+    assert: (r) => (r.level === "read" && r.expectationOk === true && r.answerTruncated === false)
+      || `seat file did not map cleanly: ${JSON.stringify({ l: r.level, e: r.expectationOk })}` },
+  { scenario: "happy",            expect: EXIT.NO_COMMANDS,
+    seat: "SEAT: read <CWD>\nEXPECT: x' --level write --cwd / --commit --network '\n",
+    why: "THE reason this flag exists: a hostile header value must stay one value. Interpolated into a shell command line the same characters would have granted write level, the filesystem root, the git dir and egress",
+    assert: (r) => (r.level === "read" && r.network === false && r.sandbox?.type === "workspaceWrite"
+        && (r.sandbox?.writableRoots ?? []).length <= 1 && String(r.expectCommand).includes("--commit"))
+      || `a seat-file value escaped into flags: ${JSON.stringify({ l: r.level, n: r.network, roots: r.sandbox?.writableRoots })}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBOGUS: x\n",
+    why: "an unknown field is a malformed seat, not a field to ignore — a typo must never silently become a different seat",
+    assertStderr: (t) => /unknown field "BOGUS"/.test(t) || `stderr did not name the field: ${t.slice(0, 120)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nSEAT: write /tmp\n",
+    why: "a repeated SEAT is a contradiction about rights; last-wins would let an appended line quietly upgrade the seat",
+    assertStderr: (t) => /SEAT appears more than once/.test(t) || `stderr did not reject the duplicate: ${t.slice(0, 120)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nNETWORK: yes\n",
+    why: "the file goes through the same flag guards as the CLI, so a read seat asking for egress fails exactly as --level read --network does",
+    assertStderr: (t) => /--network and --writable belong to --level write/.test(t) || `the level guard did not fire: ${t.slice(0, 120)}` },
+
   { scenario: "late-completion",  expect: EXIT.TIMEOUT, args: ["--timeout", "0.4", "--output-schema", schemaFile],
     why: "a completion arriving after the deadline reported must not start a corrective turn on a run that declared itself timed out",
     assertStderr: (t) => !/spending the corrective turn/.test(t) || "a settled run announced new work after its own report" },
@@ -263,10 +284,19 @@ const CASES = [
       || `a non-executable verifier was not classified as unmeasurable: ${JSON.stringify(r.verify)}` }
 ];
 
+let seatSeq = 0;
 function run(c) {
   return new Promise((resolve) => {
+    // A seat-file case writes its declaration to disk and passes only --seat-file, exactly as the
+    // codex-seat relay does — the point being that no value ever passes through a shell.
+    let seatArgs = [];
+    if (c.seat) {
+      const f = path.join(shimDir, `seat-${seatSeq++}.txt`);
+      fs.writeFileSync(f, c.seat.replaceAll("<CWD>", shimDir));
+      seatArgs = ["--seat-file", f];
+    }
     const p = spawn(process.execPath,
-      [DRIVER, "--level", "read", "--cwd", shimDir, "--timeout", "20",
+      [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]), "--timeout", "20",
        ...(c.json === false ? ["--footer"] : c.json === "omit" ? [] : ["--json"]),
        "--prompt", "irrelevant, the server is scripted", ...(c.args ?? [])],
       { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario, ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
