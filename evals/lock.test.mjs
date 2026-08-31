@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DRIVER = path.join(HERE, "..", "scripts", "driver.mjs");
+const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
 const FAKE = path.join(HERE, "fake-app-server.mjs");
 const EXIT = { OK: 0, USAGE: 2, TRANSPORT: 4, VERIFY_FAILED: 9, BUSY: 10 };
 
@@ -626,6 +626,22 @@ test("--worktree preserves the tree on a timeout",
       if (!fs.existsSync(r.worktreePath)) return "the tree is gone despite worktreeRemoved:false";
     } finally {
       if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+    }
+    return true;
+  });
+
+test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts and the driver's own state",
+  "a writable ~/.codex/sessions makes the 'unforgeable' receipt forgeable, and a writable ~/.codex-delegate hands over the locks and the answer log; only ~ itself used to be refused",
+  async () => {
+    const home = fs.realpathSync(os.userInfo().homedir);
+    const targets = [path.join(home, ".codex"), path.join(home, ".codex", "sessions"), path.join(home, ".codex-delegate")];
+    for (const t of targets) {
+      let exists = true;
+      try { fs.statSync(t); } catch { exists = false; }
+      if (!exists) continue;   // a machine without codex state has nothing to protect here
+      const { code, err } = await run(freshDir("writable-protected"), { args: ["--writable", t] });
+      if (code !== EXIT.USAGE) return `--writable ${t} returned ${code}, expected 2`;
+      if (!/receipts|state/.test(err)) return `the refusal did not say why: ${err.trim().slice(0, 160)}`;
     }
     return true;
   });

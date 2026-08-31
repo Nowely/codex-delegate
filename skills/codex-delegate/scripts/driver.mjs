@@ -27,7 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12 };
+const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
 const LEVELS = new Set(["read", "write"]);
 const READ_PROFILE = "codex_delegate_read";
 // The full ladder the model catalogue advertises (`codex debug models` -> supported_reasoning_levels),
@@ -90,6 +90,10 @@ Turn
                      index says today
   --answer-json      demand one bare JSON object as the answer; the report then
                      carries answerJson and answerJsonError
+  --output-schema F  demand a JSON object matching the schema in file F: the
+                     server constrains generation with it, the driver checks the
+                     result independently, and one corrective turn is spent on a
+                     mismatch before exit 13. Implies --answer-json
   --brief            ask for a summary, not a working note, and cap what comes
                      back inline — parity with a subagent whose detail stays in
                      a transcript. The full answer is always written to
@@ -134,7 +138,7 @@ Decided after the turn, first match wins, in this order:
   3 timed out ... 2 the server refused the request ... 1 turn did not complete
   ... 7 wanted input ... 6 escalated ... 12 verify unmeasurable
   ... 9 verify failed ... 5 no commands ... 8 no answer
-  ... 11 a command or a file change failed
+  ... 13 the answer failed --output-schema ... 11 a command or a file change failed
 
   and 4 once more at the very end, if the report could not reach stdout.
 
@@ -177,6 +181,7 @@ function parseArgs(argv) {
       case "--network": o.network = true; break;
       case "--web-search": o.webSearch = need(++i, a); break;
       case "--answer-json": o.answerJson = true; break;
+      case "--output-schema": o.outputSchemaFile = need(++i, a); break;
       case "--brief": o.brief = true; break;
       case "--host-home": o.hostHome = true; break;
       case "--json": o.json = true; break;   // the default; kept so existing recipes stay valid
@@ -209,6 +214,21 @@ function parseArgs(argv) {
   if (o.expect !== undefined) {
     try { o.expectRe = new RegExp(o.expect); }
     catch (e) { fail(EXIT.USAGE, `--expect-command is not a valid regular expression: ${e.message}`); }
+  }
+  // Read and sanity-check the schema now, for the same reason as the regex above. The answer contract
+  // is ONE bare JSON object, so a schema demanding anything else is a contradiction, not a preference.
+  if (o.outputSchemaFile !== undefined) {
+    let raw;
+    try { raw = fs.readFileSync(o.outputSchemaFile, "utf8"); }
+    catch (e) { fail(EXIT.USAGE, `--output-schema cannot read ${o.outputSchemaFile}: ${e.message}`); }
+    try { o.outputSchema = JSON.parse(raw); }
+    catch (e) { fail(EXIT.USAGE, `--output-schema is not valid JSON: ${e.message}`); }
+    if (o.outputSchema === null || typeof o.outputSchema !== "object" || Array.isArray(o.outputSchema))
+      fail(EXIT.USAGE, "--output-schema must be a JSON Schema object");
+    const t = o.outputSchema.type;
+    if (t !== undefined && t !== "object" && !(Array.isArray(t) && t.includes("object")))
+      fail(EXIT.USAGE, '--output-schema must describe an object (the answer contract is one bare JSON object)');
+    o.answerJson = true;   // the schema subsumes the bare-JSON demand
   }
   return o;
 }
@@ -259,6 +279,15 @@ function checkRoot(dir) {
   // only politeness toward someone who moved HOME on purpose.
   const envHome = process.env.HOME;
   if (envHome && path.isAbsolute(envHome)) hit(canon(envHome), `the directory $HOME points at (${envHome})`);
+  // The receipt story and the driver's own state must never become writable roots: ~/.codex holds the
+  // rollouts a seat is verified by (a writable ~/.codex/sessions makes the "unforgeable" receipt
+  // forgeable), and ~/.codex-delegate holds the locks, the answer log and the isolated home. Refusing
+  // only ~ itself left every one of them grantable — recorded as a known issue until now.
+  for (const name of [".codex", ".codex-delegate"]) {
+    const prot = canon(path.join(canon(passwdHome("the home-directory guard")), name));
+    if (dir === prot || dir.startsWith(`${prot}${path.sep}`))
+      fail(EXIT.USAGE, `refusing to grant write access to ${dir}: it is inside ${prot}, which holds the rollout receipts and this driver's own state`);
+  }
   return dir;
 }
 
@@ -348,17 +377,24 @@ function inheritedConfig() {
       // keeps the event loop alive on its own.
       for (const st of [child.stdout, child.stderr, child.stdin]) { try { st?.destroy(); } catch {} }
       // Silence when there is nothing to inherit is correct; silence when the ASKING failed is the silent
-      // downgrade again, so that case says so.
+      // downgrade again, so that case says so. A cancellation (shutdown mid-probe) passes why=undefined
+      // and stays quiet — the run is ending anyway, and the old path killed the group here a second time
+      // and then warned that the probe "exited before replying", which was this driver's own doing.
       if (why) process.stderr.write(`codex-delegate: could not read the caller's Codex config (${why}); model and effort fall back to the account default\n`);
       probeChild = null;
+      probeCancel = null;
       resolve(v);
     };
+    probeCancel = () => finish([], undefined);
     // Bounded well under any caller's budget, and never longer than it: this runs BEFORE the turn deadline
     // is armed, so a 15 s probe made `--timeout 2` take fifteen seconds. Reading a config takes ~120 ms;
     // anything approaching this is broken, not slow.
     const budget = Math.min(5000, Math.max(1000, (opts?.timeout ?? 900) * 1000));
+    // Both buffers are capped: a 96 MiB unterminated write from a broken probe once took driver RSS
+    // from 52 to 387 MB. The stderr tail is all the diagnostics ever use, and a reply line that huge
+    // is not a config.
     let err = "";
-    child.stderr.on("data", (d) => { err += d; });
+    child.stderr.on("data", (d) => { err = (err + d).slice(-8192); });
     const why = (base) => {
       const tail = err.trim().replace(/\s+/g, " ").slice(-160);
       return tail ? `${base}: ${tail}` : base;
@@ -371,6 +407,7 @@ function inheritedConfig() {
       buf += d;
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
+      if (buf.length > 262144) return finish([], why("config/read reply exceeds 256KB without a newline"));
       for (const line of lines) {
         let m; try { m = JSON.parse(line); } catch { continue; }
         if (m.id !== 2) continue;
@@ -906,6 +943,10 @@ let child, closed = false, settled = false, flushing = false;
 // function-local it survived a SIGTERM aimed at the driver — the same way a review probe's background
 // jobs outlived their run and burned eight cores for fifteen hours.
 let probeChild = null;
+// Set by inheritedConfig for its lifetime: the one way to end the probe that also settles its closure
+// state, so a shutdown mid-probe does not trigger the probe's own close handler into a second group
+// kill and a misleading "exited before replying" warning.
+let probeCancel = null;
 const pending = new Map();
 let stderrBuf = "";
 let stderrDropped = 0;
@@ -934,6 +975,7 @@ let shutdownDone = null;
 function shutdown() {
   if (shutdownDone) return shutdownDone;
   shutdownDone = (async () => {
+    if (probeCancel) probeCancel();   // kills the group once and settles the probe's own state
     if (probeChild) {
       try { process.kill(-probeChild.pid, "SIGKILL"); } catch { try { probeChild.kill("SIGKILL"); } catch {} }
       probeChild = null;
@@ -987,6 +1029,10 @@ let selectedModel = null;   // what the server resolved, which may not be what w
 let selectedEffort = null;  // likewise: with no --effort this is whatever config.toml chose
 let effectiveSandbox = null;   // the sandbox the SERVER applied, not the one we asked for
 let verifyResult = null;    // the caller-run check, the one piece of evidence the model cannot author
+let tokenUsage = null;      // the latest thread/tokenUsage/updated payload: what this seat cost
+let outputAttempts = 0;     // turns spent under --output-schema; at most one corrective retry
+let lastSchemaErrors = null;
+let requestFn = null;       // main()'s request closure, hoisted so the corrective turn can reach it
 
 // Fail CLOSED on BOTH ids. Thread alone is not enough: a stale item from an earlier turn on the same
 // thread, or a completion delivered before the turn/start response, would otherwise be accepted as ours.
@@ -1125,6 +1171,11 @@ function handleMessage(msg) {
                            move: ch.kind?.move_path ?? null, status: it.status });
     }
   }
+  // Best-effort accounting: what this seat cost, straight from the server. Only the root thread's
+  // usage counts — a subagent thread's tokens are its own.
+  if (msg.method === "thread/tokenUsage/updated" && (p?.threadId ?? null) === rootThreadId)
+    tokenUsage = p?.tokenUsage ?? null;
+
   // A subagent finishing its own turn, or an earlier turn on our own thread, must not end ours.
   if (msg.method === "turn/completed" && isRoot(p)) {
     turnStatus = p?.turn?.status ?? "unknown";
@@ -1133,8 +1184,72 @@ function handleMessage(msg) {
     // contextWindowExceeded -> the handoff was too large, split it; unauthorized -> stop;
     // sandboxError -> the rights level was wrong; responseStreamDisconnected -> transport, retry.
     turnError = p?.turn?.error ?? null;
+    // Under --output-schema a completed turn whose answer misses the shape gets ONE corrective turn on
+    // the same thread — the validation errors and nothing else — mirroring the retry a Claude
+    // subagent's tool layer provides. The commands and evidence of the first turn stay counted.
+    if (opts.outputSchema && turnStatus === "completed") {
+      outputAttempts++;
+      const errs = answerSchemaErrors(currentFinalAnswer());
+      lastSchemaErrors = errs.length ? errs : null;
+      if (errs.length && outputAttempts < 2) { startCorrectiveTurn(errs); return; }
+    }
     finish();
   }
+}
+
+// The final-answer selection, shared by finish() and the schema-retry decision above so the two can
+// never disagree about which message is the answer.
+function currentFinalMsg() {
+  const nonBlank = messages.filter((m) => String(m.text).trim());
+  const phased = nonBlank.filter((m) => m.phase === "final_answer");
+  return phased.at(-1) ?? (nonBlank.every((m) => m.phase == null) ? nonBlank.at(-1) ?? null : null);
+}
+const currentFinalAnswer = () => currentFinalMsg()?.text ?? "";
+
+// A deliberately SHALLOW validator — type, required, properties, enum, items — not a JSON Schema
+// implementation. The server already constrains generation with the full schema; this is the driver's
+// independent check of the load-bearing subset, kept small enough to trust without a dependency.
+// Unknown keywords are ignored, which fails OPEN for exotic schemas: say so rather than pretend.
+function schemaErrors(value, schema, at = "$") {
+  const errs = [];
+  const typeOf = (v) => Array.isArray(v) ? "array" : v === null ? "null" : typeof v;
+  const t = schema?.type;
+  if (t !== undefined) {
+    const types = Array.isArray(t) ? t : [t];
+    const vt = typeOf(value);
+    const ok = types.includes(vt) || (vt === "number" && types.includes("integer") && Number.isInteger(value));
+    if (!ok) { errs.push(`${at}: expected ${types.join("|")}, got ${vt}`); return errs; }
+  }
+  if (Array.isArray(schema?.enum) && !schema.enum.some((e) => JSON.stringify(e) === JSON.stringify(value)))
+    errs.push(`${at}: not one of the permitted values`);
+  if (typeOf(value) === "object") {
+    for (const k of schema?.required ?? []) if (!(k in value)) errs.push(`${at}.${k}: required and missing`);
+    for (const [k, sub] of Object.entries(schema?.properties ?? {})) if (k in value) errs.push(...schemaErrors(value[k], sub, `${at}.${k}`));
+  }
+  if (typeOf(value) === "array" && schema?.items && !Array.isArray(schema.items))
+    value.forEach((v, i) => errs.push(...schemaErrors(v, schema.items, `${at}[${i}]`)));
+  return errs;
+}
+
+function answerSchemaErrors(text) {
+  const parsed = parseAnswerJson(text);
+  if (parsed.answerJson === null) return [`the answer is not valid JSON: ${parsed.answerJsonError}`];
+  return schemaErrors(parsed.answerJson, opts.outputSchema);
+}
+
+function startCorrectiveTurn(errs) {
+  // Hold the new turn's events until its id arrives, exactly as at startup — without this, an item
+  // racing the turn/start response would be judged against the OLD turn id and dropped.
+  rootTurnId = null;
+  process.stderr.write(`codex-delegate: the answer failed schema validation (${errs.length} error(s)); spending the corrective turn\n`);
+  requestFn("turn/start", {
+    threadId: rootThreadId,
+    input: [{ type: "text", text:
+      `Your final answer did not match the required JSON schema. Errors:\n- ${errs.slice(0, 8).join("\n- ")}\n` +
+      "Reply again with ONE corrected JSON object and nothing else — no prose before or after, no code fence.",
+      text_elements: [] }],
+    model: opts.model ?? null, effort: null, outputSchema: opts.outputSchema
+  }).catch((e) => { if (!settled) abort(EXIT.TRANSPORT, `the corrective turn failed to start: ${e.message}`); });
 }
 
 // A Claude subagent can be handed a schema and the tool layer retries until the shape matches. There is no
@@ -1286,10 +1401,11 @@ function finish(reason) {
   // thinking-out-loud into the deliverable, and the run reports success on commentary.
   // The schema permits phase: null, and older servers omit it. Prefer an explicit final_answer; fall back
   // to the last non-blank unphased message only when nothing was phased at all.
-  const nonBlank = messages.filter((m) => String(m.text).trim());
-  const phased = nonBlank.filter((m) => m.phase === "final_answer");
-  const final = phased.at(-1) ?? (nonBlank.every((m) => m.phase == null) ? nonBlank.at(-1) ?? null : null);
+  const final = currentFinalMsg();
   const fullAnswer = final?.text ?? "";
+  // Recomputed here rather than trusted from the retry path: a timeout or failed turn never reached
+  // that path, and the verdict must describe the answer this report actually carries.
+  const schemaErrs = opts.outputSchema && fullAnswer ? answerSchemaErrors(fullAnswer) : opts.outputSchema ? ["no answer arrived"] : null;
   const answerPath = persistAnswer(fullAnswer);
   // Capped only when asked. A caller who did not ask for --brief gets exactly what the model said, because
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
@@ -1382,6 +1498,9 @@ function finish(reason) {
   // drifted, e.g. a stale dist/ satisfying `test -f dist/index.js` for a build that never ran.
   else if (expected.length === 0 && (opts.expectRe || !opts.allowNoCommands)) code = EXIT.NO_COMMANDS;
   else if (!answer) code = EXIT.NO_ANSWER;
+  // The caller asked for a shape and spent a corrective turn not getting it. Above COMMAND_FAILED:
+  // an unusable answer is the more actionable complaint, and 11 is still visible in the report.
+  else if (opts.outputSchema && schemaErrs.length) code = EXIT.SCHEMA;
   // A command that ran and failed is a failure of the work, whatever the answer claims — one incidental
   // success (a skill-file read) must not mask it. A PASSING --verify overrules it, because iterative work
   // normally contains failed commands: the first test run fails, the model fixes it, the second passes.
@@ -1403,6 +1522,9 @@ function finish(reason) {
     // server actually selected, which is the one worth reading back.
     effort: opts.effort ?? null, reasoningEffort: selectedEffort,
     model: selectedModel, turnStatus, turnError, threadId: rootThreadId,
+    // What the seat cost, straight from the server's own accounting; null when no usage event arrived.
+    tokenUsage,
+    ...(opts.outputSchema ? { outputAttempts, outputSchemaOk: schemaErrs.length === 0, schemaErrors: schemaErrs.length ? schemaErrs.slice(0, 12) : null } : {}),
     commandsSucceeded: ran.length, commandsMatchingExpectation: expected.length,
     commandsFailed: failedCmds.length, commandsBlocked: blocked.length,
     // For a rename the file that EXISTS afterwards is the destination; report that, not the source.
@@ -1449,6 +1571,10 @@ function finish(reason) {
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
     if (rootThreadId) L.push(receiptPath ? `receipt: ${receiptPath}`
       : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
+    if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
+    if (opts.outputSchema) L.push(schemaErrs.length
+      ? `output-schema: FAILED after ${outputAttempts} attempt(s) — ${schemaErrs.slice(0, 3).join("; ")}`
+      : `output-schema: matched (${outputAttempts} attempt(s))`);
     if (worktree) {
       L.push(worktree.worktreeRemoved
         ? `worktree: removed (clean) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
@@ -1502,6 +1628,7 @@ function finish(reason) {
     if (interactions.length) L.push(`UNANSWERABLE server requests — no sandbox change fixes these: ${interactions.join(", ")}`);
     if (turnStatus !== "completed") {
       L.push(`TURN ${String(turnStatus).toUpperCase()} — the answer above is incomplete.`);
+      if (turnStatus === "timedOut") L.push("  a timeout is the case most likely to leave a half-written tree; inspect the cwd before reusing it.");
       if (turnError) L.push(`  cause: ${errKind(turnError)} — ${errText(turnError)}`);
       if (stderrBuf.trim()) L.push(`  stderr: ${stderrBuf.trim().split("\n").slice(-3).join(" | ")}` +
         (stderrDropped ? `  [+${stderrDropped} earlier bytes dropped]` : ""));
@@ -1540,7 +1667,9 @@ async function main() {
   const deadline = setTimeout(() => {
     if (child && rootThreadId) finish("timedOut");
     else abort(EXIT.TIMEOUT, `timed out after ${opts.timeout}s`);
-  }, opts.timeout * 1000);
+    // Anchored on the process start, not on this line: the config probe runs before this timer is
+    // armed, and a relative deadline overshot the caller's wall clock by however long it took.
+  }, Math.max(50, startedAtMs + opts.timeout * 1000 - Date.now()));
   deadline.unref?.();
 
   let prompt = opts.prompt;
@@ -1592,6 +1721,7 @@ async function main() {
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     return new Promise((resolve, reject) => pending.set(id, { resolve, reject, method }));
   };
+  requestFn = request;
 
   await request("initialize", {
     clientInfo: { title: "codex-delegate", name: "Claude Code", version: "2.0" },
@@ -1680,10 +1810,16 @@ async function main() {
   if (resuming && st === "active") fail(EXIT.BUSY, `thread ${opts.resume} still has a turn running; wait for it to finish`);
   if (resuming && st && st !== "idle") fail(EXIT.TRANSPORT, `thread ${opts.resume} is ${st} and cannot be resumed`);
 
+  // Announced BEFORE the turn, not in the report: a delegation runs for minutes, and the thread id is
+  // the key to tailing its live rollout under ~/.codex/sessions — a coordinator watching a long seat
+  // should not have to wait for the end to learn which run it is.
+  process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
+
   await request("turn/start", {
     threadId: rootThreadId,
     input: [{ type: "text", text: prompt, text_elements: [] }],
-    model: opts.model ?? null, effort: null
+    model: opts.model ?? null, effort: null,
+    ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
   });
 }
 
