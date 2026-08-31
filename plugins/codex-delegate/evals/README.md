@@ -125,6 +125,17 @@ the positive, zero for the negative, which reached for local search instead.
 Ask the agent to self-report as well, but treat that as a cross-check only. An agent's account of which
 tools it used is exactly the kind of claim this skill exists to distrust.
 
+## What no pass has attacked
+
+The coverage ledger — the honest ceiling on any "adversarially reviewed" claim, moved here from the
+0.1.0 changelog because it is a living list, not history. As of 0.2.0: `evals/fake-app-server.mjs` is
+the oracle for every protocol and lock assertion, and only `fidelity` checks it against the real
+server — a wrong model there makes every suite agree wrongly together. The two suites' own assertions
+were used as mutation detectors but never questioned. Within `driver.mjs`, resume, `--ephemeral`,
+answer truncation and the stdout drain path have never been targeted; the verify-exit-126 branch has no
+test. Nobody has installed this on a clean machine. Strike items from this list by attacking them, not
+by shipping features near them.
+
 ## Keeping them honest
 
 Two rules, both learned the hard way in this repo:
