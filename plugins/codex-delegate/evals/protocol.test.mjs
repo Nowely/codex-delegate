@@ -35,6 +35,13 @@ fs.writeFileSync(schemaFile, JSON.stringify({
 }));
 const notExec = path.join(shimDir, "not-executable");
 fs.writeFileSync(notExec, "#!/bin/sh\necho unreachable\n", { mode: 0o644 });
+const laxSchemaFile = path.join(shimDir, "lax.schema.json");
+fs.writeFileSync(laxSchemaFile, "{}");
+const oneOfSchemaFile = path.join(shimDir, "oneof.schema.json");
+fs.writeFileSync(oneOfSchemaFile, JSON.stringify({
+  type: "object", required: ["verdict"], properties: { verdict: { type: "string" } },
+  oneOf: [{ required: ["verdict"] }]
+}));
 
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
@@ -230,6 +237,20 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", "/nonexistent/schema.json"],
     why: "an unreadable schema is the caller's error, raised before anything runs",
     assertStderr: (t) => /--output-schema cannot read/.test(t) || `stderr did not name the schema file: ${t.slice(0, 120)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", laxSchemaFile],
+    why: "a schema without type:\"object\" ({} or oneOf-only) certified ANY value — a bare string included — as a match; admission now demands the object contract be stated",
+    assertStderr: (t) => /must declare "type": "object"/.test(t) || `admission let a type-less schema through: ${t.slice(0, 140)}` },
+  { scenario: "schema-good",      expect: EXIT.OK, args: ["--output-schema", oneOfSchemaFile],
+    why: "keywords the shallow validator ignores must be NAMED in the report, so outputSchemaOk can never silently mean 'nothing was checked'",
+    assert: (r) => (r.outputSchemaOk === true && Array.isArray(r.schemaKeywordsUnchecked) && r.schemaKeywordsUnchecked.includes("oneOf"))
+      || `unchecked keywords not reported: ${JSON.stringify(r.schemaKeywordsUnchecked)}` },
+  { scenario: "schema-retry-refused", expect: EXIT.SCHEMA, args: ["--output-schema", schemaFile],
+    why: "a refused corrective turn/start used to abort with exit 4 and NO report, discarding the completed first turn's evidence; it now finishes with the first attempt's report and exit 13",
+    assert: (r) => (r.outputSchemaOk === false && r.outputAttempts === 2 && String(r.answer).length > 0 && r.commandsSucceeded === 1)
+      || `the first turn's report was lost: ${JSON.stringify({ ok: r.outputSchemaOk, a: r.outputAttempts, ans: String(r.answer).slice(0, 40) })}` },
+  { scenario: "late-completion",  expect: EXIT.TIMEOUT, args: ["--timeout", "0.4", "--output-schema", schemaFile],
+    why: "a completion arriving after the deadline reported must not start a corrective turn on a run that declared itself timed out",
+    assertStderr: (t) => !/spending the corrective turn/.test(t) || "a settled run announced new work after its own report" },
 
   // --- accounting and the remaining untested branches ---
   { scenario: "happy",            expect: EXIT.OK,
