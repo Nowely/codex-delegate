@@ -83,6 +83,24 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (m.method === "initialize") { w(reply(m.id, { userAgent: "fake", codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" })); return; }
   if (m.method === "initialized") return;
 
+  // The driver asks the real server what the caller's config resolves to, instead of parsing their TOML —
+  // so the fixture has to answer it too. It did not, and every case then sat out the driver's 15s probe
+  // bell: the suite went from 5 seconds to over ten minutes, which is how a missing method announces
+  // Unlike everything else in this file these are NOT really derived from the request: the driver's probe
+  // sends no -c at all, so CFG is empty here and the fallbacks always win. Said plainly because the
+  // file's own rule is that every field derives from what was sent — this one cannot, and a reader who
+  // assumed otherwise would think a driver change to the probe would show up here. It would not.
+  if (m.method === "config/read") {
+    const unquote = (v) => (v ?? "").replace(/^"|"$/g, "");
+    w(reply(m.id, { config: {
+      model: unquote(CFG["model"]) || "fake-model",
+      model_reasoning_effort: unquote(CFG["model_reasoning_effort"]) || "medium",
+      personality: unquote(CFG["personality"]) || "pragmatic",
+      service_tier: unquote(CFG["service_tier"]) || "auto",
+    }, origins: {} }));
+    return;
+  }
+
   if (m.method === "thread/start" || m.method === "thread/resume") {
     requestedThread = m.params;
     // EVERY field below is derived from what the driver actually SENT — its -c config (CFG) and its

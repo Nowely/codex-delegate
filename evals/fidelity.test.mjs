@@ -174,6 +174,21 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   if (m.method === "initialized") { initializedParams = m.params; return; }
+  // The driver asks the server what the caller's config resolves to before it starts anything, so the
+  // capture has to answer that too or the driver never reaches thread/start and every case fails with
+  // "capture timed out". Fixed values, because this suite must not depend on the developer's own config —
+  // ISOLATED_CONFIG below is what the driver is then expected to have written.
+  if (m.method === "config/read") {
+    send({ jsonrpc: "2.0", id: m.id, result: { config: {
+      model: "fake-model", model_reasoning_effort: "high", personality: "none", service_tier: "auto",
+      // Deliberately NOT in the driver's INHERITED list, and the reason it is here: without a key the
+      // driver ignores, ADDING one to that list changed nothing observable and every suite stayed green.
+      // With it, a widened list writes a fifth line into the isolated config and ISOLATED_CONFIG below
+      // stops matching. Removing a key was already caught; this is the other direction.
+      model_verbosity: "high",
+    }, origins: {} } });
+    return;
+  }
   if (m.method === "thread/start" || m.method === "thread/resume") {
     const captured = {
       spawnArgs: process.argv.slice(2), spawnCwd: process.cwd(), codexHome: process.env.CODEX_HOME,
@@ -187,7 +202,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 // All four production-inherited scalars are present, but their values are fixed by the test. `fake-model`
 // matches the fixture's deterministic fallback, `high` is also sent as the driver's real --effort
 // override so the fixture can observe it without pretending to parse config.toml, and `auto` resolves to
-// the protocol's null service tier. The fifth scalar and table prove isolation did not broaden silently.
+// the protocol's null service tier. The extra scalar in the capture's reply is what makes a WIDENED
+// INHERITED list visible; a probe pointed at the wrong CODEX_HOME is NOT pinned by anything here, and
+// saying so is better than the claim that used to sit on this line.
 const CALLER_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\npersonality = "none"\nservice_tier = "auto"\nmodel_verbosity = "low"\n\n[mcp_servers.must_not_escape]\ncommand = "false"\n`;
 const ISOLATED_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\npersonality = "none"\nservice_tier = "auto"\n`;
 
@@ -239,14 +256,28 @@ function captureDriver(spec) {
         { finish(reject, new Error(`driver sent ${JSON.stringify(captured.threadMethod)}, expected thread/start`)); return; }
       if (captured.spawnArgs?.at(-1) !== "app-server")
         { finish(reject, new Error(`driver argv did not end in app-server: ${JSON.stringify(captured.spawnArgs)}`)); return; }
-      // Keys whose EFFECT no response field carries, so replaying the same argv against both servers can
-      // never notice their absence — both would simply agree without them. Asserting they were SENT is the
-      // only place this is visible: dropping web_search silently gives every delegation the caller's own
-      // search setting, which is the opposite of the default the skill publishes.
-      for (const key of ["web_search"]) {
-        if (!captured.spawnArgs.some((a, i) => captured.spawnArgs[i - 1] === "-c" && a.startsWith(`${key}=`)))
-          { finish(reject, new Error(`driver did not send -c ${key}=…: ${JSON.stringify(captured.spawnArgs)}`)); return; }
-      }
+      // A differential compares two REPLIES to one request, so anything wrong with the REQUEST is
+      // invisible: the capture replays it to both servers and both agree on the same wrong thing.
+      // Measured — mutating web_search to `live`, dropping --strict-config, flipping experimentalApi or
+      // ephemeral each left all nine agreeing, because no response field carries their effect. So those
+      // four are asserted here by value — a small explicit list, not a second copy of the driver's argv.
+      // A child pointed at a different TMPDIR is invisible HERE too, but is not unpinned: it reddens 48
+      // of 59 protocol cases and one lock case. The earlier version of this comment claimed otherwise.
+      const sent = (key) => {
+        const i = captured.spawnArgs.findIndex((a, n) => captured.spawnArgs[n - 1] === "-c" && a.startsWith(`${key}=`));
+        return i < 0 ? null : captured.spawnArgs[i].slice(key.length + 1);
+      };
+      const expect = (what, got, want) => {
+        if (got === want) return false;
+        finish(reject, new Error(`driver sent ${what} as ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`));
+        return true;
+      };
+      if (expect("-c web_search", sent("web_search"), "disabled")) return;
+      if (expect("--strict-config", captured.spawnArgs.includes("--strict-config"), true)) return;
+      if (expect("initialize capabilities.experimentalApi", captured.initializeParams?.capabilities?.experimentalApi, false)) return;
+      // The capture invokes the driver WITH --ephemeral (line ~211), so true is the correct value here;
+      // asserting undefined was my own mistake and the suite caught it on the first run.
+      if (expect("thread ephemeral", captured.threadParams?.ephemeral, true)) return;
       let isolated;
       try { isolated = fs.readFileSync(path.join(expectedHome, "config.toml"), "utf8"); }
       catch (e) { finish(reject, new Error(`cannot read driver's isolated config: ${e.message}`)); return; }
@@ -326,6 +357,17 @@ const CASES = [
     build: () => {
       const d = freshDir("wrcwd");
       return { level: "write", cwd: d, mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([canon(d)])) };
+    } },
+
+  // The rewrite replaced this case's exact duplicate with two alias spellings, which tests a different
+  // rule and left the plain one uncovered: deleting the fixture's dedup kept all nine agreeing. Both
+  // spellings of the question are needed.
+  { name: "write level, the same root named twice, spelled identically",
+    why: "the server collapses an exact duplicate before reporting writableRoots",
+    build: () => {
+      const d = freshDir("wrdup2"), e = freshDir("wrdup2x");
+      return { level: "write", cwd: d, writable: [e],
+        mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([canon(e), canon(e)])) };
     } },
 
   { name: "write level, a root named twice",
