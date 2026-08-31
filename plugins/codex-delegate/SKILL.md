@@ -108,7 +108,7 @@ default row.
 Two judgement calls sit behind the default. A panel of only Claudes shares one bias, so the seat whose job
 is to disagree is the one worth decorrelating — that is where a Codex seat earns its cost. A mechanical
 fan-out (gather these facts, list these call sites) gets none, because decorrelation buys nothing when
-there is nothing to disagree about, and each Codex seat costs ~180 MB and ~7 s of turn overhead.
+there is nothing to disagree about, and each Codex seat costs ~180 MB and 7–12 s of turn overhead.
 
 The scale applies to single-agent work too: "only codex" on one task means Codex does the task and you
 coordinate and check it, rather than doing it yourself.
@@ -238,14 +238,16 @@ Measured 2026-08-30 on this repo. Re-check after a codex upgrade.
 | analysis that needs to write | `--level write --cwd <tmpdir>` | reads the repo by absolute path and has somewhere to write. Nothing checks that the cwd is outside a repo — that check left with the `scratch` level, so point `--cwd` somewhere harmless yourself. |
 | agent with `isolation: "worktree"` | `--level write --network --cwd <worktree>` | edits and runs tests, **including browser tests**, see below. Installing deps needs one more thing: a package manager writes to a cache in the HOME the sandbox does not grant, so a bare `npm install` is refused and the run exits 6 with the command named. Point the cache inside the worktree — `npm install --cache "$PWD/.npm-cache"` — and it succeeds. `pnpm install --frozen-lockfile` works against an already-warm store. |
 | the same, committing | `--level write --commit` | full: `git add` and `git commit` succeed |
-| fan-out of many agents | many concurrent invocations | memory-bound, not protocol-bound. Per seat, its own process tree attributed by ppid, sampled at 1 Hz: **181 MB median, 202 MB peak, 4 processes** isolated; **471 MB median, 485 MB peak, 7 processes** on `--host-home`, the extra three being a private copy of every MCP server in the caller's config. The `~0.5 GB` this row used to quote was the host-home figure, so it over-budgeted an isolated fan-out by ~2.7×. At 181 MB a wave of 12 is ~2.2 GB. The `~7 s` is **not** process startup — spawn plus `initialize` is 0.08–0.09 s; it is end-to-end turn overhead, measured as total minus a 45 s sleep: **6.6 s** isolated, **8.2 s** host-home. |
+| fan-out of many agents | many concurrent invocations | memory-bound, not protocol-bound. Per seat, its own process tree attributed by ppid, sampled at 1 Hz: **181 MB median, 202 MB peak, 4 processes** isolated; **471 MB median, 485 MB peak, 7 processes** on `--host-home`, the extra three being a private copy of every MCP server in the caller's config. The `~0.5 GB` this row used to quote was the host-home figure, so it over-budgeted an isolated fan-out by ~2.7×. At 181 MB a wave of 12 is ~2.2 GB. Turn overhead is **not** process startup — spawn plus `initialize` is well under 0.2 s. Measured as total minus a 45 s sleep it came out **6.6 s** isolated / 8.2 s host-home once, and **9.2 s** / 11.7 s hours later on a machine that was *less* loaded, so it is dominated by round-trips to the provider rather than by anything local: treat it as 7–12 s and do not tune against the number. The gap between the two homes is the stable part, ~2 s, being the MCP servers host-home spawns. |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home. `--host-home` gives the seat the caller's MCP servers back, and their nondeterminism with it. Nothing in this repo has needed them: browser tests run from the worktree's own playwright at write level, not over MCP. |
 | web search | `--web-search cached\|indexed\|live` | off unless asked, so a turn does not depend on what the index says today. `cached` is measured working — three `web_search_end` events with live results. Which modes you may ask for is a device policy: where one is set, an unpermitted mode is refused before the model is called, exit 2, naming what is allowed. |
 | a schema-validated return | `--answer-json` | asks for one bare JSON object and reports `answerJson` / `answerJsonError`. Weaker than a subagent's schema in two ways: there is no tool layer to retry a bad shape, so the caller sees the miss rather than being protected from it; and only the SYNTAX is checked, so an array or a bare number parses happily and `answerJson.someField` is then `undefined` rather than an error. Measured upside: the instruction is strong — two deliberate attempts to make the model answer in prose both came back as bare JSON. |
 | a subagent's short return, with the detail left in its transcript | `--brief`, plus `answerPath` always | full: the whole answer is written to `~/.codex-delegate/answers/<threadId>.md` on every run, so the inline `answer` can be capped at 20 lines without losing anything. The cap is applied by the driver, not asked of the model — measured: told to answer in 20 lines the model returned 29, and the clip still held. `answerTruncated` says whether it fired. |
 
-**The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
-plus a private copy of every MCP server in `~/.codex/config.toml`. If you run several workflows whose
+**The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server —
+plus, on `--host-home` only, a private copy of every MCP server in `~/.codex/config.toml`. An isolated run
+spawns none of those, because the config it reads has four scalars and no `mcp_servers` table at all; the
+row above has the measured cost of each. If you run several workflows whose
 subagents each delegate, the delegations multiply and the total is what matters. Exceeding it does not
 degrade gracefully: on a 36 GB machine already carrying other work, the OS started killing delegations
 outright — a run came back as `interrupted by SIGTERM` rather than as any result. Count delegations
@@ -317,7 +319,7 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | 7 | something asked for a human: an unanswerable server request or an MCP form. No sandbox change fixes it |
 | 8 | the turn produced commentary but never a final answer |
 | 9 | `--verify` ran and failed: whatever the model said, the work is not there |
-| 10 | the cwd is locked by another run, or a resumed thread still has a turn open |
+| 10 | the cwd is locked by another run, a resumed thread still has a turn open, or the lock changed hands ten times without settling |
 | 11 | a command ran and **failed**, or a file change did, whatever the answer claims. Only a **passing** `--verify` overrules it |
 | 12 | `--verify` could not be run at all — fix the verifier, not the work. See the table below |
 
@@ -326,9 +328,13 @@ These are ordered, not independent. The first condition that holds wins, and the
 3, and a code of 0 means every one of them was checked and none applied.
 
 2 sits second because a request the server refused is the caller's to fix, not something to retry. Do not
-read it as "nothing happened": commands may already have run. That is not special to 2 — 1, 6, 7, 8, 9 and
-11 all carry executed work too. The only code that means nothing ran is 2 raised during argument parsing,
-which you can tell apart because it has no report at all.
+read it as "nothing happened": commands may already have run. Every code on this ladder can carry executed
+work, 3 most of all — a timeout is the case most likely to leave a half-written tree.
+
+The codes that really do mean nothing ran are the ones decided **before** the turn: 2 raised while parsing
+arguments, 10, and the ten-of-eleven exit 4s that come from a sandbox, policy or reviewer assertion, all of
+which fire before `turn/start`. The two kinds of 2 are told apart by the report: an argument error prints
+none at all.
 
 4 is mostly not on the ladder: it is raised the moment an assertion fails, before any of this is reached.
 Its one exception is the last thing the process does — if stdout does not drain within 5 s the report did
@@ -382,7 +388,8 @@ page claimed the verdict was still recorded; it is not, and the paragraph above 
 ## Escalations mean your sandbox was too small
 
 Under `on-request`, escalation is model-initiated: Codex asks only when told not to give up on a denial.
-The driver refuses the request, records it, and exits 6 unless something worse outranks it — a turn that
+The driver refuses the request, records it, and exits 6 unless something worse outranks it — a request the
+server refused (2), a turn that
 never completed (1 or 3) or a request needing a human (7). It is never reported as success.
 
 **Approvals are pinned to this driver, deliberately.** Who may approve is a separate axis from what the
@@ -428,6 +435,15 @@ catches them is **blind inside `permissions.<profile>.*`** — where this skill'
 you add or change a `-c` key, validate it first and verify a permission profile by its effect rather than
 its name: [references/config-drift.md](references/config-drift.md).
 
+**A seat that starts background load must kill it from a `trap`, not from a line at the end.** A review
+probe here launched eight busy loops to measure the timeout rung under CPU pressure and put `kill $LOADPIDS`
+after the measurement. Its parent died first, so that line never ran: the loops were reparented to PID 1
+and burned eight of twelve cores **for fifteen hours**, through every later measurement in the session and
+past the end of the run that started them. The driver cannot help — they were the agent's own children,
+never its. Write `trap 'kill $LOADPIDS 2>/dev/null' EXIT INT TERM` before the work, and check
+`ps -eo pid,ppid,etime,%cpu` sorted by CPU when a machine feels slow, because a load average alone does not
+say what is on the processor — that misread cost an hour here.
+
 **A seat whose method is to make things fail will exit 11**, and it is your flag choice that is wrong, not
 the seat. Measured on three seats doing mutation testing: each ran a suite against a deliberately broken
 copy dozens of times, so `commandsFailed` was 24, 17 and 9 — and `EXIT.COMMAND_FAILED` announced a failure
@@ -459,15 +475,22 @@ at 7200 seconds and a piped prompt at 512 KB ·
 report whether it arrived · `--brief` to cap the inline answer at 20 lines · `--host-home` to run against
 the caller's `~/.codex` instead of the private home · `--help`.
 
-The full answer is written to `~/.codex-delegate/answers/<threadId>.md` on every run and its path is in
-the report as `answerPath`, so `--brief` costs a second read rather than information.
+The full answer is written to `~/.codex-delegate/answers/<threadId>.md` whenever there is one — not when
+the turn produced no answer at all, nor when it died before the report — and its path is in the report as
+`answerPath`, so `--brief` costs a second read rather than information. `--brief` also caps at 4000 bytes,
+which only a single enormous line reaches.
 
 `--commit`, `--writable` and `--network` all require `--level write`.
 
-Every run uses a private `CODEX_HOME` at `~/.codex-delegate/home`, so the caller's plugins, skills and MCP
-servers are not in the turn and no trusted-project record is written back. `auth.json` and `sessions` are
-symlinked to the real home, and `model`, `model_reasoning_effort`, `personality` and `service_tier` are
-copied in, so the account still decides who answers and how hard. The report carries `codexHome`.
+Unless `--host-home` is given, a run uses a private `CODEX_HOME` at `~/.codex-delegate/home` — one
+directory shared by every run, not a fresh one per turn — so the caller's plugins, skills and MCP servers
+are not in the turn and no trusted-project record is written back. `auth.json` and `sessions` are symlinked
+to the real home, `sessions` being created there first if it does not exist, so the rollout receipt always
+lands where the verification recipe above looks for it.
+
+`model`, `model_reasoning_effort`, `personality` and `service_tier` are copied in from the caller's own
+config — but only where they sit above every `[table]` in it, because a key below a table header belongs
+to that table and is not a top-level setting at all. The report carries `codexHome`.
 
 ## Multiple rounds
 

@@ -19,8 +19,8 @@ and the whole turn. The exit code is derived from the event stream rather than f
 is always 0, and `--verify` runs a check the model cannot author.
 
 **2. Determinism — the call succeeds, without surprises.** The same invocation should do the same thing,
-and when it refuses it should say so in terms the caller can act on. Hence a private `CODEX_HOME` per
-turn: measured over 157 delegations on the development machine, 95 spent their FIRST tool call reading the
+and when it refuses it should say so in terms the caller can act on. Hence a private `CODEX_HOME`, one directory
+shared by every run: measured over 157 delegations on the development machine, 95 spent their FIRST tool call reading the
 caller's plugin cache instead of the task, and one ended having only announced that it had to run a
 plugin's workflow first. Hence also a parameter the server rejects exiting 2 with the server's own
 message rather than 1 with a JSON blob — "fix your flag" and "the turn died" are different instructions.
