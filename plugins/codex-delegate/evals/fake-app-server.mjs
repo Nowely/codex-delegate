@@ -63,6 +63,8 @@ const done = (turnId, threadId, status = "completed", error = null) =>
 
 let requestedThread = null;
 let pendingApproval = null;
+let turnStarts = 0;
+const TURN2 = "turn_root_retry";
 
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   let m;
@@ -196,7 +198,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
 
   if (m.method === "turn/start") {
-    const R = reply(m.id, { turn: { id: TURN, status: "inProgress", items: [], error: null } });
+    turnStarts++;
+    // The corrective turn under --output-schema is a SECOND turn/start on the same thread; it must get
+    // its own turn id, or the driver's replay-and-attribute logic is never exercised across turns.
+    const thisTurn = turnStarts === 1 ? TURN : TURN2;
+    const R = reply(m.id, { turn: { id: thisTurn, status: "inProgress", items: [], error: null } });
     const prompt = m.params?.input?.[0]?.text ?? "";
     const askApproval = (method, params, expected) => {
       const id = 9300 + Number(m.id);
@@ -204,9 +210,32 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       w(R, { jsonrpc: "2.0", id, method, params });
     };
     switch (SCENARIO) {
-      // Everything the driver should accept.
+      // Everything the driver should accept — including the token-usage notification a live server
+      // streams, so the report's accounting is pinned by the ordinary case.
       case "happy":
-        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        w(R, cmd(TURN, THREAD),
+          note("thread/tokenUsage/updated", { threadId: THREAD, tokenUsage: {
+            last: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 135 },
+            total: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 135 },
+            modelContextWindow: 272000 } }),
+          msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
+      // --output-schema: a valid object on the first try.
+      case "schema-good":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, '{"verdict":"ok","count":3}'), done(TURN, THREAD));
+        break;
+
+      // --output-schema: prose first, a valid object on the corrective turn.
+      case "schema-retry":
+        w(R, cmd(thisTurn, THREAD),
+          msg(thisTurn, THREAD, turnStarts === 1 ? "I think the verdict is ok." : '{"verdict":"ok","count":3}'),
+          done(thisTurn, THREAD));
+        break;
+
+      // --output-schema: wrong shape on both attempts (valid JSON, missing the required key).
+      case "schema-never":
+        w(R, cmd(thisTurn, THREAD), msg(thisTurn, THREAD, '{"something":"else"}'), done(thisTurn, THREAD));
         break;
 
       // Write-level sandbox guards must stop the turn before any of this otherwise-valid work runs.

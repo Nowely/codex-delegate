@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.join(HERE, "fake-app-server.mjs");
-const DRIVER = path.join(HERE, "..", "scripts", "driver.mjs");
+const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
 const READ_PROFILE = "codex_delegate_read";
 
 const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? null; } };
