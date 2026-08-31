@@ -39,11 +39,13 @@ symlink if you want the `codex-seat` agent without the plugin route):
 
 ```bash
 git clone https://github.com/Nowely/codex-delegate.git
-ln -s "$PWD/codex-delegate/skills/codex-delegate" ~/.claude/skills/codex-delegate
-ln -s "$PWD/codex-delegate/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
+cd codex-delegate
+ln -s "$PWD/skills/codex-delegate" ~/.claude/skills/codex-delegate
+ln -s "$PWD/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
 ```
 
-Verify the install from a checkout — costs nothing, calls no model:
+Verify the install from the checkout (plugin installs carry the suites too, under the plugin root) —
+costs nothing, calls no model:
 
 ```bash
 node evals/protocol.test.mjs   # the protocol and the result gates
@@ -86,9 +88,9 @@ answer of its own.
 
 ## Trust and verification
 
-- **Exit codes from evidence.** The `codex` process always exits 0; the driver derives thirteen ordered
-  codes from the event stream — turn status, commands that really succeeded, a final answer versus
-  commentary. `SKILL.md` documents the ladder.
+- **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
+  ladder of exit codes from the event stream — turn status, commands that really succeeded, a final
+  answer versus commentary. `SKILL.md` documents the ladder.
 - **`--verify '<shell>'`** runs after the turn, executed by the driver, invisible to the model: the one
   check the model cannot author. `--expect-command <regex>` additionally demands that the work matched
   a declared signature, and `--output-schema <file>` demands a JSON answer matching a schema — enforced
@@ -109,13 +111,13 @@ approval policy that managed (MDM) machines clamp into deny-everything, and it a
 `sandbox` parameter, which suppresses the permission profile that makes read-level test runs possible —
 on every machine, managed or not. Both defects are silent: the run still exits 0. The `codex
 exec`-based skills and the official SDK hit the same walls. Full forensics, upstream issue state, and
-what the plugin does better: [references/why-not-the-plugin.md](references/why-not-the-plugin.md).
+what the plugin does better: [references/why-not-the-plugin.md](skills/codex-delegate/references/why-not-the-plugin.md).
 
 ## Limitations
 
 Read level cannot run browser-mode tests (vitest's server binds loopback TCP; the profile refuses it) —
 they run at write level with a one-file Chromium workaround
-([references/browser-tests.md](references/browser-tests.md)). Node-environment vitest at read level
+([references/browser-tests.md](skills/codex-delegate/references/browser-tests.md)). Node-environment vitest at read level
 needs `--configLoader runner`. Concurrency is memory-bound (~180 MB per seat) and exceeding the machine
 budget gets runs killed by the OS, not throttled. The app-server protocol is `[experimental]` and
 carries no stability promise — hence the pinned schema and the fidelity suite.

@@ -643,6 +643,15 @@ test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts
       if (code !== EXIT.USAGE) return `--writable ${t} returned ${code}, expected 2`;
       if (!/receipts|state/.test(err)) return `the refusal did not say why: ${err.trim().slice(0, 160)}`;
     }
+    // The guard is identity-based, so a case-variant spelling on a case-insensitive volume must be
+    // refused too — the first version was a string compare and ~/.CODEX walked straight past it.
+    const upper = path.join(home, ".CODEX-DELEGATE");
+    let aliased = false;
+    try { aliased = fs.statSync(upper).ino === fs.statSync(path.join(home, ".codex-delegate")).ino; } catch {}
+    if (aliased) {
+      const { code } = await run(freshDir("writable-protected-case"), { args: ["--writable", upper] });
+      if (code !== EXIT.USAGE) return `case-variant --writable ${upper} returned ${code}, expected 2 — the identity guard is not holding`;
+    }
     return true;
   });
 
