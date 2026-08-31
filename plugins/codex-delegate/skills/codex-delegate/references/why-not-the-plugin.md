@@ -23,8 +23,8 @@ allowed_web_search_modes = ["cached"]
 
 `never` is not in that set, so Codex clamps it to `untrusted` and says so on stderr. Under `untrusted`,
 commands, reads and writes raise approval requests — which the plugin's app-server client answers with
-JSON-RPC `-32601` (`app-server.mjs:155-159` replies that to EVERY server-to-client request), which
-Codex reads as a refusal. The job log shows `File changes declined.` and the run still exits 0.
+JSON-RPC `-32601` (`app-server.mjs:156-161`: `handleServerRequest` replies that to EVERY inbound
+message carrying both an `id` and a `method`), which Codex reads as a refusal. The job log shows `File changes declined.` and the run still exits 0.
 Reproduced in a clean process: `codex exec -c approval_policy=never … ` → `approval: untrusted`.
 
 **2. Suppressed permission profile (bites every machine).** The plugin sends an explicit `sandbox` on
@@ -94,12 +94,18 @@ event stream. That layer is the part upstream has not merged.
 - `#273`: the linked-worktree commit failure this skill solves with the git-common-dir writable root.
 - `#499` / `#640` / `#641`: the `-32601` stubbing from the other side — every approval and MCP
   request auto-rejected; answering those requests is most of what this driver does.
-- `#412` (open since 2026-07-04): the write-path symptom as users meet it — `/codex:rescue` "always
-  returns a read-only sandbox error", reported from an unmanaged Windows machine.
-- `#240` (open since 2026-04-23): the override mechanism itself — "plugin overrides Codex sandbox
+- `#412` (open since 2026-07-01): the write-path symptom as users meet it — `/codex:rescue` "always
+  returns a read-only sandbox error", reported from a Windows machine (the report states the OS, not
+  whether it is managed; a macOS managed-preferences profile cannot apply there, so the defect is not
+  the MDM one).
+- `#240` (open since 2026-04-18): the override mechanism itself — "plugin overrides Codex sandbox
   config", from the bwrap angle.
-- Maintainer engagement: every participant on #482/#508 is `NONE`, and 0 of the last 40 closed PRs
-  were merged (measured 2026-08-31; an earlier count said 2 of 40). Do not plan around upstream.
+- Maintainer engagement: every participant on #482/#508 is `NONE`, and **0 of the 40 most recently
+  closed PRs were merged** — window 2026-08-05 to 2026-08-29, re-measured 2026-08-31. Take the window
+  literally: `gh pr list --state closed --limit 40` orders by NUMBER, not by close date, and returns a
+  different 40 spanning back to June, of which 2 were merged (#447, #398) — that is the "earlier count"
+  this line used to carry. Over the whole history 28 of 139 closed PRs were merged; the recent window
+  is the one that matters for planning. Do not plan around upstream.
 
 A merged #426 plus a merged successor to #508 is the day the write path can go back to the plugin.
 The managed-profile case is not reported as such, but its every ingredient is — the hardcoded policy
