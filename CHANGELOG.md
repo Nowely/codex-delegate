@@ -19,7 +19,8 @@ schema it is written against.
   looks healthy.
 - Three suites: `protocol` (59 cases), `lock` (32), and `fidelity` (9), the last of which handshakes
   against the real `codex` and diffs it against the test fixture.
-- **A private `CODEX_HOME` per run.** Codex reads plugins, skills and memories out of it, so delegating
+- **A private `CODEX_HOME`**, one directory shared by every run rather than a fresh one per turn. Codex
+  reads plugins, skills and memories out of it, so delegating
   into the caller's own home made every turn a function of what they had installed: of the 157 delegations
   measured on the development machine, 95 spent their FIRST tool call reading `~/.codex/plugins/cache`
   instead of the task, 209 of 919 tool calls went there, and one turn ended having only announced that it

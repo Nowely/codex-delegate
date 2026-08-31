@@ -7,7 +7,7 @@ and the things it must get right once it has fired.
 
 A delegation skill fails in two directions, and both are quiet. If it never fires, work that wanted a
 second, decorrelated opinion silently gets one Claude's opinion instead. If it fires on everything, every
-trivial question costs a 7-second process spawn and ~0.5 GB. Neither shows up as an error.
+trivial question costs 7–12 seconds of turn overhead and ~180 MB. Neither shows up as an error.
 
 The negative cases matter as much as the positive ones. Case 9 is the sharp one: `codex` appearing as part
 of a filename must not pull in the whole skill.
@@ -133,6 +133,7 @@ Use unguessable ground truth. A case whose answer appears in `AGENTS.md` or `CLA
 passed while nothing actually ran, because those files are loaded automatically. Prefer a value that has
 to be fetched — a branch name that contradicts the documented default, a hash of a file you just wrote.
 
-Run the machine, not the memory. Memory is the binding constraint: each delegation costs roughly 0.5 GB,
-about half of it a private copy of every MCP server in `~/.codex/config.toml`, so run these in waves rather
-than all at once. A case killed by the OS reports as a trigger failure and is not one.
+Run the machine, not the memory. Memory is the binding constraint: an isolated delegation costs ~181 MB
+median over four processes, a `--host-home` one ~471 MB over seven — the difference being a private copy of
+every MCP server in `~/.codex/config.toml`. Run these in waves rather than all at once. A case killed by
+the OS reports as a trigger failure and is not one.
