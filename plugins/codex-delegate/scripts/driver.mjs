@@ -108,6 +108,10 @@ Isolation
   databases codex keeps there persist between runs, which is what makes an
   isolated run faster than a host-home one rather than slower
   --host-home        use the caller's ~/.codex instead, plugins and all
+  the private home is filled by asking the caller's own codex what its settings
+  resolve to, which costs one short process before the turn: bounded by
+  min(5s, --timeout) and normally ~120 ms, but it is spent BEFORE the turn
+  deadline starts, so a very short --timeout buys itself twice
 
 Report
   --json             machine-readable on stdout; otherwise a human footer
@@ -286,52 +290,90 @@ const lockDir = () => path.join(passwdHome("the cwd lock"), ".codex-delegate", "
 // is the exact silent downgrade the comment above EFFORTS exists to prevent. Measured before the fix:
 // reasoningEffort came back `max` on the host home and `null` isolated, for the same command.
 //
-// Only these four, and only as top-level scalars: they choose which model answers and how it is spoken to.
-// Everything that pulls in outside behaviour — plugins, skills, mcp_servers, projects — is what isolation
-// is for and stays behind.
+// Only these four: they choose which model answers and how it is spoken to. Everything that pulls in
+// outside behaviour — plugins, skills, mcp_servers, projects — is what isolation is for and stays behind.
+//
+// ASKED of the server rather than read out of the file, and that is the whole point. Reading it meant
+// hand-parsing TOML with line regexes, which produced four separate defects in a single day: a value in
+// single quotes matched nothing; a multi-line string body was scanned as if it were settings; a duplicate
+// key was emitted, which codex then rejects outright; and a COMMENT merely mentioning `= """` opened a
+// skip that swallowed every setting after it. Each fix uncovered the next form of a legal file the parser
+// did not know. `config/read` returns the values as codex itself resolves them, so the parser and its
+// whole family of edge cases are gone.
+// JSON.stringify escapes C0 controls but emits DEL (U+007F) and the C1 range raw, and a TOML basic
+// string forbids them — codex then rejects the whole file and every delegation fails. Measured with a
+// model name containing U+007F, which codex itself will hand back.
+const tomlString = (v) => JSON.stringify(v).replace(/[\u007f-\u009f]/g,
+  (c) => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`);
+
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
 function inheritedConfig() {
-  const file = path.join(passwdHome("the inherited Codex settings"), ".codex", "config.toml");
-  let text;
-  try { text = fs.readFileSync(file, "utf8"); }
-  catch (e) {
-    // No file is the ordinary case: the account's defaults decide, silently. A file that EXISTS and cannot
-    // be read is not that — it means the caller's model and effort are being dropped, which is the silent
-    // downgrade this whole function exists to prevent, so it gets said out loud.
-    if (e.code !== "ENOENT")
-      process.stderr.write(`codex-delegate: cannot read ${file} (${e.code}); model and effort fall back to the account default\n`);
-    return [];
-  }
-  // A Map, not a list, because what comes out of here is written as TOML and TOML forbids a repeated key —
-  // codex rejects the whole file with `duplicate key` and then every delegation fails. The caller's own
-  // config cannot contain a top-level duplicate (it would be rejected too), but this reader could
-  // manufacture one; see the multi-line skip below. Last wins, which is what a TOML reader would do if the
-  // duplicate were legal.
-  const out = new Map();
-  let closing = null;   // the delimiter of a multi-line string we are inside
-  for (const line of text.split("\n")) {
-    if (closing !== null) { if (line.includes(closing)) closing = null; continue; }
-    // Comments first, or a comment that merely MENTIONS `= """` opens a multi-line skip that swallows
-    // every setting after it. Measured: `# heredoc example: cmd = """something` above the real keys
-    // inherited nothing at all — the same silent downgrade, arriving by a third route.
-    if (/^\s*#/.test(line)) continue;
-    if (/^\s*\[/.test(line)) break;   // a table header: everything past it belongs to something we isolate
-    // A multi-line string is scanned line by line by everything below, so `notes = """\nmodel = "x"\n"""`
-    // used to yield `model = "x"` out of a comment-like body — inheriting a value nobody set, and
-    // producing the duplicate described above. Skip its body outright.
-    const opens = line.match(/=\s*("""|''')/);
-    if (opens) {
-      if (!line.slice(line.indexOf(opens[1]) + 3).includes(opens[1])) closing = opens[1];
-      continue;
-    }
-    // TOML has two string forms and this used to accept one. A config written `effort = 'max'` — valid,
-    // and what several editors emit — matched nothing, so the isolated config came out empty and the
-    // caller silently got the model's own default. Literal strings have no escapes, which is why the two
-    // alternatives differ.
-    const m = line.match(/^\s*([a-z_]+)\s*=\s*("(?:[^"\\]|\\.)*"|'[^'\n]*')\s*(?:#.*)?$/);
-    if (m && INHERITED.includes(m[1])) out.set(m[1], m[2]);
-  }
-  return [...out];
+  return new Promise((resolve) => {
+    let child;
+    // No CODEX_HOME override: this deliberately reads the CALLER's home, which is the one being inherited
+    // from. It starts no thread, so it writes no trusted-project record and calls no model.
+    // detached, and killed as a GROUP below, for the reason the real spawn is: killing only the direct
+    // child leaves its own children holding these stdio pipes open, and node will not exit while it can
+    // still read them. Measured: with a `codex` that hangs, `--timeout 2` took 60 seconds — the driver
+    // announced its timeout on schedule and then sat waiting for a grandchild. Before this probe existed
+    // the same case exited at 2.1 s.
+    try { child = spawn("codex", ["--strict-config", "app-server"], { stdio: ["pipe", "pipe", "pipe"], detached: true }); }
+    catch { return resolve([]); }
+    probeChild = child;
+    let buf = "", done = false;
+    const finish = (v, why) => {
+      if (done) return;
+      done = true;
+      clearTimeout(bell);
+      try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch {} }
+      // The pipes outlive the kill for as long as anything still holds the write end, and an open pipe
+      // keeps the event loop alive on its own.
+      for (const st of [child.stdout, child.stderr, child.stdin]) { try { st?.destroy(); } catch {} }
+      // Silence when there is nothing to inherit is correct; silence when the ASKING failed is the silent
+      // downgrade again, so that case says so.
+      if (why) process.stderr.write(`codex-delegate: could not read the caller's Codex config (${why}); model and effort fall back to the account default\n`);
+      probeChild = null;
+      resolve(v);
+    };
+    // Bounded well under any caller's budget, and never longer than it: this runs BEFORE the turn deadline
+    // is armed, so a 15 s probe made `--timeout 2` take fifteen seconds. Reading a config takes ~120 ms;
+    // anything approaching this is broken, not slow.
+    const budget = Math.min(5000, Math.max(1000, (opts?.timeout ?? 900) * 1000));
+    let err = "";
+    child.stderr.on("data", (d) => { err += d; });
+    const why = (base) => {
+      const tail = err.trim().replace(/\s+/g, " ").slice(-160);
+      return tail ? `${base}: ${tail}` : base;
+    };
+    const bell = setTimeout(() => finish([], why(`no reply in ${budget}ms`)), budget);
+    child.on("error", (e) => finish([], why(e.message)));
+    child.on("close", () => finish([], why("the config probe exited before replying")));
+    child.stdin.on("error", () => {});
+    child.stdout.on("data", (d) => {
+      buf += d;
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        if (m.id !== 2) continue;
+        if (m.error) return finish([], `config/read: ${JSON.stringify(m.error).slice(0, 120)}`);
+        // A reply that arrived but cannot be used is NOT the same as "there is nothing to inherit", and
+        // treating both as silence is how this mechanism silently downgraded a caller four times already.
+        const cfg = m.result?.config;
+        if (cfg === null || typeof cfg !== "object")
+          return finish([], `config/read returned no usable config (${JSON.stringify(m.result).slice(0, 80)})`);
+        const wrong = INHERITED.filter((k) => cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== "string");
+        if (wrong.length)
+          process.stderr.write(`codex-delegate: the caller's Codex config reports ${wrong.join(", ")} as something other than text; those are not carried across\n`);
+        return finish(INHERITED.filter((k) => typeof cfg[k] === "string").map((k) => [k, tomlString(cfg[k])]));
+      }
+    });
+    for (const msg of [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "codex-delegate", title: "codex-delegate", version: "2.0" } } },
+      { jsonrpc: "2.0", method: "initialized" },
+      { jsonrpc: "2.0", id: 2, method: "config/read", params: {} },
+    ]) { try { child.stdin.write(`${JSON.stringify(msg)}\n`); } catch {} }
+  });
 }
 
 // A managed device can narrow what a turn is allowed to do, and thread/start echoes only some of it.
@@ -368,7 +410,7 @@ function managedWebSearchModes() {
   return modes.length ? modes : undefined;   // an empty list permits nothing, which is not "unrestricted"
 }
 
-function isolatedHome() {
+async function isolatedHome() {
   const base = passwdHome("the isolated Codex home");
   const home = path.join(base, ".codex-delegate", "home");
   try { fs.mkdirSync(home, { recursive: true, mode: 0o700 }); }
@@ -411,7 +453,7 @@ function isolatedHome() {
   // which would have redirected this write onto whatever it pointed at.
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(tmp, inheritedConfig().map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
+    fs.writeFileSync(tmp, (await inheritedConfig()).map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
@@ -662,7 +704,7 @@ let opts, cwd, sandbox, spawnArgs;
 let codexHome = null;   // null means the caller's own ~/.codex, which --host-home asks for
 let roots = [];
 
-function setup() {
+async function setup() {
   opts = parseArgs(process.argv.slice(2));
 
   // Two levels, mirroring Claude's own subagents: a reader that can run things but not touch your files,
@@ -681,6 +723,11 @@ function setup() {
   // --cwd is the primary writable root above read, so it needs the same guard as a hand-added root.
   cwd = resolveDir(opts.cwd, "--cwd");
   if (opts.level !== "read") checkRoot(cwd);
+
+  // Before the lock, deliberately. This asks another codex process what the caller's settings are, and a
+  // probe that hangs used to hold the write lock for its whole 15 s while doing it — measured: a second
+  // run on the same directory got exit 10 for a directory nobody was working in.
+  codexHome = opts.hostHome ? null : await isolatedHome();
 
   if (opts.level !== "read") acquireLock(cwd);
 
@@ -741,12 +788,15 @@ function setup() {
     ] : [])
   ];
   spawnArgs = ["--strict-config", ...config.flatMap(([k, v]) => ["-c", `${k}=${v}`]), "app-server"];
-  codexHome = opts.hostHome ? null : isolatedHome();
 }
 
 // ---------------------------------------------------------------- transport
 
 let child, closed = false, settled = false, flushing = false;
+// The config probe's own child, tracked at module scope so shutdown() can reach it. Held in a
+// function-local it survived a SIGTERM aimed at the driver — the same way a review probe's background
+// jobs outlived their run and burned eight cores for fifteen hours.
+let probeChild = null;
 const pending = new Map();
 let stderrBuf = "";
 let stderrDropped = 0;
@@ -756,6 +806,10 @@ const STDERR_KEEP = 64 * 1024;
 let unparsedLines = 0;
 
 function shutdown() {
+  if (probeChild) {
+    try { process.kill(-probeChild.pid, "SIGKILL"); } catch { try { probeChild.kill("SIGKILL"); } catch {} }
+    probeChild = null;
+  }
   if (closed || !child) { releaseLock(); return; }
   closed = true;
   try { child.stdin.end(); } catch {}
@@ -1277,7 +1331,7 @@ function finish(reason) {
 // ---------------------------------------------------------------- run
 
 async function main() {
-  setup();
+  await setup();
   // Once a child exists, a timeout hands back the partial result rather than discarding it; before that
   // there is nothing to report, so abort() also has to unblock a stdin read that may never end.
   const deadline = setTimeout(() => {
