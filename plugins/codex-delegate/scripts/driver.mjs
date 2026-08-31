@@ -113,16 +113,21 @@ Report
   --json             machine-readable on stdout; otherwise a human footer
   -h, --help         this text
 
-Exit codes. These three are raised outside the ladder, at the moment they happen:
-  2  your arguments, or a request the server refused
-  4  transport, and every sandbox / approval assertion; also a report that
-     could not be written to stdout
+Exit codes. Raised the moment they happen, before any turn could run:
+  2  bad arguments
+  4  transport, and every sandbox / approval assertion
   10 another run holds the lock on this directory
 
-The rest are a ladder, first match wins, in this order:
-  3 timed out ... 1 turn did not complete ... 7 wanted input ... 6 escalated
-  ... 12 verify unmeasurable ... 9 verify failed ... 5 no commands
-  ... 8 no answer ... 11 a command or a file change failed
+Decided after the turn, first match wins, in this order:
+  3 timed out ... 2 the server refused the request ... 1 turn did not complete
+  ... 7 wanted input ... 6 escalated ... 12 verify unmeasurable
+  ... 9 verify failed ... 5 no commands ... 8 no answer
+  ... 11 a command or a file change failed
+
+  and 4 once more at the very end, if the report could not reach stdout.
+
+So 2 means either, and they are told apart by the report: an argument error
+prints none. Codes decided after the turn can all carry executed work.
 `;
 
 function parseArgs(argv) {
@@ -143,7 +148,10 @@ function parseArgs(argv) {
       case "--effort": o.effort = need(++i, a); break;
       case "--model": o.model = need(++i, a); break;
       case "--timeout": o.timeout = Number(need(++i, a)); break;
-      case "--prompt": o.prompt = argv[++i] ?? fail(EXIT.USAGE, "--prompt requires a value"); break;
+      // need(), like every other value-taking flag. It used to be a bare argv[++i], so `--prompt --json`
+      // silently made "--json" the entire task. A prompt that genuinely starts with "--" goes on stdin,
+      // which is the better shape for a long one anyway.
+      case "--prompt": o.prompt = need(++i, a); break;
       case "--writable": o.writable.push(need(++i, a)); break;
       case "--commit": o.commit = true; break;
       case "--resume": o.resume = need(++i, a); break;
@@ -294,17 +302,36 @@ function inheritedConfig() {
       process.stderr.write(`codex-delegate: cannot read ${file} (${e.code}); model and effort fall back to the account default\n`);
     return [];
   }
-  const out = [];
+  // A Map, not a list, because what comes out of here is written as TOML and TOML forbids a repeated key —
+  // codex rejects the whole file with `duplicate key` and then every delegation fails. The caller's own
+  // config cannot contain a top-level duplicate (it would be rejected too), but this reader could
+  // manufacture one; see the multi-line skip below. Last wins, which is what a TOML reader would do if the
+  // duplicate were legal.
+  const out = new Map();
+  let closing = null;   // the delimiter of a multi-line string we are inside
   for (const line of text.split("\n")) {
+    if (closing !== null) { if (line.includes(closing)) closing = null; continue; }
+    // Comments first, or a comment that merely MENTIONS `= """` opens a multi-line skip that swallows
+    // every setting after it. Measured: `# heredoc example: cmd = """something` above the real keys
+    // inherited nothing at all — the same silent downgrade, arriving by a third route.
+    if (/^\s*#/.test(line)) continue;
     if (/^\s*\[/.test(line)) break;   // a table header: everything past it belongs to something we isolate
+    // A multi-line string is scanned line by line by everything below, so `notes = """\nmodel = "x"\n"""`
+    // used to yield `model = "x"` out of a comment-like body — inheriting a value nobody set, and
+    // producing the duplicate described above. Skip its body outright.
+    const opens = line.match(/=\s*("""|''')/);
+    if (opens) {
+      if (!line.slice(line.indexOf(opens[1]) + 3).includes(opens[1])) closing = opens[1];
+      continue;
+    }
     // TOML has two string forms and this used to accept one. A config written `effort = 'max'` — valid,
     // and what several editors emit — matched nothing, so the isolated config came out empty and the
     // caller silently got the model's own default. Literal strings have no escapes, which is why the two
     // alternatives differ.
     const m = line.match(/^\s*([a-z_]+)\s*=\s*("(?:[^"\\]|\\.)*"|'[^'\n]*')\s*(?:#.*)?$/);
-    if (m && INHERITED.includes(m[1])) out.push([m[1], m[2]]);
+    if (m && INHERITED.includes(m[1])) out.set(m[1], m[2]);
   }
-  return out;
+  return [...out];
 }
 
 // A managed device can narrow what a turn is allowed to do, and thread/start echoes only some of it.
@@ -327,8 +354,14 @@ function managedWebSearchModes() {
   // No such key is a real answer: the profile constrains other things and says nothing about search.
   if (r.status !== 0) return /does not exist|Could not extract/i.test(String(r.stderr ?? "")) ? null : undefined;
   if (!r.stdout) return undefined;
-  let toml;
-  try { toml = Buffer.from(r.stdout.trim(), "base64").toString("utf8"); } catch { return undefined; }
+  // Buffer.from does not throw on malformed base64, it returns whatever it could salvage — so a corrupt
+  // profile decoded to binary noise, matched no key, and fell through to "nothing narrows this". That is
+  // failing OPEN on the one check standing between a caller and a mode they will not get, which is the
+  // opposite of what the previous commit claimed to fix. Re-encoding is the cheap way to tell.
+  const raw = r.stdout.trim();
+  const buf = Buffer.from(raw, "base64");
+  if (buf.toString("base64").replace(/=+$/, "") !== raw.replace(/=+$/, "")) return undefined;
+  const toml = buf.toString("utf8");
   const m = toml.match(/^\s*allowed_web_search_modes\s*=\s*\[([^\]]*)\]/m);
   if (!m) return null;
   const modes = [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]);
@@ -342,6 +375,16 @@ function isolatedHome() {
   catch (e) { fail(EXIT.USAGE, `cannot create the isolated Codex home ${home}: ${e.message}`); }
   for (const name of ["auth.json", "sessions"]) {
     const link = path.join(home, name), target = path.join(base, ".codex", name);
+    // sessions is CREATED when absent rather than skipped, and the difference is the whole receipt story.
+    // Skipping left the rollout inside the private home, where the verification recipe this skill
+    // publishes — ls ~/.codex/sessions/*/*/*/rollout-*-<threadId>.jsonl — finds nothing. A real seat then
+    // looks exactly like one that fabricated its work, which is the single thing the receipt exists to
+    // rule out. On a machine that only ever runs this driver, ~/.codex/sessions never appears on its own,
+    // so that was the permanent state there. auth.json is different: it holds credentials this has no
+    // business inventing, so an absent one is still skipped.
+    if (name === "sessions" && !fs.existsSync(target)) {
+      try { fs.mkdirSync(target, { recursive: true, mode: 0o700 }); } catch { /* fall through to the skip */ }
+    }
     if (!fs.existsSync(target)) continue;   // nothing to share yet; codex creates its own
     let current = null;
     try { current = fs.readlinkSync(link); } catch (e) {
@@ -940,7 +983,11 @@ function persistAnswer(text) {
     // a uid with no passwd entry turned "the answer log could not be written" into an exception raised
     // while building the report of a turn that had already succeeded. Measured: the process stayed alive
     // through four of its own timeout periods rather than exiting.
-    const dir = path.join(passwdHome("the answer log"), ".codex-delegate", "answers");
+    // os.userInfo() directly, NOT passwdHome(): that helper reports a missing passwd entry through fail(),
+    // which prints a refusal and sets the exit code. Inside a best-effort side write on a turn that had
+    // already succeeded, that printed "codex-delegate: cannot resolve your home directory" to stderr and
+    // then exited 0 — a refusal and a success in the same run.
+    const dir = path.join(os.userInfo().homedir, ".codex-delegate", "answers");
     const name = `${rootThreadId ?? `no-thread-${process.pid}`}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
@@ -953,14 +1000,23 @@ function persistAnswer(text) {
 function clip(text, maxLines, maxBytes, where) {
   const lines = text.split("\n");
   let out = lines.length > maxLines ? lines.slice(0, maxLines).join("\n") : text;
-  if (out.length > maxBytes) out = `${out.slice(0, maxBytes)}…`;
+  // Bytes, not UTF-16 units. `.length` counts the latter, so a cyrillic or emoji answer sailed past a
+  // 4000-"byte" cap at 8003 actual bytes — the cap exists to bound what lands in a coordinator's context,
+  // and that is measured in bytes.
+  if (Buffer.byteLength(out, "utf8") > maxBytes) {
+    out = Buffer.from(out, "utf8").subarray(0, maxBytes).toString("utf8").replace(/�$/, "") + "…";
+  }
   if (out === text) return text;
-  return `${out}\n\n[clipped: ${lines.length} lines, ${text.length} bytes${where ? ` — full answer at ${where}` : ""}]`;
+  return `${out}\n\n[clipped: ${lines.length} lines, ${Buffer.byteLength(text, "utf8")} bytes${where ? ` — full answer at ${where}` : ""}]`;
 }
 
 // The server nests the upstream API error as a JSON STRING inside turnError.message, so the useful part —
 // which parameter, and what it would have accepted — is invisible to a caller reading errKind alone.
 function invalidRequest(e) {
+  // The server has two ways to say it: an enumerated codexErrorInfo, and the upstream API error nested as
+  // a JSON string. Only the second was checked, so a schema-native `badRequest` came back as exit 1 —
+  // "the turn died, retry" — for something the caller had to change.
+  if (e?.codexErrorInfo === "badRequest") return true;
   try { return JSON.parse(e?.message ?? "")?.error?.type === "invalid_request_error"; }
   catch { return false; }
 }
@@ -1137,7 +1193,11 @@ function finish(reason) {
     // Only present when --answer-json asked for it, so a caller can tell "did not ask" from "asked and the
     // model answered in prose anyway". Absent rather than null in the ordinary case, because a null here
     // would read as a failed parse.
-    ...(opts.answerJson ? parseAnswerJson(answer) : {})
+    // The FULL answer, never the clipped one. --brief cuts at 20 lines, so a 30-line JSON object parsed as
+    // truncated garbage and came back as answerJson: null with a syntax error — the exact signature the
+    // docs give for "asked for JSON and the model answered in prose". Two flags that are each fine alone
+    // silently destroyed the other's output.
+    ...(opts.answerJson ? parseAnswerJson(fullAnswer) : {})
   };
 
   let out;
