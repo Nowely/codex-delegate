@@ -244,8 +244,13 @@ function argvFromSeatFile(file, allowSeatVerify) {
     declared.push(field);
     // SEAT is the rights declaration and the only field that expands to more than one flag.
     if (field === "SEAT") {
-      const [kind, ...rest] = value.split(/\s+/);
-      const arg = rest.join(" ");
+      // Split at the FIRST whitespace run only. The format promises the value literal to end of line,
+      // and split-and-rejoin rewrote interior whitespace — a path with two consecutive spaces silently
+      // became a path with one, which at write level can land the rights on a DIFFERENT existing
+      // directory than the one the file declared.
+      const sp = value.search(/\s/);
+      const kind = sp < 0 ? value : value.slice(0, sp);
+      const arg = sp < 0 ? "" : value.slice(sp).trim();
       if (kind === "read") { out.push("--level", "read", ...(arg ? ["--cwd", arg] : [])); }
       else if (kind === "worktree") { if (!arg) fail(EXIT.USAGE, "--seat-file: SEAT worktree needs a repository path"); out.push("--worktree", arg); }
       else if (kind === "write") { if (!arg) fail(EXIT.USAGE, "--seat-file: SEAT write needs a directory"); out.push("--level", "write", "--cwd", arg); }
