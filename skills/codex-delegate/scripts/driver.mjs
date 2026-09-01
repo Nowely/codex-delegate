@@ -165,6 +165,9 @@ Environment
                                 absolute. For test harnesses: two runs under
                                 different values do NOT exclude each other
   CODEX_DELEGATE_SESSIONS_DIR   where to look for the rollout receipt
+  CODEX_DELEGATE_CODEX          absolute path to the codex executable; without
+                                it the driver searches PATH, then
+                                /opt/homebrew/bin, /usr/local/bin, ~/.local/bin
   CODEX_DELEGATE_VERIFY_FLOOR_MS  how little of the --timeout budget is too
                                 little to start --verify in (default 100).
                                 Also a test seam: the branch is otherwise
@@ -577,6 +580,27 @@ const lockDir = () => path.join(stateDir("the cwd lock"), "locks");
 const tomlString = (v) => JSON.stringify(v).replace(/[\u007f-\u009f]/g,
   (c) => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`);
 
+// Where `codex` actually is. Both spawns used the bare name, so a non-login shell whose PATH lacks the
+// install dir failed with ENOENT — and the workaround (export /opt/homebrew/bin in every wrapper) was
+// baked prose that no native subagent needs. Order: $CODEX_DELEGATE_CODEX verbatim, then PATH, then the
+// standard install locations. Resolved once in setup(); the probe and the real spawn share it.
+let codexBin = "codex";
+function resolveCodexBin() {
+  const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
+  const override = process.env.CODEX_DELEGATE_CODEX;
+  if (override) {
+    if (!path.isAbsolute(override) || !runnable(override))
+      fail(EXIT.USAGE, `CODEX_DELEGATE_CODEX must be an absolute path to an executable codex, got ${JSON.stringify(override)}`);
+    return override;
+  }
+  for (const d of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (d && runnable(path.join(d, "codex"))) return path.join(d, "codex");
+  }
+  const fallbacks = ["/opt/homebrew/bin", "/usr/local/bin", path.join(passwdHome("codex resolution"), ".local", "bin")];
+  for (const d of fallbacks) if (runnable(path.join(d, "codex"))) return path.join(d, "codex");
+  fail(EXIT.TRANSPORT, `codex not found on PATH or in ${fallbacks.join(", ")}; install it, or set CODEX_DELEGATE_CODEX to its absolute path`);
+}
+
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
 function inheritedConfig() {
   return new Promise((resolve) => {
@@ -588,7 +612,7 @@ function inheritedConfig() {
     // still read them. Measured: with a `codex` that hangs, `--timeout 2` took 60 seconds — the driver
     // announced its timeout on schedule and then sat waiting for a grandchild. Before this probe existed
     // the same case exited at 2.1 s.
-    try { child = spawn("codex", ["--strict-config", "app-server"], { stdio: ["pipe", "pipe", "pipe"], detached: true }); }
+    try { child = spawn(codexBin, ["--strict-config", "app-server"], { stdio: ["pipe", "pipe", "pipe"], detached: true }); }
     catch { return resolve([]); }
     probeChild = child;
     let buf = "", done = false;
@@ -1134,6 +1158,9 @@ async function setup() {
   opts = at >= 0
     ? parseArgs([...argvFromSeatFile(argv[at + 1], allowSeatVerify), ...argv.filter((_, i) => i !== at && i !== at + 1)])
     : parseArgs(argv);
+
+  // After parseArgs, so --help works on a machine with no codex at all.
+  codexBin = resolveCodexBin();
 
   // Two levels, mirroring Claude's own subagents: a reader that can run things but not touch your files,
   // and a writer confined to a directory you chose. Everything else is a modifier.
@@ -2139,7 +2166,7 @@ async function main() {
   prompt = prompt.trim();
   if (!prompt) fail(EXIT.USAGE, "empty prompt");
 
-  child = spawn("codex", spawnArgs, {
+  child = spawn(codexBin, spawnArgs, {
     cwd, stdio: ["pipe", "pipe", "pipe"], detached: true,
     env: codexHome === null ? process.env : { ...process.env, CODEX_HOME: codexHome },
   });
