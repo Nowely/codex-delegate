@@ -273,7 +273,7 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | Exit | Meaning |
 | --- | --- |
 | 0 | turn completed, every declared check passed, and a command really executed — unless `--allow-no-commands` waived exactly that clause |
-| 1 | turn did not complete (`failed` / `interrupted`) — the answer is partial |
+| 1 | turn did not complete (`failed` / `interrupted`) — the answer is partial. A transient provider failure (stream disconnect, overload, usage window) is first absorbed by ONE bounded retry when the turn had produced nothing observable; `transientRetries` in the report records it |
 | 2 | your arguments were rejected — by the driver (nothing ran, no report) or by the server mid-turn (commands may have run; the message carries the server's own wording) |
 | 3 | timed out — the case most likely to leave a half-written tree |
 | 4 | transport failure — codex missing or crashed, and every sandbox / approval-policy / reviewer assertion. Not a retry: it usually means the rights you asked for were not the rights you got |
