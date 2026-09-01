@@ -2116,11 +2116,9 @@ function interruptTurn() {
   try { requestFn("turn/interrupt", { threadId: rootThreadId, turnId }).catch(() => {}); } catch {}
 }
 
-function finish(reason) {
-  if (settled) return;
-  settled = true;
-  if (reason) turnStatus = reason;
-
+// The evidence, classified once: what ran, what failed, what the answer is. Reads the event streams
+// and opts; its one side effect is the answer-log write persistAnswer always had.
+function classifyEvidence() {
   // A command that merely produced a number is not evidence: `false` exits 1 and would have passed.
   // Require a command that actually succeeded.
   const ran = commands.filter((c) => c.status === "completed" && c.exitCode === 0);
@@ -2167,16 +2165,21 @@ function finish(reason) {
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
   const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
   const commentaryOnly = !final && reviewResult == null && messages.length > 0;
+  return { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, fullAnswer,
+           schemaErrs, answerPath, answer, commentaryOnly };
+}
 
-  // --verify runs on its OWN schedule, not as a reward for having passed the weaker gates. It used to be
+// --verify runs on its OWN schedule, not as a reward for having passed the weaker gates. It used to be
   // gated on the ladder already reading 0, which inverted the evidence: --expect-command greps command
   // strings the MODEL wrote and is defeated by `true # vitest`, while --verify is a command the CALLER
   // runs afterwards and cannot be authored by the model. The weak check was cancelling the strong one, and
   // the report said `verify: null` — so a proven-broken end state and a proven-good one printed alike.
-  //
-  // Skipped on a timeout only, and for a reason: the deadline fires while Codex is still alive and
-  // possibly mid-write, so the check would read a torn tree. verifySkipped records which it was, because
-  // "not measured" and "not requested" are different facts about the run.
+//
+// Skipped on a timeout only, and for a reason: the deadline fires while Codex is still alive and
+// possibly mid-write, so the check would read a torn tree. verifySkipped (the return value) records
+// which it was, because "not measured" and "not requested" are different facts about the run.
+// Sets the module-level verifyResult; the ladder and the report read it from there.
+function runVerifier() {
   let verifySkipped = opts.verify ? null : "not-requested";
   if (opts.verify) {
     if (turnStatus === "timedOut") verifySkipped = "turn-timed-out";
@@ -2227,18 +2230,15 @@ function finish(reason) {
       }
     }
   }
+  return verifySkipped;
+}
+
+// The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
+// sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
+function decideExitCode(ev, verifySkipped) {
+  const { expected, failedCmds, failedPatches, answer, schemaErrs } = ev;
   const verifyPassed = verifyResult?.ok === true;
   const verifyFailed = verifyResult != null && !verifyPassed;
-
-  // After the verifier (which runs in the tree), before the report (which carries the outcome).
-  const worktree = disposeWorktree(turnStatus === "completed");
-  // The receipt is the one artefact no wrapper can fabricate; locate it, READ it, and say what it says,
-  // so the coordinator does not have to glob for it and does not have to trust a filename.
-  const receipt = findRollout(rootThreadId);
-  const receiptPath = receipt?.path ?? null;
-
-  // A refused escalation means the task hit the edge of the sandbox it was given, so the work is very
-  // likely incomplete — detectable without reading the prose.
   let code = EXIT.OK;
   if (turnStatus === "timedOut") code = EXIT.TIMEOUT;
   // A parameter the SERVER rejected is the caller's to fix, not something to retry, so it must not land on
@@ -2284,6 +2284,25 @@ function finish(reason) {
   // method, not a failure of the work — measured live: a real review ran 26 commands, several of them
   // failing greps, and exited 11 with a perfectly good review in hand. The counts stay in the report.
   else if ((failedCmds.length || failedPatches.length) && !verifyPassed && !opts.review) code = EXIT.COMMAND_FAILED;
+  return code;
+}
+
+function finish(reason) {
+  if (settled) return;
+  settled = true;
+  if (reason) turnStatus = reason;
+
+  const ev = classifyEvidence();
+  const verifySkipped = runVerifier();
+  // After the verifier (which runs in the tree), before the report (which carries the outcome).
+  const worktree = disposeWorktree(turnStatus === "completed");
+  // The receipt is the one artefact no wrapper can fabricate; locate it, READ it, and say what it says,
+  // so the coordinator does not have to glob for it and does not have to trust a filename.
+  const receipt = findRollout(rootThreadId);
+  const receiptPath = receipt?.path ?? null;
+  const code = decideExitCode(ev, verifySkipped);
+  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, fullAnswer,
+          schemaErrs, answerPath, answer, commentaryOnly } = ev;
 
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
@@ -2359,10 +2378,29 @@ function finish(reason) {
     ...(opts.answerJson ? parseAnswerJson(fullAnswer) : {})
   };
 
-  let out;
-  if (opts.json) {
-    out = `${JSON.stringify({ ...report, commands }, null, 2)}\n`;
-  } else {
+  const out = opts.json
+    ? `${JSON.stringify({ ...report, commands }, null, 2)}\n`
+    : renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped);
+  writeJob({ exitCode: code, turnStatus, answerPath, endedAt: new Date().toISOString() });
+  process.exitCode = code;
+  // Exit only once stdout has actually drained. A large report on a pipe is chunked, and exiting on the
+  // next tick truncates it at the pipe buffer — measured at 262144 bytes for a 20MB report.
+  // process.exit waits for shutdown() now: exiting on the same tick used to discard the SIGKILL
+  // escalation timer, which is how a TERM-ignoring test server outlived every normal completion.
+  flushing = true;
+  process.stdout.write(out, () => { flushing = false; shutdown().then(() => process.exit(code)); });
+  // If stdout never drains, the report did not reach the caller — that is a transport failure, not
+  // the success the run would otherwise have been.
+  setTimeout(() => {
+    process.stderr.write("codex-delegate: stdout did not drain; report may be truncated\n");
+    shutdown().then(() => process.exit(EXIT.TRANSPORT));
+  }, 5000).unref?.();
+}
+
+// The human footer: the same facts as the JSON report, arranged for a reader.
+function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
+  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, answer } = ev;
+  {
     const L = [answer, ""];
     L.push(`--- verification -----------------------------------------`);
     L.push(`level=${opts.level} sandbox=${effectiveSandbox?.type ?? sandbox} turn=${turnStatus} answerPhase=${final?.phase ?? "none"}`);
@@ -2451,22 +2489,8 @@ function finish(reason) {
       ? `NOT TRUSTWORTHY: commands ran but none succeeded; the answer is unverified.`
       : `no command executed — waived by --allow-no-commands.`);
     L.push(`Note: a passing gate proves commands ran, not that the right ones did. Check the list.`);
-    out = `${L.join("\n")}\n`;
+    return `${L.join("\n")}\n`;
   }
-  writeJob({ exitCode: code, turnStatus, answerPath, endedAt: new Date().toISOString() });
-  process.exitCode = code;
-  // Exit only once stdout has actually drained. A large report on a pipe is chunked, and exiting on the
-  // next tick truncates it at the pipe buffer — measured at 262144 bytes for a 20MB report.
-  // process.exit waits for shutdown() now: exiting on the same tick used to discard the SIGKILL
-  // escalation timer, which is how a TERM-ignoring test server outlived every normal completion.
-  flushing = true;
-  process.stdout.write(out, () => { flushing = false; shutdown().then(() => process.exit(code)); });
-  // If stdout never drains, the report did not reach the caller — that is a transport failure, not
-  // the success the run would otherwise have been.
-  setTimeout(() => {
-    process.stderr.write("codex-delegate: stdout did not drain; report may be truncated\n");
-    shutdown().then(() => process.exit(EXIT.TRANSPORT));
-  }, 5000).unref?.();
 }
 
 // ---------------------------------------------------------------- run
