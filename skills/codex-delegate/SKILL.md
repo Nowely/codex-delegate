@@ -17,6 +17,21 @@ license: MIT
 
 # Delegating to Codex
 
+## Before the first call
+
+- None of this skill's commands are pre-approved in `~/.claude/settings.json`, so a delegation stops at
+  Claude Code's own permission gate. Decide with the user how to handle that before a long delegation;
+  do not add allow-rules on their behalf.
+- Requirements: `codex` CLI installed and authenticated (`codex login status`). The model, reasoning
+  effort, personality and service tier are inherited from the caller's `~/.codex/config.toml` unless
+  overridden per call. Install routes and prerequisites: README.
+- After a codex upgrade, follow README's upgrade recipe (regenerate `schema-<v>/`, run the eval suites)
+  before trusting a run — the app-server protocol carries no stability promise.
+- The `openai-codex` plugin and the `codex exec`-based skills are not substitutes where rights matter:
+  their read and review seats cannot run tests, and the failure is silent (the run still exits 0). The
+  verdict is in README, the forensics in
+  [references/why-not-the-plugin.md](references/why-not-the-plugin.md).
+
 ## What to type
 
 The driver lives at `scripts/driver.mjs` under THIS skill's base directory (announced when this file
@@ -46,21 +61,6 @@ Exit 0 is the only success, and it is derived from evidence; anything else is a 
 see [Reading the result](#reading-the-result). Add `--network` only for a turn that needs it —
 installing dependencies, or binding loopback TCP, which browser tests do — and settle it with the user
 first: write plus network is an exfiltration surface.
-
-## Before the first call
-
-- None of this skill's commands are pre-approved in `~/.claude/settings.json`, so a delegation stops at
-  Claude Code's own permission gate. Decide with the user how to handle that before a long delegation;
-  do not add allow-rules on their behalf.
-- Requirements: `codex` CLI installed and authenticated (`codex login status`). The model, reasoning
-  effort, personality and service tier are inherited from the caller's `~/.codex/config.toml` unless
-  overridden per call. Install routes and prerequisites: README.
-- After a codex upgrade, follow README's upgrade recipe (regenerate `schema-<v>/`, run the eval suites)
-  before trusting a run — the app-server protocol carries no stability promise.
-- The `openai-codex` plugin and the `codex exec`-based skills are not substitutes where rights matter:
-  their read and review seats cannot run tests, and the failure is silent (the run still exits 0). The
-  verdict is in README, the forensics in
-  [references/why-not-the-plugin.md](references/why-not-the-plugin.md).
 
 ## Composition: say who is running, before they run
 
@@ -117,9 +117,8 @@ declaration by creating the missing directory and running Codex under rights nob
 reported success — the shipped agent is pinned to sonnet for exactly that.
 
 A wrapper — shipped or hand-rolled — declares the seat with `--seat-file <file>`: one `FIELD: value`
-per line (`SEAT` first and required, then `EFFORT`, `TIMEOUT`, `EXPECT`, `VERIFY`, `NETWORK`, `MODEL`,
-`WEB_SEARCH`, `OUTPUT_SCHEMA`, `WRITABLE`, `COMMIT`, `BRIEF`, `ALLOW_NO_COMMANDS`, `REVIEW`, `RESUME`,
-`PROGRESS`), each value taken as-is to end of line (outer whitespace trimmed, interior preserved) and
+per line, `SEAT` first and required — the full field list is in `--help` — each value taken as-is to
+end of line (outer whitespace trimmed, interior preserved) and
 mapped to the same flags with the same guards. That exists so a relay never builds a shell command
 line out of values it was handed: an injected quote in `sh -c` becomes flags; in a seat file it stays
 one literal value. Explicit flags still override the file, so a harness can bound a seat it did not
@@ -210,13 +209,13 @@ oldest numbers here. Re-check after a codex upgrade.
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home (the private `CODEX_HOME` runs use instead of yours). `--mcp` copies the representable entries of the caller's `[mcp_servers]` — and only them — into a private per-run home, deleted at exit; a skipped entry is named on stderr, and the servers run with your rights. `--host-home` restores everything, plugins, skills and nondeterminism included |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
-| an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items — png/jpg/jpeg/gif/webp/bmp and wav/mp3/m4a/ogg/flac. Attachments go BEFORE the prompt text, the layout a pasted turn has. Checked before the turn, so a typo costs nothing. `--review` refuses them: its `review/start` carries no input items |
+| an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items; the format list is in `--help`, the ordering and pre-turn checks in [references/flags-and-internals.md](references/flags-and-internals.md). `--review` refuses them: its `review/start` carries no input items |
 | **an image the USER pasted** | `scripts/attach-pasted.mjs` (below) | Claude Code keeps a paste only inside the transcript, so it has to be decoded to a file first; the front-end does that and calls the driver |
 | watching a running subagent | `--progress` | one stderr line per item start (run/edit/search) without the delta firehose; the rollout under `~/.codex/sessions` stays the full live transcript |
 | a review pass | `--review uncommitted\|branch:<ref>\|commit:<sha>` | the server's native reviewer on this thread; the review payload is the answer, the reviewer's own failed probes do not fail the run, and no prompt is needed |
 | correcting a running subagent | `--steer-file <file>` | append text to the file: it reaches the live turn as `turn/steer` within a second and the file is drained. Input only, never rights |
-| a schema-validated return | `--output-schema <file>` | the server constrains generation with the schema, the driver validates the result independently (type/required/properties/enum/items/additionalProperties), and a mismatch spends ONE corrective turn on the same thread before exit 13 — the retry a subagent's tool layer provides. **The schema must be STRICT**: every object needs `"additionalProperties": false` and a `"required"` listing every one of its properties (use `"type": ["string","null"]` where you wanted optional). The provider rejects anything else with a 400; the driver checks both rules before the turn so you do not pay a delegation to find out. `--answer-json` remains the lighter syntax-only demand |
-| a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines / 4,000 bytes **including** the "clipped" marker. `answerPath` is null when there was no answer or the write failed, and `answerTruncated: true` with `answerPath: null` means the full text survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
+| a schema-validated return | `--output-schema <file>` | the server constrains generation, the driver validates the result independently, and a mismatch spends ONE corrective turn on the same thread before exit 13 — the retry a subagent's tool layer provides. **The schema must be STRICT**; the rules are in `--help`, and the driver checks them before the turn so a bad schema costs no delegation. `--answer-json` remains the lighter syntax-only demand |
+| a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the inline answer is capped, the full text lands in the answer log — but under `--brief` the model is ALSO asked to answer short, so skip it when you need the full working note. The caps, the pruning, and what a null `answerPath` means: [references/flags-and-internals.md](references/flags-and-internals.md) |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 (plus, under `--host-home` or `--mcp`, a private copy of the caller's MCP servers). Exceeding the
@@ -257,20 +256,10 @@ which is what your own context has: a coordinator sees all N blocks before the t
 about "the second screenshot" must see the same arrangement. Nothing is selected implicitly beyond that
 turn: if the latest human turn carries no image, the run refuses (exit 2) and names `--list` rather
 than reaching back to something older you did not mean. To take an older turn, copy a uuid from
-`--list` — never count backwards: machine records interleave with human ones, so an offset silently
-selects a *different* image. The selector flags, the validation limits and why no offset selector
-exists: [references/flags-and-internals.md](references/flags-and-internals.md), or `--help`.
-
-Each image is validated before anything is written, lands under `~/.codex-delegate/pasted/` — not
-`$TMPDIR`: that is the read level's one writable root, so the very seat being shown the images could
-edit them — is named on the stderr receipt (which says out loud that it goes to the model provider),
-and is **removed when the run ends**.
-
-Two facts worth knowing before asking for pixel coordinates: Claude Code **downscales** a paste to at
-most ~2000 px before storing it (its own meta records say "Multiply coordinates by 1.73 to map to the
-original"), so the receipt's `WxH` is the space the seat answers in; and the images carry no names, so
-if your prompt says "the first screenshot", number them there yourself — the driver adds no sentence of
-its own to a prompt you wrote.
+`--list` — never count backwards: an offset silently selects a *different* image (why: the reference
+below). The selector flags, the validation limits, where the files land and why,
+and the two facts to know before asking for pixel coordinates (the ~2000 px downscale, the unnamed
+images): [references/flags-and-internals.md](references/flags-and-internals.md), or `--help`.
 
 ## Worktree lifecycle
 
@@ -404,9 +393,9 @@ The four worth knowing without opening either: `--level read|write` (default `re
 <sec>` (default 900) · `--brief` (cap the inline answer; the full text is at `answerPath`) ·
 `--allow-no-commands` (waives the command floor, never a declared expectation).
 
-**Only `~/.codex`, `~/.codex-delegate` and the driver's state directory are protected roots.** `~/.ssh`,
-`~/.claude` and the rest of your home are grantable; the driver refuses your home directory itself and
-every ancestor of it, not everything valuable inside it.
+**Only `~/.codex`, `~/.codex-delegate` and the driver's state directory are protected roots** — the
+rest of your home, `~/.ssh` included, is grantable; the reference above says exactly what is refused
+and why.
 
 ## Multiple rounds
 

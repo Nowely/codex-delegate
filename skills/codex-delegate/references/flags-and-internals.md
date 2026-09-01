@@ -33,6 +33,19 @@ One interrupt nuance: `turn/interrupt` is sent on cancellation and on timeout so
 resumable — except in the sub-second window before `turn/start` has answered, where there is no turn
 id to name and nothing is sent.
 
+## The answer log, and what --brief does not deliver
+
+The full answer of every run is written to the state dir's `answers/<threadId>.md` (default
+`~/.codex-delegate/answers/`), pruned after 14 days or 400 entries; `--brief` clips the inline copy at
+20 lines / 4,000 bytes **including** the "clipped" marker. `answerPath` is null when there was no
+answer or the write failed, and `answerTruncated: true` beside `answerPath: null` means the full text
+survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to park
+evidence in `$TMPDIR` files — detail it never generated inline is not in `answerPath` either, which is
+why a run whose working note you need should not be `--brief`.
+
+`--attach` files go BEFORE the prompt text — the layout a pasted turn has — and every attachment is
+checked before the turn, so a typo costs nothing.
+
 ## What is protected, and what is not
 
 Every write-level root — `--cwd`, `--writable`, the git dir `--commit` grants, the destination a
@@ -108,3 +121,10 @@ the media type, 10 MB each / 25 MB across the whole selection / 20 images), land
 or webp) mode 0600 in a 0700 directory, and is removed when the run ends. The stderr receipt names
 each image — turn, timestamp, the turn's text, index, stored dimensions, size, sha256, path — and says
 out loud that it goes to the model provider.
+
+The destination is deliberately not `$TMPDIR`: that is the read level's one writable root, so the very
+seat being shown the images could edit them. Two facts before asking for pixel coordinates: Claude Code
+**downscales** a paste to at most ~2000 px before storing it (its own meta records say "Multiply
+coordinates by 1.73 to map to the original"), so the receipt's `WxH` is the space the seat answers in;
+and the images carry no names, so a prompt that says "the first screenshot" must number them itself —
+the driver adds no sentence of its own to a prompt you wrote.
