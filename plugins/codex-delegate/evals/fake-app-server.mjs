@@ -101,6 +101,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (m.method === "initialize") { w(reply(m.id, { userAgent: "fake", codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" })); return; }
   if (m.method === "initialized") return;
   if (m.method === "turn/interrupt") { w(reply(m.id, {})); return; }
+  if (m.method === "turn/steer") { w(reply(m.id, {})); return; }
 
   // The driver asks the real server what the caller's config resolves to, instead of parsing their TOML —
   // so the fixture has to answer it too. It did not, and every case then sat out the driver's probe
