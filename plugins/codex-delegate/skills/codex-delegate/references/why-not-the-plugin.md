@@ -5,6 +5,14 @@ the locally cached plugin source (`~/.claude/plugins/cache/openai-codex/codex/1.
 / commit db52e28 the line references below pin), independently by a Claude seat and a Codex seat; the
 sandbox behaviour was reproduced live with a raw JSON-RPC probe against codex-cli 0.150.1.
 
+## Contents
+
+- The two defects, and which machines they bite
+- Why not the exec-based skills
+- Shared skeleton, divergent rights layer
+- Upstream state (as of 2026-08-31)
+- What the plugin does better, and is worth adopting
+
 ## The two defects, and which machines they bite
 
 **1. Hardcoded approval policy (bites managed machines).** The plugin sends
