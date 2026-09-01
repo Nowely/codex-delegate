@@ -669,6 +669,31 @@ test("--worktree harvests a seat's COMMITS, not just its diff, before removing t
     return true;
   });
 
+test("--worktree keeps the commits of a seat that left the tree CLEAN",
+  "a --commit seat that commits everything leaves `git status --porcelain` empty, so the clean branch removed the tree and stranded those commits behind no ref — the tidier the seat, the worse the loss",
+  async () => {
+    const repo = freshRepo("wt-clean-commits");
+    if (!repo) return "git setup failed";
+    // Commits everything and leaves nothing behind: porcelain is empty afterwards.
+    const { code, out } = await run(null, { args: ["--worktree", repo, "--verify",
+      "printf 'all committed\\n' >> seed && git -c user.email=a@b -c user.name=a commit -qam tidy-seat"] });
+    if (code !== EXIT.OK) return `the run exited ${code}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    if (!r) return "no JSON report";
+    try {
+      if (r.worktreeRemoved !== true) return `the tree was not removed: ${JSON.stringify(r.worktreePreserved)}`;
+      if (!r.worktreeCommitsRef) return "a clean tree's commits were stranded: no ref was created";
+      const log = spawnSync("git", ["-C", repo, "log", "--format=%s", r.worktreeCommitsRef], { encoding: "utf8" });
+      if (log.status !== 0 || !/tidy-seat/.test(log.stdout))
+        return `the preserved ref does not carry the commit: ${String(log.stdout || log.stderr).trim().slice(0, 160)}`;
+    } finally {
+      if (r?.worktreePath && fs.existsSync(r.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+      for (const p of [r?.worktreeDiffPath, r?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
 test("--worktree still preserves the tree when the turn did not complete, even a dirty one",
   "the harvest-and-remove path is for COMPLETED turns only: a failed turn's tree may be mid-write, and removal on anything but a settled state is data loss",
   async () => {

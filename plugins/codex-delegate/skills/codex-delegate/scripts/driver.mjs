@@ -1217,9 +1217,16 @@ function disposeWorktree(turnDone) {
                 worktreeIgnoredDropped: null, worktreeCommitsRef: null, worktreeFleet: null };
   const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
   const clean = st.status === 0 && st.stdout.trim() === "";
+  // Commits are work even when the tree is spotless. A --commit seat that committed everything leaves
+  // `git status --porcelain` empty, so the clean branch below used to remove the tree and strand those
+  // commits behind no ref at all — the same loss the dirty path was fixed for, reached by the tidier
+  // seat. Harvesting is therefore driven by "dirty OR HEAD moved", not by dirtiness alone.
+  const headNow = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const headSha = headNow.status === 0 ? headNow.stdout.trim() : null;
+  const committed = Boolean(baseSha && headSha && headSha !== baseSha);
   if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
   else if (st.status !== 0) res.worktreePreserved = "git status failed in the worktree";
-  else if (!clean) {
+  else if (!clean || committed) {
     // Diffed against the commit the tree STARTED at, not against HEAD. Dirtiness is decided by
     // `status --porcelain`, which sees staged changes, so the harvest must see them too — and a seat
     // with --commit moves HEAD, where `git diff HEAD` reports nothing at all while the work sits in
@@ -1270,9 +1277,7 @@ function disposeWorktree(turnDone) {
       // from this detached worktree's HEAD, and removing the tree strands them — so they get a real ref
       // in the main repository first. Cheap, permanent, and named in the report; without it a
       // --worktree --commit seat's whole history was destroyed by the removal below.
-      const head = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" });
-      const headSha = head.status === 0 ? head.stdout.trim() : null;
-      if (headSha && baseSha && headSha !== baseSha) {
+      if (committed) {
         const ref = `refs/codex-delegate/${name}`;
         const upd = spawnSync("git", ["-C", repo, "update-ref", ref, headSha], { encoding: "utf8" });
         if (upd.status !== 0) return `the seat's commits could not be preserved (${String(upd.stderr).trim().slice(0, 120)})`;
