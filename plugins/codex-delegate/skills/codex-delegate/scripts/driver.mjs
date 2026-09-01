@@ -158,6 +158,8 @@ Report
                      merely matched by name), and tokenUsage (the server's own
                      accounting for the root thread; cumulative across --resume)
   --footer           a human footer instead of the JSON report
+  --progress         one line per item start on stderr (run/edit/search), so a
+                     long seat can be watched live without tailing the rollout
   threadId is announced on stderr as soon as the thread exists, so a long
   turn's live rollout can be tailed
   SIGINT / SIGTERM / SIGHUP after the thread exists report what the turn did so
@@ -323,6 +325,7 @@ function parseArgs(argv) {
       case "--answer-json": o.answerJson = true; break;
       case "--output-schema": o.outputSchemaFile = need(++i, a); break;
       case "--brief": o.brief = true; break;
+      case "--progress": o.progress = true; break;
       case "--host-home": o.hostHome = true; break;
       case "--json": o.json = true; break;   // the default; kept so existing recipes stay valid
       case "--footer": o.json = false; break;
@@ -1580,6 +1583,18 @@ function handleMessage(msg) {
   // Turn-scoped notifications that arrive before the turn id is known are held, not judged.
   const turnScoped = msg.method === "item/completed" || msg.method === "turn/completed";
   if (turnScoped && rootTurnId === null) { early.push(msg); return; }
+
+  // Live progress, opt-in: one line per item START, so a coordinator tailing a long seat sees the
+  // phase it is in — without re-enabling the delta firehose, which stays opted out. Best-effort: an
+  // item racing the turn/start response is simply not announced.
+  if (opts.progress && msg.method === "item/started" && isRoot(p)) {
+    const it = p.item;
+    const line = it?.type === "commandExecution" ? `run: ${String(it.command ?? "").slice(0, 120)}`
+      : it?.type === "fileChange" ? `edit: ${(it.changes ?? []).map((c) => c.path).join(", ").slice(0, 120)}`
+      : it?.type === "webSearch" ? `search: ${String(it.query ?? "").slice(0, 120)}`
+      : null;
+    if (line) process.stderr.write(`codex-delegate: > ${line}\n`);
+  }
 
   if (msg.method === "item/completed" && isRoot(p)) {
     const it = p.item;

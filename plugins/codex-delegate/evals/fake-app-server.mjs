@@ -558,6 +558,15 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           done(TURN, THREAD));
         break;
 
+      // item/started before the completion pair: what --progress announces.
+      case "progress":
+        w(R,
+          note("item/started", { threadId: THREAD, turnId: TURN, startedAtMs: now(),
+            item: { id: "item_p1", type: "commandExecution", command: "echo hi", status: "inProgress",
+                    cwd: "/tmp", commandActions: [], aggregatedOutput: "", exitCode: null, processId: null, durationMs: 0 } }),
+          cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
       // The turn input, echoed back as the answer: the only way a case can see what the driver SENT
       // as input items (--attach mapping, text ordering).
       case "echo-input":
