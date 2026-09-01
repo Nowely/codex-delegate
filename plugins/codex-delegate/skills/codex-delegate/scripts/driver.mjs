@@ -130,7 +130,9 @@ Turn
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
   --timeout SECONDS  default 900, at most 7200
-  --resume THREAD    continue a thread; --ephemeral leaves no thread behind
+  --resume THREAD    continue a thread; "--resume last" continues the newest
+                     recorded run (the registry lives in ~/.codex-delegate/jobs).
+                     --ephemeral leaves no thread behind
 
 Gate — what counts as the turn having done the work
   --expect-command RE   a command matching RE must have run
@@ -988,6 +990,38 @@ let worktreeInfo = null;
 // the whole thing in a try/catch, so a missing passwd entry costs the path and nothing else.
 const answersDir = () => path.join(stateDir("the answer log"), "answers");
 
+// One JSON record per run, keyed by threadId, under ~/.codex-delegate/jobs/ — the registry that lets a
+// coordinator list what ran and resume the newest thread without having kept the id itself
+// (--resume last). Best-effort on the same terms as the answer log: losing a record costs the record,
+// never the run. Pruned with the same bounds as the answers.
+const jobsDir = () => path.join(stateDir("the job registry"), "jobs");
+function writeJob(fields) {
+  // Ephemeral threads cannot be resumed, so a registry whose purpose is resume must not offer them.
+  if (!rootThreadId || opts?.ephemeral) return;
+  try {
+    const dir = jobsDir();
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const p = path.join(dir, `${rootThreadId}.json`);
+    let prev = {};
+    try { prev = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+    fs.writeFileSync(p, JSON.stringify({ ...prev, ...fields }), { mode: 0o600 });
+    pruneAnswers(dir);
+  } catch {}
+}
+// `--resume last`: the newest job record wins, ended or not — a still-running seat's thread refuses
+// the resume anyway (exit 10), which is the honest answer for "the last seat is still working".
+function resolveResumeLast() {
+  let names = [];
+  try { names = fs.readdirSync(jobsDir()).filter((n) => n.endsWith(".json")); } catch {}
+  const newest = names
+    .map((n) => { try { return { n, t: fs.statSync(path.join(jobsDir(), n)).mtimeMs }; } catch { return null; } })
+    .filter(Boolean).sort((a, b) => b.t - a.t)[0];
+  if (!newest) fail(EXIT.USAGE, "--resume last: no previous run is recorded in the job registry");
+  const id = newest.n.replace(/\.json$/, "");
+  process.stderr.write(`codex-delegate: --resume last -> ${id}\n`);
+  return id;
+}
+
 // What CRASHED runs left behind, reconciled on the next --worktree invocation — the moment the cost is
 // amortized and worktrees are already the topic. A ledger entry whose owner is dead names either a
 // tree that is gone (drop the entry), a clean tree (remove both), or a dirty one (keep both and say
@@ -1264,6 +1298,7 @@ async function setup() {
 
   // After parseArgs, so --help works on a machine with no codex at all.
   codexBin = resolveCodexBin();
+  if (opts.resume === "last") opts.resume = resolveResumeLast();
 
   // Two levels, mirroring Claude's own subagents: a reader that can run things but not touch your files,
   // and a writer confined to a directory you chose. Everything else is a modifier.
@@ -2288,6 +2323,7 @@ function finish(reason) {
     L.push(`Note: a passing gate proves commands ran, not that the right ones did. Check the list.`);
     out = `${L.join("\n")}\n`;
   }
+  writeJob({ exitCode: code, turnStatus, answerPath, endedAt: new Date().toISOString() });
   process.exitCode = code;
   // Exit only once stdout has actually drained. A large report on a pipe is chunked, and exiting on the
   // next tick truncates it at the pipe buffer — measured at 262144 bytes for a 20MB report.
@@ -2459,6 +2495,7 @@ async function main() {
   // the key to tailing its live rollout under ~/.codex/sessions — a coordinator watching a long seat
   // should not have to wait for the end to learn which run it is.
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
+  writeJob({ threadId: rootThreadId, pid: process.pid, cwd, level: opts.level, started: new Date().toISOString() });
 
   if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
   lastTurnParams = {
