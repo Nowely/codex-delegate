@@ -295,7 +295,8 @@ report.
 
 **Cancelling a seat does not throw its work away.** `SIGINT`, `SIGTERM` and `SIGHUP` after the thread
 exists report what the turn did so far — `turnStatus: "interrupted"`, exit **1**, a full JSON report —
-and only before the thread exists do they exit 4. A second signal escalates the running teardown
+and only before the thread exists do they exit 4. The server is also sent `turn/interrupt` (on
+cancellation and on timeout), so the turn ends cleanly on its side and the thread stays resumable. A second signal escalates the running teardown
 straight to `SIGKILL`. `SIGKILL` to the driver itself is the one case nothing can cover: descendants
 survive and the cwd lock is left for the next run to reclaim.
 

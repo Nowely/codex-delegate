@@ -729,12 +729,12 @@ const survivorsAlive = () =>
 const reapSurvivors = () => { try { spawnSync("pkill", ["-9", "-f", survivorMark]); } catch {} };
 
 // Spawns a write-level run and hands back the child, so a case can signal it mid-turn.
-function spawnRun(dir, { scenario = "stalled-turn", args = [], shim = survivorShim } = {}) {
+function spawnRun(dir, { scenario = "stalled-turn", args = [], shim = survivorShim, env = {} } = {}) {
   const p = spawn(process.execPath,
     [DRIVER, "--level", "write", "--cwd", dir, "--timeout", "60", "--allow-no-commands", ...args,
      "--prompt", "irrelevant, the server is scripted"],
     { env: { ...process.env, PATH: `${shim}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
-             CODEX_DELEGATE_STATE_DIR: STATE_DIR },
+             CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env },
       stdio: ["ignore", "pipe", "pipe"] });
   let out = "", err = "";
   p.stdout.on("data", (d) => { out += d; });
@@ -760,7 +760,8 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     async () => {
       reapSurvivors();
       const d = freshDir(`sig-${sig}`);
-      const { p, done, stderrSoFar } = spawnRun(d);
+      const rpcLog = path.join(d, `rpc-${sig}.log`);
+      const { p, done, stderrSoFar } = spawnRun(d, { env: { FAKE_RPC_LOG: rpcLog } });
       if (!await waitFor(() => survivorsAlive().length > 0)) { p.kill("SIGKILL"); reapSurvivors(); return "the shim never produced a survivor"; }
       if (!await waitFor(() => fs.existsSync(lockFor(d)))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never took its lock"; }
       // And wait for the thread itself. Signalling on the lock alone is a race the driver wins
@@ -776,7 +777,12 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
       if (code !== 1) return `${sig} exited ${code}, expected 1 (the turn did not complete)`;
       let r = null;
       try { r = JSON.parse(out); } catch { return `${sig} produced no JSON report (${out.length} bytes of stdout)`; }
-      return r.turnStatus === "interrupted" || `the report did not say the turn was interrupted: ${JSON.stringify(r.turnStatus)}`;
+      if (r.turnStatus !== "interrupted") return `the report did not say the turn was interrupted: ${JSON.stringify(r.turnStatus)}`;
+      // The server must be ASKED to end the turn, not merely killed: that is what leaves the thread
+      // cleanly resumable after a cancellation.
+      let rpc = "";
+      try { rpc = fs.readFileSync(rpcLog, "utf8"); } catch {}
+      return /turn\/interrupt/.test(rpc) || `the driver never sent turn/interrupt on ${sig}`;
     });
 }
 
