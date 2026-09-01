@@ -133,6 +133,14 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
+  { scenario: "probe-negative",   expect: EXIT.OK,
+    why: "a no-match grep or a false test is a probe answering 'no', not a failed command — routine research seats exited 11 for finding nothing",
+    assert: (r) => (r.commandsFailed === 0 && r.commandsProbeNegative === 2)
+      || `probe verdicts miscounted: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "probe-error",      expect: EXIT.COMMAND_FAILED,
+    why: "probes reserve exit 2 for real trouble — a bad pattern is a failure, not a 'no'" },
+  { scenario: "probe-compound",   expect: EXIT.COMMAND_FAILED,
+    why: "a compound command starting with a probe keeps failure semantics: its exit 1 may belong to the other command" },
   { scenario: "hidden-failure",  expect: EXIT.COMMAND_FAILED,     why: "a failed command is a failed run, whatever the answer claims; one incidental success must not mask it" },
   { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--verify", "true"],
     why: "only the caller's own check can overrule a failed command" },

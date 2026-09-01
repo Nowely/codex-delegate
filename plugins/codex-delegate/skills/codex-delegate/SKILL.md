@@ -281,7 +281,7 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | 8 | the turn produced commentary but never a final answer |
 | 9 | `--verify` ran and failed: whatever the model said, the work is not there |
 | 10 | the cwd is locked by another run, or a resumed thread still has a turn open |
-| 11 | a command ran and **failed**, or a file change did. Only a **passing** `--verify` overrules it |
+| 11 | a command ran and **failed**, or a file change did. Only a **passing** `--verify` overrules it. A plain probe answering "no" — a no-match `grep`/`rg`, a false `test`, a `diff` that differs (exit 1 exactly) — is not a failure and never raises this |
 | 12 | `--verify` could not be run at all — fix the verifier, not the work |
 | 13 | the answer never matched `--output-schema`, even after the corrective turn — `schemaErrors` says how |
 

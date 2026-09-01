@@ -467,6 +467,30 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           msg(TURN, THREAD, "Wrote both files."), done(TURN, THREAD));
         break;
 
+      // A research turn: one real success plus probes that answered "no" — a no-match grep, a false
+      // test. Exit 1 from a plain probe is a verdict, not a failure, and used to exit 11.
+      case "probe-negative":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "grep -n missing_symbol src/main.mjs", exitCode: 1, status: "failed" }),
+          cmd(TURN, THREAD, { command: "rg TODO src", exitCode: 1, status: "failed" }),
+          msg(TURN, THREAD, "no such symbol anywhere"), done(TURN, THREAD));
+        break;
+
+      // grep exit 2 is real trouble (bad pattern, unreadable file), never a "no".
+      case "probe-error":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "grep -n [ src/main.mjs", exitCode: 2, status: "failed" }),
+          msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
+      // A compound starting with a probe: its exit 1 may be the other command's, so it keeps
+      // failure semantics.
+      case "probe-compound":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "grep -q x file && ./run-tests.sh", exitCode: 1, status: "failed" }),
+          msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
       // A skill-file read succeeds, the real command fails, and the answer claims it passed. The report
       // must show the failure; the old one filtered it out of both lists.
       case "hidden-failure":
