@@ -36,7 +36,7 @@ const USAGE = `attach-pasted — give a Codex seat the image(s) the user pasted 
   node attach-pasted.mjs --list
 
 Selection (default: every image of the LATEST human turn, in the order pasted)
-  --pasted-turn UUID    take that turn instead; repeatable, emitted in transcript order
+  --pasted-turn UUID    take that turn instead; repeatable, emitted in timestamp order
   --pasted-pick 1,3-4   1-based indices within the selected turn (default: all)
   --pasted-allow-old    permit a turn more than 12h older than the newest record
   --pasted-transcript F read this transcript instead of resolving the session's own
