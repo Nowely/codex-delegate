@@ -12,7 +12,8 @@ process status that is always 0, so a seat that did nothing cannot report as tho
   `codex login status`. Runs reuse your credentials: `auth.json` is symlinked from your real `~/.codex`.
 - **codex-cli 0.150.1.** Everything here is measured against that build; `schema-0.150.1/` is the
   pinned protocol reference. After upgrading codex, run the fidelity suite (below) before trusting a run.
-- **Node 18+.** No dependencies: the driver is one file importing only `node:` builtins (exercised on 24.x).
+- **Node.** No dependencies: the driver is one file importing only `node:` builtins. Any Node a current
+  Claude Code install runs on is fine; there is no separate version floor to manage.
 - **macOS is the only measured platform.** Linux should work — the driver uses portable Node APIs — but
   nobody has run it there.
 - **Your `~/.codex/config.toml` is the default policy.** Model, reasoning effort, personality and
@@ -86,7 +87,7 @@ answer of its own.
 
 | Call | Codex may |
 | --- | --- |
-| `--cwd DIR` (read level, the default) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests, never enough to touch your files |
+| `--cwd DIR` (read level, the default) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests. The grant is exactly "`$TMPDIR` and nothing else": anything you keep under the host `$TMPDIR` is reachable |
 | `--worktree REPO` | write level inside a driver-managed detached worktree; removed afterwards only when provably clean, preserved (with the reason and the removal command) otherwise |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
 | `+ --network` / `--writable DIR` / `--commit` | egress, an extra root, or the repository's git dir — each an explicit opt-in |
@@ -96,8 +97,9 @@ answer of its own.
 - **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
   ladder of exit codes from the event stream — turn status, commands that really succeeded, a final
   answer versus commentary. `SKILL.md` documents the ladder.
-- **`--verify '<shell>'`** runs after the turn, executed by the driver, invisible to the model: the one
-  check the model cannot author. `--expect-command <regex>` additionally demands that the work matched
+- **`--verify '<shell>'`** runs after the turn, executed by the driver — never sent in the prompt and
+  never authored by the model, though a turn that inspects processes could observe it in the driver's
+  argv. `--expect-command <regex>` additionally demands that the work matched
   a declared signature, and `--output-schema <file>` demands a JSON answer matching a schema — enforced
   by the server during generation, re-checked by the driver, with one corrective turn before failing.
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that

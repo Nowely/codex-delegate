@@ -53,7 +53,8 @@ dependencies, and settle it with the user first: write plus network is an exfilt
 - None of this skill's commands are pre-approved in `~/.claude/settings.json`, so a delegation stops at
   Claude Code's own permission gate. Decide with the user how to handle that before a long delegation;
   do not add allow-rules on their behalf.
-- Requirements: `codex` CLI on `PATH` and authenticated (`codex login status`), Node 18+. The model,
+- Requirements: `codex` CLI installed and authenticated (`codex login status`); the driver finds it on
+  `PATH` or in the standard install locations. The model,
   reasoning effort, personality and service tier are inherited from the caller's `~/.codex/config.toml`
   unless overridden per call.
 - Protocol facts are pinned in `schema-<version>/` at the repository/plugin root (not shipped by a

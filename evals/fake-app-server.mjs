@@ -87,8 +87,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (m.method === "initialized") return;
 
   // The driver asks the real server what the caller's config resolves to, instead of parsing their TOML —
-  // so the fixture has to answer it too. It did not, and every case then sat out the driver's 15s probe
+  // so the fixture has to answer it too. It did not, and every case then sat out the driver's probe
   // bell: the suite went from 5 seconds to over ten minutes, which is how a missing method announces
+  // itself here.
   // Unlike everything else in this file these are NOT really derived from the request: the driver's probe
   // sends no -c at all, so CFG is empty here and the fallbacks always win. Said plainly because the
   // file's own rule is that every field derives from what was sent — this one cannot, and a reader who

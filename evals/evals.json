@@ -73,7 +73,7 @@
     {
       "id": 7,
       "prompt": "Find every file that imports TokenModel.",
-      "expected_output": "Does NOT fire for a Codex seat. Mechanical fact-gathering is where the default composition is ZERO: decorrelation buys nothing when there is nothing to disagree about, and each seat costs ~0.5 GB and a ~7 s floor.",
+      "expected_output": "Does NOT fire for a Codex seat. Mechanical fact-gathering is where the default composition is ZERO: decorrelation buys nothing when there is nothing to disagree about, and each seat costs real memory (~181 MB measured) and a 7-12 s turn-overhead floor.",
       "files": [],
       "expectations": [
         "Does NOT invoke the codex-delegate skill",
@@ -136,7 +136,7 @@
       "files": [],
       "expectations": [
         "Invokes the codex-delegate skill with --model gpt-5.6-sol",
-        "Notes that the driver's effort ladder stops at xhigh and does not accept max",
+        "Passes --effort max through: the driver validates against the advertised ladder (up to max/ultra), and a value the server refuses comes back as exit 2 carrying the server's own list",
         "Does NOT hardcode a model when the user has not named one"
       ],
       "covers": "behaviour: model and effort are per call, never hardcoded"
@@ -160,7 +160,7 @@
       "files": [],
       "expectations": [
         "Invokes the codex-delegate skill",
-        "Warns that concurrency is memory-bound at roughly 6-8 delegations, ~420MB each",
+        "Warns that concurrency is memory-bound at roughly 6-8 delegations, ~181 MB each (measured; ~471 MB with --host-home)",
         "Proposes running in waves instead of ten at once, or checks free memory first"
       ],
       "covers": "behaviour: concurrency budget is per machine"

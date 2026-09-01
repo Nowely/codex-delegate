@@ -67,18 +67,19 @@ class Bail extends Error {}
 
 const USAGE = `codex-delegate — run one Codex turn with rights declared per call.
 
-  node driver.mjs --level read|write --cwd DIR [options] --prompt TEXT
-  node driver.mjs --level read --cwd DIR < task.txt
+  node driver.mjs [--level read|write] --cwd DIR [options] --prompt TEXT
+  node driver.mjs --cwd DIR < task.txt
 
 Rights
-  --level read       read anything, write only $TMPDIR; no lock is taken, so read
-                     seats run in parallel over one directory
+  --level read       the default: read anything, write only $TMPDIR; no lock is
+                     taken, so read seats run in parallel over one directory
   --level write      workspace-write over --cwd; takes a per-directory lock
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
                      there at write level, and remove it afterwards only when the
-                     turn completed AND git reports no changes; every other
-                     outcome preserves the tree and the report says why and how
-                     to remove it (implies --level write; replaces --cwd)
+                     turn completed AND git reports no changes (a clean tree whose
+                     turn never started is removed too); every other outcome
+                     preserves the tree and the report says why and how to remove
+                     it (implies --level write; replaces --cwd)
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   --commit           also grant the git common dir, for a turn that commits
@@ -1489,8 +1490,9 @@ function handleMessage(msg) {
       // the single most likely failure — and as a raw JSON blob under a generic transport error it reads
       // as a crash rather than as protocol drift. Name it and say what to do.
       const e = new Error(msg.error.code === -32601
-        ? `the server does not support ${p.method} (JSON-RPC -32601). The pinned schema-<version>/ is ` +
-          `probably behind \`codex --version\`: regenerate it and re-run the eval suites.`
+        ? `the server does not support ${p.method} (JSON-RPC -32601): your codex and this plugin have ` +
+          `drifted apart. Update the plugin, or pin codex to the version it was measured against ` +
+          `(schema-<version>/ in the plugin root names it).`
         : `${p.method}: ${JSON.stringify(msg.error)}`);
       e.rpcCode = msg.error.code;
       p.reject(e);

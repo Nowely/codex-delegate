@@ -19,7 +19,7 @@ failure they exist to catch is the quiet one: announcing "three Claude and one C
 the Codex seat with a Claude when it returns nothing, which leaves the reader believing the panel was
 decorrelated when it was not.
 
-## Two suites, one runnable
+## The runnable suites
 
 `protocol.test.mjs` IS runnable and should stay green:
 

@@ -13,7 +13,9 @@ optional (defaults in brackets):
 
     SEAT: read [default] | worktree <repo> | write <dir>
     EFFORT: none|minimal|low|medium|high|xhigh|max|ultra  [omit -> the user's own config decides]
-    TIMEOUT: <seconds> [560 — always pass it explicitly; the driver's own default is 900]
+    TIMEOUT: <seconds> [560 — the Bash tool caps a call at 600 s, and 560 leaves ~40 s for the report
+                        and teardown; a header TIMEOUT above ~560 cannot complete through this agent.
+                        Always pass it explicitly; the driver's own default is 900]
     EXPECT: <regex>    [omit]
     NETWORK: yes       [omit; valid only with worktree/write]
     WRITABLE: <dir>    [omit; repeatable, one per line; write levels only]
