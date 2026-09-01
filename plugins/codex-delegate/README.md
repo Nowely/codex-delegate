@@ -4,7 +4,8 @@ A Claude Code skill that hands coding work to OpenAI Codex as a subagent, with t
 declared up front: analysis that reads and runs but writes nothing of yours, or writing and running
 tests inside a git worktree the driver manages itself. Every run leaves a receipt — a rollout the driver
 locates, opens and checks — and the exit code is derived from what actually happened rather than from a
-process status that is always 0, so a seat that did nothing cannot report as though it had.
+process status that says nothing about the task, so a seat that did nothing cannot report as though it
+had.
 
 ## Prerequisites
 

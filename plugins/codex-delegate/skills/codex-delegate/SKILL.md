@@ -43,8 +43,9 @@ node "$DRIVER" --worktree "$REPO" \
 ```
 
 Exit 0 is the only success, and it is derived from evidence; anything else is a specific complaint —
-see [Reading the result](#reading-the-result). Add `--network` only for a turn that must install
-dependencies, and settle it with the user first: write plus network is an exfiltration surface.
+see [Reading the result](#reading-the-result). Add `--network` only for a turn that needs it —
+installing dependencies, or binding loopback TCP, which browser tests do — and settle it with the user
+first: write plus network is an exfiltration surface.
 
 ## Before the first call
 
@@ -160,11 +161,11 @@ directory the driver or you chose. Everything else is a modifier on `write`.
 | Flag | Codex may | Settle with the user first? |
 | --- | --- | --- |
 | `--level read` (default) | read any readable path and run commands; write **only `$TMPDIR`** | no |
-| `--worktree <repo>` | write level in a driver-managed worktree, removed only when provably clean | say a worktree is being made |
+| `--worktree <repo>` | write level in a driver-managed worktree; harvested and removed after the turn, preserved only when the turn or the harvest failed | no — but say a worktree is being made |
 | `--level write --cwd <dir>` | write anywhere under that directory | yes — you chose the blast radius |
 | `--commit` | also `git add` / `git commit` — grants the MAIN clone's `.git`: config, hooks, every ref | yes; prefer harvesting a diff. See [references/commit-blast-radius.md](references/commit-blast-radius.md) |
 | `--writable <dir>` | one extra writable root, repeatable | depends on the directory |
-| `--network` | egress: installs, fetching packages | yes — write plus network is an exfiltration surface |
+| `--network` | the network switch: egress AND loopback TCP — installs, package fetches, browser-test servers | yes — write plus network is an exfiltration surface |
 
 The three modifiers require write level; `--level read --network` is a usage error (exit 2). Naming the
 cwd or a duplicate root twice is harmless — the driver dedupes and subtracts what the server would.
@@ -207,7 +208,7 @@ oldest numbers here. Re-check after a codex upgrade.
 | agent with `isolation: "worktree"` | `--worktree <repo> --network` | edits and runs tests; browser tests only after the one-file override in [references/browser-tests.md](references/browser-tests.md) — without it Chromium crashes under the sandbox, and the run must be serial. Installs need a cache inside the tree: `npm install --cache "$PWD/.npm-cache"`; `pnpm install --frozen-lockfile` works against a warm store |
 | the same, committing | `--level write --cwd <worktree> --commit` | full: add and commit succeed |
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
-| a subagent's MCP tools | **none, by default** | the price of the isolated home. `--mcp` carries the caller's `[mcp_servers]` — and only them — into the isolated home (the servers run with your rights); `--host-home` restores everything, plugins, skills and nondeterminism included |
+| a subagent's MCP tools | **none, by default** | the price of the isolated home (the private `CODEX_HOME` runs use instead of yours). `--mcp` copies the representable entries of the caller's `[mcp_servers]` — and only them — into a private per-run home, deleted at exit; a skipped entry is named on stderr, and the servers run with your rights. `--host-home` restores everything, plugins, skills and nondeterminism included |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
 | an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items — png/jpg/jpeg/gif/webp/bmp and wav/mp3/m4a/ogg/flac. Attachments go BEFORE the prompt text, the layout a pasted turn has. Checked before the turn, so a typo costs nothing. `--review` refuses them: its `review/start` carries no input items |
 | **an image the USER pasted** | `scripts/attach-pasted.mjs` (below) | Claude Code keeps a paste only inside the transcript, so it has to be decoded to a file first; the front-end does that and calls the driver |
@@ -218,10 +219,11 @@ oldest numbers here. Re-check after a codex upgrade.
 | a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines / 4,000 bytes **including** the "clipped" marker. `answerPath` is null when there was no answer or the write failed, and `answerTruncated: true` with `answerPath: null` means the full text survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
-(plus, on `--host-home` only, a private copy of every MCP server in the caller's config). Exceeding the
+(plus, under `--host-home` or `--mcp`, a private copy of the caller's MCP servers). Exceeding the
 budget does not degrade gracefully — the OS kills runs outright (`interrupted by SIGTERM`). Count
 delegations across everything in flight; prefer draining one wave before starting the next. One more
-fan-out fact: every concurrent run needs its own cwd — `--worktree` guarantees that by construction.
+fan-out fact: every concurrent write-capable run needs its own cwd — `--worktree` guarantees that by
+construction; read seats take no lock and may share one.
 (The driver finds `codex` itself — PATH, then the standard install locations — so a non-login shell
 needs no PATH export.)
 
@@ -276,7 +278,8 @@ its own to a prompt you wrote.
 the turn, and disposal afterwards. A COMPLETED turn's tree asks nothing of you: its work is harvested —
 `worktreeDiffPath` (one patch diffed against the commit the tree started at — staged and unstaged work
 travel, and commits the seat made get a real ref in the main repository, `worktreeCommitsRef`) and
-`worktreeUntrackedPath` (a tar.gz of untracked files), both under
+`worktreeUntrackedPath` (a tar.gz of non-ignored untracked files; git-ignored artifacts are NOT
+harvested — `worktreeIgnoredDropped` counts what removal took with the tree), both under
 `~/.codex-delegate/answers/` — and the tree is then removed (`worktreeHarvested: true`). A turn that
 did not complete, or a harvest that failed, preserves the tree instead: `worktreePreserved` says why,
 `worktreeRemoveCommand` says what to run after harvesting by hand, and `worktreeFleet` counts the
@@ -289,7 +292,8 @@ before removing, and check `git status --porcelain` too: `git diff` does not sho
 
 ## Reading the result
 
-The process exit code of `codex` itself is always 0, so the driver derives its own:
+The process exit code of `codex` says nothing about the task — a run that survives to its end exits 0
+whatever happened, and a crash is transport failure (exit 4) — so the driver derives its own:
 
 | Exit | Meaning |
 | --- | --- |
@@ -304,7 +308,7 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | 8 | the turn ended with no final answer (with or without commentary along the way) |
 | 9 | `--verify` ran and failed: whatever the model said, the work is not there |
 | 10 | the cwd is locked by another run, or a resumed thread still has a turn open |
-| 11 | a command ran and **failed**, or a file change did. Only a **passing** `--verify` overrules it. A plain probe answering "no" — a no-match `grep`/`rg`, a false `test`, a `diff` that differs (exit 1 exactly) — is not a failure and never raises this |
+| 11 | a command ran and **failed**, or a file change did. Only a **passing** `--verify` — or, under `--review`, an arrived review payload — overrules it. A plain probe answering "no" — a no-match `grep`/`rg`, a false `test`, a `diff` that differs (exit 1 exactly) — is not a failure and never raises this |
 | 12 | `--verify` could not be run at all — fix the verifier, not the work |
 | 13 | the answer never matched `--output-schema`, even after the corrective turn — `schemaErrors` says how |
 
