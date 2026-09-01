@@ -608,7 +608,11 @@ test("--worktree preserves a tree that holds changes, and says how to remove it"
     const repo = freshRepo("wt-dirty");
     if (!repo) return "git setup failed";
     // The verifier runs inside the worktree after the turn — the cheapest honest way to dirty the tree.
-    const { code, out } = await run(null, { args: ["--worktree", repo, "--verify", "touch untracked-work.txt"] });
+    // Both an untracked file AND a STAGED tracked change: dirtiness is decided by `status --porcelain`,
+    // which sees staged work, so the harvest diff must see it too — `git diff` alone omitted it, and the
+    // report published a force-remove command beside a diff that lost the staged half.
+    const { code, out } = await run(null, { args: ["--worktree", repo, "--verify",
+      "touch untracked-work.txt && printf 'staged-line\\n' >> seed && git add seed"] });
     if (code !== EXIT.OK) return `the run exited ${code}`;
     let r = null; try { r = JSON.parse(out); } catch {}
     if (!r) return "no JSON report";
@@ -617,6 +621,12 @@ test("--worktree preserves a tree that holds changes, and says how to remove it"
       if (!r.worktreePreserved || !/harvest/.test(r.worktreePreserved)) return `no preservation reason: ${JSON.stringify(r.worktreePreserved)}`;
       if (!r.worktreeRemoveCommand || !r.worktreeRemoveCommand.includes("worktree remove")) return "no removal command in the report";
       if (!fs.existsSync(path.join(r.worktreePath, "untracked-work.txt"))) return "the preserved tree lost the work";
+      if (!r.worktreeDiffStat || !/seed/.test(r.worktreeDiffStat))
+        return `the diff stat does not show the staged change: ${JSON.stringify(r.worktreeDiffStat)}`;
+      let diff = "";
+      try { diff = fs.readFileSync(r.worktreeDiffPath, "utf8"); } catch {}
+      if (!/\+staged-line/.test(diff))
+        return `the saved diff lost the staged change (worktreeDiffPath=${JSON.stringify(r.worktreeDiffPath)})`;
     } finally {
       if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
     }
