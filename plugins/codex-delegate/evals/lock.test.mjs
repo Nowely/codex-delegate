@@ -743,6 +743,27 @@ test("a failed config probe keeps the last known good inherited config",
     return after === before || "a failed probe rewrote the last known good config";
   });
 
+test("every run is recorded in the job registry, and --resume last finds the newest",
+  "a coordinator that lost a threadId had no way back to the thread: the registry under jobs/ records each run (started, ended, exit, answerPath) and --resume last resolves the newest record",
+  async () => {
+    const first = await run(freshDir("jobs-first"), {});
+    if (first.code !== EXIT.OK) return `the first run exited ${first.code}`;
+    const jobs = path.join(STATE_DIR, "jobs");
+    let names = [];
+    try { names = fs.readdirSync(jobs).filter((n) => n.endsWith(".json")); } catch { return "no jobs directory was created"; }
+    if (!names.length) return "no job record was written";
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(path.join(jobs, names[0]), "utf8")); } catch { return "the job record is not JSON"; }
+    if (rec.exitCode !== 0 || rec.turnStatus !== "completed" || !rec.started || !rec.endedAt)
+      return `the job record is incomplete: ${JSON.stringify(rec)}`;
+    const second = await run(freshDir("jobs-second"), { args: ["--resume", "last"] });
+    if (second.code !== EXIT.OK) return `--resume last exited ${second.code}: ${second.err.trim().slice(0, 160)}`;
+    if (!/--resume last -> thr_root/.test(second.err))
+      return `the resolution was not announced: ${second.err.trim().slice(0, 200)}`;
+    let r = null; try { r = JSON.parse(second.out); } catch { return "no JSON report from the resumed run"; }
+    return r.threadId === "thr_root" || `the wrong thread was resumed: ${JSON.stringify(r.threadId)}`;
+  });
+
 test("the answer log is pruned by age",
   "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
   async () => {
