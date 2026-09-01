@@ -233,6 +233,16 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
 
+  // A review whose own git commands fail and which produces NO review payload: the flag alone must
+  // not waive a genuine failure.
+  if (m.method === "review/start" && SCENARIO === "review-broken") {
+    const R = reply(m.id, { reviewThreadId: m.params?.threadId ?? THREAD,
+      turn: { id: TURN, status: "inProgress", items: [], error: null } });
+    w(R, cmd(TURN, THREAD, { command: "git diff nonexistent-ref", exitCode: 128, status: "failed" }),
+      msg(TURN, THREAD, "I could not inspect that ref."), done(TURN, THREAD));
+    return;
+  }
+
   if (m.method === "review/start") {
     // Inline review: the turn runs on the caller's thread; the review payload arrives as the
     // exitedReviewMode item and the turn completes with no commands at all.
@@ -421,6 +431,15 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           w(R, done(TURN, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
         else
           w(R, cmd(thisTurn, THREAD), msg(thisTurn, THREAD, "recovered answer"), done(thisTurn, THREAD));
+        break;
+
+      // A transient failure AFTER an MCP tool call that had a side effect, and nothing else. The
+      // retry guard must count that item: replaying the prompt would file the ticket twice.
+      case "transient-after-tool":
+        w(R, note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: "item_m1", type: "mcpToolCall", server: "tracker", tool: "create_ticket",
+                    arguments: "{}", status: "completed", result: null, error: null, durationMs: 5 } }),
+          done(TURN, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
         break;
 
       // The same transient cause on BOTH turns: one retry is the whole budget.
