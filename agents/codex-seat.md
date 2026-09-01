@@ -23,6 +23,7 @@ optional (defaults in brackets):
     MODEL: <slug>      [omit -> the user's own config decides]
     WEB_SEARCH: cached|indexed|live  [omit -> off]
     OUTPUT_SCHEMA: <path to a strict JSON Schema file>  [omit]
+    ATTACH: <path>     [omit; repeatable, one per line; a local image or audio file for the prompt]
     ALLOW_NO_COMMANDS: yes  [omit]
     BRIEF: yes         [omit; forced on for a read seat regardless]
 
@@ -54,8 +55,8 @@ in one.
    opens with anything else, because a file whose rights line is not first can have one supplied by a
    later line. Add the current directory when the header says plain `read`, i.e. `SEAT: read /abs/path`.
    Then `EFFORT:`, `TIMEOUT:` (560 when the header omits it), `EXPECT:`, `NETWORK:`, `WRITABLE:`,
-   `COMMIT:`, `MODEL:`, `WEB_SEARCH:`, `OUTPUT_SCHEMA:`, `ALLOW_NO_COMMANDS:`, and always `BRIEF: yes`
-   for a read seat. Copy each value character for character — quotes, `$`, `;`, backticks and all.
+   `COMMIT:`, `MODEL:`, `WEB_SEARCH:`, `OUTPUT_SCHEMA:`, `ATTACH:`, `ALLOW_NO_COMMANDS:`, and always
+   `BRIEF: yes` for a read seat. Copy each value character for character — quotes, `$`, `;`, backticks and all.
    Never modify a value to make it "safe": the driver takes the line literally.
 2. With the Write tool, write the body VERBATIM to `$TMPDIR/task-<n>.txt`.
 3. Exactly ONE Bash call, and the only interpolation in it is the two file paths you just chose:

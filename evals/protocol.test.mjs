@@ -108,6 +108,10 @@ fs.mkdirSync(protectedTmp, { recursive: true });
 const spacedDir = path.join(shimDir, "two  spaces");
 fs.mkdirSync(spacedDir);
 
+// A local "screenshot" for the --attach cases: only the extension matters, the fixture never opens it.
+const attachFile = path.join(shimDir, "shot.png");
+fs.writeFileSync(attachFile, "not-really-a-png");
+
 const mismatchSessions = path.join(shimDir, "sessions-mismatch");
 const mismatchDay = rolloutDay.replace(sessionsDir, mismatchSessions);
 fs.mkdirSync(mismatchDay, { recursive: true });
@@ -158,6 +162,17 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
+  { scenario: "echo-input",       expect: EXIT.OK, args: ["--attach", attachFile],
+    why: "--attach maps a local image into the turn input as the protocol's localImage item — the parity a native subagent has when a screenshot is pasted into its prompt",
+    assert: (r) => {
+      let inp = null;
+      try { inp = JSON.parse(r.answer); } catch { return `the fixture did not echo the input: ${String(r.answer).slice(0, 80)}`; }
+      return (inp.length === 2 && inp[0].type === "text" && inp[1].type === "localImage" && String(inp[1].path).endsWith("shot.png"))
+        || `input items wrong: ${JSON.stringify(inp)}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--attach", "/nonexistent/shot.png"],
+    why: "a missing attachment is the caller's error, raised before anything runs — the server would otherwise refuse it mid-turn, after the delegation was paid for",
+    assertStderr: (e) => /--attach.*does not exist/.test(e) || `the missing file was not named: ${e.slice(0, 140)}` },
   { scenario: "stalled-turn",     expect: EXIT.TIMEOUT, args: ["--timeout", "0.5"], env: { FAKE_RPC_LOG: interruptLog },
     why: "a timed-out turn is asked to END, not just killed: turn/interrupt marks the turn in the rollout and leaves the thread idle, so --resume on a cancelled seat is not a gamble",
     assert: () => {
