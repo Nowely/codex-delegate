@@ -94,6 +94,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   // file's own rule is that every field derives from what was sent — this one cannot, and a reader who
   // assumed otherwise would think a driver change to the probe would show up here. It would not.
   if (m.method === "config/read") {
+    // A probe whose ASKING fails, as opposed to a config with nothing in it — the driver must warn and
+    // must not truncate a previously inherited config.
+    if (process.env.FAKE_CONFIG_FAIL) {
+      w({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "config store unavailable" } });
+      return;
+    }
     const unquote = (v) => (v ?? "").replace(/^"|"$/g, "");
     w(reply(m.id, { config: {
       model: unquote(CFG["model"]) || "fake-model",
