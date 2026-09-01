@@ -11,6 +11,7 @@
 // Exit 0 if every case matches its expected exit code.
 
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +23,12 @@ const FAKE = path.join(HERE, "fake-app-server.mjs");
 
 // The driver spawns `codex` from PATH, so the shim has to be called exactly that.
 const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-delegate-test-"));
+// Removed on EXIT, not only at the happy end of the file: a crashed run used to leave the whole shim
+// tree behind (14 had accumulated before anyone counted).
+process.on("exit", () => { try { fs.rmSync(shimDir, { recursive: true, force: true }); } catch {} });
+// Unique per run: a fixed name in the shared $TMPDIR is the cross-run collision the relay eval fixed
+// elsewhere with a random suffix.
+const survivorPidName = `verify-survivor-${crypto.randomBytes(4).toString("hex")}.pid`;
 fs.writeFileSync(path.join(shimDir, "codex"),
   `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
 
@@ -283,12 +290,12 @@ const CASES = [
   // first and the survivor was reported as having outlived a run that never got to sweep it. Measured at
   // roughly one red in three while other work was on the machine. Detached, spawnSync returns at once and
   // the group sweep is the only thing that can end the child, which is the property under test.
-  { scenario: "happy",            expect: EXIT.OK, args: ["--verify", 'sh -c \'trap "" TERM; echo $$ > "$TMPDIR/verify-survivor.pid"; exec sleep 30\' >/dev/null 2>&1 </dev/null & sleep 0.3; exit 0'],
+  { scenario: "happy",            expect: EXIT.OK, args: ["--verify", `sh -c 'trap "" TERM; echo $$ > "$TMPDIR/${survivorPidName}"; exec sleep 30' >/dev/null 2>&1 </dev/null & sleep 0.3; exit 0`],
     why: "the verifier runs in its own process group and the group is swept afterwards — anything it backgrounded used to outlive the run",
     assert: (r) => {
       if (r.verify?.ok !== true) return `the verifier itself did not pass: ${JSON.stringify(r.verify)}`;
       let pid = 0;
-      try { pid = Number(fs.readFileSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "verify-survivor.pid"), "utf8").trim()); } catch {}
+      try { pid = Number(fs.readFileSync(path.join(process.env.TMPDIR ?? os.tmpdir(), survivorPidName), "utf8").trim()); } catch {}
       if (!pid) return "the verifier's background child never wrote its pid";
       try { process.kill(pid, 0); return `the verifier's background child ${pid} outlived the run`; }
       catch { return true; }
@@ -487,9 +494,14 @@ for (const c of CASES) {
   try { report = JSON.parse(out); } catch {}
   // An exit code alone cannot catch a report that destroys information — two runs with opposite verify
   // results once printed byte-identically at the same code. `assert` returns true, or a reason string.
-  const assertion = c.assertStderr ? c.assertStderr(err)
-    : c.assertText ? c.assertText(out)
-      : c.assert ? (report ? c.assert(report) : "expected a JSON report, but stdout was not JSON") : true;
+  // A THROWING assert is a failed case, not a dead suite: unlike lock.test.mjs this loop had no
+  // per-case guard, so one bad property access aborted every case after it and skipped cleanup.
+  let assertion;
+  try {
+    assertion = c.assertStderr ? c.assertStderr(err)
+      : c.assertText ? c.assertText(out)
+        : c.assert ? (report ? c.assert(report) : "expected a JSON report, but stdout was not JSON") : true;
+  } catch (e) { assertion = `assert threw: ${e.message}`; }
   const ok = code === c.expect && assertion === true;
   if (!ok) {
     failed++;

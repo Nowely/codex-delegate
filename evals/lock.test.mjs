@@ -857,12 +857,14 @@ for (const c of CASES) {
   else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
 }
 
-// Several cases plant locks under $HOME on purpose. Compute their paths while the directories still
-// exist, or the residue outlives the suite and accumulates in the user's home for every run.
+// Several cases plant locks in the suite's own state directory on purpose. Compute their paths while
+// the work directories still exist, or the residue outlives the suite.
 for (const d of workDirs) {
   try { for (const suffix of ["", ".reclaim"]) fs.rmSync(`${lockFor(d)}${suffix}`, { recursive: true, force: true }); } catch {}
   fs.rmSync(d, { recursive: true, force: true });
 }
-fs.rmSync(shimDir, { recursive: true, force: true });
+// Every tempdir this suite made, not just the work dirs: STATE_DIR and the survivor shim used to be
+// left behind on every run — 217 had accumulated in $TMPDIR before anyone counted.
+for (const d of [shimDir, STATE_DIR, survivorShim]) fs.rmSync(d, { recursive: true, force: true });
 console.log(failed ? `\n${failed}/${CASES.length} failed` : `\nall ${CASES.length} passed`);
 process.exit(failed ? 1 : 0);
