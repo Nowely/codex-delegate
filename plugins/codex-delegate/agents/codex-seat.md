@@ -57,7 +57,7 @@ in one.
    Never modify a value to make it "safe": the driver takes the line literally.
 2. With the Write tool, write the body VERBATIM to `$TMPDIR/task-<n>.txt`.
 3. Exactly ONE Bash call, and the only interpolation in it is the two file paths you just chose:
-   `export PATH="/opt/homebrew/bin:$PATH"; DRIVER=""; for c in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/codex-delegate/scripts/driver.mjs" "$HOME/.claude/skills/codex-delegate/scripts/driver.mjs"; do [ -f "$c" ] && { DRIVER="$c"; break; }; done; [ -n "$DRIVER" ] || { echo "DRIVER_NOT_FOUND"; exit 90; }; node "$DRIVER" --seat-file "$TMPDIR/seat-<n>.txt" < "$TMPDIR/task-<n>.txt" > "$TMPDIR/report-<n>.json" 2> "$TMPDIR/stderr-<n>.txt"; echo "EXIT=$?"`
+   `DRIVER=""; for c in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/codex-delegate/scripts/driver.mjs" "$HOME/.claude/skills/codex-delegate/scripts/driver.mjs"; do [ -f "$c" ] && { DRIVER="$c"; break; }; done; [ -n "$DRIVER" ] || { echo "DRIVER_NOT_FOUND"; exit 90; }; node "$DRIVER" --seat-file "$TMPDIR/seat-<n>.txt" < "$TMPDIR/task-<n>.txt" > "$TMPDIR/report-<n>.json" 2> "$TMPDIR/stderr-<n>.txt"; echo "EXIT=$?"`
    Set the Bash tool timeout above the seat's TIMEOUT (in milliseconds). `DRIVER_NOT_FOUND` / exit 90
    means the skill is not installed where this agent can reach it — report that as the seat failure,
    plainly, and do not go looking for the file yourself. It is a distinct code on purpose: node's own
