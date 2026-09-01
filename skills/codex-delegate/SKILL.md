@@ -380,6 +380,12 @@ own cwd (`--worktree` does). Release timing, reclaim, and the `CODEX_DELEGATE_ST
 - **A seat whose method is to make things fail will exit 11** — mutation testing, red-green repro,
   bisection. That is your flag choice, not the seat: pass `--verify` with the end condition you
   actually want; a passing check overrules failed commands by design.
+- **A non-zero exit is a verdict on the gates, not proof there is no answer.** Every code decided
+  after the turn — 1 (partial), 5, 6, 9, 11, 12, 13 — still delivers the full report, the answer and
+  the receipt. A coordinator, or a merge step it instructs, that discards a seat's return because "the
+  exit was non-zero" throws away receipt-verified work — measured: a review panel's merge dropped a
+  ten-finding Codex answer over one failed probe's exit 11. Gate the *evidence* on the code; read the
+  answer regardless.
 - **Hardening your own tool, phrased as attacking it, is refused** by OpenAI's safety classifier
   (`turnStatus: failed`, `codexErrorInfo: "cyberPolicy"`). Describe the work as what it is —
   robustness under unusual states — and the same seat does the same work.
