@@ -231,9 +231,10 @@ re-taken. Re-check after a codex upgrade.
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 (plus, on `--host-home` only, a private copy of every MCP server in the caller's config). Exceeding the
 budget does not degrade gracefully — the OS kills runs outright (`interrupted by SIGTERM`). Count
-delegations across everything in flight; prefer draining one wave before starting the next. Two more
-fan-out facts: a non-login shell may lack `/opt/homebrew/bin` on `PATH` (export it), and every
-concurrent run needs its own cwd — `--worktree` guarantees that by construction.
+delegations across everything in flight; prefer draining one wave before starting the next. One more
+fan-out fact: every concurrent run needs its own cwd — `--worktree` guarantees that by construction.
+(The driver finds `codex` itself — PATH, then the standard install locations — so a non-login shell
+needs no PATH export.)
 
 ### How to launch several, so each one reports back
 
