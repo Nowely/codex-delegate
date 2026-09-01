@@ -108,6 +108,10 @@ Turn
   --prompt TEXT      the task; omit to read it from stdin
   --attach FILE      attach a local image (png/jpg/jpeg/gif/webp/bmp) or audio
                      file (wav/mp3/m4a/ogg/flac) to the prompt; repeatable
+  --review T         run the server's native reviewer instead of a prompt:
+                     T = uncommitted | branch:<ref> | commit:<sha>. The review
+                     is the answer; implies --allow-no-commands and excludes
+                     --prompt, --resume and the answer-shape flags
   --web-search cached|indexed|live
                      off by default: a search makes the turn depend on what the
                      index says today
@@ -320,6 +324,7 @@ function parseArgs(argv) {
       case "--prompt": o.prompt = need(++i, a); break;
       case "--writable": o.writable.push(need(++i, a)); break;
       case "--attach": o.attach.push(need(++i, a)); break;
+      case "--review": o.review = need(++i, a); break;
       case "--commit": o.commit = true; break;
       case "--resume": o.resume = need(++i, a); break;
       case "--ephemeral": o.ephemeral = true; break;
@@ -369,6 +374,21 @@ function parseArgs(argv) {
     if (!kind) fail(EXIT.USAGE, `--attach: unsupported file type for ${real}; images (${Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === "localImage").join("/")}) and audio (${Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === "localAudio").join("/")})`);
     return { type: kind, path: real };
   });
+
+  // --review maps to the server's own review/start. It builds its own prompt and returns its own
+  // shape, so the prompt- and answer-shape flags beside it are contradictions, not extras.
+  if (o.review !== undefined) {
+    if (o.review === "uncommitted") o.reviewTarget = { type: "uncommittedChanges" };
+    else if (o.review.startsWith("branch:") && o.review.length > 7) o.reviewTarget = { type: "baseBranch", branch: o.review.slice(7) };
+    else if (o.review.startsWith("commit:") && o.review.length > 7) o.reviewTarget = { type: "commit", sha: o.review.slice(7) };
+    else fail(EXIT.USAGE, "--review must be uncommitted | branch:<ref> | commit:<sha>");
+    if (o.prompt !== undefined) fail(EXIT.USAGE, "--review builds its own prompt; --prompt cannot be combined with it");
+    if (o.resume) fail(EXIT.USAGE, "--review starts its own turn; --resume cannot be combined with it");
+    if (o.outputSchemaFile || o.answerJson) fail(EXIT.USAGE, "--review returns the server's review shape; --output-schema and --answer-json cannot be combined with it");
+    // The reviewer works through the protocol, not the shell, so a turn with no commands is its
+    // ordinary success.
+    o.allowNoCommands = true;
+  }
 
   // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
   // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
@@ -642,42 +662,51 @@ function resolveCodexBin() {
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
 let mcpFromProbe = null;   // the caller's mcp_servers table, captured by the probe under --mcp only
 
-// Serialise the probe's mcp_servers object back into TOML the isolated home can load. Only shapes the
-// driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string arrays, and a
-// string-valued env table; a server using anything richer is skipped OUT LOUD rather than mangled.
-// (Hand-building TOML is exactly what the probe exists to avoid, but this is generation from JSON with
-// quoted values, not parsing — the family of edge cases that killed the parser does not apply.)
-function tomlMcpServers(servers) {
-  const bare = (k) => /^[A-Za-z0-9_-]+$/.test(k) ? k : tomlString(k);
-  const lines = [];
+// Flatten the probe's mcp_servers object into `-c mcp_servers.<name>.<key>=<value>` spawn entries.
+// As -c ARGS, not the shared config file, deliberately: the isolated home's config.toml is shared by
+// every concurrent run, so a per-invocation grant written there leaks into runs that never asked for
+// it (and the last-known-good path could carry a stale grant into a --mcp-less run) — found by a live
+// codex review of the first version, which wrote the file. Spawn args are per-run by construction.
+// Only shapes the driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string
+// arrays, and a string-valued env table; a server using anything richer, or a name that is not a bare
+// TOML key, is skipped OUT LOUD rather than mangled.
+function mcpConfigEntries(servers) {
+  const bare = (k) => /^[A-Za-z0-9_-]+$/.test(k);
+  const out = [];
   for (const [name, cfg] of Object.entries(servers ?? {})) {
-    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg)) {
-      process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} has a non-table config; skipped\n`);
+    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg) || !bare(name)) {
+      process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} has a shape or name the driver cannot carry faithfully; skipped\n`);
       continue;
     }
-    const scalars = [], env = [];
+    const entries = [];
     let carriable = true;
+    const value = (v) =>
+      typeof v === "string" ? tomlString(v)
+      : typeof v === "number" && Number.isFinite(v) ? String(v)
+      : typeof v === "boolean" ? String(v)
+      : Array.isArray(v) && v.every((x) => typeof x === "string") ? `[${v.map(tomlString).join(", ")}]`
+      : null;
     for (const [k, v] of Object.entries(cfg)) {
-      if (k === "env" && v && typeof v === "object" && !Array.isArray(v)) {
+      if (v === null || v === undefined) continue;
+      if (k === "env" && typeof v === "object" && !Array.isArray(v)) {
         for (const [ek, ev] of Object.entries(v)) {
-          if (typeof ev === "string") env.push(`${bare(ek)} = ${tomlString(ev)}`);
-          else carriable = false;
+          const val = typeof ev === "string" && bare(ek) ? tomlString(ev) : null;
+          if (val === null) { carriable = false; break; }
+          entries.push([`mcp_servers.${name}.env.${ek}`, val]);
         }
+      } else {
+        const val = bare(k) ? value(v) : null;
+        if (val === null) { carriable = false; break; }
+        entries.push([`mcp_servers.${name}.${k}`, val]);
       }
-      else if (typeof v === "string") scalars.push(`${bare(k)} = ${tomlString(v)}`);
-      else if (typeof v === "number" && Number.isFinite(v)) scalars.push(`${bare(k)} = ${v}`);
-      else if (typeof v === "boolean") scalars.push(`${bare(k)} = ${v}`);
-      else if (Array.isArray(v) && v.every((x) => typeof x === "string")) scalars.push(`${bare(k)} = [${v.map(tomlString).join(", ")}]`);
-      else if (v !== null && v !== undefined) carriable = false;
     }
     if (!carriable) {
       process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} uses a config shape the driver cannot carry faithfully; skipped\n`);
       continue;
     }
-    lines.push(`[mcp_servers.${bare(name)}]`, ...scalars);
-    if (env.length) lines.push(`[mcp_servers.${bare(name)}.env]`, ...env);
+    out.push(...entries);
   }
-  return lines;
+  return out;
 }
 // Resolves { entries, failed }: `failed` marks an ASKING that failed (spawn, timeout, error reply), as
 // opposed to a config with nothing to inherit — the two used to share the value [], and the failure
@@ -859,9 +888,7 @@ async function isolatedHome() {
   // which would have redirected this write onto whatever it pointed at.
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    const body = probe.entries.map(([k, v]) => `${k} = ${v}\n`).join("")
-      + (mcpFromProbe ? `${tomlMcpServers(mcpFromProbe).join("\n")}\n` : "");
-    fs.writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
+    fs.writeFileSync(tmp, probe.entries.map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
@@ -1440,7 +1467,10 @@ async function setup() {
     ...(opts.level === "write" ? [
       ["sandbox_workspace_write.network_access", String(Boolean(opts.network))],
       ["sandbox_workspace_write.writable_roots", `[${roots.map((r) => JSON.stringify(r)).join(",")}]`]
-    ] : [])
+    ] : []),
+    // Per-run by construction: a grant riding the spawn args cannot leak into a concurrent run the
+    // way one written into the shared isolated config could.
+    ...(opts.mcp && mcpFromProbe ? mcpConfigEntries(mcpFromProbe) : [])
   ];
   spawnArgs = ["--strict-config", ...config.flatMap(([k, v]) => ["-c", `${k}=${v}`]), "app-server"];
 }
@@ -1526,6 +1556,10 @@ function rejectAllPending(err) {
 // ---------------------------------------------------------------- state
 
 let rootThreadId = null, rootTurnId = null;
+// An inline review can attribute its items to the reviewThreadId the response names; events on it are
+// OURS. Aliases extend attribution, never replace the root id the report and receipt are keyed on.
+const rootAliases = new Set();
+let reviewResult = null;    // the exitedReviewMode payload — the review itself
 const commands = [];        // root-thread commandExecution items only
 const messages = [];        // root-thread agentMessage items only
 const fileChanges = [];     // root-thread fileChange items: what the turn actually wrote
@@ -1559,7 +1593,8 @@ const ownedTurns = new Set();
 // Reading `turnId` for both silently rejects every real completion.
 const turnIdOf = (p) => p?.turnId ?? p?.turn?.id ?? null;
 const isRoot = (p) =>
-  rootThreadId !== null && (p?.threadId ?? null) === rootThreadId &&
+  rootThreadId !== null &&
+  ((p?.threadId ?? null) === rootThreadId || rootAliases.has(p?.threadId ?? "")) &&
   turnIdOf(p) !== null && ownedTurns.has(turnIdOf(p));
 
 // Events can share a stdout chunk with the turn/start response and so arrive before rootTurnId is known.
@@ -1642,9 +1677,12 @@ function handleMessage(msg) {
       selectedModel = msg.result.model ?? null;
       selectedEffort = msg.result.reasoningEffort ?? null;
     }
-    if (msg.result && p.method === "turn/start") {
+    if (msg.result && (p.method === "turn/start" || p.method === "review/start")) {
       rootTurnId = msg.result.turn?.id ?? null;
       if (rootTurnId !== null) ownedTurns.add(rootTurnId);
+      if (p.method === "review/start" && typeof msg.result.reviewThreadId === "string"
+          && msg.result.reviewThreadId !== rootThreadId)
+        rootAliases.add(msg.result.reviewThreadId);
       replayEarly();          // anything that shared this chunk can now be attributed
     }
     if (msg.error) {
@@ -1704,6 +1742,8 @@ function handleMessage(msg) {
       const s = Array.isArray(it.summary) ? it.summary.join("\n") : String(it.summary ?? "");
       if (s.trim() && reasoningSummaries.length < 40) reasoningSummaries.push(s.slice(0, 2000));
     }
+    // The review itself, under --review: the server hands it back as the exitedReviewMode item.
+    if (it?.type === "exitedReviewMode" && it.review != null) reviewResult = it.review;
     // Everything else — mcpToolCall, webSearch, plan, collabAgentToolCall, whatever a later server
     // adds — is counted by type: the report used to drop these on the floor, so a turn that mostly
     // searched or called tools looked idle.
@@ -1749,7 +1789,7 @@ function handleMessage(msg) {
     // observable — no commands, no file changes, no messages — because replaying the prompt after
     // visible work risks doing that work twice. The wall clock must leave the backoff plus at least
     // ten seconds of turn, or the retry just converts a failure into a timeout.
-    if (turnStatus === "failed" && transientRetries.length === 0
+    if (turnStatus === "failed" && transientRetries.length === 0 && lastTurnParams !== null
         && RETRYABLE[errKind(turnError)] !== undefined
         && commands.length === 0 && fileChanges.length === 0 && messages.length === 0
         && startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + 10000) {
@@ -2115,7 +2155,10 @@ function finish(reason) {
   // The schema permits phase: null, and older servers omit it. Prefer an explicit final_answer; fall back
   // to the last non-blank unphased message only when nothing was phased at all.
   const final = currentFinalMsg();
-  const fullAnswer = final?.text ?? "";
+  // Under --review the deliverable is the review payload, not an agentMessage; a message still wins
+  // when the server sends one.
+  const fullAnswer = final?.text
+    ?? (reviewResult != null ? (typeof reviewResult === "string" ? reviewResult : JSON.stringify(reviewResult, null, 2)) : "");
   // Recomputed here rather than trusted from the retry path: a timeout or failed turn never reached
   // that path, and the verdict must describe the answer this report actually carries.
   const schemaErrs = opts.outputSchema && fullAnswer ? answerSchemaErrors(fullAnswer) : opts.outputSchema ? ["no answer arrived"] : null;
@@ -2123,7 +2166,7 @@ function finish(reason) {
   // Capped only when asked. A caller who did not ask for --brief gets exactly what the model said, because
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
   const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
-  const commentaryOnly = !final && messages.length > 0;
+  const commentaryOnly = !final && reviewResult == null && messages.length > 0;
 
   // --verify runs on its OWN schedule, not as a reward for having passed the weaker gates. It used to be
   // gated on the ladder already reading 0, which inverted the evidence: --expect-command greps command
@@ -2237,7 +2280,10 @@ function finish(reason) {
   // normally contains failed commands: the first test run fails, the model fixes it, the second passes.
   // The waiver is on the check's RESULT; keying it on the flag's presence let a check that never executed
   // wave a real failure through.
-  else if ((failedCmds.length || failedPatches.length) && !verifyPassed) code = EXIT.COMMAND_FAILED;
+  // Under --review the deliverable is the review, and the reviewer's own failed probes are its working
+  // method, not a failure of the work — measured live: a real review ran 26 commands, several of them
+  // failing greps, and exited 11 with a perfectly good review in hand. The counts stay in the report.
+  else if ((failedCmds.length || failedPatches.length) && !verifyPassed && !opts.review) code = EXIT.COMMAND_FAILED;
 
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
@@ -2438,7 +2484,7 @@ async function main() {
   deadline.unref?.();
 
   let prompt = opts.prompt;
-  if (prompt === undefined) {
+  if (prompt === undefined && !opts.review) {
     if (process.stdin.isTTY) fail(EXIT.USAGE, "no prompt: pass --prompt or pipe one on stdin");
     process.stdin.setEncoding("utf8");   // raw Buffers split multi-byte chars at chunk boundaries
     let s = "";
@@ -2449,8 +2495,10 @@ async function main() {
     prompt = s;
   }
   if (settled) throw new Bail();   // aborted while reading stdin; the exit code is already set
-  prompt = prompt.trim();
-  if (!prompt) fail(EXIT.USAGE, "empty prompt");
+  if (!opts.review) {
+    prompt = prompt.trim();
+    if (!prompt) fail(EXIT.USAGE, "empty prompt");
+  }
 
   child = spawn(codexBin, spawnArgs, {
     cwd, stdio: ["pipe", "pipe", "pipe"], detached: true,
@@ -2580,6 +2628,13 @@ async function main() {
   // should not have to wait for the end to learn which run it is.
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
   writeJob({ threadId: rootThreadId, pid: process.pid, cwd, level: opts.level, started: new Date().toISOString() });
+
+  if (opts.review) {
+    // The server's own reviewer, on this thread. No lastTurnParams: a transient retry cannot replay a
+    // review (the guard on the retry checks for exactly this).
+    await request("review/start", { threadId: rootThreadId, target: opts.reviewTarget, delivery: "inline" });
+    return;
+  }
 
   if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
   lastTurnParams = {
