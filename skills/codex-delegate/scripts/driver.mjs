@@ -578,18 +578,12 @@ function passwdHome(what) {
   catch (e) { fail(EXIT.USAGE, `cannot resolve your home directory from the passwd database, which ${what} needs (${e.code ?? e.message}); this happens for a uid with no passwd entry`); }
 }
 
-// Everything this driver owns — locks, the answer log, the isolated Codex home, the worktree ledger —
-// lives under one base, and $CODEX_DELEGATE_STATE_DIR moves it. This exists for ONE reason and it is
-// not configurability: the repository's own eval suites drive the driver against a scripted server that
-// answers config/read with `model = "fake-model"`, and every run rewrites the SHARED isolated home's
-// config.toml. Measured — after a suite run, ~/.codex-delegate/home/config.toml holds
-// `model = "fake-model"`, and a real delegation whose own write lost the race started against a model
-// that does not exist. Tests must not be able to reach production state; this is the seam that stops it.
-//
-// The same caveat the lock's passwd anchor exists for applies here and is the price of the seam: two
-// runs under two different $CODEX_DELEGATE_STATE_DIR values take two different locks and do not exclude
-// each other. It is deliberately NOT a general "put my state elsewhere" knob — set it per test harness,
-// not per user — and it must be absolute so it cannot resolve against a caller's cwd.
+// Everything this driver owns — locks, the answer log, the isolated Codex home, the worktree ledger,
+// the job registry — lives under one base, and $CODEX_DELEGATE_STATE_DIR moves it. The seam exists so
+// TESTS cannot reach production state (a suite run once left the fixture's `model = "fake-model"` in
+// the shared home; the story is in references/incidents.md). The price: two runs under different
+// values do not exclude each other — set it per test harness, never per user, absolute paths only so
+// it cannot resolve against a caller's cwd.
 function stateDir(what) {
   const override = process.env.CODEX_DELEGATE_STATE_DIR;
   if (override) {
@@ -602,39 +596,25 @@ function stateDir(what) {
 const lockDir = () => path.join(stateDir("the cwd lock"), "locks");
 
 // Codex reads its plugins, skills, memories and project-trust records out of CODEX_HOME, so delegating
-// into the caller's own home makes every turn a function of whatever they happen to have installed.
-// Measured over the 157 delegations this machine had already run: 95 of them spent their FIRST tool call
-// reading ~/.codex/plugins/cache rather than the task, 209 of 919 tool calls went there, and one turn
-// ended having done nothing but announce that it had to run a plugin's workflow first. A private home
-// removes that input entirely — and, as a side effect, stops each run appending a trusted-project record
-// to the caller's config.toml, which is how that file reached 36 KB of dead temp directories.
+// into the caller's own home makes every turn a function of whatever they happen to have installed —
+// measured badly enough (95 of 157 delegations opened ~/.codex/plugins/cache before the task) that the
+// private home exists; the story is in references/incidents.md. It also stops each run appending a
+// trusted-project record to the caller's config.toml.
 //
-// Two things are linked back rather than isolated. auth.json, so a token refresh still lands in the real
-// file instead of expiring inside a cache directory. sessions, because the rollout it holds is the only
-// evidence OUTSIDE this process that the turn ran at all: a caller who cannot find the rollout cannot tell
-// a seat that did the work from a wrapper that reported success without doing any.
+// Two things are linked back rather than isolated: auth.json, so a token refresh lands in the real
+// file, and sessions, so the rollout receipt lands where the published verification recipe looks — a
+// caller who cannot find the rollout cannot tell a real seat from a wrapper that fabricated success.
 //
-// Anchored on passwd for the same reason the lock is: $HOME is attacker- and accident-mutable, and two
-// runs under two HOME values would silently use two different homes.
-// Isolating the ENVIRONMENT must not isolate the ACCOUNT. `--effort` and `--model` are documented as
-// inheriting ~/.codex/config.toml when omitted, and an isolated home has no config.toml at all — so the
-// first cut of this silently answered a caller who had asked for `max` at the model's own default, which
-// is the exact silent downgrade the comment above EFFORTS exists to prevent. Measured before the fix:
-// reasoningEffort came back `max` on the host home and `null` isolated, for the same command.
+// Anchored on passwd like the lock: $HOME is mutable, and two HOME values must not mean two homes.
+// Isolating the ENVIRONMENT must not isolate the ACCOUNT: the four INHERITED keys choose which model
+// answers and how it is spoken to, and omitting them silently downgraded a caller whose config asked
+// for `max`. Everything that pulls in outside behaviour — plugins, skills, mcp_servers, projects — is
+// what isolation is for and stays behind.
 //
-// Only these four: they choose which model answers and how it is spoken to. Everything that pulls in
-// outside behaviour — plugins, skills, mcp_servers, projects — is what isolation is for and stays behind.
-//
-// ASKED of the server rather than read out of the file, and that is the whole point. Reading it meant
-// hand-parsing TOML with line regexes, which produced four separate defects in a single day: a value in
-// single quotes matched nothing; a multi-line string body was scanned as if it were settings; a duplicate
-// key was emitted, which codex then rejects outright; and a COMMENT merely mentioning `= """` opened a
-// skip that swallowed every setting after it. Each fix uncovered the next form of a legal file the parser
-// did not know. `config/read` returns the values as codex itself resolves them, so the parser and its
-// whole family of edge cases are gone.
+// The values are ASKED of the server (config/read), never parsed out of the TOML: a hand parser
+// produced four distinct defects in one day (references/incidents.md) before it was deleted.
 // JSON.stringify escapes C0 controls but emits DEL (U+007F) and the C1 range raw, and a TOML basic
-// string forbids them — codex then rejects the whole file and every delegation fails. Measured with a
-// model name containing U+007F, which codex itself will hand back.
+// string forbids them — codex then rejects the whole file; hence the escape below.
 const tomlString = (v) => JSON.stringify(v).replace(/[\u007f-\u009f]/g,
   (c) => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`);
 

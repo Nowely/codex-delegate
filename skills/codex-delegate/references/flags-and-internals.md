@@ -1,29 +1,12 @@
-# Every flag, and what the driver does with your machine
+# Environment and internals
 
 Moved out of `SKILL.md` because none of it is needed at the moment of deciding *whether* and *how* to
-delegate — the two recipes at the top of that file cover the decision, and this covers the typing.
-`node "$DRIVER" --help` prints the same surface from the code itself, which is the copy that cannot
-drift.
+delegate — the two recipes at the top of that file cover the decision.
 
-## The full surface
-
-`--cwd <dir>` (required unless `--worktree` or a seat file supplies it) · `--seat-file <file>` (declare
-the seat in a file instead of on a command line — for wrappers; `SEAT` first, given once) ·
-`--allow-seat-verify` (permit `VERIFY` in a seat file; refused without it) ·
-`--worktree <repo>` (write level in a managed worktree)
-· `--level read|write` (default `read`) · `--prompt <text>`, or pipe it on stdin (better for long ones;
-512 KB cap on both routes) · `--effort none|minimal|low|medium|high|xhigh|max|ultra` (omit to inherit
-config) · `--model <slug>` (omit to inherit) · `--timeout <sec>` (default 900, max 7200) · `--commit` ·
-`--writable <dir>` (repeatable) · `--network` · `--expect-command <regex>` · `--verify '<shell>'` ·
-`--allow-no-commands` (waives the command floor, never a declared expectation) ·
-`--resume <threadId>` · `--ephemeral` (non-resumable; the receipt story still holds, but prefer the
-default) · `--web-search cached|indexed|live` (off by default) · `--answer-json` ·
-`--output-schema <file>` (a validated object with one corrective retry; exit 13 on a final mismatch) ·
-`--brief` (cap the inline answer at 20 lines / 4 KB, marker included; the full text is at `answerPath`) ·
-`--host-home` (the caller's `~/.codex` instead of the private home) · `--json` (the default, kept so
-existing recipes stay valid) · `--footer` (human footer instead of the default JSON) · `--help`.
-
-`--commit`, `--writable` and `--network` require write level.
+**The flag inventory lives in `node "$DRIVER" --help` and nowhere else.** A second copy here drifted
+from the code exactly as predicted by the sentence that used to sit above it; the help text is printed
+from the code and cannot. What stays in this file is what `--help` does not say: the environment
+variables, what the driver protects, and how the isolated home works.
 
 ## Environment
 
@@ -68,7 +51,10 @@ plugins, skills and MCP servers stay out of the turn, and no trust records are w
 `auth.json` and `sessions` are symlinked to the real `~/.codex`, so credentials keep working and the
 rollout receipt lands where `receiptPath` points. `model`, `model_reasoning_effort`, `personality` and
 `service_tier` are carried in by asking the caller's own codex (`config/read`) and writing them into
-that home's `config.toml`, not by parsing TOML.
+that home's `config.toml`, not by parsing TOML. A probe that fails warns, retries once, and keeps the
+last known good config rather than truncating it. Under `--mcp` the caller's `mcp_servers` travel as
+per-run `-c` spawn args, never through the shared file — a grant written there would leak into
+concurrent runs that never asked for it.
 
 Because that file is shared, a process that writes it with different values races every concurrent
 delegation. That is not hypothetical: the eval suites drive the driver against a scripted server whose

@@ -28,6 +28,12 @@ indistinguishable from a seat that found nothing.
 refused as a usage error while the server took it; the ladder is now a permissive union and a
 server-refused value exits 2 with the server's own list.
 
+**The TOML parser.** Inherited config was once read by hand-parsing the caller's `config.toml` with
+line regexes. Four distinct defects surfaced in a single day: a single-quoted value matched nothing; a
+multi-line string body was scanned as settings; a duplicate key was emitted, which codex rejects
+outright; and a comment merely mentioning `= """` opened a skip that swallowed every setting after it.
+The parser was deleted for `config/read` — the server reports the values as it resolves them.
+
 **Redundant flags as crashes.** `--cwd X --writable X` and a root named twice both exited 4 ("codex
 crashed") until the driver deduped and subtracted what the server does.
 
