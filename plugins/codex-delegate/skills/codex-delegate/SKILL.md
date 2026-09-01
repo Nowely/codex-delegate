@@ -34,19 +34,16 @@ RETURN: <exactly what to hand back>'
 
 Omit `--expect-command` when the task has no single command signature — the no-command floor still
 holds. A write seat: the driver creates a detached worktree under `$REPO/.claude/worktrees/`, runs the
-turn there, and disposes of the tree itself. Once the turn completed, the work is harvested — the
-tracked diff and an archive of untracked files land under `~/.codex-delegate/answers/`, their paths in
-the report — and the tree is removed; a turn that did not complete (or a harvest that failed)
-preserves the tree, and the report says why and how to remove it:
+turn there, and owns the tree end to end — harvest and disposal included; see
+[Worktree lifecycle](#worktree-lifecycle):
 
 ```bash
 node "$DRIVER" --worktree "$REPO" \
   --verify '<the end state you demand, e.g. test -f done.txt>' --prompt '<task>'
 ```
 
-Exit 0 means the turn completed, every check you declared passed, and a command really ran — unless
-`--allow-no-commands` waived exactly that last clause. Anything else is a specific complaint — see
-[Reading the result](#reading-the-result). Add `--network` only for a turn that must install
+Exit 0 is the only success, and it is derived from evidence; anything else is a specific complaint —
+see [Reading the result](#reading-the-result). Add `--network` only for a turn that must install
 dependencies, and settle it with the user first: write plus network is an exfiltration surface.
 
 ## Before the first call
@@ -54,39 +51,15 @@ dependencies, and settle it with the user first: write plus network is an exfilt
 - None of this skill's commands are pre-approved in `~/.claude/settings.json`, so a delegation stops at
   Claude Code's own permission gate. Decide with the user how to handle that before a long delegation;
   do not add allow-rules on their behalf.
-- Requirements: `codex` CLI installed and authenticated (`codex login status`); the driver finds it on
-  `PATH` or in the standard install locations. The model,
-  reasoning effort, personality and service tier are inherited from the caller's `~/.codex/config.toml`
-  unless overridden per call.
-- Protocol facts are pinned in `schema-<version>/` at the repository/plugin root (not shipped by a
-  bare `npx skills` install). If `codex --version` differs from
-  the pinned version, regenerate (`codex app-server generate-json-schema --out schema-<v>/`) and run the
-  suites before trusting a run — the protocol carries no stability promise:
-
-```bash
-node <repo-or-plugin-root>/evals/protocol.test.mjs       # the protocol and the result gates
-node <repo-or-plugin-root>/evals/lock.test.mjs           # the cwd lock and the worktree lifecycle
-node <repo-or-plugin-root>/evals/attach-pasted.test.mjs  # handing a seat the user's pasted images
-node <repo-or-plugin-root>/evals/conformance.test.mjs    # does the fixture still speak like the pinned protocol?
-node <repo-or-plugin-root>/evals/agent-contract.test.mjs # does the shipped relay agent still match the driver?
-node <repo-or-plugin-root>/evals/fidelity.test.mjs       # does the fixture still answer like YOUR codex?
-```
-
-The suites live beside the skill in the **repository or plugin root** — `<root>/evals/`, where
-`<root>/skills/codex-delegate/` is this file's directory. Do not compute that root by appending `../..`
-to the skill path: where the skill is a symlink (the clone-and-symlink install the README documents),
-Node collapses `..` lexically and lands somewhere that does not exist, while `ls` follows the link and
-appears to work. Resolve the link, or use `$CLAUDE_PLUGIN_ROOT`. A bare `npx skills` install carries
-only the skill itself and no suites, so run them from a checkout or a plugin install.
-
-The suites write nothing into `~/.codex-delegate`: each sets `CODEX_DELEGATE_STATE_DIR` to a scratch
-directory of its own. Before that they shared the real one, and a suite run concurrent with a live
-delegation replaced that delegation's inherited config with the fixture's.
-
-The `openai-codex` plugin is not a substitute where rights matter: it hardcodes an approval policy an
-MDM profile clamps, and its always-sent `sandbox` parameter suppresses the permission profile that makes
-read-level test runs possible. The full analysis lives in
-[references/why-not-the-plugin.md](references/why-not-the-plugin.md).
+- Requirements: `codex` CLI installed and authenticated (`codex login status`). The model, reasoning
+  effort, personality and service tier are inherited from the caller's `~/.codex/config.toml` unless
+  overridden per call. Install routes and prerequisites: README.
+- After a codex upgrade, follow README's upgrade recipe (regenerate `schema-<v>/`, run the eval suites)
+  before trusting a run — the app-server protocol carries no stability promise.
+- The `openai-codex` plugin and the `codex exec`-based skills are not substitutes where rights matter:
+  their read and review seats cannot run tests, and the failure is silent (the run still exits 0). The
+  verdict is in README, the forensics in
+  [references/why-not-the-plugin.md](references/why-not-the-plugin.md).
 
 ## Composition: say who is running, before they run
 
@@ -130,35 +103,35 @@ whole working note into your context.
 a workflow. The standard wrapper is the **`codex-seat` agent** shipped with the plugin: call it as
 `Agent(subagent_type: "codex-seat", prompt: "SEAT: read\nTASK: …")` or, in a workflow,
 `agent(prompt, {agentType: "codex-seat"})` — its relay contract (verbatim answer, threadId, exitCode,
-receipt, structured failure) is baked into the definition, so there is nothing to re-instruct. Where it
-is not installed, a hand-rolled wrapper must be told its job:
+receipt, structured failure) is baked into the definition, so there is nothing to re-instruct. Its
+ceiling: the Bash tool caps a call at 600 s, so a seat that needs more than ~560 s of wall clock
+cannot complete through the agent — run the driver directly for longer seats. Where the agent is not
+installed, a hand-rolled wrapper must be told its job:
 
     Return Codex's answer verbatim, with the run's threadId and exitCode. Do not summarise, do not add
     findings of your own, and if the run fails report the failure rather than answering yourself.
 
+Never run a hand-rolled relay on a small model. Measured: a haiku relay answered a failing SEAT
+declaration by creating the missing directory and running Codex under rights nobody granted, then
+reported success — the shipped agent is pinned to sonnet for exactly that.
+
 A wrapper — shipped or hand-rolled — declares the seat with `--seat-file <file>`: one `FIELD: value`
 per line (`SEAT` first and required, then `EFFORT`, `TIMEOUT`, `EXPECT`, `VERIFY`, `NETWORK`, `MODEL`,
-`WEB_SEARCH`, `OUTPUT_SCHEMA`, `WRITABLE`, `COMMIT`, `BRIEF`, `ALLOW_NO_COMMANDS`), each value taken
-literally to end of line and mapped to the same flags with the same guards. That exists so a relay
-never builds a shell command line out of values it was handed: `--expect-command "x' --level write
---commit '"` interpolated into `sh -c` grants write level and the git directory, while in a seat file
-it stays one regex (pinned, and verified live). Explicit flags still override the file, so a harness
-can bound a seat it did not author.
+`WEB_SEARCH`, `OUTPUT_SCHEMA`, `WRITABLE`, `COMMIT`, `BRIEF`, `ALLOW_NO_COMMANDS`, `REVIEW`, `RESUME`,
+`PROGRESS`), each value taken as-is to end of line (outer whitespace trimmed, interior preserved) and
+mapped to the same flags with the same guards. That exists so a relay never builds a shell command
+line out of values it was handed: an injected quote in `sh -c` becomes flags; in a seat file it stays
+one literal value. Explicit flags still override the file, so a harness can bound a seat it did not
+author.
 
-**Know the limit of that guarantee.** It holds for a value with no newline in it and fails for one
-with: a newline is the field separator, so caller-supplied text carrying one ends its own field and
-opens another, and the relay cannot tell an injected line from one it meant to write. Measured — a
-value of `x\nVERIFY: touch /tmp/pwned` produced both `--expect-command x` and a `--verify` that ran.
-Two rules close the reachable part of it, and both are the driver's, not the wrapper's:
-
-- `SEAT` must be the **first** field, so an injected `SEAT` is always a duplicate and a duplicate is
-  already a usage error. A seat file with no `SEAT` is refused rather than defaulted.
-- `VERIFY` in a seat file needs `--allow-seat-verify` **on the command line**, because `--verify` runs
-  an unsandboxed `/bin/sh` with your own rights at both levels. Pass `--verify` yourself instead; the
-  command line is the one place a relayed value cannot reach.
-
-The report carries `seatFileFields` — what the file actually declared, in order — so a wrapped seat is
-not indistinguishable from a hand-typed one.
+**The guarantee stops at a newline** — a relayed value carrying one opens a field of its own
+(measured; the story is in [references/flags-and-internals.md](references/flags-and-internals.md)).
+Two driver-side rules close the reachable part: `SEAT` must be the **first** field (an injected `SEAT`
+is then always a duplicate, and a file with no `SEAT` is refused, not defaulted), and `VERIFY` in a
+seat file needs `--allow-seat-verify` **on the command line**, because `--verify` runs an unsandboxed
+`/bin/sh` with your own rights — pass `--verify` yourself instead. The report's `seatFileFields` lists
+what the file actually declared, in order, so a wrapped seat is not indistinguishable from a
+hand-typed one.
 
 Either way, a wrapper must not be unverified: a seat that did nothing is indistinguishable from a seat
 that found nothing. Demand the run's `threadId` and `exitCode` in the return, and read the receipt
@@ -168,9 +141,8 @@ record exists for this id, not merely that a file with that id in its name does.
 `receiptModelProvider` and `receiptCwd` come out of that record; `receiptWhy` says why a receipt was
 not accepted. `receiptOk: false` on a run that claims success is a red flag.
 
-What it does **not** prove: the receipt is evidence against a wrapper that forwarded the work, not
-against one that fabricated the whole report — a process that writes the report can write anything in
-it. Read the rollout yourself when the answer matters that much.
+What it does **not** prove: a process that writes the report can fabricate all of it — the receipt only
+catches a wrapper that forwarded the work. Read the rollout yourself when the answer matters that much.
 
 **Verify with them; do not narrate them.** `threadId`, `exitCode` and `receiptOk` are the coordinator's
 instruments, not the caller's reading material — the harness hands you a native subagent's id marked
@@ -220,20 +192,19 @@ model. Raising it costs latency; the ~7 s startup floor barely moves, but a `max
 | `max` / `ultra` | the hardest problems; `ultra` delegates subtasks to its own subagent threads |
 
 `codex debug models` lists the current catalogue and each model's levels; the driver validates against
-a permissive union, and a value it allows can still be refused by the server — which exits 2 carrying
-the server's own list. Do not hardcode a model: pass `--model` only when the user names one or a run
-must be reproducible.
+a permissive union (`none minimal low medium high xhigh max ultra`), and a value it allows can still
+be refused by the server — which exits 2 carrying the server's own list. Do not hardcode a model: pass
+`--model` only when the user names one or a run must be reproducible.
 
 ## Parity with your own subagents
 
-Measured 2026-08-30 on this repo (driver 0.1.0); the schema, brief, token and receipt rows re-measured
-2026-08-31 on 0.4.0. The memory and overhead figures are the oldest numbers here and have not been
-re-taken. Re-check after a codex upgrade.
+Measured 2026-08-30/31 on this repo (driver 0.1.0–0.4.0); the memory and overhead figures are the
+oldest numbers here. Re-check after a codex upgrade.
 
 | Your subagent | Codex equivalent | Parity |
 | --- | --- | --- |
 | `Explore` (read-only) | `--cwd <repo>` | matches for reading, grep, git, node, lint, and node-environment vitest **with `--configLoader runner`**. Browser-mode vitest cannot run here (loopback TCP refused); composite-project `tsc --noEmit` fails (writes `tsbuildinfo`) |
-| agent with `isolation: "worktree"` | `--worktree <repo> --network` | edits and runs tests, including browser tests (see [references/browser-tests.md](references/browser-tests.md)). Installs need a cache inside the tree: `npm install --cache "$PWD/.npm-cache"`; `pnpm install --frozen-lockfile` works against a warm store |
+| agent with `isolation: "worktree"` | `--worktree <repo> --network` | edits and runs tests; browser tests only after the one-file override in [references/browser-tests.md](references/browser-tests.md) — without it Chromium crashes under the sandbox, and the run must be serial. Installs need a cache inside the tree: `npm install --cache "$PWD/.npm-cache"`; `pnpm install --frozen-lockfile` works against a warm store |
 | the same, committing | `--level write --cwd <worktree> --commit` | full: add and commit succeed |
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home. `--mcp` carries the caller's `[mcp_servers]` — and only them — into the isolated home (the servers run with your rights); `--host-home` restores everything, plugins, skills and nondeterminism included |
@@ -244,7 +215,7 @@ re-taken. Re-check after a codex upgrade.
 | a review pass | `--review uncommitted\|branch:<ref>\|commit:<sha>` | the server's native reviewer on this thread; the review payload is the answer, the reviewer's own failed probes do not fail the run, and no prompt is needed |
 | correcting a running subagent | `--steer-file <file>` | append text to the file: it reaches the live turn as `turn/steer` within a second and the file is drained. Input only, never rights |
 | a schema-validated return | `--output-schema <file>` | the server constrains generation with the schema, the driver validates the result independently (type/required/properties/enum/items/additionalProperties), and a mismatch spends ONE corrective turn on the same thread before exit 13 — the retry a subagent's tool layer provides. **The schema must be STRICT**: every object needs `"additionalProperties": false` and a `"required"` listing every one of its properties (use `"type": ["string","null"]` where you wanted optional). The provider rejects anything else with a 400; the driver checks both rules before the turn so you do not pay a delegation to find out. `--answer-json` remains the lighter syntax-only demand |
-| a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines / 4 KB **including** the "clipped" marker. `answerPath` is null when there was no answer or the write failed, and `answerTruncated: true` with `answerPath: null` means the full text survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
+| a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the full answer is written to `~/.codex-delegate/answers/<threadId>.md` (pruned after 14 days / 400 entries) and the inline answer is capped at 20 lines / 4,000 bytes **including** the "clipped" marker. `answerPath` is null when there was no answer or the write failed, and `answerTruncated: true` with `answerPath: null` means the full text survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to put evidence in `$TMPDIR` files — so detail it never generated inline is not in `answerPath` either; skip `--brief` when you need the full working note |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 (plus, on `--host-home` only, a private copy of every MCP server in the caller's config). Exceeding the
@@ -283,28 +254,15 @@ The default is **every image of the latest human turn, in the order pasted** —
 which is what your own context has: a coordinator sees all N blocks before the text, so a seat asked
 about "the second screenshot" must see the same arrangement. Nothing is selected implicitly beyond that
 turn: if the latest human turn carries no image, the run refuses (exit 2) and names `--list` rather
-than reaching back to something older you did not mean.
+than reaching back to something older you did not mean. To take an older turn, copy a uuid from
+`--list` — never count backwards: machine records interleave with human ones, so an offset silently
+selects a *different* image. The selector flags, the validation limits and why no offset selector
+exists: [references/flags-and-internals.md](references/flags-and-internals.md), or `--help`.
 
-    --list                  the last 10 image-bearing human turns: uuid, timestamp, count,
-                            stored WxH, first 80 characters. Writes nothing.
-    --pasted-turn <uuid>    take that turn instead (repeatable, emitted in transcript order)
-    --pasted-pick 1,3-4     1-based indices within the selected turn
-    --pasted-allow-old      permit a turn >12h older than the session's newest record
-
-There is deliberately **no offset selector** (`back:2`, `--turns N`): machine records — task
-notifications, the skill loader's own injections, tool results — share the `user` type and interleave
-with yours, and a message queued while you compose the call shifts the count. An offset therefore
-selects a *different* image with no error. Copy a uuid from `--list`, which a human can check at a
-glance. Record uuids are also **not** stable across sessions: a resumed session copies earlier turns
-into its own file with fresh ids, which is what the 12-hour reach-back guard is for.
-
-Each image is validated before anything is written (media type against the record, magic bytes against
-the media type, 10 MB each / 25 MB per turn / 20 images), lands at
-`~/.codex-delegate/pasted/<pid>-<random>/NN-<sha>.png` mode 0600 in a 0700 directory, and is **removed
-when the run ends**. Not `$TMPDIR`: that is the read level's one writable root, so the very seat being
-shown the images could edit them. The stderr receipt names each image — turn, timestamp, the turn's
-text, index, stored dimensions, size, sha256, path — and says out loud that it goes to the model
-provider.
+Each image is validated before anything is written, lands under `~/.codex-delegate/pasted/` — not
+`$TMPDIR`: that is the read level's one writable root, so the very seat being shown the images could
+edit them — is named on the stderr receipt (which says out loud that it goes to the model provider),
+and is **removed when the run ends**.
 
 Two facts worth knowing before asking for pixel coordinates: Claude Code **downscales** a paste to at
 most ~2000 px before storing it (its own meta records say "Multiply coordinates by 1.73 to map to the
@@ -314,18 +272,16 @@ its own to a prompt you wrote.
 
 ## Worktree lifecycle
 
-`--worktree` owns it end to end: unique name under `<repo>/.claude/worktrees/`, a ledger entry in
-`~/.codex-delegate/worktrees/` before the turn (best-effort, so a crashed run *usually* leaves a
-trace), and disposal afterwards. A COMPLETED turn's tree asks nothing of you: its work is harvested —
-`worktreeDiffPath` (the tracked diff, staged and unstaged, `git diff HEAD --binary`) and
-`worktreeUntrackedPath` (a tar.gz of untracked files), both under `~/.codex-delegate/answers/` — and
-the tree is then removed (`worktreeHarvested: true`). A turn that did not complete, or a harvest that
-failed, preserves the tree instead: `worktreePreserved` says why, `worktreeRemoveCommand` says what to
-run after harvesting by hand, and `worktreeFleet` counts the codex worktrees the repo still carries.
-The destination is checked against the protected roots too, so a `<repo>/.claude` symlink cannot land
-the tree somewhere the repository path did not imply. Ledger entries of CRASHED runs are reconciled on
-the next `--worktree` invocation: a gone tree drops its entry, a clean tree is removed, a dirty one is
-kept and named on stderr.
+`--worktree` owns it end to end: unique name under `<repo>/.claude/worktrees/`, a ledger entry before
+the turn, and disposal afterwards. A COMPLETED turn's tree asks nothing of you: its work is harvested —
+`worktreeDiffPath` (one patch diffed against the commit the tree started at — staged and unstaged work
+travel, and commits the seat made get a real ref in the main repository, `worktreeCommitsRef`) and
+`worktreeUntrackedPath` (a tar.gz of untracked files), both under
+`~/.codex-delegate/answers/` — and the tree is then removed (`worktreeHarvested: true`). A turn that
+did not complete, or a harvest that failed, preserves the tree instead: `worktreePreserved` says why,
+`worktreeRemoveCommand` says what to run after harvesting by hand, and `worktreeFleet` counts the
+codex worktrees the repo still carries. Ledger and destination internals:
+[references/flags-and-internals.md](references/flags-and-internals.md).
 
 Managing a worktree by hand (a custom location, a resumed thread) is still legitimate — but harvest
 before removing, and check `git status --porcelain` too: `git diff` does not show untracked files, and
@@ -338,14 +294,14 @@ The process exit code of `codex` itself is always 0, so the driver derives its o
 | Exit | Meaning |
 | --- | --- |
 | 0 | turn completed, every declared check passed, and a command really executed — unless `--allow-no-commands` waived exactly that clause |
-| 1 | turn did not complete (`failed` / `interrupted`) — the answer is partial. A transient provider failure (stream disconnect, overload, usage window) is first absorbed by ONE bounded retry when the turn had produced nothing observable; `transientRetries` in the report records it |
+| 1 | turn did not complete (`failed` / `interrupted`) — the answer is partial. A transient provider failure (a stream or connection drop, a server error, overload — deliberately not a usage-limit window, which no short retry clears) is first absorbed by ONE bounded retry when the turn had produced nothing observable; `transientRetries` in the report records it |
 | 2 | your arguments were rejected — by the driver (nothing ran, no report) or by the server mid-turn (commands may have run; the message carries the server's own wording) |
 | 3 | timed out — the case most likely to leave a half-written tree |
 | 4 | transport failure — codex missing or crashed, and every sandbox / approval-policy / reviewer assertion. Not a retry: it usually means the rights you asked for were not the rights you got |
 | 5 | no command matching the expectation succeeded — the answer is unverified prose. With no expectation declared, the report's `hint` names `--allow-no-commands` for the recall-only case |
 | 6 | an escalation was refused — the sandbox was too small; see below |
 | 7 | something asked for a human: an MCP form, attestation, user input. No sandbox change fixes it |
-| 8 | the turn produced commentary but never a final answer |
+| 8 | the turn ended with no final answer (with or without commentary along the way) |
 | 9 | `--verify` ran and failed: whatever the model said, the work is not there |
 | 10 | the cwd is locked by another run, or a resumed thread still has a turn open |
 | 11 | a command ran and **failed**, or a file change did. Only a **passing** `--verify` overrules it. A plain probe answering "no" — a no-match `grep`/`rg`, a false `test`, a `diff` that differs (exit 1 exactly) — is not a failure and never raises this |
@@ -360,21 +316,24 @@ report.
 
 **Cancelling a seat does not throw its work away.** `SIGINT`, `SIGTERM` and `SIGHUP` after the thread
 exists report what the turn did so far — `turnStatus: "interrupted"`, exit **1**, a full JSON report —
-and only before the thread exists do they exit 4. The server is also sent `turn/interrupt` (on
-cancellation and on timeout), so the turn ends cleanly on its side and the thread stays resumable —
-except in the sub-second window before `turn/start` has answered, where there is no turn id to name
-and nothing is sent. A second signal escalates the running teardown
-straight to `SIGKILL`. `SIGKILL` to the driver itself is the one case nothing can cover: descendants
-survive and the cwd lock is left for the next run to reclaim.
+and only before the thread exists do they exit 4. The server is sent `turn/interrupt` (on cancellation
+and on timeout), so the turn ends cleanly on its side and the thread stays resumable; a second signal
+escalates the running teardown straight to `SIGKILL`. `SIGKILL` to the driver itself is the one case
+nothing can cover: descendants survive and the cwd lock is left for the next run to reclaim.
 
 A command counts as evidence only at `status: completed` with exit code 0; it counts as failed on
 status `failed`/`declined` OR a non-zero code. **Even then, a passing gate proves a command succeeded,
 not that the right one did** — Codex opens most turns by reading its own skill files, and that
 satisfies any generic check. `--expect-command <regex>` catches drift (a turn that never got to the
 work); it greps the model's own command strings, so it is worth passing and never worth trusting alone.
+One bypass needs no intent at all: a pipeline exits with its LAST command's status, and Codex routinely
+pipes to `head`/`tail` — so `vitest run | tail -5` with a failing suite counts as a succeeded command
+and can reach exit 0. Pin real outcomes with `--verify`.
 
 **`--verify '<shell>'` is the sound check**: run by the driver in the cwd after the turn, never sent to
-the model, a non-zero exit fails the run with code 9 no matter what the answer claimed. ("Never sent"
+the model, a non-zero exit fails the run with code 9 no matter what the answer claimed. It gets at most
+300 s of whatever `--timeout` budget remains — keep it cheaper than a full suite, or a healthy run
+exits 12. ("Never sent"
 is the accurate claim; it is not hidden — it sits in the driver's own argv, and a turn that reads
 `/proc` or `ps` could see it. It runs with **your** rights, outside the sandbox, at both levels, which
 is why a seat file cannot supply one without `--allow-seat-verify`.) It runs
@@ -401,33 +360,22 @@ stays root-thread-only.
 ## One run per directory
 
 At write level the driver takes an exclusive lock keyed on the cwd's identity; a second run in the same
-directory exits 10 rather than racing the first. The lock lives in `~/.codex-delegate/locks/`, the
-exit-10 message names the file to delete if the holder is really gone, and it is released only after
-the driver has waited its whole process group out — SIGTERM, up to 2 s, then SIGKILL and up to 1 s more
-— so a next writer does not enter a directory where the previous run's test servers are still dying.
-**That wait is bounded, not unconditional**: a group member still alive after those three seconds does
-not hold the lock any longer, and a driver killed with `SIGKILL` releases nothing at all. It serialises
-invocations, not directories: give every concurrent run its own cwd (`--worktree` does). Internals:
-[references/lock-internals.md](references/lock-internals.md).
-
-`CODEX_DELEGATE_STATE_DIR` moves the locks, the answer log, the isolated Codex home and the worktree
-ledger somewhere else. It is for test harnesses — the eval suites set it so they cannot touch the state
-a live delegation is using — and two runs under different values do not exclude each other.
+directory exits 10 rather than racing the first, and the exit-10 message names the lock file to delete
+if the holder is really gone. It serialises invocations, not directories: give every concurrent run its
+own cwd (`--worktree` does). Release timing, reclaim, and the `CODEX_DELEGATE_STATE_DIR` override:
+[references/lock-internals.md](references/lock-internals.md) and
+[references/flags-and-internals.md](references/flags-and-internals.md).
 
 ## Traps
 
 - Misspelled `-c` config keys are swallowed silently, and the offline oracle that catches them is blind
   inside `permissions.<profile>.*`. Validate first: [references/config-drift.md](references/config-drift.md).
 - A seat that starts background load must kill it from a `trap 'kill $PIDS' EXIT INT TERM`, not from a
-  line at the end — a parent that dies first orphans the load to PID 1.
-- **That applies to YOUR shell too, and `jobs -p` will not save you.** Measured while auditing this
-  skill: a coordinator generating CPU load with `for i in $(seq 1 10); do (while :; do :; done) & done`
-  and cleaning up with `LOADPIDS=$(jobs -p); …; kill $LOADPIDS` left twenty-two busy loops reparented to
-  PID 1, burning half a core each for nearly eight hours. Under the tool harness the command runs inside
-  its own `zsh -c` wrapper, where `jobs -p` reported nothing, so `kill` killed nothing and the wrapper
-  exited first. Record pids as you spawn them (`p=$!; PIDS="$PIDS $p"`), arm the trap before the loop,
-  and prefer `kill -9 -$$` on the whole group. Then check with
-  `ps -eo pid,ppid,etime,command | awk '$2==1'` — a delegation's own teardown is not what leaks here.
+  line at the end — a parent that dies first orphans the load to PID 1. **That applies to YOUR shell
+  too, and `jobs -p` will not save you** (under the tool harness it reports nothing): record pids as
+  you spawn them (`p=$!; PIDS="$PIDS $p"`), arm the trap before the loop, and prefer `kill -9 -$$` on
+  the whole group. The measured incident — twenty-two orphaned busy loops for eight hours — is in
+  [references/incidents.md](references/incidents.md).
 - **A seat whose method is to make things fail will exit 11** — mutation testing, red-green repro,
   bisection. That is your flag choice, not the seat: pass `--verify` with the end condition you
   actually want; a passing check overrules failed commands by design.
@@ -435,29 +383,26 @@ a live delegation is using — and two runs under different values do not exclud
   (`turnStatus: failed`, `codexErrorInfo: "cyberPolicy"`). Describe the work as what it is —
   robustness under unusual states — and the same seat does the same work.
 - **The same rule governs the text YOU write, not just what you send to Codex.** Anthropic's classifier
-  flags a prompt phrased as offensive security as `[cyber]` and falls the session back to another
-  model for its whole remaining life (`model_refusal_fallback`, `scope: session`). Measured: an audit
-  brief asking to "bypass the guard", "forge the receipt" and "break the contract" tripped it on the
-  first message, before a single file was read — and that brief had been drafted by a Claude
-  coordinator using this skill. Write "check the guard against unusual spellings of a path", "establish
-  what the receipt actually proves", "confirm a relayed value cannot become a flag". Same work, same
-  findings, no fallback.
+  flags a prompt phrased as offensive security ("bypass the guard", "forge the receipt") and falls the
+  session back to another model for its whole remaining life — measured, on the first message. Write
+  the same work as what it is: "check the guard against unusual spellings", "establish what the
+  receipt actually proves". Details: [references/incidents.md](references/incidents.md).
 
 ## Flags
 
-The two recipes at the top of this file are the common cases. The full surface — every flag, the
-environment variables, what `tokenUsage` actually counts, which directories are protected and which
-are only assumed to be, and how the shared isolated home works — is in
-[references/flags-and-internals.md](references/flags-and-internals.md), and `node "$DRIVER" --help`
-prints the same list out of the code, which is the copy that cannot drift.
+The two recipes at the top of this file are the common cases. The full flag inventory is
+`node "$DRIVER" --help` — printed from the code, the copy that cannot drift. The environment
+variables, what `tokenUsage` actually counts, which directories are protected and which are only
+assumed to be, and how the shared isolated home works:
+[references/flags-and-internals.md](references/flags-and-internals.md).
 
 The four worth knowing without opening either: `--level read|write` (default `read`) · `--timeout
 <sec>` (default 900) · `--brief` (cap the inline answer; the full text is at `answerPath`) ·
 `--allow-no-commands` (waives the command floor, never a declared expectation).
 
-**Only `~/.codex` and `~/.codex-delegate` are protected roots.** `~/.ssh`, `~/.claude` and the rest of
-your home are grantable; the driver refuses your home directory itself and every ancestor of it, not
-everything valuable inside it.
+**Only `~/.codex`, `~/.codex-delegate` and the driver's state directory are protected roots.** `~/.ssh`,
+`~/.claude` and the rest of your home are grantable; the driver refuses your home directory itself and
+every ancestor of it, not everything valuable inside it.
 
 ## Multiple rounds
 

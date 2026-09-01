@@ -52,7 +52,13 @@ caught it out.
 pressure and put `kill $LOADPIDS` after the measurement. Its parent died first: the loops were
 reparented to PID 1 and burned eight of twelve cores for fifteen hours. Kill background load from a
 `trap`, and read `ps -eo pid,ppid,etime,%cpu` when a machine feels slow — a load average alone cost an
-hour of misreading here. Separately, an eval-suite fake server and a hung driver copy from `/tmp`
+hour of misreading here. A second occurrence, from a coordinator's own shell: CPU load generated with
+`for i in $(seq 1 10); do (while :; do :; done) & done` and cleaned up with `LOADPIDS=$(jobs -p); …;
+kill $LOADPIDS` left twenty-two busy loops on PID 1, burning half a core each for nearly eight hours —
+under the tool harness the command runs inside its own `zsh -c` wrapper, where `jobs -p` reported
+nothing, so `kill` killed nothing and the wrapper exited first. Record pids as you spawn them, and
+check with `ps -eo pid,ppid,etime,command | awk '$2==1'` — a delegation's own teardown is not what
+leaks here. Separately, an eval-suite fake server and a hung driver copy from `/tmp`
 survived their sessions by ~22–38 hours (one of them ignored SIGTERM outright) — the shutdown path now
 waits for the process group and escalates to SIGKILL, and the suites pin it with a TERM-ignoring
 survivor.
@@ -65,6 +71,11 @@ design.
 **Safety classifier.** A seat asked to find where a guard could be "defeated", build a "hostile" home
 and "break" a policy check came back `turnStatus: failed`, `codexErrorInfo: "cyberPolicy"` — twice more
 on earlier occasions. The same work described as robustness under unusual filesystem states ran fine.
+The Claude side has the same mechanism with a heavier cost: an audit brief asking to "bypass the
+guard", "forge the receipt" and "break the contract" tripped Anthropic's classifier as `[cyber]` on
+the first message, before a single file was read, and fell the session back to another model for its
+whole remaining life (`model_refusal_fallback`, `scope: session`) — and that brief had been drafted by
+a Claude coordinator using this skill.
 
 **Fan-out physics.** On a 36 GB machine already carrying other work, exceeding the memory budget got
 delegations SIGTERM-killed by the OS, reported as `interrupted by SIGTERM`. Turn overhead measured 6.6 s

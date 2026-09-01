@@ -64,6 +64,12 @@ node evals/fidelity.test.mjs   # does the fixture still match YOUR codex?
 The last one is what to watch after a `codex` upgrade: it performs a real handshake and diffs it
 against the fixture, so protocol drift shows up as a failing case instead of a confident wrong answer.
 
+Run the suites from the **repository or plugin root**. Do not compute that root by appending `../..`
+to the skill path: where the skill is a symlink (the clone-and-symlink install above), Node collapses
+`..` lexically and lands somewhere that does not exist, while `ls` follows the link and appears to
+work. Resolve the link, or use `$CLAUDE_PLUGIN_ROOT`. A bare `npx skills` install carries only the
+skill itself and no suites, so run them from a checkout or a plugin install.
+
 ## First run
 
 ```bash
@@ -74,10 +80,10 @@ RETURN: the two sentences.'
 ```
 
 The JSON report (the default) ends with the verdict: `exitCode: 0` means the turn completed, every
-declared check passed, and a command really ran — unless `--allow-no-commands` waived exactly that last
-clause. `threadId` continues the conversation via `--resume`. `receiptPath` points at the rollout under
-`~/.codex/sessions`, and `receiptOk` says the driver opened it and found a `session_meta` record naming
-this thread; `receiptOriginator` and `receiptModelProvider` come from that record.
+declared check passed, and a command really ran; anything else is a specific complaint — `SKILL.md`
+documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and
+`receiptOk` locate and validate the run's rollout (`SKILL.md`'s "Verify the seat" section says what a
+receipt does and does not prove).
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
 agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed, a
@@ -90,29 +96,23 @@ answer of its own.
 
 | Call | Codex may |
 | --- | --- |
-| `--cwd DIR` (read level, the default) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests. The grant is exactly "`$TMPDIR` and nothing else": anything you keep under the host `$TMPDIR` is reachable |
-| `--worktree REPO` | write level inside a driver-managed detached worktree; after a completed turn the work is harvested (tracked diff + untracked archive under `~/.codex-delegate/answers/`) and the tree removed — no after-task chores; preserved (with the reason and the removal command) only when the turn did not complete or the harvest failed |
+| `--cwd DIR` (read level, the default) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests |
+| `--worktree REPO` | write level inside a driver-managed detached worktree — harvested and removed after a completed turn, preserved with the reason otherwise |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
 | `+ --network` / `--writable DIR` / `--commit` | egress, an extra root, or the repository's git dir — each an explicit opt-in |
 
 ## Trust and verification
 
 - **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
-  ladder of exit codes from the event stream — turn status, commands that really succeeded, a final
-  answer versus commentary. `SKILL.md` documents the ladder.
-- **`--verify '<shell>'`** runs after the turn, executed by the driver — never sent in the prompt and
-  never authored by the model, though a turn that inspects processes could observe it in the driver's
-  argv. `--expect-command <regex>` additionally demands that the work matched
-  a declared signature, and `--output-schema <file>` demands a JSON answer matching a schema — enforced
-  by the server during generation, re-checked by the driver, with one corrective turn before failing.
+  ladder of exit codes from the event stream. `SKILL.md` documents the ladder.
+- **Three gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
+  the model; `--expect-command <regex>` demands the work matched a declared signature;
+  `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can
+  be fooled: `SKILL.md` and [references/result-gates.md](skills/codex-delegate/references/result-gates.md).
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
-  were asked for — sandbox type, writable roots, network, approval policy, approvals reviewer — and a
-  mismatch refuses the run instead of proceeding under an unknown sandbox.
-- **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout, open it, and check that its
-  opening `session_meta` record names this thread — a filename match alone is as strong as `touch`.
-  `receiptOriginator`, `receiptModelProvider` and `receiptCwd` come out of that record. It is evidence
-  against a wrapper that forwarded the work rather than doing it; it is not evidence against one that
-  fabricated the whole report, which anything writing the report could do.
+  were asked for, and a mismatch refuses the run instead of proceeding under an unknown sandbox.
+- **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout and check it names this thread;
+  what that does and does not prove is in `SKILL.md`.
 - **Isolation by default.** Runs use a private `CODEX_HOME`, so your plugins, skills and MCP servers
   stay out of the turn and no trust records are written back; `--host-home` opts out.
 
@@ -142,7 +142,7 @@ codex app-server generate-json-schema --out schema-<new-version>/
 node evals/fidelity.test.mjs
 ```
 
-then re-run the other two suites and re-check the parity table in `SKILL.md`.
+then re-run the remaining suites and re-check the parity table in `SKILL.md`.
 
 ## Layout
 
