@@ -64,9 +64,10 @@ dependencies, and settle it with the user first: write plus network is an exfilt
   suites before trusting a run — the protocol carries no stability promise:
 
 ```bash
-node <repo-or-plugin-root>/evals/protocol.test.mjs   # the protocol and the result gates
-node <repo-or-plugin-root>/evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
-node <repo-or-plugin-root>/evals/fidelity.test.mjs   # does the fixture still answer like YOUR codex?
+node <repo-or-plugin-root>/evals/protocol.test.mjs       # the protocol and the result gates
+node <repo-or-plugin-root>/evals/lock.test.mjs           # the cwd lock and the worktree lifecycle
+node <repo-or-plugin-root>/evals/attach-pasted.test.mjs  # handing a seat the user's pasted images
+node <repo-or-plugin-root>/evals/fidelity.test.mjs       # does the fixture still answer like YOUR codex?
 ```
 
 The suites live beside the skill in the **repository or plugin root** — `<root>/evals/`, where
@@ -235,7 +236,8 @@ re-taken. Re-check after a codex upgrade.
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home. `--mcp` carries the caller's `[mcp_servers]` — and only them — into the isolated home (the servers run with your rights); `--host-home` restores everything, plugins, skills and nondeterminism included |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
-| an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items — png/jpg/jpeg/gif/webp/bmp and wav/mp3/m4a/ogg/flac. Checked before the turn, so a typo costs nothing |
+| an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items — png/jpg/jpeg/gif/webp/bmp and wav/mp3/m4a/ogg/flac. Attachments go BEFORE the prompt text, the layout a pasted turn has. Checked before the turn, so a typo costs nothing. `--review` refuses them: its `review/start` carries no input items |
+| **an image the USER pasted** | `scripts/attach-pasted.mjs` (below) | Claude Code keeps a paste only inside the transcript, so it has to be decoded to a file first; the front-end does that and calls the driver |
 | watching a running subagent | `--progress` | one stderr line per item start (run/edit/search) without the delta firehose; the rollout under `~/.codex/sessions` stays the full live transcript |
 | a review pass | `--review uncommitted\|branch:<ref>\|commit:<sha>` | the server's native reviewer on this thread; the review payload is the answer, the reviewer's own failed probes do not fail the run, and no prompt is needed |
 | correcting a running subagent | `--steer-file <file>` | append text to the file: it reaches the live turn as `turn/steer` within a second and the file is drained. Input only, never rights |
@@ -261,6 +263,52 @@ needs no PATH export.)
 
 Do **not** background a wrapper script that forks delegations with `&` and exits: the harness tracks
 the process it started, the delegations are reparented to init, and nothing ever reports them.
+
+## Handing a Codex seat the image the user pasted
+
+A pasted image lives **only** in the session transcript — a base64 block with no filename, no path and
+no index; its position in the turn is its whole identity, and Claude Code writes it nowhere else on
+disk. So it has to be decoded to a file before any seat can see it. `scripts/attach-pasted.mjs` does
+exactly that and then runs the driver:
+
+```bash
+node "$(dirname "$DRIVER")/attach-pasted.mjs" -- \
+  --cwd "$REPO" --brief --allow-no-commands \
+  --prompt 'TASK: … CHECK: … RETURN: …'
+```
+
+The default is **every image of the latest human turn, in the order pasted** — a series stays a series,
+which is what your own context has: a coordinator sees all N blocks before the text, so a seat asked
+about "the second screenshot" must see the same arrangement. Nothing is selected implicitly beyond that
+turn: if the latest human turn carries no image, the run refuses (exit 2) and names `--list` rather
+than reaching back to something older you did not mean.
+
+    --list                  the last 10 image-bearing human turns: uuid, timestamp, count,
+                            stored WxH, first 80 characters. Writes nothing.
+    --pasted-turn <uuid>    take that turn instead (repeatable, emitted in transcript order)
+    --pasted-pick 1,3-4     1-based indices within the selected turn
+    --pasted-allow-old      permit a turn >12h older than the session's newest record
+
+There is deliberately **no offset selector** (`back:2`, `--turns N`): machine records — task
+notifications, the skill loader's own injections, tool results — share the `user` type and interleave
+with yours, and a message queued while you compose the call shifts the count. An offset therefore
+selects a *different* image with no error. Copy a uuid from `--list`, which a human can check at a
+glance. Record uuids are also **not** stable across sessions: a resumed session copies earlier turns
+into its own file with fresh ids, which is what the 12-hour reach-back guard is for.
+
+Each image is validated before anything is written (media type against the record, magic bytes against
+the media type, 10 MB each / 25 MB per turn / 20 images), lands at
+`~/.codex-delegate/pasted/<pid>-<random>/NN-<sha>.png` mode 0600 in a 0700 directory, and is **removed
+when the run ends**. Not `$TMPDIR`: that is the read level's one writable root, so the very seat being
+shown the images could edit them. The stderr receipt names each image — turn, timestamp, the turn's
+text, index, stored dimensions, size, sha256, path — and says out loud that it goes to the model
+provider.
+
+Two facts worth knowing before asking for pixel coordinates: Claude Code **downscales** a paste to at
+most ~2000 px before storing it (its own meta records say "Multiply coordinates by 1.73 to map to the
+original"), so the receipt's `WxH` is the space the seat answers in; and the images carry no names, so
+if your prompt says "the first screenshot", number them there yourself — the driver adds no sentence of
+its own to a prompt you wrote.
 
 ## Worktree lifecycle
 

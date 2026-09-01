@@ -407,6 +407,10 @@ function parseArgs(argv) {
     if (o.prompt !== undefined) fail(EXIT.USAGE, "--review builds its own prompt; --prompt cannot be combined with it");
     if (o.resume) fail(EXIT.USAGE, "--review starts its own turn; --resume cannot be combined with it");
     if (o.outputSchemaFile || o.answerJson) fail(EXIT.USAGE, "--review returns the server's review shape; --output-schema and --answer-json cannot be combined with it");
+    // review/start carries no input items, and the review branch returns before turn/start — so an
+    // attachment on a review run was decoded, written and never sent, with nothing said. Refuse the
+    // combination rather than perform a silent drop.
+    if (o.attach.length) fail(EXIT.USAGE, "--review runs the server's own reviewer, which takes no input items; an --attach beside it would be dropped silently");
     // The reviewer works through the protocol, not the shell, so a turn with no commands is its
     // ordinary success.
     o.allowNoCommands = true;
@@ -2819,7 +2823,11 @@ async function main() {
   if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
   lastTurnParams = {
     threadId: rootThreadId,
-    input: [{ type: "text", text: prompt, text_elements: [] }, ...(opts.attachments ?? [])],
+    // Attachments FIRST, then the text — the layout the user's own turn has. Measured across every
+    // image-carrying turn in this machine's transcripts: 29 of 29 are [image…, text], never text-first.
+    // A seat asked about "the first screenshot" should be looking at the same arrangement its
+    // coordinator saw.
+    input: [...(opts.attachments ?? []), { type: "text", text: prompt, text_elements: [] }],
     model: opts.model ?? null, effort: null,
     ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
   };

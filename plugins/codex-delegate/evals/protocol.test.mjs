@@ -111,6 +111,8 @@ fs.mkdirSync(spacedDir);
 // A local "screenshot" for the --attach cases: only the extension matters, the fixture never opens it.
 const attachFile = path.join(shimDir, "shot.png");
 fs.writeFileSync(attachFile, "not-really-a-png");
+const attachFile2 = path.join(shimDir, "shot2.png");
+fs.writeFileSync(attachFile2, "nor-is-this");
 
 const mismatchSessions = path.join(shimDir, "sessions-mismatch");
 const mismatchDay = rolloutDay.replace(sessionsDir, mismatchSessions);
@@ -201,14 +203,20 @@ const CASES = [
   { scenario: "progress",         expect: EXIT.OK,
     why: "without --progress the same events stay silent: the default report contract does not grow noise",
     assertStderr: (e) => !/> run:/.test(e) || "progress lines appeared without --progress" },
-  { scenario: "echo-input",       expect: EXIT.OK, args: ["--attach", attachFile],
-    why: "--attach maps a local image into the turn input as the protocol's localImage item — the parity a native subagent has when a screenshot is pasted into its prompt",
+  { scenario: "echo-input",       expect: EXIT.OK, args: ["--attach", attachFile, "--attach", attachFile2],
+    why: "--attach maps local images into the turn input as localImage items, IMAGES FIRST and in the order given — the layout every one of the 29 image-carrying user turns on this machine has, so a seat asked about 'the first screenshot' sees what its coordinator saw",
     assert: (r) => {
       let inp = null;
       try { inp = JSON.parse(r.answer); } catch { return `the fixture did not echo the input: ${String(r.answer).slice(0, 80)}`; }
-      return (inp.length === 2 && inp[0].type === "text" && inp[1].type === "localImage" && String(inp[1].path).endsWith("shot.png"))
-        || `input items wrong: ${JSON.stringify(inp)}`;
+      return (inp.length === 3
+          && inp[0].type === "localImage" && String(inp[0].path).endsWith("shot.png")
+          && inp[1].type === "localImage" && String(inp[1].path).endsWith("shot2.png")
+          && inp[2].type === "text")
+        || `input items wrong (expected image, image, text): ${JSON.stringify(inp.map((x) => x.type))}`;
     } },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted", "--attach", attachFile], noPrompt: true,
+    why: "review/start carries no input items and the review branch returns before turn/start, so an attachment on a review run was decoded, written, and never sent — with nothing said",
+    assertStderr: (e) => /would be dropped silently/.test(e) || `the silent drop was not refused: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--attach", "/nonexistent/shot.png"],
     why: "a missing attachment is the caller's error, raised before anything runs — the server would otherwise refuse it mid-turn, after the delegation was paid for",
     assertStderr: (e) => /--attach.*does not exist/.test(e) || `the missing file was not named: ${e.slice(0, 140)}` },
