@@ -638,6 +638,37 @@ test("--worktree harvests a completed turn's work and removes the tree",
     return true;
   });
 
+test("--worktree harvests a seat's COMMITS, not just its diff, before removing the tree",
+  "the harvest diffed against HEAD, which by definition excludes what the seat committed — and a detached worktree's removal strands those commits behind no ref. A --worktree --commit seat's whole history was destroyed while the report said the work had been harvested",
+  async () => {
+    const repo = freshRepo("wt-commits");
+    if (!repo) return "git setup failed";
+    // The verifier runs in the tree: commit one change, leave another uncommitted, and an untracked file.
+    const { code, out } = await run(null, { args: ["--worktree", repo, "--verify",
+      "printf 'committed\\n' >> seed && git -c user.email=a@b -c user.name=a commit -qam seat-work"
+      + " && printf 'uncommitted\\n' >> seed && printf 'scratch\\n' > scratch.txt"] });
+    if (code !== EXIT.OK) return `the run exited ${code}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    if (!r) return "no JSON report";
+    try {
+      if (r.worktreeRemoved !== true) return `the tree was not removed: ${JSON.stringify(r.worktreePreserved)}`;
+      if (!r.worktreeCommitsRef) return "the seat's commits were not preserved under a ref";
+      const log = spawnSync("git", ["-C", repo, "log", "--format=%s", r.worktreeCommitsRef], { encoding: "utf8" });
+      if (log.status !== 0 || !/seat-work/.test(log.stdout))
+        return `the preserved ref does not carry the commit: ${String(log.stdout || log.stderr).trim().slice(0, 160)}`;
+      let diff = "";
+      try { diff = fs.readFileSync(r.worktreeDiffPath, "utf8"); } catch { return "no diff was saved"; }
+      // Diffed against the tree's BASE, so one patch carries the committed and the uncommitted line.
+      if (!/\+committed/.test(diff) || !/\+uncommitted/.test(diff))
+        return `the diff lost committed or uncommitted work: ${JSON.stringify(diff.slice(0, 200))}`;
+    } finally {
+      if (r?.worktreePath && fs.existsSync(r.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+      for (const p of [r?.worktreeDiffPath, r?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
 test("--worktree still preserves the tree when the turn did not complete, even a dirty one",
   "the harvest-and-remove path is for COMPLETED turns only: a failed turn's tree may be mid-write, and removal on anything but a settled state is data loss",
   async () => {
@@ -756,35 +787,59 @@ test("every run is recorded in the job registry, and --resume last finds the new
     try { rec = JSON.parse(fs.readFileSync(path.join(jobs, names[0]), "utf8")); } catch { return "the job record is not JSON"; }
     if (rec.exitCode !== 0 || rec.turnStatus !== "completed" || !rec.started || !rec.endedAt)
       return `the job record is incomplete: ${JSON.stringify(rec)}`;
-    const second = await run(freshDir("jobs-second"), { args: ["--resume", "last"] });
+    // Scoped to the cwd: the registry is machine-wide, and in a fan-out the newest record is routinely
+    // another repository's seat. Resuming that one would answer a follow-up about this directory from
+    // a conversation about a different one, and no sandbox assert can catch it — the resumed thread is
+    // simply handed the cwd it was asked for.
+    // (Every fixture run reports the same thread id, so the registry holds ONE record whose cwd is the
+    // latest run's. That is enough: resuming from that directory must work, and from any other must
+    // refuse rather than reach across.)
+    const owner = freshDir("jobs-owner");
+    const ownerRun = await run(owner, {});
+    if (ownerRun.code !== EXIT.OK) return `the owning run exited ${ownerRun.code}`;
+    const second = await run(owner, { args: ["--resume", "last"] });
     if (second.code !== EXIT.OK) return `--resume last exited ${second.code}: ${second.err.trim().slice(0, 160)}`;
     if (!/--resume last -> thr_root/.test(second.err))
       return `the resolution was not announced: ${second.err.trim().slice(0, 200)}`;
     let r = null; try { r = JSON.parse(second.out); } catch { return "no JSON report from the resumed run"; }
-    return r.threadId === "thr_root" || `the wrong thread was resumed: ${JSON.stringify(r.threadId)}`;
+    if (r.threadId !== "thr_root") return `the wrong thread was resumed: ${JSON.stringify(r.threadId)}`;
+    const elsewhere = await run(freshDir("jobs-elsewhere"), { args: ["--resume", "last"] });
+    if (elsewhere.code !== EXIT.USAGE)
+      return `--resume last reached across directories: expected exit 2 in a directory with no record, got ${elsewhere.code}`;
+    return /no previous run in/.test(elsewhere.err) || `the refusal did not say why: ${elsewhere.err.trim().slice(0, 160)}`;
   });
 
-test("--mcp carries the caller's mcp_servers as per-run spawn config, never through shared state",
-  "the isolated home strips MCP tools wholesale and --host-home restores everything; --mcp is the middle ground — and the grant must ride the -c spawn args, because one written into the shared config.toml leaks into concurrent runs that never asked for it (found by a live codex review of the first version)",
+test("--mcp uses a private per-run home: not the shared config, and never argv",
+  "two homes are wrong for it. The SHARED isolated config leaks the grant into concurrent runs that never asked for it; -c spawn args fix that and put an MCP server's env tokens into a world-readable argv, where a read seat in another repository could `ps` them. A per-run 0600 home is neither, and it must not survive the run",
   async () => {
-    const cfg = path.join(STATE_DIR, "home", "config.toml");
+    const shared = path.join(STATE_DIR, "home", "config.toml");
     const onLog = path.join(freshDir("mcp-log"), "on.log");
     const withMcp = await run(freshDir("mcp-on"), { args: ["--mcp"], env: { FAKE_MCP: "1", FAKE_RPC_LOG: onLog } });
-    if (withMcp.code !== EXIT.OK) return `the --mcp run exited ${withMcp.code}`;
+    if (withMcp.code !== EXIT.OK) return `the --mcp run exited ${withMcp.code}: ${withMcp.err.trim().slice(0, 160)}`;
+    let r = null; try { r = JSON.parse(withMcp.out); } catch { return "no JSON report"; }
+    const home = r.codexHome;
+    if (!home || !/\/homes\//.test(home)) return `the run did not use a per-run home: ${JSON.stringify(home)}`;
+    if (fs.existsSync(home)) return "the per-run home (which holds the caller's MCP secrets) outlived the run";
     let log = "";
     try { log = fs.readFileSync(onLog, "utf8"); } catch { return "the fixture logged nothing"; }
-    if (!/cfg:mcp_servers\.docs\.command/.test(log) || !/cfg:mcp_servers\.docs\.env\.TOKEN/.test(log))
-      return `the carriable server did not reach the spawn config: ${JSON.stringify(log.split("\n").filter((l) => /mcp/.test(l)))}`;
-    if (/cfg:mcp_servers\.exotic/.test(log)) return "an uncarriable server was mangled into the config instead of skipped";
-    if (!/exotic.*cannot carry/.test(withMcp.err)) return `the skip was silent: ${withMcp.err.trim().slice(0, 200)}`;
-    let body = "";
-    try { body = fs.readFileSync(cfg, "utf8"); } catch { return "no isolated config was written"; }
-    if (/mcp_servers/.test(body)) return "the per-run grant leaked into the SHARED config file";
-    const offLog = path.join(freshDir("mcp-log-off"), "off.log");
-    const without = await run(freshDir("mcp-off"), { env: { FAKE_MCP: "1", FAKE_RPC_LOG: offLog } });
+    if (/cfg:mcp_servers/.test(log)) return "MCP config — including env secrets — reached argv";
+    if (!/exotic.*cannot carry/.test(withMcp.err)) return `the uncarriable server's skip was silent: ${withMcp.err.trim().slice(0, 200)}`;
+    if (fs.existsSync(shared) && /mcp_servers/.test(fs.readFileSync(shared, "utf8")))
+      return "the grant leaked into the SHARED config file";
+    const without = await run(freshDir("mcp-off"), { env: { FAKE_MCP: "1" } });
     if (without.code !== EXIT.OK) return `the follow-up run exited ${without.code}`;
-    try { log = fs.readFileSync(offLog, "utf8"); } catch { return "the second fixture logged nothing"; }
-    return !/cfg:mcp_servers/.test(log) || "a run WITHOUT --mcp received an MCP grant";
+    let r2 = null; try { r2 = JSON.parse(without.out); } catch { return "no JSON report from the second run" }
+    if (/\/homes\//.test(r2.codexHome ?? "")) return "a run WITHOUT --mcp was given a per-run home";
+    return !/mcp_servers/.test(fs.readFileSync(shared, "utf8")) || "a run WITHOUT --mcp received an MCP grant";
+  });
+
+test("--mcp refuses to run blind when the config probe never reported the table",
+  "a capability asked for and silently not granted is the failure mode this driver refuses everywhere else; the last-known-good path could otherwise hand back a seat with no tools and no warning",
+  async () => {
+    const { code, err } = await run(freshDir("mcp-blind"), { args: ["--mcp"], env: { FAKE_CONFIG_FAIL: "1" } });
+    if (code !== EXIT.TRANSPORT) return `expected exit 4, got ${code}`;
+    return /--mcp was asked for but the caller's config could not be read/.test(err)
+      || `the refusal did not say why: ${err.trim().slice(0, 200)}`;
   });
 
 test("--steer-file reaches the running turn as turn/steer",
