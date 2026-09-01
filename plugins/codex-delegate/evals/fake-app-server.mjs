@@ -113,6 +113,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       model_reasoning_effort: unquote(CFG["model_reasoning_effort"]) || "medium",
       personality: unquote(CFG["personality"]) || "pragmatic",
       service_tier: unquote(CFG["service_tier"]) || "auto",
+      // What --mcp asks the probe to carry across; one carriable server, one that is not.
+      ...(process.env.FAKE_MCP ? { mcp_servers: {
+        docs: { command: "docs-server", args: ["--port", "0"], env: { TOKEN: "t" } },
+        exotic: { command: "x", nested: { deep: true } },
+      } } : {}),
     }, origins: {} }));
     return;
   }
