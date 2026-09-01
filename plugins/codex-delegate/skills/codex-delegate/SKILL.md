@@ -6,16 +6,20 @@ description: >-
   does not share Claude's bias; when fanning out reviewers or adversarial verifiers; when two hypotheses
   have already failed and a third guess from the same model repeats the same bias; when a second
   independent implementation is wanted; or when the user names Codex, GPT, or "the other model" (через
-  codex, через gpt, вторая имплементация, панель ревьюеров). Read it before fixing the mix whenever the
+  codex, через gpt, вторая имплементация, панель ревьюеров). Read this skill before fixing the mix whenever the
   user states how much work goes to Codex ("one of them codex", "half codex", "only codex") — and when
-  they forbid it ("no codex", "just you"): a refusal is still a composition this skill decides, and an
-  all-Claude panel owes the user one line naming its shared bias. Skip for trivia and mechanical
-  fact-gathering; knowing the answer is not a reason to skip a requested second opinion.
+  they forbid it ("no codex", "just you"): a refusal is still a composition this skill decides. Skip
+  for trivia and mechanical fact-gathering; knowing the answer is not a reason to skip a requested
+  second opinion.
 version: 0.5.0
 license: MIT
 ---
 
 # Delegating to Codex
+
+One **run** of the driver (a **delegation**) gives one Codex **seat** its declared rights and executes
+one **turn** — a prompt→answer exchange on a thread; `--resume` adds turns to the same thread across
+runs.
 
 ## Before the first call
 
@@ -24,20 +28,21 @@ license: MIT
   do not add allow-rules on their behalf.
 - Requirements: `codex` CLI installed and authenticated (`codex login status`). The model, reasoning
   effort, personality and service tier are inherited from the caller's `~/.codex/config.toml` unless
-  overridden per call. Install routes and prerequisites: README.
-- After a codex upgrade, follow README's upgrade recipe (regenerate `schema-<v>/`, run the eval suites)
-  before trusting a run — the app-server protocol carries no stability promise.
+  overridden per call. Install routes and prerequisites: `README.md` at the plugin root.
+- After a codex upgrade, follow the README's upgrade recipe (regenerate `schema-<v>/`, run the eval
+  suites) before trusting a run — the app-server protocol carries no stability promise.
 - The `openai-codex` plugin and the `codex exec`-based skills are not substitutes where rights matter:
   their read and review seats cannot run tests, and the failure is silent (the run still exits 0). The
-  verdict is in README, the forensics in
+  verdict is in the README, the forensics in
   [references/why-not-the-plugin.md](references/why-not-the-plugin.md).
 
 ## What to type
 
 The driver lives at `scripts/driver.mjs` under THIS skill's base directory (announced when this file
-loads) — set `DRIVER` to that absolute path once per session. A read seat — the common case, and what a
-panel's dissenting seat needs. The JSON report and a resumable thread are the defaults; `--brief` keeps
-the inline answer out of your context budget:
+loads) — set `DRIVER` to that absolute path, and `REPO` to the repository the seat works on, once per
+session. A read seat is the common case, and what a panel's dissenting seat needs. The JSON report and a
+resumable thread are the defaults; `--brief` caps the inline answer (the full text survives at
+`answerPath`):
 
 ```bash
 node "$DRIVER" --cwd "$REPO" --brief \
@@ -47,8 +52,9 @@ CHECK:  <the ground truth to verify against>
 RETURN: <exactly what to hand back>'
 ```
 
-Omit `--expect-command` when the task has no single command signature — the no-command floor still
-holds. A write seat: the driver creates a detached worktree under `$REPO/.claude/worktrees/`, runs the
+Omit `--expect-command` when the task has no single command signature — the no-command floor (exit 0
+still needs SOME command to have really executed; `--allow-no-commands` waives it) holds either way. A
+write seat: the driver creates a detached worktree under `$REPO/.claude/worktrees/`, runs the
 turn there, and owns the tree end to end — harvest and disposal included; see
 [Worktree lifecycle](#worktree-lifecycle):
 
@@ -82,7 +88,7 @@ The caller controls it. Honour whatever they said; when they said nothing, use t
 | What the caller says | Composition |
 | --- | --- |
 | "no codex", "just you" | zero Codex seats |
-| *nothing* — **the default** | panels, refutation, competing designs: **one** Codex seat, given to the seat whose job is to disagree. Mechanical fan-out: **zero**. A single task: yours |
+| *nothing* — **the default** | panels, refutation, competing designs: **one** Codex seat, given to the seat whose job is to disagree. Mechanical fan-out: **zero**. A single task: zero — you do it yourself |
 | "a codex seat", "one of them codex" | exactly one |
 | "half codex" | half the seats, rounded up |
 | "mostly codex" | every seat except the coordinator; you orchestrate, synthesise, verify |
@@ -246,6 +252,7 @@ disk. So it has to be decoded to a file before any seat can see it. `scripts/att
 exactly that and then runs the driver:
 
 ```bash
+# the bare -- ends attach-pasted's own selector flags; everything after it goes to the driver
 node "$(dirname "$DRIVER")/attach-pasted.mjs" -- \
   --cwd "$REPO" --brief --allow-no-commands \
   --prompt 'TASK: … CHECK: … RETURN: …'
@@ -301,7 +308,8 @@ whatever happened, and a crash is transport failure (exit 4) — so the driver d
 | 12 | `--verify` could not be run at all — fix the verifier, not the work |
 | 13 | the answer never matched `--output-schema`, even after the corrective turn — `schemaErrors` says how |
 
-These are ordered, first match wins: **3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 13 → 11**. Every code decided
+These are ordered, first match wins, and 4 and 10 never enter the ladder — they end the run before the
+turn's verdict exists: **3 → 2 → 1 → 7 → 6 → 12 → 9 → 5 → 8 → 13 → 11**. Every code decided
 after the turn can carry executed work — 3 most of all. The codes that mean nothing ran are decided
 before the turn: an argument-error 2 (prints no report), 10, the assertion 4s — and a 3 raised before
 the turn existed (a stalled config probe or stdin under a short `--timeout`), which also prints no
@@ -339,7 +347,7 @@ ran), and it cannot rescue a turn that did not complete. How each gate can be fo
 
     --verify 'test -f done.txt && grep -q PROOF done.txt'
     --verify 'pnpm -w exec vitest run --project docs'
-    --verify 'git -C "$W" diff --quiet && exit 1 || exit 0'   # demand that something changed
+    --verify 'git diff --quiet && exit 1 || exit 0'   # demand that something changed
 
 ## Escalations mean your sandbox was too small
 
@@ -354,7 +362,7 @@ stays root-thread-only.
 
 At write level the driver takes an exclusive lock keyed on the cwd's identity; a second run in the same
 directory exits 10 rather than racing the first, and the exit-10 message names the lock file to delete
-if the holder is really gone. It serialises invocations, not directories: give every concurrent run its
+if the holder is really gone. It serialises runs, not directories: give every concurrent run its
 own cwd (`--worktree` does). Release timing, reclaim, and the `CODEX_DELEGATE_STATE_DIR` override:
 [references/lock-internals.md](references/lock-internals.md) and
 [references/flags-and-internals.md](references/flags-and-internals.md).
@@ -391,7 +399,7 @@ assumed to be, and how the shared isolated home works:
 
 The four worth knowing without opening either: `--level read|write` (default `read`) · `--timeout
 <sec>` (default 900) · `--brief` (cap the inline answer; the full text is at `answerPath`) ·
-`--allow-no-commands` (waives the command floor, never a declared expectation).
+`--allow-no-commands` (waives the no-command floor, never a declared expectation).
 
 **Only `~/.codex`, `~/.codex-delegate` and the driver's state directory are protected roots** — the
 rest of your home, `~/.ssh` included, is grantable; the reference above says exactly what is refused
