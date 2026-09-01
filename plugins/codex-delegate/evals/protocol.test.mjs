@@ -152,6 +152,10 @@ const CASES = [
     why: "the enumerated transient causes were documented as retryable and never retried — a provider blip failed the whole delegation; one bounded backoff absorbs it when the turn produced nothing observable",
     assert: (r) => (r.transientRetries?.length === 1 && r.transientRetries[0].cause === "responseStreamDisconnected" && r.commandsSucceeded === 1)
       || `the retry did not happen or was miscounted: ${JSON.stringify({ retries: r.transientRetries, cmds: r.commandsSucceeded })}` },
+  { scenario: "transient-after-tool", expect: EXIT.TURN_NOT_COMPLETED,
+    why: "an MCP tool call is observable work with side effects the replay would duplicate — the no-work guard must count the items the evidence gates ignore, not only commands, files and messages",
+    assert: (r) => (r.transientRetries?.length === 0 && r.otherItemCounts?.mcpToolCall === 1)
+      || `a turn that had already called a tool was retried: ${JSON.stringify({ retries: r.transientRetries, other: r.otherItemCounts })}` },
   { scenario: "transient-always", expect: EXIT.TURN_NOT_COMPLETED,
     why: "one retry is the whole budget: a cause that persists reports the failure instead of looping",
     assert: (r) => (r.transientRetries?.length === 1 && r.turnStatus === "failed")
@@ -169,6 +173,12 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted"],
     why: "--review builds its own prompt; a --prompt beside it (the harness always passes one here) is a contradiction, not an extra",
     assertStderr: (e) => /--review builds its own prompt/.test(e) || `the contradiction was not named: ${e.slice(0, 140)}` },
+  { scenario: "review-broken",    expect: EXIT.COMMAND_FAILED, args: ["--review", "branch:nonexistent"], noPrompt: true,
+    why: "the review waiver is keyed on a review having ARRIVED, not on the flag: a review whose git commands failed and which produced no payload must not exit 0 just because --review was passed",
+    assert: (r) => r.commandsFailed === 1 || `the failed review command was not counted: ${JSON.stringify(r.commandsFailed)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nATTACH: /etc/hosts\n",
+    why: "ATTACH is not a seat-file field: a newline in any relayed value could inject one, and the injected line would upload a file the coordinator never named to the model provider",
+    assertStderr: (e) => /unknown field "ATTACH"/.test(e) || `an injected ATTACH was accepted: ${e.slice(0, 160)}` },
   { scenario: "rich-items",       expect: EXIT.OK,
     why: "reasoning summaries, tool/search items and subagent threads used to be dropped on the floor — a turn that mostly searched or delegated looked idle; they are now VISIBLE in the report while the child's command still counts for nothing",
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
