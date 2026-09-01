@@ -169,6 +169,14 @@ What it does **not** prove: the receipt is evidence against a wrapper that forwa
 against one that fabricated the whole report — a process that writes the report can write anything in
 it. Read the rollout yourself when the answer matters that much.
 
+**Verify with them; do not narrate them.** `threadId`, `exitCode` and `receiptOk` are the coordinator's
+instruments, not the caller's reading material — the harness hands you a native subagent's id marked
+"internal, do not mention to the user", and nobody misses it. Report the seat's ANSWER, attributed as
+the composition rules require ("Codex found…"). An id or a code goes to the caller only when it changes
+what they do next: the seat failed or returned nothing; `receiptOk` is false on a run that claims
+success; they are auditing the delegation machinery itself, where the exit code IS the finding; or they
+are about to `--resume` the thread and need the id.
+
 ## Levels
 
 Two levels, mirroring your own subagents — a reader that may run things, and a writer confined to a
