@@ -149,7 +149,10 @@ skills/codex-delegate/           the skill: SKILL.md (the operating manual), scr
 agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
 evals/                           three suites — protocol, lock, and fidelity against the live server
-schema-0.150.1/                  the pinned protocol schema the driver is written against
+schema-0.150.1/                  the pinned protocol schema the driver is written against; kept in the
+                                 repo (and therefore in plugin installs) deliberately — it is the
+                                 regeneration oracle the upgrade recipe diffs against, and stripping it
+                                 from installs would also strip the suites this README tells you to run
 ```
 
 ## Status
