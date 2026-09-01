@@ -92,10 +92,12 @@ Rights
 
   --seat-file F      read the seat's declaration from F — one "FIELD: value" per
                      line (SEAT/EFFORT/TIMEOUT/EXPECT/VERIFY/NETWORK/MODEL/
-                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/COMMIT/BRIEF/
-                     ALLOW_NO_COMMANDS), values taken literally to end of line.
-                     --attach is NOT among them: an injected ATTACH line would
-                     upload a file nobody named. Pass it on the command line
+                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/COMMIT/BRIEF/PROGRESS/
+                     REVIEW/RESUME/ALLOW_NO_COMMANDS), values taken literally to
+                     end of line. --attach, --steer-file and --mcp are NOT among
+                     them: an injected line would upload a file nobody named,
+                     truncate a file nobody named, or grant tool servers nobody
+                     granted. Pass those on the command line
                      SEAT is required and must come FIRST. For a wrapper: write
                      the values, do not build a command line out of them.
                      Explicit flags override the file. A NEWLINE inside a value
@@ -246,10 +248,17 @@ prints none. Codes decided after the turn can all carry executed work.
 //     seat file it now requires --allow-seat-verify on the COMMAND LINE, which is the one place the
 //     coordinator writes directly and no relayed value can reach. A coordinator that wants a verifier
 //     passes --verify itself; a relay does not get to introduce one.
-// ATTACH is deliberately NOT here, for the reason VERIFY needs --allow-seat-verify: a newline inside a
-// relayed value opens a new field, and an injected `ATTACH: ~/Documents/private.png` would upload a
-// file the coordinator never named to the model provider. --attach is a command-line flag only.
-const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE"]);
+// Three flags are deliberately NOT fields, all for one reason: a newline inside a relayed value opens a
+// new field, so any field here can be injected by text the wrapper merely passed through.
+//   VERIFY      executes a shell with the caller's rights (allowed only via --allow-seat-verify).
+//   ATTACH      uploads a local file to the model provider — an injected line names a file nobody chose.
+//   STEER-FILE  the driver TRUNCATES that path while the turn runs; an injected line is a write
+//               primitive pointed at any file the caller can write.
+//   MCP         grants tool servers that run with the caller's rights and reach outside the sandbox.
+// Each stays a command-line flag, which is the one place a relayed value cannot reach.
+const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
+                             "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE",
+                             "REVIEW", "RESUME", "PROGRESS"]);
 let seatFileFields = null;   // what the file actually declared, for the report
 function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
@@ -286,7 +295,8 @@ function argvFromSeatFile(file, allowSeatVerify) {
       else fail(EXIT.USAGE, `--seat-file: SEAT must be read | worktree <repo> | write <dir>, got ${JSON.stringify(value)}`);
       continue;
     }
-    const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands", BRIEF: "--brief", COMMIT: "--commit" };
+    const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands", BRIEF: "--brief",
+                    COMMIT: "--commit", PROGRESS: "--progress" };
     if (BOOLS[field]) {
       if (!/^(yes|true|1)$/i.test(value)) fail(EXIT.USAGE, `--seat-file: ${field} must be yes or omitted, got ${JSON.stringify(value)}`);
       out.push(BOOLS[field]);
@@ -295,7 +305,7 @@ function argvFromSeatFile(file, allowSeatVerify) {
     if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
     const FLAGS = { EFFORT: "--effort", TIMEOUT: "--timeout", EXPECT: "--expect-command", VERIFY: "--verify",
                     MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
-                    WRITABLE: "--writable" };
+                    WRITABLE: "--writable", REVIEW: "--review", RESUME: "--resume" };
     out.push(FLAGS[field], value);
   }
   if (!seen.has("SEAT")) fail(EXIT.USAGE, "--seat-file: no SEAT field; the seat's rights must be declared, not defaulted");
