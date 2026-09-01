@@ -1383,6 +1383,8 @@ let verifyResult = null;    // the caller-run check, the one piece of evidence t
 let tokenUsage = null;      // the latest thread/tokenUsage/updated payload: what this seat cost
 let outputAttempts = 0;     // turns STARTED under --output-schema; at most one corrective retry
 let requestFn = null;       // main()'s request closure, hoisted so the corrective turn can reach it
+let lastTurnParams = null;  // the original turn/start params, so a transient retry replays them exactly
+const transientRetries = [];  // {cause, delayMs} per retry taken, for the report
 // Every turn id OUR turn/start calls returned. Evidence attribution checks membership here rather than
 // equality with the latest id: a first-turn item that raced past its own turn/completed used to be
 // replayed under the corrective turn's id and dropped, contradicting "the first turn's evidence stays
@@ -1542,10 +1544,22 @@ function handleMessage(msg) {
     if (settled) return;
     turnStatus = p?.turn?.status ?? "unknown";
     // Populated only when the turn failed, and it carries an enumerated cause worth acting on:
-    // usageLimitExceeded / serverOverloaded -> back off and retry the same turn, do not re-prompt;
+    // usageLimitExceeded / serverOverloaded / responseStreamDisconnected -> retried below, once;
     // contextWindowExceeded -> the handoff was too large, split it; unauthorized -> stop;
-    // sandboxError -> the rights level was wrong; responseStreamDisconnected -> transport, retry.
+    // sandboxError -> the rights level was wrong.
     turnError = p?.turn?.error ?? null;
+    // The comment above always KNEW which causes are transient; nothing acted on it, so a provider
+    // blip failed the whole delegation. ONE bounded retry, and only while the turn produced nothing
+    // observable — no commands, no file changes, no messages — because replaying the prompt after
+    // visible work risks doing that work twice. The wall clock must leave the backoff plus at least
+    // ten seconds of turn, or the retry just converts a failure into a timeout.
+    if (turnStatus === "failed" && transientRetries.length === 0
+        && RETRYABLE[errKind(turnError)] !== undefined
+        && commands.length === 0 && fileChanges.length === 0 && messages.length === 0
+        && startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + 10000) {
+      startTransientRetry(errKind(turnError));
+      return;
+    }
     // Under --output-schema a completed turn whose answer misses the shape gets ONE corrective turn on
     // the same thread — the validation errors and nothing else — mirroring the retry a Claude
     // subagent's tool layer provides. The commands and evidence of the first turn stay counted.
@@ -1640,6 +1654,27 @@ function answerSchemaErrors(text) {
   if (parsed.answerJson === null || typeof parsed.answerJson !== "object" || Array.isArray(parsed.answerJson))
     return ["the answer is valid JSON but not an object"];
   return schemaErrors(parsed.answerJson, opts.outputSchema);
+}
+
+// The backoff per transient cause. A disconnected stream is ready again almost at once; an overloaded
+// server and an exceeded usage window deserve a real pause.
+const RETRYABLE = { responseStreamDisconnected: 2000, serverOverloaded: 10000, usageLimitExceeded: 10000 };
+function startTransientRetry(cause) {
+  const delayMs = RETRYABLE[cause];
+  transientRetries.push({ cause, delayMs });
+  process.stderr.write(`codex-delegate: turn failed with ${cause}; retrying once in ${delayMs / 1000}s\n`);
+  // Hold the new turn's events until its id arrives, exactly as at startup and in the corrective turn.
+  rootTurnId = null;
+  // Ref'd on purpose: the timer must fire even if every pipe momentarily goes quiet.
+  setTimeout(() => {
+    if (settled) return;
+    requestFn("turn/start", lastTurnParams).catch((e) => {
+      if (settled) return;
+      process.stderr.write(`codex-delegate: the retry failed to start (${e.message}); reporting the original failure\n`);
+      turnStatus = "failed";
+      finish();
+    });
+  }, delayMs);
 }
 
 function startCorrectiveTurn(errs) {
@@ -2026,6 +2061,9 @@ function finish(reason) {
     filesTouched: fileChanges.filter((f) => f.status === "completed").map((f) => f.move ?? f.path),
     fileChangesFailed: failedPatches,
     escalations, interactions, unparsedLines, expectCommand: opts.expect ?? null,
+    // Transient provider failures the driver absorbed with a bounded backoff; empty on the vast
+    // majority of runs, and the honest record of the delay when it happened.
+    transientRetries,
     // What a seat FILE declared, in order, when one was used. A wrapped seat is otherwise indistinguishable
     // from a hand-typed one in the report, and the fields a relay wrote are exactly what a coordinator
     // needs to see when it did not write them itself.
@@ -2324,12 +2362,13 @@ async function main() {
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
 
   if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
-  await request("turn/start", {
+  lastTurnParams = {
     threadId: rootThreadId,
     input: [{ type: "text", text: prompt, text_elements: [] }],
     model: opts.model ?? null, effort: null,
     ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
-  });
+  };
+  await request("turn/start", lastTurnParams);
 }
 
 // Installing a handler removes Node's default terminate-on-signal, so the handler must always end the
