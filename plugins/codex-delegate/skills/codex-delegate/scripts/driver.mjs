@@ -75,11 +75,14 @@ Rights
                      taken, so read seats run in parallel over one directory
   --level write      workspace-write over --cwd; takes a per-directory lock
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
-                     there at write level, and remove it afterwards only when the
-                     turn completed AND git reports no changes (a clean tree whose
-                     turn never started is removed too); every other outcome
-                     preserves the tree and the report says why and how to remove
-                     it (implies --level write; replaces --cwd)
+                     there at write level, and dispose of it afterwards: once the
+                     turn completed, the work is harvested — the tracked diff and
+                     an archive of untracked files land under
+                     ~/.codex-delegate/answers/, paths in the report — and the
+                     tree is removed (a clean tree whose turn never started is
+                     removed too). A turn that did not complete, or a harvest
+                     that failed, preserves the tree and the report says why and
+                     how to remove it (implies --level write; replaces --cwd)
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   --commit           also grant the git common dir, for a turn that commits
@@ -963,10 +966,36 @@ let worktreeInfo = null;
 // the whole thing in a try/catch, so a missing passwd entry costs the path and nothing else.
 const answersDir = () => path.join(stateDir("the answer log"), "answers");
 
+// What CRASHED runs left behind, reconciled on the next --worktree invocation — the moment the cost is
+// amortized and worktrees are already the topic. A ledger entry whose owner is dead names either a
+// tree that is gone (drop the entry), a clean tree (remove both), or a dirty one (keep both and say
+// so). Entries used to accumulate forever with no owner and no reconciler. Best-effort, never fatal.
+function reconcileWorktreeLedgers() {
+  try {
+    const ledgerDir = path.join(stateDir("the worktree ledger"), "worktrees");
+    for (const n of fs.readdirSync(ledgerDir).filter((x) => x.endsWith(".json")).slice(0, 50)) {
+      const p = path.join(ledgerDir, n);
+      let e = null;
+      try { e = JSON.parse(fs.readFileSync(p, "utf8")); } catch { fs.rmSync(p, { force: true }); continue; }
+      if (holderAlive({ pid: e?.pid })) continue;
+      if (!e?.path || !fs.existsSync(e.path)) { fs.rmSync(p, { force: true }); continue; }
+      const st = spawnSync("git", ["-C", e.path, "status", "--porcelain"], { encoding: "utf8" });
+      if (st.status === 0 && st.stdout.trim() === "" &&
+          spawnSync("git", ["-C", e.repo ?? e.path, "worktree", "remove", e.path], { encoding: "utf8" }).status === 0) {
+        fs.rmSync(p, { force: true });
+        process.stderr.write(`codex-delegate: removed a crashed run's clean worktree ${e.path}\n`);
+      } else {
+        process.stderr.write(`codex-delegate: a crashed run left work at ${e.path}; harvest it, then: git -C ${e.repo ?? "<repo>"} worktree remove --force ${e.path}\n`);
+      }
+    }
+  } catch {}
+}
+
 function createWorktree(repo) {
   // Guarded BEFORE `git worktree add` mutates anything: a repo inside a protected root used to be
   // checked out (running its hooks) and only then refused by the cwd check.
   checkRoot(repo);
+  reconcileWorktreeLedgers();
   const chk = spawnSync("git", ["-C", repo, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8" });
   if (chk.status !== 0 || chk.stdout.trim() !== "true") fail(EXIT.USAGE, `--worktree needs a git work tree at ${repo}`);
   const name = `codex-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
@@ -1002,24 +1031,27 @@ function createWorktree(repo) {
   return dir;
 }
 
-// Runs AFTER the turn settled and after --verify (the verifier executes in the tree). Removal never uses
-// --force: a clean tree needs none, and anything git refuses to remove is by definition worth looking at.
+// Runs AFTER the turn settled and after --verify (the verifier executes in the tree).
+// A COMPLETED turn's tree is disposed of entirely: the work is harvested first — the tracked diff
+// (staged and unstaged, --binary so a binary edit survives `git apply`) and an archive of the
+// untracked files, both under the answers dir — and only then is the tree removed, --force included,
+// because the harvest now holds every byte the force could destroy. That is the parity a native
+// worktree subagent has: the routine outcome of a write seat asks nothing of the operator. A turn
+// that did NOT complete, a failing git, or a failed harvest preserves the tree — fail-safe, out loud.
 function disposeWorktree(turnDone) {
   if (!worktreeInfo || worktreeInfo.disposed) return null;
   worktreeInfo.disposed = true;
   const { repo, dir, ledger } = worktreeInfo;
-  const res = { worktreePath: dir, worktreeRemoved: false, worktreePreserved: null,
-                worktreeDiffStat: null, worktreeDiffPath: null, worktreeFleet: null };
+  const res = { worktreePath: dir, worktreeRemoved: false, worktreePreserved: null, worktreeHarvested: false,
+                worktreeDiffStat: null, worktreeDiffPath: null, worktreeUntrackedPath: null, worktreeFleet: null };
   const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
   const clean = st.status === 0 && st.stdout.trim() === "";
   if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
   else if (st.status !== 0) res.worktreePreserved = "git status failed in the worktree";
   else if (!clean) {
-    res.worktreePreserved = "the tree holds changes; harvest them, then remove";
     // `git diff HEAD`, not bare `git diff`: dirtiness is decided by `status --porcelain`, which sees
     // staged changes, so the harvest must see them too — the bare form omits them, and a turn that
-    // staged work without committing reported a null diff beside "harvest them, then remove" and a
-    // force-remove command that deleted the only copy. HEAD always exists in a tree `worktree add
+    // staged work without committing lost that half. HEAD always exists in a tree `worktree add
     // --detach` created; the bare form stays as a fallback for a git that refuses HEAD.
     const diffVs = (extra) => {
       let r = spawnSync("git", ["-C", dir, "diff", "HEAD", ...extra], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -1028,18 +1060,39 @@ function disposeWorktree(turnDone) {
     };
     const ds = diffVs(["--stat"]);
     if (ds.status === 0 && ds.stdout.trim()) res.worktreeDiffStat = ds.stdout.trim().slice(0, 2000);
-    // The tracked diff (staged and unstaged), saved beside the answer for harvesting without a shell.
-    // Untracked files are not in it — they are exactly why the tree itself is preserved.
-    const full = diffVs([]);
-    if (full.status === 0 && full.stdout) {
-      try {
-        const p = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}.diff`);
-        fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 });
-        fs.writeFileSync(p, full.stdout, { mode: 0o600 });
-        res.worktreeDiffPath = p;
-      } catch {}
+    // Returns null on success, or the reason the harvest cannot be trusted — in which case the tree
+    // is preserved exactly as before this existed.
+    const harvest = () => {
+      const base = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}`);
+      fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 });
+      const full = diffVs(["--binary"]);
+      if (full.status !== 0) return `the diff could not be taken (${String(full.stderr).trim().slice(0, 120)})`;
+      if (full.stdout.length) {
+        fs.writeFileSync(`${base}.diff`, full.stdout, { mode: 0o600 });
+        res.worktreeDiffPath = `${base}.diff`;
+      }
+      const ls = spawnSync("git", ["-C", dir, "ls-files", "--others", "--exclude-standard", "-z"],
+        { maxBuffer: 64 * 1024 * 1024 });
+      if (ls.status !== 0) return "the untracked list could not be taken";
+      if (ls.stdout.length) {
+        const tar = spawnSync("tar", ["-czf", `${base}.untracked.tgz`, "-C", dir, "--null", "-T", "-"],
+          { input: ls.stdout, encoding: "utf8" });
+        if (tar.status !== 0) return `untracked files could not be archived (${String(tar.stderr).trim().slice(0, 120)})`;
+        res.worktreeUntrackedPath = `${base}.untracked.tgz`;
+      }
+      return null;
+    };
+    let why = null;
+    try { why = harvest(); } catch (e) { why = e.message; }
+    if (why) res.worktreePreserved = `the tree holds changes and the harvest failed (${why}); harvest by hand, then remove`;
+    else {
+      res.worktreeHarvested = true;
+      const rm = spawnSync("git", ["-C", repo, "worktree", "remove", "--force", dir], { encoding: "utf8" });
+      if (rm.status === 0) res.worktreeRemoved = true;
+      else res.worktreePreserved = `harvested, but git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
     }
   } else {
+    // A clean tree needs no force, and anything git refuses to remove here is worth looking at.
     const rm = spawnSync("git", ["-C", repo, "worktree", "remove", dir], { encoding: "utf8" });
     if (rm.status === 0) res.worktreeRemoved = true;
     else res.worktreePreserved = `git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
@@ -2133,11 +2186,12 @@ function finish(reason) {
       + (opts.schemaUnchecked ? ` [unchecked keywords: ${opts.schemaUnchecked.join(", ")}]` : ""));
     if (worktree) {
       L.push(worktree.worktreeRemoved
-        ? `worktree: removed (clean) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
+        ? `worktree: removed (${worktree.worktreeHarvested ? "work harvested" : "clean"}) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
         : `worktree: PRESERVED at ${worktree.worktreePath} — ${worktree.worktreePreserved}`);
+      if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
+      if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
+      if (worktree.worktreeUntrackedPath) L.push(`  untracked files saved to ${worktree.worktreeUntrackedPath}`);
       if (!worktree.worktreeRemoved) {
-        if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
-        if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
         L.push(`  harvest, then: ${worktree.worktreeRemoveCommand}`);
         if ((worktree.worktreeFleet ?? 0) > 1) L.push(`  fleet: ${worktree.worktreeFleet} codex worktrees under this repo`);
       }

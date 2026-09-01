@@ -602,34 +602,83 @@ test("--worktree removes a clean tree and reports the disposition",
     return true;
   });
 
-test("--worktree preserves a tree that holds changes, and says how to remove it",
-  "auto-removing a changed tree destroys the only copy of the work; untracked files show in porcelain and must block removal exactly like tracked ones",
+test("--worktree harvests a completed turn's work and removes the tree",
+  "the routine outcome of a write seat — a tree holding the work — used to hand the operator a harvest-then-force-remove chore that no native worktree subagent asks for; the driver now harvests (staged, unstaged AND untracked) and removes",
   async () => {
     const repo = freshRepo("wt-dirty");
     if (!repo) return "git setup failed";
     // The verifier runs inside the worktree after the turn — the cheapest honest way to dirty the tree.
     // Both an untracked file AND a STAGED tracked change: dirtiness is decided by `status --porcelain`,
-    // which sees staged work, so the harvest diff must see it too — `git diff` alone omitted it, and the
-    // report published a force-remove command beside a diff that lost the staged half.
+    // which sees staged work, so the harvest must see it too.
     const { code, out } = await run(null, { args: ["--worktree", repo, "--verify",
-      "touch untracked-work.txt && printf 'staged-line\\n' >> seed && git add seed"] });
+      "printf 'untracked-content\\n' > untracked-work.txt && printf 'staged-line\\n' >> seed && git add seed"] });
     if (code !== EXIT.OK) return `the run exited ${code}`;
     let r = null; try { r = JSON.parse(out); } catch {}
     if (!r) return "no JSON report";
     try {
-      if (r.worktreeRemoved !== false) return "a tree holding work was removed";
-      if (!r.worktreePreserved || !/harvest/.test(r.worktreePreserved)) return `no preservation reason: ${JSON.stringify(r.worktreePreserved)}`;
-      if (!r.worktreeRemoveCommand || !r.worktreeRemoveCommand.includes("worktree remove")) return "no removal command in the report";
-      if (!fs.existsSync(path.join(r.worktreePath, "untracked-work.txt"))) return "the preserved tree lost the work";
+      if (r.worktreeHarvested !== true) return `the work was not harvested: ${JSON.stringify(r.worktreePreserved)}`;
+      if (r.worktreeRemoved !== true) return `a harvested tree was not removed: ${JSON.stringify(r.worktreePreserved)}`;
+      if (fs.existsSync(r.worktreePath)) return "the tree still exists after removal";
+      if (worktreesUnder(repo).length) return `worktree directories left behind: ${JSON.stringify(worktreesUnder(repo))}`;
       if (!r.worktreeDiffStat || !/seed/.test(r.worktreeDiffStat))
         return `the diff stat does not show the staged change: ${JSON.stringify(r.worktreeDiffStat)}`;
       let diff = "";
       try { diff = fs.readFileSync(r.worktreeDiffPath, "utf8"); } catch {}
       if (!/\+staged-line/.test(diff))
         return `the saved diff lost the staged change (worktreeDiffPath=${JSON.stringify(r.worktreeDiffPath)})`;
+      if (!r.worktreeUntrackedPath) return "no untracked archive was saved";
+      const listing = spawnSync("tar", ["-tzf", r.worktreeUntrackedPath], { encoding: "utf8" });
+      if (listing.status !== 0 || !/untracked-work\.txt/.test(listing.stdout))
+        return `the untracked archive lost the file: ${String(listing.stdout).trim()}`;
+    } finally {
+      if (r?.worktreePath && fs.existsSync(r.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+      for (const p of [r?.worktreeDiffPath, r?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
+test("--worktree still preserves the tree when the turn did not complete, even a dirty one",
+  "the harvest-and-remove path is for COMPLETED turns only: a failed turn's tree may be mid-write, and removal on anything but a settled state is data loss",
+  async () => {
+    const repo = freshRepo("wt-failed");
+    if (!repo) return "git setup failed";
+    const { code, out } = await run(null, { scenario: "turn-failed", args: ["--worktree", repo] });
+    if (code !== 1) return `expected exit 1, got ${code}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    try {
+      if (!r) return "no JSON report";
+      if (r.worktreeRemoved !== false) return "a failed turn's tree was removed";
+      if (!fs.existsSync(r.worktreePath)) return "the tree is gone despite worktreeRemoved:false";
     } finally {
       if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
     }
+    return true;
+  });
+
+test("a crashed run's ledger entries are reconciled on the next --worktree invocation",
+  "ledger entries had no retention and no reconciler: a killed run's entry (and its clean tree) survived forever, unlike the answer log beside it which is pruned",
+  async () => {
+    const repo = freshRepo("wt-ledger");
+    if (!repo) return "git setup failed";
+    const ledgerDir = path.join(STATE_DIR, "worktrees");
+    fs.mkdirSync(ledgerDir, { recursive: true, mode: 0o700 });
+    // Entry 1: a dead pid naming a tree that no longer exists — the entry must be dropped.
+    const gonePath = path.join(repo, ".claude", "worktrees", "codex-gone");
+    fs.writeFileSync(path.join(ledgerDir, "codex-gone.json"),
+      JSON.stringify({ path: gonePath, repo, pid: 2147483646, started: "old" }));
+    // Entry 2: a dead pid naming a real, CLEAN worktree — both must be removed.
+    const cleanPath = path.join(repo, ".claude", "worktrees", "codex-stale-clean");
+    fs.mkdirSync(path.dirname(cleanPath), { recursive: true });
+    const add = spawnSync("git", ["-C", repo, "worktree", "add", "--detach", cleanPath], { encoding: "utf8" });
+    if (add.status !== 0) return `worktree add failed: ${String(add.stderr).trim()}`;
+    fs.writeFileSync(path.join(ledgerDir, "codex-stale-clean.json"),
+      JSON.stringify({ path: cleanPath, repo, pid: 2147483646, started: "old" }));
+    const { code, err } = await run(null, { args: ["--worktree", repo] });
+    if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(0, 160)}`;
+    if (fs.existsSync(path.join(ledgerDir, "codex-gone.json"))) return "the gone tree's entry survived";
+    if (fs.existsSync(path.join(ledgerDir, "codex-stale-clean.json"))) return "the clean tree's entry survived";
+    if (fs.existsSync(cleanPath)) return "the crashed run's clean worktree was not removed";
     return true;
   });
 
