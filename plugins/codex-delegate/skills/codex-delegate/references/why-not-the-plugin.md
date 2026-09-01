@@ -65,8 +65,8 @@ it hits the same clamp on managed machines — no `-c` override reaches it (thre
 
 | | `codex exec` | `codex mcp-server` | `codex app-server` |
 | --- | --- | --- | --- |
-| status | stable | stable, not measured here | `[experimental]` per `codex --help` |
-| per-call approval / sandbox | no — forces `never` | yes | yes |
+| status | stable | stable, surface measured 2026-09-01 | `[experimental]` per `codex --help` |
+| per-call approval / sandbox | no — forces `never` | yes, as tool parameters | yes |
 | works under the managed profile | no | yes | yes |
 | proof a command really ran | `--json` | not exposed | `exitCode` + `status` |
 | structured output | `--output-schema` | no | `outputSchema` |
@@ -74,6 +74,18 @@ it hits the same clamp on managed machines — no `-c` override reaches it (thre
 `app-server` is the only surface with both per-call rights and a machine-checkable execution signal —
 and it is what the official plugin itself uses, so it is the de facto integration path despite the
 label.
+
+**`codex mcp-server` measured.** It exists and is the one surface that would make a seat a native tool
+call with typed arguments: `tools/list` returns `codex` (`prompt`, `cwd`, `model`, `sandbox`,
+`approval-policy`, `base-instructions`, `developer-instructions`, `compact-prompt`, `config`) and
+`codex-reply` (`threadId`, `conversationId`, `prompt`). It is still not a substitute. It takes a
+`sandbox` parameter — the defect above, which suppresses the permission profile read-level test runs
+need. It returns prose, so nothing carries the evidence the exit ladder is derived from: no per-command
+status, no receipt, no place for `--verify` or `--expect-command`, no worktree lifecycle or cwd lock.
+Its `prompt` is a string, so pasted images cannot travel through it. And its approvals arrive at the
+CLIENT as elicitations, which makes the coordinator the approver — the opposite of "an escalation means
+the sandbox was sized wrong, and the report says so". Adopting it would trade every guarantee here for
+call ergonomics.
 
 ## Shared skeleton, divergent rights layer
 
