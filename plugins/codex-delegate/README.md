@@ -55,10 +55,11 @@ costs nothing, calls no model:
 ```bash
 node evals/protocol.test.mjs   # the protocol and the result gates
 node evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
+node evals/attach-pasted.test.mjs   # handing a seat the images the user pasted
 node evals/fidelity.test.mjs   # does the fixture still match YOUR codex?
 ```
 
-The third is the one to watch after a `codex` upgrade: it performs a real handshake and diffs it
+The last one is what to watch after a `codex` upgrade: it performs a real handshake and diffs it
 against the fixture, so protocol drift shows up as a failing case instead of a confident wrong answer.
 
 ## First run
@@ -145,10 +146,13 @@ then re-run the other two suites and re-check the parity table in `SKILL.md`.
 
 ```
 skills/codex-delegate/           the skill: SKILL.md (the operating manual), scripts/driver.mjs
-                                 (one file, no dependencies, only Node builtins), references/
+                                 (one file, no dependencies, only Node builtins),
+                                 scripts/attach-pasted.mjs (hands a seat the images the user pasted,
+                                 which live only in the Claude Code transcript), references/
 agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
-evals/                           three suites — protocol, lock, and fidelity against the live server
+evals/                           four suites — protocol, lock, attach-pasted, and fidelity against
+                                 the live server
 schema-0.150.1/                  the pinned protocol schema the driver is written against; kept in the
                                  repo (and therefore in plugin installs) deliberately — it is the
                                  regeneration oracle the upgrade recipe diffs against, and stripping it
