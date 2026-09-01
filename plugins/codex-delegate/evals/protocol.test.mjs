@@ -222,6 +222,10 @@ const CASES = [
     env: { CODEX_DELEGATE_CODEX: "codex" },
     why: "a relative CODEX_DELEGATE_CODEX would resolve against the invocation cwd; only an absolute executable is accepted",
     assertStderr: (e) => /CODEX_DELEGATE_CODEX must be an absolute path/.test(e) || `the override was not validated: ${e.slice(0, 140)}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { FAKE_CONFIG_FAIL: "1" },
+    why: "a failed config probe must say so out loud — the silent path changed which model answers and made identical runs nondeterministic",
+    assertStderr: (e) => /could not read the caller's Codex config/.test(e)
+      || `the downgrade was silent: ${e.slice(0, 160)}` },
   { scenario: "policy-clamped",   expect: EXIT.TRANSPORT,
     why: "an MDM profile clamps a policy it does not permit, after which every command is denied while the run still looks healthy — the exact failure this driver exists to route around, and invisible in every other field" },
   { scenario: "workspace-elsewhere", expect: EXIT.TRANSPORT,

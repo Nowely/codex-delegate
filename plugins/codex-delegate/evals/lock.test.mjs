@@ -676,6 +676,24 @@ test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts
     return true;
   });
 
+test("a failed config probe keeps the last known good inherited config",
+  "rewriting the shared isolated config on a FAILED probe truncated what a healthy run had just written, so a transient hiccup silently moved every concurrent seat onto account defaults",
+  async () => {
+    const cfg = path.join(STATE_DIR, "home", "config.toml");
+    const healthy = await run(freshDir("lkg-healthy"), {});
+    if (healthy.code !== EXIT.OK) return `the healthy run exited ${healthy.code}`;
+    let before = "";
+    try { before = fs.readFileSync(cfg, "utf8"); } catch { return `no inherited config was written at ${cfg}`; }
+    if (!/model/.test(before)) return `the healthy config carries no model: ${JSON.stringify(before)}`;
+    const failing = await run(freshDir("lkg-failing"), { env: { FAKE_CONFIG_FAIL: "1" } });
+    if (failing.code !== EXIT.OK) return `the probe-failing run exited ${failing.code}`;
+    if (!/keeping the previously inherited config/.test(failing.err))
+      return `the LKG path did not announce itself: ${failing.err.trim().slice(0, 200)}`;
+    let after = "";
+    try { after = fs.readFileSync(cfg, "utf8"); } catch { return "the config vanished"; }
+    return after === before || "a failed probe rewrote the last known good config";
+  });
+
 test("the answer log is pruned by age",
   "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
   async () => {
