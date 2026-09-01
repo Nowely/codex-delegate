@@ -37,9 +37,16 @@ The parser was deleted for `config/read` — the server reports the values as it
 **Redundant flags as crashes.** `--cwd X --writable X` and a root named twice both exited 4 ("codex
 crashed") until the driver deduped and subtracted what the server does.
 
-**Worktree leaks.** The manual remove-after-harvest instruction was ignored often enough to leave 64
-worktrees and 41 GB behind in one repository. `--worktree` now automates the lifecycle and prints the
-fleet count.
+**Worktree leaks, and who actually leaked.** One repository was found holding 64 worktrees and 41 GB.
+This note used to blame the manual remove-after-harvest instruction for them; re-measured 2026-09-01,
+that attribution is wrong. By prefix: 57 `wf_*` left by Claude Code's own workflow worktree isolation,
+3 `agent-*` from a native `Agent(isolation: "worktree")`, 4 hand-made audit trees — and **zero**
+created by this driver, whose trees are named `codex-*`. The set dates from 22–25 August with four
+more on the 30th, and 22 of the 64 still held uncommitted work, so none of it can be swept blindly.
+The lesson outlives its own evidence — a worktree lifecycle nobody owns is a lifecycle nobody performs
+— and it is why `--worktree` harvests and removes rather than printing instructions. But the driver
+was never the leaker here, and anyone who had compared this paragraph against the directory would have
+caught it out.
 
 **Orphaned load.** A review probe launched eight busy loops to measure timeout behaviour under CPU
 pressure and put `kill $LOADPIDS` after the measurement. Its parent died first: the loops were
