@@ -88,7 +88,7 @@ answer of its own.
 | Call | Codex may |
 | --- | --- |
 | `--cwd DIR` (read level, the default) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests. The grant is exactly "`$TMPDIR` and nothing else": anything you keep under the host `$TMPDIR` is reachable |
-| `--worktree REPO` | write level inside a driver-managed detached worktree; removed afterwards only when provably clean, preserved (with the reason and the removal command) otherwise |
+| `--worktree REPO` | write level inside a driver-managed detached worktree; after a completed turn the work is harvested (tracked diff + untracked archive under `~/.codex-delegate/answers/`) and the tree removed — no after-task chores; preserved (with the reason and the removal command) only when the turn did not complete or the harvest failed |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
 | `+ --network` / `--writable DIR` / `--commit` | egress, an extra root, or the repository's git dir — each an explicit opt-in |
 

@@ -34,9 +34,10 @@ RETURN: <exactly what to hand back>'
 
 Omit `--expect-command` when the task has no single command signature — the no-command floor still
 holds. A write seat: the driver creates a detached worktree under `$REPO/.claude/worktrees/`, runs the
-turn there, and removes the tree afterwards only when the turn completed AND `git status --porcelain`
-is empty (a clean tree whose turn never even started is removed too). Every other outcome preserves
-the tree, and the report says why and how to remove it:
+turn there, and disposes of the tree itself. Once the turn completed, the work is harvested — the
+tracked diff and an archive of untracked files land under `~/.codex-delegate/answers/`, their paths in
+the report — and the tree is removed; a turn that did not complete (or a harvest that failed)
+preserves the tree, and the report says why and how to remove it:
 
 ```bash
 node "$DRIVER" --worktree "$REPO" \
@@ -252,15 +253,17 @@ the process it started, the delegations are reparented to init, and nothing ever
 ## Worktree lifecycle
 
 `--worktree` owns it end to end: unique name under `<repo>/.claude/worktrees/`, a ledger entry in
-`~/.codex-delegate/worktrees/` before the turn (best-effort, so a crashed run *usually* leaves a trace),
-and removal only when the turn completed AND the tree is clean — untracked files count as work and
-block removal. The destination is checked against the protected roots too, so a `<repo>/.claude`
-symlink cannot land the tree somewhere the repository path did not imply. Preserved trees come back in
-the report with `worktreePreserved` (why), `worktreeDiffStat`/`worktreeDiffPath`
-(the tracked diff, staged and unstaged — `git diff HEAD`; untracked files are not in it),
-`worktreeRemoveCommand` (what to run after harvesting, shell-quoted) and
-`worktreeFleet` (how many codex worktrees the repo now carries — read it; ignoring the manual version
-of this count once left 64 worktrees and 41 GB behind).
+`~/.codex-delegate/worktrees/` before the turn (best-effort, so a crashed run *usually* leaves a
+trace), and disposal afterwards. A COMPLETED turn's tree asks nothing of you: its work is harvested —
+`worktreeDiffPath` (the tracked diff, staged and unstaged, `git diff HEAD --binary`) and
+`worktreeUntrackedPath` (a tar.gz of untracked files), both under `~/.codex-delegate/answers/` — and
+the tree is then removed (`worktreeHarvested: true`). A turn that did not complete, or a harvest that
+failed, preserves the tree instead: `worktreePreserved` says why, `worktreeRemoveCommand` says what to
+run after harvesting by hand, and `worktreeFleet` counts the codex worktrees the repo still carries.
+The destination is checked against the protected roots too, so a `<repo>/.claude` symlink cannot land
+the tree somewhere the repository path did not imply. Ledger entries of CRASHED runs are reconciled on
+the next `--worktree` invocation: a gone tree drops its entry, a clean tree is removed, a dirty one is
+kept and named on stderr.
 
 Managing a worktree by hand (a custom location, a resumed thread) is still legitimate — but harvest
 before removing, and check `git status --porcelain` too: `git diff` does not show untracked files, and
