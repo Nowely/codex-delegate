@@ -255,7 +255,7 @@ and removal only when the turn completed AND the tree is clean — untracked fil
 block removal. The destination is checked against the protected roots too, so a `<repo>/.claude`
 symlink cannot land the tree somewhere the repository path did not imply. Preserved trees come back in
 the report with `worktreePreserved` (why), `worktreeDiffStat`/`worktreeDiffPath`
-(the **unstaged tracked** diff — `git diff`, so staged changes and untracked files are not in it),
+(the tracked diff, staged and unstaged — `git diff HEAD`; untracked files are not in it),
 `worktreeRemoveCommand` (what to run after harvesting, shell-quoted) and
 `worktreeFleet` (how many codex worktrees the repo now carries — read it; ignoring the manual version
 of this count once left 64 worktrees and 41 GB behind).
