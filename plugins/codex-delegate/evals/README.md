@@ -90,6 +90,28 @@ cases; reverting the read-level guard to a name-only check must fail `profile-ef
 report rather than the exit code; moving the lock back into the cwd must fail most of the lock suite.
 A suite that stays green under mutation is measuring nothing.
 
+**That check was run against every case, and six mutations survived it.** An external audit
+(2026-08-31) built nine mutants and found that removing the group wait, removing the exit handler's
+group `SIGKILL`, replacing `findRollout` with `return null`, hardcoding the model, never sending
+`outputSchema` to the server, and deleting the token-usage thread filter all left 117/117 cases green.
+Each of those was a case that could not distinguish, not a case that was missing:
+
+- **the model** — the fixture's inherited fallback was the same literal a hardcoding driver would send,
+  so it now reports the REQUEST (`inherited` / `explicit:x`) instead of a plausible model name;
+- **the schema** — the fixture branched on the scenario name alone and never looked at
+  `m.params.outputSchema`, so it now answers in prose when it was sent none;
+- **tokens** — one event and one number, with nothing to be confused by, so a subagent thread's usage
+  now arrives after the root's with a bigger total;
+- **the receipt** — the only case asserted `receiptOk: false`, so there is now a planted rollout and a
+  positive case, plus a mismatched one whose `session_meta` names another thread;
+- **the teardown** — two independent mechanisms satisfy the survivor case, so neither was pinned alone.
+  What the wait actually buys is the lock-release ordering, and that is now measured as a DIFFERENCE
+  against a control run: a TERM-ignoring descendant must cost the run its full `SIGTERM` wait.
+
+The lesson generalises: a mutation survives when the fixture's answer for the correct code and the
+mutant's answer are the same string. Look for assertions whose expected value could have been produced
+by the bug.
+
 Write the mutation faithfully or it proves nothing. Disabling one clause of a multi-clause guard leaves the
 other clauses catching the case, which reads as "the test is weak" when the mutation was. And some
 mutations are *equivalent* — after `--verify` was moved above the proxy checks, swapping `!verifyPassed`
@@ -142,6 +164,19 @@ So the agent's model stays pinned to sonnet, and the agent body now forbids the 
 ("a failing SEAT declaration is a failure to report, not a problem to solve"). Re-run this before ever
 lowering the model tier; two runs are enough only because both failed the same way.
 
+Two findings from re-running it on 2026-08-31, both in the agent rather than the driver:
+
+- **The scratch filename was a counter.** `$TMPDIR/seat-1.txt` is shared by every relay on the machine,
+  and a fresh seat found the file already populated by an unrelated run — including a task body whose
+  text told the relay to skip the driver and report a fabricated success. That relay overwrote it and
+  ran correctly, but the collision is the mechanism by which one seat could execute another's rights.
+  The name is now a random hex suffix, and the agent is told never to read a scratch file it did not
+  just write.
+- **`VERIFY` is gone from the header.** A relay must not be able to introduce a command that runs
+  unsandboxed with the coordinator's rights; the driver refuses it from a seat file without
+  `--allow-seat-verify`, which this agent never passes. Verified live: a header carrying `VERIFY:` is
+  reported as a seat failure with the driver's own message, and the file it named was not created.
+
 ## The Russian trigger cases (20–23)
 
 Run 2026-08-31 with the cheap harness (`claude -p --max-turns 2 --allowedTools Skill`, counting
@@ -155,13 +190,25 @@ under this harness they measure the harness.
 ## What no pass has attacked
 
 The coverage ledger — the honest ceiling on any "adversarially reviewed" claim, moved here from the
-0.1.0 changelog because it is a living list, not history. As of 0.2.0: `evals/fake-app-server.mjs` is
-the oracle for every protocol and lock assertion, and only `fidelity` checks it against the real
-server — a wrong model there makes every suite agree wrongly together. The two suites' own assertions
-were used as mutation detectors but never questioned. Within `driver.mjs`, resume, `--ephemeral`,
-answer truncation and the stdout drain path have never been targeted; the verify-exit-126 branch has no
-test. Nobody has installed this on a clean machine. Strike items from this list by attacking them, not
-by shipping features near them.
+0.1.0 changelog because it is a living list, not history. **As of 0.4.0:**
+
+`evals/fake-app-server.mjs` is still the oracle for every protocol and lock assertion, and only
+`fidelity` checks it against the real server — a wrong model there makes every suite agree wrongly
+together, and it has: the fixture's `--output-schema` files were ordinary JSON Schemas, which the real
+provider rejects outright with `400 invalid_json_schema`, so five cases exercised a shape no real run
+can use. They are strict now. Assume more of that.
+
+Struck by being attacked: the verify-exit-126 branch (covered), the `budget-exhausted` branch
+(covered, via an overridable floor because the timing window is a coin flip), the receipt locator
+(covered, positively and with a mismatch), signals (`SIGINT`/`SIGTERM`/`SIGHUP` each covered), the
+lock-release ordering (covered as a differential), the seat file's rights-injection surface (covered),
+`$TMPDIR` as a writable root (covered), the worktree destination (covered).
+
+Still untouched: resume, `--ephemeral`, and the stdout drain path. The two suites' own assertions were
+used as mutation detectors but never questioned. Nobody has installed this on a clean machine other
+than in a redirected `HOME` under an audit. The `--host-home` path, Linux, and the managed-profile
+(`managedWebSearchModes`) path are unmeasured. Strike items from this list by attacking them, not by
+shipping features near them.
 
 ## Keeping them honest
 

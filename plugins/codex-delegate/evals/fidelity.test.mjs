@@ -222,6 +222,11 @@ function captureDriver(spec) {
   const driverEnv = {
     ...baseEnv,
     FIDELITY_PASSWD_HOME: passwdHome,
+    // A $TMPDIR of this case's own, a SIBLING of the fake passwd home rather than its ancestor. The
+    // driver now applies the writable-root guard to $TMPDIR — it is the read level's entire grant — and
+    // that guard refuses any ancestor of the home directory. Inheriting the real TMPDIR made it an
+    // ancestor of this harness's fake home, so every case refused before it could send anything.
+    TMPDIR: spec.env?.TMPDIR ?? freshDir("tmp"),
     PATH: `${captureBin}${path.delimiter}${baseEnv.PATH ?? ""}`,
   };
 
