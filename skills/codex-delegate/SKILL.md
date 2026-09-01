@@ -131,7 +131,7 @@ one literal value. Explicit flags still override the file, so a harness can boun
 author.
 
 **The guarantee stops at a newline** — a relayed value carrying one opens a field of its own
-(measured; the story is in [references/flags-and-internals.md](references/flags-and-internals.md)).
+(measured; the story is in [references/environment-and-internals.md](references/environment-and-internals.md)).
 Two driver-side rules close the reachable part: `SEAT` must be the **first** field (an injected `SEAT`
 is then always a duplicate, and a file with no `SEAT` is refused, not defaulted), and `VERIFY` in a
 seat file needs `--allow-seat-verify` **on the command line**, because `--verify` runs an unsandboxed
@@ -215,13 +215,13 @@ oldest numbers here. Re-check after a codex upgrade.
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
 | a subagent's MCP tools | **none, by default** | the price of the isolated home (the private `CODEX_HOME` runs use instead of yours). `--mcp` copies the representable entries of the caller's `[mcp_servers]` — and only them — into a private per-run home, deleted at exit; a skipped entry is named on stderr, and the servers run with your rights. `--host-home` restores everything, plugins, skills and nondeterminism included |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
-| an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items; the format list is in `--help`, the ordering and pre-turn checks in [references/flags-and-internals.md](references/flags-and-internals.md). `--review` refuses them: its `review/start` carries no input items |
+| an image in the prompt | `--attach <file>` (repeatable, **command line only** — never a seat-file field, because an injected `ATTACH:` line would upload a file nobody named) | the protocol's `localImage`/`localAudio` input items; the format list is in `--help`, the ordering and pre-turn checks in [references/environment-and-internals.md](references/environment-and-internals.md). `--review` refuses them: its `review/start` carries no input items |
 | **an image the USER pasted** | `scripts/attach-pasted.mjs` (below) | Claude Code keeps a paste only inside the transcript, so it has to be decoded to a file first; the front-end does that and calls the driver |
 | watching a running subagent | `--progress` | one stderr line per item start (run/edit/search) without the delta firehose; the rollout under `~/.codex/sessions` stays the full live transcript |
 | a review pass | `--review uncommitted\|branch:<ref>\|commit:<sha>` | the server's native reviewer on this thread; the review payload is the answer, the reviewer's own failed probes do not fail the run, and no prompt is needed |
 | correcting a running subagent | `--steer-file <file>` | append text to the file: it reaches the live turn as `turn/steer` within a second and the file is drained. Input only, never rights |
 | a schema-validated return | `--output-schema <file>` | the server constrains generation, the driver validates the result independently, and a mismatch spends ONE corrective turn on the same thread before exit 13 — the retry a subagent's tool layer provides. **The schema must be STRICT**; the rules are in `--help`, and the driver checks them before the turn so a bad schema costs no delegation. `--answer-json` remains the lighter syntax-only demand |
-| a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the inline answer is capped, the full text lands in the answer log — but under `--brief` the model is ALSO asked to answer short, so skip it when you need the full working note. The caps, the pruning, and what a null `answerPath` means: [references/flags-and-internals.md](references/flags-and-internals.md) |
+| a short return + transcript | `--brief`, plus `answerPath` when the write succeeds | the inline answer is capped, the full text lands in the answer log — but under `--brief` the model is ALSO asked to answer short, so skip it when you need the full working note. The caps, the pruning, and what a null `answerPath` means: [references/environment-and-internals.md](references/environment-and-internals.md) |
 
 **The concurrency budget is per machine, not per fan-out.** Each delegation spawns its own app-server
 (plus, under `--host-home` or `--mcp`, a private copy of the caller's MCP servers). Exceeding the
@@ -266,7 +266,7 @@ than reaching back to something older you did not mean. To take an older turn, c
 `--list` — never count backwards: an offset silently selects a *different* image (why: the reference
 below). The selector flags, the validation limits, where the files land and why,
 and the two facts to know before asking for pixel coordinates (the ~2000 px downscale, the unnamed
-images): [references/flags-and-internals.md](references/flags-and-internals.md), or `--help`.
+images): [references/pasted-images.md](references/pasted-images.md), or `--help`.
 
 ## Worktree lifecycle
 
@@ -280,7 +280,7 @@ harvested — `worktreeIgnoredDropped` counts what removal took with the tree), 
 did not complete, or a harvest that failed, preserves the tree instead: `worktreePreserved` says why,
 `worktreeRemoveCommand` says what to run after harvesting by hand, and `worktreeFleet` counts the
 codex worktrees the repo still carries. Ledger and destination internals:
-[references/flags-and-internals.md](references/flags-and-internals.md).
+[references/environment-and-internals.md](references/environment-and-internals.md).
 
 Managing a worktree by hand (a custom location, a resumed thread) is still legitimate — but harvest
 before removing, and check `git status --porcelain` too: `git diff` does not show untracked files, and
@@ -365,7 +365,7 @@ directory exits 10 rather than racing the first, and the exit-10 message names t
 if the holder is really gone. It serialises runs, not directories: give every concurrent run its
 own cwd (`--worktree` does). Release timing, reclaim, and the `CODEX_DELEGATE_STATE_DIR` override:
 [references/lock-internals.md](references/lock-internals.md) and
-[references/flags-and-internals.md](references/flags-and-internals.md).
+[references/environment-and-internals.md](references/environment-and-internals.md).
 
 ## Traps
 
@@ -401,7 +401,7 @@ The two recipes at the top of this file are the common cases. The full flag inve
 `node "$DRIVER" --help` — printed from the code, the copy that cannot drift. The environment
 variables, what `tokenUsage` actually counts, which directories are protected and which are only
 assumed to be, and how the shared isolated home works:
-[references/flags-and-internals.md](references/flags-and-internals.md).
+[references/environment-and-internals.md](references/environment-and-internals.md).
 
 The four worth knowing without opening either: `--level read|write` (default `read`) · `--timeout
 <sec>` (default 900) · `--brief` (cap the inline answer; the full text is at `answerPath`) ·
