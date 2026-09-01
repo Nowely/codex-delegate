@@ -92,8 +92,10 @@ Rights
 
   --seat-file F      read the seat's declaration from F — one "FIELD: value" per
                      line (SEAT/EFFORT/TIMEOUT/EXPECT/VERIFY/NETWORK/MODEL/
-                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/ATTACH/COMMIT/BRIEF/
+                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/COMMIT/BRIEF/
                      ALLOW_NO_COMMANDS), values taken literally to end of line.
+                     --attach is NOT among them: an injected ATTACH line would
+                     upload a file nobody named. Pass it on the command line
                      SEAT is required and must come FIRST. For a wrapper: write
                      the values, do not build a command line out of them.
                      Explicit flags override the file. A NEWLINE inside a value
@@ -242,7 +244,10 @@ prints none. Codes decided after the turn can all carry executed work.
 //     seat file it now requires --allow-seat-verify on the COMMAND LINE, which is the one place the
 //     coordinator writes directly and no relayed value can reach. A coordinator that wants a verifier
 //     passes --verify itself; a relay does not get to introduce one.
-const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE", "ATTACH"]);
+// ATTACH is deliberately NOT here, for the reason VERIFY needs --allow-seat-verify: a newline inside a
+// relayed value opens a new field, and an injected `ATTACH: ~/Documents/private.png` would upload a
+// file the coordinator never named to the model provider. --attach is a command-line flag only.
+const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE"]);
 let seatFileFields = null;   // what the file actually declared, for the report
 function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
@@ -259,7 +264,7 @@ function argvFromSeatFile(file, allowSeatVerify) {
     if (!SEAT_FIELDS.has(field)) fail(EXIT.USAGE, `--seat-file: unknown field ${JSON.stringify(field)}; allowed: ${[...SEAT_FIELDS].join(", ")}`);
     if (seen.size === 0 && field !== "SEAT")
       fail(EXIT.USAGE, `--seat-file: the first field must be SEAT, not ${field} — a seat file that does not open with its rights declaration lets a later line supply them`);
-    if (field !== "WRITABLE" && field !== "ATTACH" && seen.has(field)) fail(EXIT.USAGE, `--seat-file: ${field} appears more than once`);
+    if (field !== "WRITABLE" && seen.has(field)) fail(EXIT.USAGE, `--seat-file: ${field} appears more than once`);
     if (field === "VERIFY" && !allowSeatVerify)
       fail(EXIT.USAGE, "--seat-file: VERIFY runs an unsandboxed shell with your own rights, so it is refused from a seat file unless --allow-seat-verify is given on the command line; pass --verify there instead");
     seen.add(field);
@@ -288,7 +293,7 @@ function argvFromSeatFile(file, allowSeatVerify) {
     if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
     const FLAGS = { EFFORT: "--effort", TIMEOUT: "--timeout", EXPECT: "--expect-command", VERIFY: "--verify",
                     MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
-                    WRITABLE: "--writable", ATTACH: "--attach" };
+                    WRITABLE: "--writable" };
     out.push(FLAGS[field], value);
   }
   if (!seen.has("SEAT")) fail(EXIT.USAGE, "--seat-file: no SEAT field; the seat's rights must be declared, not defaulted");
@@ -767,7 +772,9 @@ function inheritedConfig() {
         const wrong = INHERITED.filter((k) => cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== "string");
         if (wrong.length)
           process.stderr.write(`codex-delegate: the caller's Codex config reports ${wrong.join(", ")} as something other than text; those are not carried across\n`);
-        if (opts?.mcp && cfg.mcp_servers && typeof cfg.mcp_servers === "object") mcpFromProbe = cfg.mcp_servers;
+        // `{}` and null are different answers: "you have no MCP servers configured" versus "the probe
+        // never told us", and --mcp refuses to run blind on the second.
+        if (opts?.mcp) mcpFromProbe = (cfg.mcp_servers && typeof cfg.mcp_servers === "object") ? cfg.mcp_servers : {};
         return finish(INHERITED.filter((k) => typeof cfg[k] === "string").map((k) => [k, tomlString(cfg[k])]));
       }
     });
@@ -1158,7 +1165,8 @@ function disposeWorktree(turnDone) {
   worktreeInfo.disposed = true;
   const { repo, dir, ledger } = worktreeInfo;
   const res = { worktreePath: dir, worktreeRemoved: false, worktreePreserved: null, worktreeHarvested: false,
-                worktreeDiffStat: null, worktreeDiffPath: null, worktreeUntrackedPath: null, worktreeFleet: null };
+                worktreeDiffStat: null, worktreeDiffPath: null, worktreeUntrackedPath: null,
+                worktreeIgnoredDropped: null, worktreeFleet: null };
   const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
   const clean = st.status === 0 && st.stdout.trim() === "";
   if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
@@ -1194,6 +1202,17 @@ function disposeWorktree(turnDone) {
           { input: ls.stdout, encoding: "utf8" });
         if (tar.status !== 0) return `untracked files could not be archived (${String(tar.stderr).trim().slice(0, 120)})`;
         res.worktreeUntrackedPath = `${base}.untracked.tgz`;
+      }
+      // IGNORED files are in neither the diff nor that archive — `status --porcelain` cannot see them,
+      // which is why they never block removal, and `--exclude-standard` deliberately leaves them out
+      // (a harvest that swept node_modules would be useless). They are still deleted by the removal
+      // below, so the report NAMES them rather than letting a dropped build artefact — or a stray
+      // .env — disappear silently. Counted, not archived: the decision is the reader's.
+      const ign = spawnSync("git", ["-C", dir, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+        { maxBuffer: 64 * 1024 * 1024 });
+      if (ign.status === 0 && ign.stdout.length) {
+        const names = String(ign.stdout).split("\0").filter(Boolean);
+        res.worktreeIgnoredDropped = { count: names.length, sample: names.slice(0, 10) };
       }
       return null;
     };
@@ -1395,6 +1414,15 @@ async function setup() {
   // probe that hangs used to hold the write lock for its whole 15 s while doing it — measured: a second
   // run on the same directory got exit 10 for a directory nobody was working in.
   codexHome = opts.hostHome ? null : await isolatedHome();
+
+  // --mcp is a capability request, and a capability silently not granted is the failure mode this
+  // driver refuses everywhere else (a clamped approval policy, a substituted web-search mode). If the
+  // probe never reported the table — it failed, or the last-known-good path skipped it — say so and
+  // stop, rather than running a seat that quietly has no tools.
+  if (opts.mcp && !opts.hostHome && mcpFromProbe === null)
+    fail(EXIT.TRANSPORT, "--mcp was asked for but the caller's config could not be read, so no MCP servers can be carried; retry, or use --host-home");
+  if (opts.mcp && mcpFromProbe && Object.keys(mcpFromProbe).length === 0)
+    process.stderr.write("codex-delegate: --mcp: the caller's Codex config declares no MCP servers; the seat has none\n");
 
   if (opts.level !== "read") acquireLock(cwd);
 
@@ -1776,13 +1804,17 @@ function handleMessage(msg) {
     // sandboxError -> the rights level was wrong.
     turnError = p?.turn?.error ?? null;
     // The comment above always KNEW which causes are transient; nothing acted on it, so a provider
-    // blip failed the whole delegation. ONE bounded retry, and only while the turn produced nothing
-    // observable — no commands, no file changes, no messages — because replaying the prompt after
-    // visible work risks doing that work twice. The wall clock must leave the backoff plus at least
-    // ten seconds of turn, or the retry just converts a failure into a timeout.
+    // blip failed the whole delegation. ONE bounded retry, and only while the turn produced NOTHING
+    // observable, because replaying the prompt after visible work risks doing that work twice. "Nothing
+    // observable" has to include the items the evidence gates ignore: an mcpToolCall that filed a
+    // ticket, or a subagent thread that did work, is exactly the side effect a replay would duplicate,
+    // and counting only commands/files/messages would have replayed straight through it. The wall clock
+    // must leave the backoff plus at least ten seconds of turn, or the retry just converts a failure
+    // into a timeout.
     if (turnStatus === "failed" && transientRetries.length === 0 && lastTurnParams !== null
         && RETRYABLE[errKind(turnError)] !== undefined
         && commands.length === 0 && fileChanges.length === 0 && messages.length === 0
+        && otherItems.length === 0 && subagentThreads.size === 0
         && startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + 10000) {
       startTransientRetry(errKind(turnError));
       return;
@@ -2101,6 +2133,10 @@ function errKind(e) {
 // thread was not reliably idle, so --resume on a cancelled seat was a gamble. Fire-and-forget — the
 // report must not wait on a server that may be the reason we are cancelling; shutdown()'s stdin.end
 // flushes the write, and the SIGTERM grace gives the server time to act on it.
+// The limit, stated because the report must not overclaim: TurnInterruptParams REQUIRES a turnId, so a
+// cancellation landing between turn/start being sent and its response arriving has nothing to name and
+// sends nothing. That window is a fraction of a second at the very start of a run; the thread is left
+// as the dying process group leaves it, exactly as before this existed.
 function interruptTurn() {
   const turnId = rootTurnId ?? [...ownedTurns].at(-1) ?? null;
   if (!child || !rootThreadId || !requestFn || turnId === null) return;
@@ -2274,7 +2310,10 @@ function decideExitCode(ev, verifySkipped) {
   // Under --review the deliverable is the review, and the reviewer's own failed probes are its working
   // method, not a failure of the work — measured live: a real review ran 26 commands, several of them
   // failing greps, and exited 11 with a perfectly good review in hand. The counts stay in the report.
-  else if ((failedCmds.length || failedPatches.length) && !verifyPassed && !opts.review) code = EXIT.COMMAND_FAILED;
+  // The waiver is keyed on a review having ARRIVED, not on the flag: `--review branch:nonexistent`
+  // fails its git commands and produces no payload, and waiving on the flag alone let that exit 0.
+  else if ((failedCmds.length || failedPatches.length) && !verifyPassed
+           && !(opts.review && reviewResult != null)) code = EXIT.COMMAND_FAILED;
   return code;
 }
 
@@ -2283,17 +2322,33 @@ function decideExitCode(ev, verifySkipped) {
 // native subagent has (the user can just keep typing) and a seat had not. Input only, never rights.
 function startSteerPoll() {
   if (!opts.steerFile) return;
+  let inFlight = false;
   const timer = setInterval(() => {
     if (settled) { clearInterval(timer); return; }
-    if (rootThreadId === null || rootTurnId === null || !requestFn) return;
+    if (inFlight || rootThreadId === null || rootTurnId === null || !requestFn) return;
     let text = "";
     try { text = fs.readFileSync(opts.steerFile, "utf8"); } catch { return; }
     if (!text.trim()) return;
-    try { fs.writeFileSync(opts.steerFile, ""); } catch { return; }
+    inFlight = true;   // one steer at a time, so a slow server cannot make the poll send it twice
     process.stderr.write(`codex-delegate: steering the turn (${Buffer.byteLength(text)} bytes)\n`);
+    // The file is drained only AFTER the server takes the message, and anything appended in the
+    // meantime survives (only the consumed prefix is removed). A rejected steer is echoed to stderr
+    // and drained too: leaving it would resend it every second forever, and losing it silently is
+    // what this ordering exists to prevent — the coordinator can read it back off the log.
+    const drain = () => {
+      try {
+        const now = fs.readFileSync(opts.steerFile, "utf8");
+        fs.writeFileSync(opts.steerFile, now.startsWith(text) ? now.slice(text.length) : "");
+      } catch {}
+      inFlight = false;
+    };
     requestFn("turn/steer", { threadId: rootThreadId, expectedTurnId: rootTurnId,
       input: [{ type: "text", text: text.trim(), text_elements: [] }] })
-      .catch((e) => process.stderr.write(`codex-delegate: steer rejected (${e.message})\n`));
+      .then(drain)
+      .catch((e) => {
+        process.stderr.write(`codex-delegate: steer REJECTED (${e.message}); the text was not delivered:\n${text.trim()}\n`);
+        drain();
+      });
   }, 1000);
   timer.unref?.();
 }
@@ -2305,6 +2360,15 @@ function finish(reason) {
 
   const ev = classifyEvidence();
   const verifySkipped = runVerifier();
+  // Quiesce the turn's process group BEFORE harvesting a tree that is about to be removed. A command
+  // the turn backgrounded can still be writing; snapshotting around it would archive a half-written
+  // file and the removal would then delete the rest. Bounded and synchronous — finish() is — and only
+  // on the path that actually removes a tree, so an ordinary run's teardown timing is unchanged.
+  if (worktreeInfo && !worktreeInfo.disposed && turnStatus === "completed" && child) {
+    killGroup("SIGTERM");
+    for (const end = Date.now() + 2000; groupAlive() && Date.now() < end; ) sleepSync(50);
+    if (groupAlive()) { killGroup("SIGKILL"); sleepSync(200); }
+  }
   // After the verifier (which runs in the tree), before the report (which carries the outcome).
   const worktree = disposeWorktree(turnStatus === "completed");
   // The receipt is the one artefact no wrapper can fabricate; locate it, READ it, and say what it says,
@@ -2436,6 +2500,9 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
       if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
       if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
       if (worktree.worktreeUntrackedPath) L.push(`  untracked files saved to ${worktree.worktreeUntrackedPath}`);
+      if (worktree.worktreeIgnoredDropped)
+        L.push(`  ${worktree.worktreeIgnoredDropped.count} git-ignored file(s) were NOT harvested and are gone: ` +
+          `${worktree.worktreeIgnoredDropped.sample.join(", ")}${worktree.worktreeIgnoredDropped.count > worktree.worktreeIgnoredDropped.sample.length ? ", …" : ""}`);
       if (!worktree.worktreeRemoved) {
         L.push(`  harvest, then: ${worktree.worktreeRemoveCommand}`);
         if ((worktree.worktreeFleet ?? 0) > 1) L.push(`  fleet: ${worktree.worktreeFleet} codex worktrees under this repo`);
