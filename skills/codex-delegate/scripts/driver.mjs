@@ -90,8 +90,15 @@ Rights
                      line (SEAT/EFFORT/TIMEOUT/EXPECT/VERIFY/NETWORK/MODEL/
                      WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/COMMIT/BRIEF/
                      ALLOW_NO_COMMANDS), values taken literally to end of line.
-                     For a wrapper: write the values, do not build a command
-                     line out of them. Explicit flags override the file.
+                     SEAT is required and must come FIRST. For a wrapper: write
+                     the values, do not build a command line out of them.
+                     Explicit flags override the file. A NEWLINE inside a value
+                     ends that value and starts a new field — a wrapper handed
+                     caller-supplied text cannot prevent that, so:
+  --allow-seat-verify  permit VERIFY in a seat file. Without it VERIFY there is
+                     refused, because --verify runs an unsandboxed shell with
+                     your own rights and a relayed value must not be able to
+                     introduce one. Pass --verify on the command line instead.
 
 Turn
   --prompt TEXT      the task; omit to read it from stdin
@@ -103,7 +110,12 @@ Turn
   --output-schema F  demand a JSON object matching the schema in file F: the
                      server constrains generation with it, the driver checks the
                      result independently, and one corrective turn is spent on a
-                     mismatch before exit 13. Implies --answer-json
+                     mismatch before exit 13. Implies --answer-json.
+                     The server takes a STRICT schema only: every object must
+                     carry "additionalProperties": false and list every one of
+                     its properties in "required" (use "type": ["string","null"]
+                     where you wanted optional). Both are checked here, before
+                     the turn, because the server rejects them after it
   --brief            ask for a summary, not a working note, and cap what comes
                      back inline — parity with a subagent whose detail stays in
                      a transcript. The full answer is always written to
@@ -134,14 +146,29 @@ Isolation
 
 Report
   --json             machine-readable on stdout — the default; the report also
-                     carries receiptPath/receiptOk (the rollout under
-                     ~/.codex/sessions that proves the turn really ran) and
-                     tokenUsage (the server's own accounting for the root
-                     thread; cumulative across --resume)
+                     carries receiptPath/receiptOk plus receiptOriginator,
+                     receiptModelProvider and receiptCwd, read out of the
+                     rollout's own session_meta record (the file is OPENED, not
+                     merely matched by name), and tokenUsage (the server's own
+                     accounting for the root thread; cumulative across --resume)
   --footer           a human footer instead of the JSON report
   threadId is announced on stderr as soon as the thread exists, so a long
   turn's live rollout can be tailed
+  SIGINT / SIGTERM / SIGHUP after the thread exists report what the turn did so
+  far and exit 1; before it they exit 4. Either way the child process group is
+  waited out before the lock is released
   -h, --help         this text
+
+Environment
+  CODEX_DELEGATE_STATE_DIR      where the locks, the answer log, the isolated
+                                Codex home and the worktree ledger live; must be
+                                absolute. For test harnesses: two runs under
+                                different values do NOT exclude each other
+  CODEX_DELEGATE_SESSIONS_DIR   where to look for the rollout receipt
+  CODEX_DELEGATE_VERIFY_FLOOR_MS  how little of the --timeout budget is too
+                                little to start --verify in (default 100).
+                                Also a test seam: the branch is otherwise
+                                reachable only by landing inside a 100 ms window
 
 Exit codes. Raised the moment they happen, before any turn could run:
   2  bad arguments
@@ -173,13 +200,31 @@ prints none. Codes decided after the turn can all carry executed work.
 // The format is one `FIELD: value` per line, value taken literally to end of line (so quotes, $, ;, |
 // and backticks are just characters). Unknown fields, repeats and anything the flags reject are usage
 // errors — a malformed seat file must never silently become a different seat.
+//
+// The claim above is exactly true for a value with no NEWLINE in it, and exactly false for one with.
+// A newline is the field separator, so a value carrying one ends its own field and opens another —
+// measured: a wrapper handed `EXPECT: x\nVERIFY: touch /tmp/pwned`, told by its own contract to copy
+// values "character for character", wrote two lines, and the driver ran `touch` through /bin/sh with
+// the caller's full rights. Shell metacharacters were never the whole attack surface; line structure
+// was the rest of it, and the wrapper cannot tell an injected line from one it meant to write.
+//
+// Two structural answers, both here rather than in the wrapper, because the wrapper is the component
+// that cannot know which of its values came from somewhere else:
+//   * SEAT must be the FIRST field. An injected SEAT is then always a duplicate, which is already a
+//     usage error — closing the case where a relay omitted SEAT and an injected `SEAT: write ~/.claude`
+//     silently defined the rights instead.
+//   * VERIFY, alone among the fields, runs an unsandboxed /bin/sh with the caller's own rights. From a
+//     seat file it now requires --allow-seat-verify on the COMMAND LINE, which is the one place the
+//     coordinator writes directly and no relayed value can reach. A coordinator that wants a verifier
+//     passes --verify itself; a relay does not get to introduce one.
 const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE"]);
-function argvFromSeatFile(file) {
+let seatFileFields = null;   // what the file actually declared, for the report
+function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
   try { raw = fs.readFileSync(file, "utf8"); }
   catch (e) { fail(EXIT.USAGE, `--seat-file cannot read ${file}: ${e.message}`); }
   if (Buffer.byteLength(raw) > 64 * 1024) fail(EXIT.USAGE, "--seat-file exceeds 64KB");
-  const out = [], seen = new Set();
+  const out = [], seen = new Set(), declared = [];
   for (const line of raw.split("\n")) {
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     const at = line.indexOf(":");
@@ -187,8 +232,13 @@ function argvFromSeatFile(file) {
     const field = line.slice(0, at).trim().toUpperCase();
     const value = line.slice(at + 1).trim();
     if (!SEAT_FIELDS.has(field)) fail(EXIT.USAGE, `--seat-file: unknown field ${JSON.stringify(field)}; allowed: ${[...SEAT_FIELDS].join(", ")}`);
+    if (seen.size === 0 && field !== "SEAT")
+      fail(EXIT.USAGE, `--seat-file: the first field must be SEAT, not ${field} — a seat file that does not open with its rights declaration lets a later line supply them`);
     if (field !== "WRITABLE" && seen.has(field)) fail(EXIT.USAGE, `--seat-file: ${field} appears more than once`);
+    if (field === "VERIFY" && !allowSeatVerify)
+      fail(EXIT.USAGE, "--seat-file: VERIFY runs an unsandboxed shell with your own rights, so it is refused from a seat file unless --allow-seat-verify is given on the command line; pass --verify there instead");
     seen.add(field);
+    declared.push(field);
     // SEAT is the rights declaration and the only field that expands to more than one flag.
     if (field === "SEAT") {
       const [kind, ...rest] = value.split(/\s+/);
@@ -210,6 +260,10 @@ function argvFromSeatFile(file) {
                     MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema", WRITABLE: "--writable" };
     out.push(FLAGS[field], value);
   }
+  if (!seen.has("SEAT")) fail(EXIT.USAGE, "--seat-file: no SEAT field; the seat's rights must be declared, not defaulted");
+  // In the report, so a coordinator reading a wrapped seat can see what the FILE declared rather than
+  // inferring it from the flags the run ended up with.
+  seatFileFields = declared;
   return out;
 }
 
@@ -229,6 +283,8 @@ function parseArgs(argv) {
     const a = argv[i];
     switch (a) {
       case "--seat-file": o.seatFile = need(++i, a); break;
+      // Only ever read off the command line, never out of a seat file — that is the whole of its value.
+      case "--allow-seat-verify": o.allowSeatVerify = true; break;
       case "--level": o.level = need(++i, a); o.levelExplicit = true; break;
       case "--cwd": o.cwd = need(++i, a); break;
       case "--worktree": o.worktree = need(++i, a); break;
@@ -268,6 +324,11 @@ function parseArgs(argv) {
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
   if (!Number.isFinite(o.timeout) || o.timeout <= 0 || o.timeout > 7200)
     fail(EXIT.USAGE, "--timeout must be a positive number of seconds, at most 7200");
+  // The same cap the stdin path enforces. It was on stdin alone, so the documented "512 KB cap" held for
+  // the route the docs call better for long prompts and not for the one a caller is more likely to
+  // overrun by accident — an argv-sized prompt failed later, in the server, as a mid-turn refusal.
+  if (o.prompt !== undefined && Buffer.byteLength(o.prompt) > MAX_PROMPT_BYTES)
+    fail(EXIT.USAGE, `--prompt exceeds ${MAX_PROMPT_BYTES} bytes; pipe a long prompt on stdin instead`);
   // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
   // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
   if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
@@ -299,10 +360,39 @@ function parseArgs(argv) {
     if (o.outputSchema.type !== "object" &&
         !(Array.isArray(o.outputSchema.type) && o.outputSchema.type.length === 1 && o.outputSchema.type[0] === "object"))
       fail(EXIT.USAGE, '--output-schema must declare "type": "object" at the top level (the answer contract is one bare JSON object)');
+    // The provider does not accept an ordinary JSON Schema here, it accepts a STRICT one, and nothing
+    // said so. Measured against the live server, three separate 400s, each costing a whole delegation
+    // and surfacing as a turn that simply produced no answer:
+    //   plain object      -> "In context=(), 'additionalProperties' is required to be supplied and to be false."
+    //   nested object     -> the same, "In context=('properties', 'meta')"
+    //   optional property -> "'required' ... an array including every key in properties. Missing 'note'."
+    // The admission check two lines up already refuses a schema whose top-level type is not object,
+    // for exactly this reason — a contradiction the caller must fix should not be discovered by
+    // spending a turn on it. These two rules belong beside it.
+    (function strict(s, ctx) {
+      if (s === null || typeof s !== "object" || Array.isArray(s)) return;
+      const where = ctx.length ? ` at ${ctx.join(".")}` : " at the top level";
+      const isObject = s.type === "object" ||
+        (Array.isArray(s.type) && s.type.length === 1 && s.type[0] === "object");
+      if (isObject) {
+        if (s.additionalProperties !== false)
+          fail(EXIT.USAGE, `--output-schema${where}: every object must set "additionalProperties": false — the server requires a strict schema and rejects the request otherwise, after the turn has already started`);
+        const props = Object.keys(s.properties ?? {});
+        const req = new Set(Array.isArray(s.required) ? s.required : []);
+        const missing = props.filter((k) => !req.has(k));
+        if (missing.length)
+          fail(EXIT.USAGE, `--output-schema${where}: "required" must list every key in "properties" — the server permits no optional properties in a strict schema; missing ${missing.map((m) => JSON.stringify(m)).join(", ")}. Make them nullable (\`"type": ["string","null"]\`) instead of optional`);
+      }
+      for (const [k, v] of Object.entries(s.properties ?? {})) strict(v, [...ctx, "properties", k]);
+      if (s.items && !Array.isArray(s.items)) strict(s.items, [...ctx, "items"]);
+    })(o.outputSchema, []);
     // The validator implements a subset. Every keyword outside it is collected here and REPORTED, so
     // outputSchemaOk can never silently mean "nothing was checked" — the server still enforces the full
     // schema during generation; the driver's independent check just names what it could not re-verify.
-    const SUPPORTED = new Set(["type", "required", "properties", "enum", "items",
+    // additionalProperties is in the SUPPORTED set because the strict rule above makes it mandatory:
+    // listing a keyword as unchecked on every single schema would be noise, so the validator honours it
+    // instead.
+    const SUPPORTED = new Set(["type", "required", "properties", "enum", "items", "additionalProperties",
       "description", "title", "$schema", "$id", "default", "examples"]);
     const unchecked = new Set();
     (function walk(s) {
@@ -378,14 +468,23 @@ function checkRoot(dir) {
   // here — and it was, by a case-variant spelling on a case-insensitive volume (~/.CODEX is the same
   // inode as ~/.codex and realpath preserves the case it was given). Walking the TARGET's ancestors
   // against the protected inode gives the "inside" semantics a single stat cannot.
-  for (const name of [".codex", ".codex-delegate"]) {
+  // The state directory is listed by its RESOLVED path, not by the name `.codex-delegate`, so the
+  // guarantee follows $CODEX_DELEGATE_STATE_DIR wherever it points. Redirecting the driver's own state
+  // and thereby making it writable would hand back exactly what this guard exists to withhold.
+  const home = canon(passwdHome("the home-directory guard"));
+  const protectedRoots = [
+    [path.join(home, ".codex"), "~/.codex"],
+    [path.join(home, ".codex-delegate"), "~/.codex-delegate"],
+    [stateDir("the home-directory guard"), "this driver's state directory"],
+  ];
+  for (const [target, label] of protectedRoots) {
     let prot = null;
-    try { prot = fs.statSync(path.join(canon(passwdHome("the home-directory guard")), name)); } catch { continue; }
+    try { prot = fs.statSync(target); } catch { continue; }
     for (let cur = dir; ; ) {
       let st = null;
       try { st = fs.statSync(cur); } catch {}
       if (st && st.dev === prot.dev && st.ino === prot.ino)
-        fail(EXIT.USAGE, `refusing to grant write access to ${dir}: it is inside ~/${name}, which holds the rollout receipts and this driver's own state`);
+        fail(EXIT.USAGE, `refusing to grant write access to ${dir}: it is inside ${label}, which holds the rollout receipts and this driver's own state`);
       const parent = path.dirname(cur);
       if (parent === cur) break;
       cur = parent;
@@ -417,7 +516,29 @@ function passwdHome(what) {
   try { return os.userInfo().homedir; }
   catch (e) { fail(EXIT.USAGE, `cannot resolve your home directory from the passwd database, which ${what} needs (${e.code ?? e.message}); this happens for a uid with no passwd entry`); }
 }
-const lockDir = () => path.join(passwdHome("the cwd lock"), ".codex-delegate", "locks");
+
+// Everything this driver owns — locks, the answer log, the isolated Codex home, the worktree ledger —
+// lives under one base, and $CODEX_DELEGATE_STATE_DIR moves it. This exists for ONE reason and it is
+// not configurability: the repository's own eval suites drive the driver against a scripted server that
+// answers config/read with `model = "fake-model"`, and every run rewrites the SHARED isolated home's
+// config.toml. Measured — after a suite run, ~/.codex-delegate/home/config.toml holds
+// `model = "fake-model"`, and a real delegation whose own write lost the race started against a model
+// that does not exist. Tests must not be able to reach production state; this is the seam that stops it.
+//
+// The same caveat the lock's passwd anchor exists for applies here and is the price of the seam: two
+// runs under two different $CODEX_DELEGATE_STATE_DIR values take two different locks and do not exclude
+// each other. It is deliberately NOT a general "put my state elsewhere" knob — set it per test harness,
+// not per user — and it must be absolute so it cannot resolve against a caller's cwd.
+function stateDir(what) {
+  const override = process.env.CODEX_DELEGATE_STATE_DIR;
+  if (override) {
+    if (!path.isAbsolute(override))
+      fail(EXIT.USAGE, `CODEX_DELEGATE_STATE_DIR must be an absolute path, got ${JSON.stringify(override)}`);
+    return override;
+  }
+  return path.join(passwdHome(what), ".codex-delegate");
+}
+const lockDir = () => path.join(stateDir("the cwd lock"), "locks");
 
 // Codex reads its plugins, skills, memories and project-trust records out of CODEX_HOME, so delegating
 // into the caller's own home makes every turn a function of whatever they happen to have installed.
@@ -569,8 +690,11 @@ function managedWebSearchModes() {
 }
 
 async function isolatedHome() {
+  // The isolated home moves with the driver's own state; the REAL ~/.codex it borrows credentials and
+  // sessions from does not, and must not — a test harness redirecting state has no business inventing
+  // an auth.json, and the rollout receipt has to land where the published verification recipe looks.
   const base = passwdHome("the isolated Codex home");
-  const home = path.join(base, ".codex-delegate", "home");
+  const home = path.join(stateDir("the isolated Codex home"), "home");
   try { fs.mkdirSync(home, { recursive: true, mode: 0o700 }); }
   catch (e) { fail(EXIT.USAGE, `cannot create the isolated Codex home ${home}: ${e.message}`); }
   for (const name of ["auth.json", "sessions"]) {
@@ -781,7 +905,11 @@ function releaseLock() {
 // by force. A ledger entry under ~/.codex-delegate/worktrees/ is written before the turn so a crashed
 // run leaves a machine-readable trace instead of an anonymous directory.
 let worktreeInfo = null;
-const answersDir = () => path.join(os.userInfo().homedir, ".codex-delegate", "answers");
+// os.userInfo() directly rather than passwdHome() inside stateDir: this is called from persistAnswer,
+// a best-effort side write on a turn that has already succeeded, where fail()'s refusal-and-exit is the
+// wrong shape. stateDir() only calls passwdHome when the override is absent, and persistAnswer wraps
+// the whole thing in a try/catch, so a missing passwd entry costs the path and nothing else.
+const answersDir = () => path.join(stateDir("the answer log"), "answers");
 
 function createWorktree(repo) {
   // Guarded BEFORE `git worktree add` mutates anything: a repo inside a protected root used to be
@@ -791,13 +919,28 @@ function createWorktree(repo) {
   if (chk.status !== 0 || chk.stdout.trim() !== "true") fail(EXIT.USAGE, `--worktree needs a git work tree at ${repo}`);
   const name = `codex-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   const dir = path.join(repo, ".claude", "worktrees", name);
-  try { fs.mkdirSync(path.dirname(dir), { recursive: true }); }
-  catch (e) { fail(EXIT.USAGE, `cannot create ${path.dirname(dir)}: ${e.message}`); }
+  // checkRoot(repo) above guards where the worktree is asked FROM; this guards where it lands. They are
+  // not the same directory whenever `<repo>/.claude` is a symbolic link, and the comment above claimed
+  // a fix it did not have — measured with `.claude -> ~/.codex-delegate/x`: stderr printed
+  // "created worktree ..." and only THEN "refusing to grant write access", i.e. git had already made
+  // directories inside the protected root and would have checked a whole tree out there (running its
+  // hooks) had the parent existed. Resolve the nearest EXISTING ancestor, because the leaf does not
+  // exist yet and realpath cannot follow a link that is not there.
+  const parent = path.dirname(dir);
+  let anchor = parent;
+  while (!fs.existsSync(anchor) && path.dirname(anchor) !== anchor) anchor = path.dirname(anchor);
+  const anchorReal = canonPath(anchor);
+  if (anchorReal) checkRoot(anchorReal);
+  try { fs.mkdirSync(parent, { recursive: true }); }
+  catch (e) { fail(EXIT.USAGE, `cannot create ${parent}: ${e.message}`); }
+  // And again on what was actually created, so a link swapped in during the mkdir is still caught
+  // before git writes a single object.
+  checkRoot(fs.realpathSync(parent));
   const add = spawnSync("git", ["-C", repo, "worktree", "add", "--detach", dir], { encoding: "utf8" });
   if (add.status !== 0) fail(EXIT.USAGE, `git worktree add failed: ${String(add.stderr).trim().slice(0, 200)}`);
   let ledger = null;
   try {
-    const ledgerDir = path.join(passwdHome("the worktree ledger"), ".codex-delegate", "worktrees");
+    const ledgerDir = path.join(stateDir("the worktree ledger"), "worktrees");
     fs.mkdirSync(ledgerDir, { recursive: true, mode: 0o700 });
     ledger = path.join(ledgerDir, `${name}.json`);
     fs.writeFileSync(ledger, JSON.stringify({ path: dir, repo, pid: process.pid, started: new Date().toISOString() }), { mode: 0o600 });
@@ -839,7 +982,12 @@ function disposeWorktree(turnDone) {
     if (rm.status === 0) res.worktreeRemoved = true;
     else res.worktreePreserved = `git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
   }
-  if (!res.worktreeRemoved) res.worktreeRemoveCommand = `git -C ${repo} worktree remove --force ${dir}`;
+  // Quoted, because this string is published as "what to run" and both paths are attacker- and
+  // accident-shaped: a repository under a directory with a space produced a command that removed the
+  // wrong tree or nothing at all. Single quotes with the standard '\'' escape are safe for any byte a
+  // path can hold.
+  const shq = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
+  if (!res.worktreeRemoved) res.worktreeRemoveCommand = `git -C ${shq(repo)} worktree remove --force ${shq(dir)}`;
   const fleet = spawnSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" });
   if (fleet.status === 0)
     res.worktreeFleet = fleet.stdout.split("\n").filter((l) => l.startsWith("worktree ") && l.includes("/.claude/worktrees/")).length;
@@ -964,10 +1112,17 @@ async function setup() {
   // missing exactly what the seat file is about to supply (--cwd).
   const argv = process.argv.slice(2);
   const at = argv.indexOf("--seat-file");
+  // A SECOND --seat-file used to be silently ignored: only the first pair is expanded and removed, and
+  // the survivor set o.seatFile and was never read. Two seat files on one command line is a caller who
+  // believes something untrue about which seat is running, so say so instead of picking one.
+  if (at >= 0 && argv.indexOf("--seat-file", at + 2) >= 0)
+    fail(EXIT.USAGE, "--seat-file given more than once; only one seat file defines a seat");
   if (at >= 0 && (argv[at + 1] === undefined || argv[at + 1].startsWith("--")))
     fail(EXIT.USAGE, "--seat-file requires a non-empty value");
+  // Scanned off the raw command line on purpose: a seat file must not be able to authorise itself.
+  const allowSeatVerify = argv.includes("--allow-seat-verify");
   opts = at >= 0
-    ? parseArgs([...argvFromSeatFile(argv[at + 1]), ...argv.filter((_, i) => i !== at && i !== at + 1)])
+    ? parseArgs([...argvFromSeatFile(argv[at + 1], allowSeatVerify), ...argv.filter((_, i) => i !== at && i !== at + 1)])
     : parseArgs(argv);
 
   // Two levels, mirroring Claude's own subagents: a reader that can run things but not touch your files,
@@ -988,6 +1143,19 @@ async function setup() {
   // --cwd is the primary writable root above read, so it needs the same guard as a hand-added root.
   cwd = resolveDir(opts.cwd, "--cwd");
   if (opts.level !== "read") checkRoot(cwd);
+
+  // $TMPDIR IS the read level's writable root — that is the whole of the level's grant — so it needs the
+  // same guard every other writable root gets, and it did not have it. checkRoot was applied to --cwd,
+  // --writable and the --commit git dir; TMPDIR reached the sandbox unexamined. Measured:
+  // `TMPDIR=~/.codex/x --level read` exited 0 with the server reporting
+  // writableRoots: ["/Users/ruliny/.codex/x"] — write access inside the directory that holds the rollout
+  // receipts, from the level whose headline promise is that it writes nothing of yours. The comment on
+  // checkRoot says a writable ~/.codex/sessions makes the "unforgeable" receipt forgeable; this was the
+  // door to it. Refused here rather than in assertReadSandbox so it costs no turn.
+  if (opts.level === "read" && process.env.TMPDIR) {
+    const t = canonPath(process.env.TMPDIR);
+    if (t) checkRoot(t);
+  }
 
   // Before the lock, deliberately. This asks another codex process what the caller's settings are, and a
   // probe that hangs used to hold the write lock for its whole 15 s while doing it — measured: a second
@@ -1057,7 +1225,7 @@ async function setup() {
 
 // ---------------------------------------------------------------- transport
 
-let child, closed = false, settled = false, flushing = false;
+let child, settled = false, flushing = false;
 // The config probe's own child, tracked at module scope so shutdown() can reach it. Held in a
 // function-local it survived a SIGTERM aimed at the driver — the same way a review probe's background
 // jobs outlived their run and burned eight cores for fifteen hours.
@@ -1100,7 +1268,6 @@ function shutdown() {
       probeChild = null;
     }
     if (child) {
-      closed = true;
       try { child.stdin.end(); } catch {}
       killGroup("SIGTERM");
       for (const end = Date.now() + 2000; groupAlive() && Date.now() < end; ) await sleep(50);
@@ -1367,7 +1534,18 @@ function schemaErrors(value, schema, at = "$") {
     // hasOwn, not `in`: JSON.parse objects inherit Object.prototype, so required:["toString"] was
     // satisfied by every object.
     for (const k of schema?.required ?? []) if (!Object.hasOwn(value, k)) errs.push(`${at}.${k}: required and missing`);
-    for (const [k, sub] of Object.entries(schema?.properties ?? {})) if (k in value) errs.push(...schemaErrors(value[k], sub, `${at}.${k}`));
+    // hasOwn here too, and for the mirror-image reason. `k in value` reaches the PROTOTYPE, so a schema
+    // with an optional property named after anything on Object.prototype validated the inherited member
+    // instead of the absent one — measured: schema {"properties":{"toString":{"type":"string"}}} against
+    // the compliant answer {"verdict":"ok"} produced `$.toString: expected string, got function`, burned
+    // the corrective turn and exited 13 on an answer that matched. The line above already knew this.
+    for (const [k, sub] of Object.entries(schema?.properties ?? {})) if (Object.hasOwn(value, k)) errs.push(...schemaErrors(value[k], sub, `${at}.${k}`));
+    // The strict schema the server demands says no extra keys; check it here too rather than declaring
+    // it unchecked, so outputSchemaOk means the same thing the server enforced.
+    if (schema?.additionalProperties === false) {
+      const known = new Set(Object.keys(schema?.properties ?? {}));
+      for (const k of Object.keys(value)) if (!known.has(k)) errs.push(`${at}.${k}: not permitted by the schema (additionalProperties is false)`);
+    }
   }
   if (typeOf(value) === "array" && schema?.items && !Array.isArray(schema.items))
     value.forEach((v, i) => errs.push(...schemaErrors(v, schema.items, `${at}[${i}]`)));
@@ -1384,9 +1562,15 @@ function deepEqual(a, b) {
 
 function answerSchemaErrors(text) {
   const parsed = parseAnswerJson(text);
-  if (parsed.answerJson === null) return [`the answer is not valid JSON: ${parsed.answerJsonError}`];
-  // The contract is one bare OBJECT, independent of how lax the schema is: an array or a scalar parses
-  // as JSON but is never an acceptable answer shape.
+  // A literal `null` answer is VALID JSON, so it must not be diagnosed as a parse failure. It used to
+  // be: answerJson null with answerJsonError null took the first branch and reported "the answer is not
+  // valid JSON: null", which then went into the corrective turn's prompt as the thing to fix — sending
+  // the model after a syntax error it did not make, and leaving the branch below unable to ever see a
+  // JSON null. The two states are told apart by the error field, not by the value.
+  if (parsed.answerJson === null && parsed.answerJsonError !== null)
+    return [`the answer is not valid JSON: ${parsed.answerJsonError}`];
+  // The contract is one bare OBJECT, independent of how lax the schema is: an array, a scalar or null
+  // parses as JSON but is never an acceptable answer shape.
   if (parsed.answerJson === null || typeof parsed.answerJson !== "object" || Array.isArray(parsed.answerJson))
     return ["the answer is valid JSON but not an object"];
   return schemaErrors(parsed.answerJson, opts.outputSchema);
@@ -1433,10 +1617,26 @@ function parseAnswerJson(text) {
 // the receipt a wrapper cannot forge. Today's and yesterday's date directories are checked, because a
 // turn can cross midnight; a resumed thread older than that reports null, which means "not found in the
 // last two days", not "fabricated". A present receipt proves the turn ran; judge absence carefully.
+//
+// The file is OPENED and its first record read, not merely matched by name. Matching a filename is
+// exactly as strong as `touch rollout-<any id>.jsonl`, which is to say not strong at all, and the field
+// it fed was published as proof the turn really ran. The first record is `session_meta` and carries the
+// session id, the originator and the model provider, so verification costs one bounded read and turns
+// receiptOk from "a file with this name exists" into "a session record claiming this thread exists".
+// Those three values are surfaced too: a coordinator checking a seat wants to see `"Claude Code"` and
+// `"openai"`, not to be told that a path was found.
+//
+// $CODEX_DELEGATE_SESSIONS_DIR moves the search root, and exists so this can be TESTED. Before it there
+// was no positive case at all — the one receipt case asserted receiptOk:false, and replacing the whole
+// function with `return null` left every suite green, which is a strange state for the field the README
+// calls proof the turn really ran. It weakens nothing: a process that can set this variable is already
+// the process that writes the report, and could fabricate every field in it.
+const RECEIPT_HEAD_BYTES = 64 * 1024;
 function findRollout(threadId) {
   if (!threadId) return null;
   try {
-    const base = path.join(os.userInfo().homedir, ".codex", "sessions");
+    const base = process.env.CODEX_DELEGATE_SESSIONS_DIR
+      || path.join(os.userInfo().homedir, ".codex", "sessions");
     for (let back = 0; back < 2; back++) {
       const d = new Date(Date.now() - back * 86400000);
       const dir = path.join(base, String(d.getFullYear()),
@@ -1444,7 +1644,33 @@ function findRollout(threadId) {
       let names;
       try { names = fs.readdirSync(dir); } catch { continue; }
       const hit = names.find((n) => n.startsWith("rollout-") && n.includes(threadId));
-      if (hit) return path.join(dir, hit);
+      if (!hit) continue;
+      const p = path.join(dir, hit);
+      const res = { path: p, verified: false, originator: null, modelProvider: null, cwd: null,
+                    why: "the first record could not be read" };
+      // Bounded, and only the first line: a rollout of a long turn is megabytes, and everything this
+      // needs is in its opening record.
+      let head = "";
+      try {
+        const fd = fs.openSync(p, "r");
+        try {
+          const buf = Buffer.alloc(RECEIPT_HEAD_BYTES);
+          head = buf.subarray(0, fs.readSync(fd, buf, 0, RECEIPT_HEAD_BYTES, 0)).toString("utf8");
+        } finally { fs.closeSync(fd); }
+      } catch (e) { res.why = `the rollout could not be opened (${e.code ?? e.message})`; return res; }
+      const firstLine = head.split("\n")[0] ?? "";
+      let meta = null;
+      try { meta = JSON.parse(firstLine); } catch { res.why = "the first record is not JSON"; return res; }
+      const pay = meta?.payload ?? {};
+      const id = pay.id ?? pay.session_id ?? null;
+      if (meta?.type !== "session_meta") { res.why = `the first record is ${JSON.stringify(meta?.type ?? null)}, not session_meta`; return res; }
+      if (id !== threadId) { res.why = `the rollout's session id is ${JSON.stringify(id)}, not this thread`; return res; }
+      res.verified = true;
+      res.why = null;
+      res.originator = typeof pay.originator === "string" ? pay.originator : null;
+      res.modelProvider = typeof pay.model_provider === "string" ? pay.model_provider : null;
+      res.cwd = typeof pay.cwd === "string" ? pay.cwd : null;
+      return res;
     }
   } catch {}
   return null;
@@ -1497,14 +1723,20 @@ function pruneAnswers(dir) {
 function clip(text, maxLines, maxBytes, where) {
   const lines = text.split("\n");
   let out = lines.length > maxLines ? lines.slice(0, maxLines).join("\n") : text;
+  const marker = (body) => `${body}\n\n[clipped: ${lines.length} lines, ${Buffer.byteLength(text, "utf8")} bytes${where ? ` — full answer at ${where}` : ""}]`;
   // Bytes, not UTF-16 units. `.length` counts the latter, so a cyrillic or emoji answer sailed past a
   // 4000-"byte" cap at 8003 actual bytes — the cap exists to bound what lands in a coordinator's context,
   // and that is measured in bytes.
-  if (Buffer.byteLength(out, "utf8") > maxBytes) {
-    out = Buffer.from(out, "utf8").subarray(0, maxBytes).toString("utf8").replace(/�$/, "") + "…";
+  // The marker is counted INSIDE the cap, not appended after it. It used to be added afterwards, so the
+  // one number the flag promises was always exceeded by the length of the sentence explaining that it
+  // had not been — a small lie, in the field whose entire job is to be a bound.
+  const ELLIPSIS = "…";
+  const budget = Math.max(0, maxBytes - Buffer.byteLength(marker(""), "utf8") - Buffer.byteLength(ELLIPSIS, "utf8"));
+  if (Buffer.byteLength(out, "utf8") > budget) {
+    out = Buffer.from(out, "utf8").subarray(0, budget).toString("utf8").replace(/�$/, "") + ELLIPSIS;
   }
   if (out === text) return text;
-  return `${out}\n\n[clipped: ${lines.length} lines, ${Buffer.byteLength(text, "utf8")} bytes${where ? ` — full answer at ${where}` : ""}]`;
+  return marker(out);
 }
 
 // The server nests the upstream API error as a JSON STRING inside turnError.message, so the useful part —
@@ -1598,7 +1830,13 @@ function finish(reason) {
       // Bounded by what is LEFT of the caller's wall clock, with no floor: the old 1 s minimum let a
       // completion arriving just before the deadline buy the verifier a second past the budget.
       const remainingMs = startedAtMs + opts.timeout * 1000 - Date.now();
-      if (remainingMs < 100) { verifySkipped = "budget-exhausted"; verifyResult = null; }
+      // The floor is overridable so this branch can be REACHED by a test. Hitting it by timing means
+      // landing the turn's completion inside a 100 ms window at the end of the caller's budget, which is
+      // a coin flip, and a branch that can only be tested by a coin flip is a branch that stays untested:
+      // this one silently returned exit 0 for a declared-but-unrun check until it was read out of the
+      // source. Nothing in production sets it.
+      const verifyFloorMs = Number(process.env.CODEX_DELEGATE_VERIFY_FLOOR_MS ?? 100);
+      if (remainingMs < verifyFloorMs) { verifySkipped = "budget-exhausted"; verifyResult = null; }
       else {
       const budgetMs = Math.min(300000, remainingMs);
       // detached: the verifier gets its own process group, and the group is swept right after — Node's
@@ -1634,9 +1872,10 @@ function finish(reason) {
 
   // After the verifier (which runs in the tree), before the report (which carries the outcome).
   const worktree = disposeWorktree(turnStatus === "completed");
-  // The receipt is the one artefact no wrapper can fabricate; locate it so the coordinator does not
-  // have to glob for it.
-  const receiptPath = findRollout(rootThreadId);
+  // The receipt is the one artefact no wrapper can fabricate; locate it, READ it, and say what it says,
+  // so the coordinator does not have to glob for it and does not have to trust a filename.
+  const receipt = findRollout(rootThreadId);
+  const receiptPath = receipt?.path ?? null;
 
   // A refused escalation means the task hit the edge of the sandbox it was given, so the work is very
   // likely incomplete — detectable without reading the prose.
@@ -1660,6 +1899,11 @@ function finish(reason) {
   // "The check said no" and "the check could not be run" are different instructions to the caller — redo
   // the work, versus fix the verifier — so they get different codes. Reporting the second as 9 told the
   // caller to discard work the run never measured, while the text beside it said the opposite.
+  // A verifier the deadline left no room for is the same fact as one that could not be executed: it was
+  // DECLARED and it was not measured. It used to leave verifyResult null, which both verify rungs test
+  // for, so the ladder fell through to the weaker gates and a run with an unrun check could reach 0 —
+  // the exact "report says success, the work is unverified" shape --verify exists to prevent.
+  else if (verifySkipped === "budget-exhausted") code = EXIT.VERIFY_UNMEASURABLE;
   else if (verifyResult && !verifyResult.measured) code = EXIT.VERIFY_UNMEASURABLE;
   else if (verifyFailed) code = EXIT.VERIFY_FAILED;
   // --allow-no-commands waives the "at least one command" floor. It must NOT waive an expectation the
@@ -1705,12 +1949,21 @@ function finish(reason) {
     filesTouched: fileChanges.filter((f) => f.status === "completed").map((f) => f.move ?? f.path),
     fileChangesFailed: failedPatches,
     escalations, interactions, unparsedLines, expectCommand: opts.expect ?? null,
+    // What a seat FILE declared, in order, when one was used. A wrapped seat is otherwise indistinguishable
+    // from a hand-typed one in the report, and the fields a relay wrote are exactly what a coordinator
+    // needs to see when it did not write them itself.
+    ...(seatFileFields ? { seatFileFields } : {}),
     // null only when no --expect-command was given, so a caller can tell "not asked" from "asked and missed".
     expectationOk: opts.expectRe ? expected.length > 0 : null,
-    // The rollout receipt, located rather than merely implied. receiptOk false is "not found in the last
-    // two days of ~/.codex/sessions", which a nonstandard layout can also produce — read the comment on
-    // findRollout before treating it as proof of fabrication.
-    receiptPath, receiptOk: receiptPath !== null,
+    // The rollout receipt, located and verified rather than merely implied. receiptOk false is "no
+    // rollout in the last two days of ~/.codex/sessions whose opening session_meta record names this
+    // thread", which a nonstandard layout can also produce — read the comment on findRollout before
+    // treating it as proof of fabrication. receiptWhy says which of the two it was.
+    receiptPath, receiptOk: receipt?.verified === true, receiptWhy: receipt?.why ?? (receiptPath ? null : "no rollout naming this thread in the last two days"),
+    // Straight out of the verified record. A wrapper that forwarded the work has no thread whose
+    // session_meta says this, and a coordinator auditing a seat reads these rather than a path.
+    receiptOriginator: receipt?.originator ?? null, receiptModelProvider: receipt?.modelProvider ?? null,
+    receiptCwd: receipt?.cwd ?? null,
     ...(worktree ?? {}),
     // A completed turn that ran nothing exits 5; when no expectation was declared, the one legitimate
     // shape of that run (a recall-only follow-up) has a flag, and the report should name it.
@@ -1743,7 +1996,9 @@ function finish(reason) {
     // the turn, so this run is not comparable with an isolated one.
     if (codexHome === null) L.push("home=host — the caller's plugins and skills were loaded into this turn");
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
-    if (rootThreadId) L.push(receiptPath ? `receipt: ${receiptPath}`
+    if (rootThreadId) L.push(receipt?.verified
+      ? `receipt: ${receiptPath}  (originator=${receipt.originator ?? "?"} provider=${receipt.modelProvider ?? "?"})`
+      : receiptPath ? `receipt: FOUND BUT UNVERIFIED at ${receiptPath} — ${receipt.why}`
       : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
     if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
     if (opts.outputSchema) L.push((schemaErrs.length
@@ -2002,7 +2257,13 @@ async function main() {
 // Installing a handler removes Node's default terminate-on-signal, so the handler must always end the
 // process. Without the settled branch a run that has already reported ignores every signal it handles,
 // and only SIGKILL reclaims it.
-for (const sig of ["SIGINT", "SIGTERM"]) {
+//
+// SIGHUP is in the list, and its absence was a hole rather than an omission: it is what a closing
+// terminal and a dying parent shell send, which is the ordinary end of a backgrounded delegation.
+// Measured without it — driver exit 129, a TERM-ignoring descendant reparented to pid 1, the cwd lock
+// left behind, and a zero-byte report: every guarantee this driver makes about teardown, lost to the
+// one signal nobody sends on purpose.
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(sig, () => {
     // A repeat signal while teardown is already running escalates the group straight to SIGKILL. The
     // old path called process.exit() here, which discarded the pending escalation — the second Ctrl-C
@@ -2013,7 +2274,16 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
       shutdown().then(() => process.exit(process.exitCode ?? EXIT.TRANSPORT));
       return;
     }
-    abort(EXIT.TRANSPORT, `interrupted by ${sig}`);
+    // A turn that has already produced evidence is REPORTED, not discarded. abort() writes no report at
+    // all, so a cancelled delegation used to hand back zero bytes of stdout while its commands, files
+    // and answer sat in memory — measured: six seats stopped mid-run, six empty reports, the whole
+    // product of each thrown away. This is the same choice --timeout already makes one line below in
+    // main(), and it lands on the published rung for "the turn did not complete" (exit 1) rather than
+    // on transport (4), which means "codex crashed or the rights were wrong" and did not happen here.
+    // Before a thread exists there is nothing to report, and 4 stays.
+    process.stderr.write(`codex-delegate: interrupted by ${sig}\n`);
+    if (child && rootThreadId) { finish("interrupted"); return; }
+    abort(EXIT.TRANSPORT, `interrupted by ${sig} before the thread existed`);
     shutdown().then(() => process.exit(EXIT.TRANSPORT));
   });
 }

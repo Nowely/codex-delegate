@@ -173,8 +173,15 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
     w(reply(m.id, {
       thread: thread(THREAD),
-      // Echoed, so a driver that starts hardcoding a model is visible.
-      model: m.params?.model ?? (CFG["model"] ?? "fake-model").replace(/^"|"$/g, ""),
+      // Normally a plausible model name, because fidelity.test.mjs diffs this response field against the
+      // LIVE server's and a fixture that reports something the server never would is a divergence, not a
+      // test. Under FAKE_MODEL_ECHO the field reports the REQUEST instead ("inherited" / "explicit:x"),
+      // which is what the "model must be inherited" case needs: the plausible name is the same literal a
+      // hardcoding driver would send, so that case could not tell the two apart — measured, replacing
+      // `model: opts.model ?? null` with `model: "fake-model"` left all 80 cases green.
+      model: process.env.FAKE_MODEL_ECHO
+        ? (m.params?.model == null ? "inherited" : `explicit:${m.params.model}`)
+        : (m.params?.model ?? (CFG["model"] ?? "fake-model").replace(/^"|"$/g, "")),
       modelProvider: "openai", cwd: m.params?.cwd ?? "/tmp",
       // null when the driver sent no -c override, exactly as the live server reports an inherited value.
       reasoningEffort: CFG["model_reasoning_effort"] ?? null,
@@ -204,6 +211,13 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     const thisTurn = turnStarts === 1 ? TURN : TURN2;
     const R = reply(m.id, { turn: { id: thisTurn, status: "inProgress", items: [], error: null } });
     const prompt = m.params?.input?.[0]?.text ?? "";
+    // Did the driver actually SEND the schema, or only validate the answer against it afterwards? The
+    // parity table claims "the server constrains generation with the schema", and nothing checked it:
+    // deleting outputSchema from both turn/start calls left every schema case green, because the fixture
+    // branched on the scenario name alone. Now a schema scenario that was not sent one says so, in prose,
+    // which no schema can match.
+    const schemaSent = m.params?.outputSchema !== undefined && m.params?.outputSchema !== null;
+    const schemaAnswer = (json) => schemaSent ? json : "the server was sent no outputSchema";
     const askApproval = (method, params, expected) => {
       const id = 9300 + Number(m.id);
       pendingApproval = { id, method, expected, threadId: m.params.threadId, turnId: TURN };
@@ -218,12 +232,19 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
             last: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 135 },
             total: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 135 },
             modelContextWindow: 272000 } }),
+          // A SUBAGENT thread's usage, arriving after the root's and carrying a different total. Codex
+          // spawns its own threads and this notification is per-thread; without a competing event the
+          // root-thread filter could be deleted and the assertion below still read 135.
+          note("thread/tokenUsage/updated", { threadId: "thr_child", tokenUsage: {
+            last: { inputTokens: 9000, cachedInputTokens: 0, outputTokens: 900, reasoningOutputTokens: 0, totalTokens: 9900 },
+            total: { inputTokens: 9000, cachedInputTokens: 0, outputTokens: 900, reasoningOutputTokens: 0, totalTokens: 9900 },
+            modelContextWindow: 272000 } }),
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
       // --output-schema: a valid object on the first try.
       case "schema-good":
-        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, '{"verdict":"ok","count":3}'), done(TURN, THREAD));
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, schemaAnswer('{"verdict":"ok","count":3}')), done(TURN, THREAD));
         break;
 
       // --output-schema: PHASED prose first, an UNPHASED valid object on the corrective turn — the
@@ -233,7 +254,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         w(R, cmd(thisTurn, THREAD),
           turnStarts === 1
             ? msg(thisTurn, THREAD, "I think the verdict is ok.")
-            : msg(thisTurn, THREAD, '{"verdict":"ok","count":3}', null),
+            : msg(thisTurn, THREAD, schemaAnswer('{"verdict":"ok","count":3}'), null),
           done(thisTurn, THREAD));
         break;
 
@@ -474,6 +495,17 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, `survivor ${s.pid}`), done(TURN, THREAD)), 200);
         break;
       }
+
+      // A long answer, for the --brief clip. The lines are long enough that the FIRST TWENTY already
+      // exceed the 4000-byte cap — 20 x ~420 bytes — so the byte path is exercised, not just the line
+      // path. With short lines the line cap binds first, the byte cap never engages, and a marker
+      // appended outside it goes unnoticed: measured, that fixture left the "marker escapes the cap"
+      // mutation green.
+      case "long-answer":
+        w(R, cmd(TURN, THREAD),
+          msg(TURN, THREAD, Array.from({ length: 200 }, (_, i) => `line ${i} ${"x".repeat(400)}`).join("\n")),
+          done(TURN, THREAD));
+        break;
 
       // An answer with no phase at all, which the schema permits.
       case "null-phase":

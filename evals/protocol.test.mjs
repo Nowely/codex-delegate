@@ -28,9 +28,14 @@ fs.writeFileSync(path.join(shimDir, "codex"),
 const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
 
 // A schema file for the --output-schema cases, and a non-executable file for the verify-126 branch.
+// STRICT, because that is the only kind the provider accepts and the fixture must not be laxer than the
+// thing it stands in for: measured against the live server, an ordinary schema comes back
+// 400 invalid_json_schema — "'additionalProperties' is required to be supplied and to be false" — and
+// "'required' ... an array including every key in properties". These files used to be ordinary, so every
+// schema case exercised a shape a real run cannot use.
 const schemaFile = path.join(shimDir, "verdict.schema.json");
 fs.writeFileSync(schemaFile, JSON.stringify({
-  type: "object", required: ["verdict"],
+  type: "object", additionalProperties: false, required: ["verdict", "count"],
   properties: { verdict: { type: "string", enum: ["ok", "bad"] }, count: { type: "integer" } }
 }));
 const notExec = path.join(shimDir, "not-executable");
@@ -39,9 +44,62 @@ const laxSchemaFile = path.join(shimDir, "lax.schema.json");
 fs.writeFileSync(laxSchemaFile, "{}");
 const oneOfSchemaFile = path.join(shimDir, "oneof.schema.json");
 fs.writeFileSync(oneOfSchemaFile, JSON.stringify({
-  type: "object", required: ["verdict"], properties: { verdict: { type: "string" } },
+  type: "object", additionalProperties: false, required: ["verdict", "count"],
+  properties: { verdict: { type: "string" }, count: { type: "integer" } },
   oneOf: [{ required: ["verdict"] }]
 }));
+// The three shapes the provider rejects, each of which used to cost a whole delegation to discover.
+const looseSchemaFile = path.join(shimDir, "loose.schema.json");
+fs.writeFileSync(looseSchemaFile, JSON.stringify({
+  type: "object", required: ["verdict"], properties: { verdict: { type: "string" } }
+}));
+const looseNestedSchemaFile = path.join(shimDir, "loose-nested.schema.json");
+fs.writeFileSync(looseNestedSchemaFile, JSON.stringify({
+  type: "object", additionalProperties: false, required: ["meta"],
+  properties: { meta: { type: "object", required: ["n"], properties: { n: { type: "integer" } } } }
+}));
+const optionalSchemaFile = path.join(shimDir, "optional.schema.json");
+fs.writeFileSync(optionalSchemaFile, JSON.stringify({
+  type: "object", additionalProperties: false, required: ["verdict"],
+  properties: { verdict: { type: "string" }, note: { type: "string" } }
+}));
+// A strict schema whose required key is named after a member of Object.prototype. `k in value` reaches
+// the prototype, so the absent key used to be validated against the inherited FUNCTION and produced a
+// second, invented error beside the true one.
+const protoSchemaFile = path.join(shimDir, "proto.schema.json");
+fs.writeFileSync(protoSchemaFile, JSON.stringify({
+  type: "object", additionalProperties: false, required: ["verdict", "count", "toString"],
+  properties: { verdict: { type: "string" }, count: { type: "integer" }, toString: { type: "string" } }
+}));
+
+// A rollout that looks like a real one, so the receipt locator has a POSITIVE case. Without it the whole
+// of findRollout could be replaced by `return null` and the suite stayed green.
+const sessionsDir = path.join(shimDir, "sessions");
+const rolloutDay = (() => {
+  const d = new Date();
+  return path.join(sessionsDir, String(d.getFullYear()),
+    String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0"));
+})();
+fs.mkdirSync(rolloutDay, { recursive: true });
+const rolloutLine = (id) => JSON.stringify({
+  timestamp: new Date().toISOString(), type: "session_meta",
+  payload: { session_id: id, id, cwd: shimDir, originator: "Claude Code",
+             cli_version: "0.150.1", source: "vscode", model_provider: "openai" }
+});
+fs.writeFileSync(path.join(rolloutDay, "rollout-2026-01-01T00-00-00-thr_root.jsonl"), `${rolloutLine("thr_root")}\n`);
+// Same filename convention, a session_meta naming a DIFFERENT thread: the file exists, the receipt is
+// not this run's, and receiptOk must say so rather than trusting the name.
+// A state directory that already exists when the run starts, and a $TMPDIR inside it. The read level's
+// only writable root is $TMPDIR, so pointing it at the driver's own protected state is the shape that
+// used to hand a read seat write access to the receipts.
+const protectedState = path.join(shimDir, "state");
+const protectedTmp = path.join(protectedState, "tmp");
+fs.mkdirSync(protectedTmp, { recursive: true });
+
+const mismatchSessions = path.join(shimDir, "sessions-mismatch");
+const mismatchDay = rolloutDay.replace(sessionsDir, mismatchSessions);
+fs.mkdirSync(mismatchDay, { recursive: true });
+fs.writeFileSync(path.join(mismatchDay, "rollout-2026-01-01T00-00-00-thr_root.jsonl"), `${rolloutLine("thr_someone_else")}\n`);
 
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
@@ -146,9 +204,9 @@ const CASES = [
     why: "when --cwd IS the tmpdir the server subtracts it from writableRoots and reports it under runtimeWorkspaceRoots; demanding it in both places refused a legitimate scratch-directory run",
     assert: (r) => JSON.stringify(r.sandbox?.writableRoots) === "[]"
       || `expected the tmpdir root to be subtracted, got ${JSON.stringify(r.sandbox?.writableRoots)}` },
-  { scenario: "happy",            expect: EXIT.OK,
-    why: "the model must be inherited, never hardcoded: with no --model the driver sends null and the server chooses",
-    assert: (r) => r.model === "fake-model" || `a model was imposed: ${JSON.stringify(r.model)}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { FAKE_MODEL_ECHO: "1" },
+    why: "the model must be inherited, never hardcoded: with no --model the driver sends null and the server chooses. Under FAKE_MODEL_ECHO the fixture reports the REQUEST ('inherited' vs 'explicit:x') instead of a plausible name — it used to fall back to the same literal a hardcoding driver would send, so this case could not tell them apart. The echo is opt-in because fidelity.test.mjs diffs this field against the live server",
+    assert: (r) => r.model === "inherited" || `a model was imposed rather than inherited: ${JSON.stringify(r.model)}` },
   { scenario: "policy-clamped",   expect: EXIT.TRANSPORT,
     why: "an MDM profile clamps a policy it does not permit, after which every command is denied while the run still looks healthy — the exact failure this driver exists to route around, and invisible in every other field" },
   { scenario: "workspace-elsewhere", expect: EXIT.TRANSPORT,
@@ -195,7 +253,13 @@ const CASES = [
       try { process.kill(pid, 0); return `survivor ${pid} is still alive after the driver exited`; }
       catch { return true; }
     } },
-  { scenario: "happy",            expect: EXIT.OK, args: ["--verify", 'sh -c \'trap "" TERM; echo $$ > "$TMPDIR/verify-survivor.pid"; sleep 30\' & sleep 0.2; exit 0'],
+  // The background child's stdio is DETACHED (`>/dev/null 2>&1 </dev/null`), and that is what makes this
+  // case deterministic. Holding the verifier's stdout kept spawnSync draining the pipe for the whole
+  // remaining budget — ~19 s of the case's 30 s bell — so under any load the harness killed the driver
+  // first and the survivor was reported as having outlived a run that never got to sweep it. Measured at
+  // roughly one red in three while other work was on the machine. Detached, spawnSync returns at once and
+  // the group sweep is the only thing that can end the child, which is the property under test.
+  { scenario: "happy",            expect: EXIT.OK, args: ["--verify", 'sh -c \'trap "" TERM; echo $$ > "$TMPDIR/verify-survivor.pid"; exec sleep 30\' >/dev/null 2>&1 </dev/null & sleep 0.3; exit 0'],
     why: "the verifier runs in its own process group and the group is swept afterwards — anything it backgrounded used to outlive the run",
     assert: (r) => {
       if (r.verify?.ok !== true) return `the verifier itself did not pass: ${JSON.stringify(r.verify)}`;
@@ -275,13 +339,84 @@ const CASES = [
 
   // --- accounting and the remaining untested branches ---
   { scenario: "happy",            expect: EXIT.OK,
-    why: "the server's own token accounting reaches the report, so a coordinator can budget a fan-out",
+    why: "the server's own token accounting reaches the report, so a coordinator can budget a fan-out — and it is the ROOT thread's. The fixture now also emits a subagent thread's usage, after the root's and with a bigger total, so deleting the thread filter reports 9900",
     assert: (r) => r.tokenUsage?.total?.totalTokens === 135
-      || `tokenUsage missing or wrong: ${JSON.stringify(r.tokenUsage)}` },
+      || `tokenUsage missing, wrong, or taken from another thread: ${JSON.stringify(r.tokenUsage)}` },
   { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", notExec],
     why: "exit 126 — found but not executable — is 'fix the verifier', not 'the work is not there'; this branch had no test and could be deleted green",
     assert: (r) => (r.verify?.measured === false && r.verify?.exitCode === 126)
-      || `a non-executable verifier was not classified as unmeasurable: ${JSON.stringify(r.verify)}` }
+      || `a non-executable verifier was not classified as unmeasurable: ${JSON.stringify(r.verify)}` },
+
+  // --- the receipt, which had no positive case at all ---
+  { scenario: "happy",            expect: EXIT.OK, env: { CODEX_DELEGATE_SESSIONS_DIR: sessionsDir },
+    why: "the receipt is LOCATED and READ: a rollout whose session_meta names this thread makes receiptOk true and surfaces the originator and provider. Without this case findRollout could be replaced by `return null` with every suite green",
+    assert: (r) => (r.receiptOk === true && typeof r.receiptPath === "string"
+      && r.receiptOriginator === "Claude Code" && r.receiptModelProvider === "openai")
+      || `a genuine rollout was not recognised: ${JSON.stringify({ ok: r.receiptOk, path: r.receiptPath, o: r.receiptOriginator, p: r.receiptModelProvider })}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { CODEX_DELEGATE_SESSIONS_DIR: mismatchSessions },
+    why: "a filename match is not a receipt: a rollout named for this thread whose session_meta names another one is found but NOT verified, because matching a name is as strong as `touch rollout-<id>.jsonl`",
+    assert: (r) => (r.receiptOk === false && typeof r.receiptPath === "string" && /session id/.test(r.receiptWhy ?? ""))
+      || `a mismatched rollout was accepted or misreported: ${JSON.stringify({ ok: r.receiptOk, path: r.receiptPath, why: r.receiptWhy })}` },
+
+  // --- --output-schema: the provider takes a STRICT schema only, and said so only after the turn ---
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", looseSchemaFile],
+    why: "an ordinary JSON Schema is rejected by the server with 400 invalid_json_schema AFTER the turn has started, costing the whole delegation; the admission check must catch it first",
+    assertStderr: (e) => /additionalProperties/.test(e) || `a non-strict schema was admitted: ${e.slice(0, 160)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", looseNestedSchemaFile],
+    why: "the strict rule applies at EVERY level — measured, the server names the context ('properties','meta') — so a top-level-only check still spends a turn to find out",
+    assertStderr: (e) => /properties\.meta/.test(e) || `a non-strict nested object was admitted: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", optionalSchemaFile],
+    why: "a strict schema permits no optional property: `required` must list every key in `properties`, or the server refuses the request",
+    assertStderr: (e) => /required.*every key|Missing|"note"/.test(e) || `an optional property was admitted: ${e.slice(0, 200)}` },
+  { scenario: "schema-good",      expect: EXIT.SCHEMA, args: ["--output-schema", protoSchemaFile],
+    why: "a required key named after a member of Object.prototype is MISSING, not a function: `k in value` reached the prototype and invented a second error beside the true one, which then went into the corrective turn's prompt",
+    assert: (r) => {
+      const errs = (r.schemaErrors ?? []).join(" | ");
+      if (/got function/.test(errs)) return `the prototype was validated instead of the absent key: ${errs}`;
+      return /toString: required and missing/.test(errs) || `the missing key was not reported plainly: ${errs}`;
+    } },
+
+  // --- the seat file: what a wrapper hands over must not be able to become rights ---
+  { scenario: "happy", seat: "EXPECT: foo\nSEAT: read <CWD>\n", expect: EXIT.USAGE,
+    why: "SEAT must come FIRST. A relay that wrote any other field first left the rights slot open, and an injected `SEAT: write ...` line then defined them",
+    assertStderr: (e) => /first field must be SEAT/.test(e) || `a seat file without a leading SEAT was accepted: ${e.slice(0, 160)}` },
+  { scenario: "happy", seat: "TIMEOUT: 20\nEXPECT: foo\n", expect: EXIT.USAGE,
+    why: "a seat file with no SEAT at all declares no rights, and defaulting them is exactly what a rights declaration exists to prevent",
+    assertStderr: (e) => /first field must be SEAT|no SEAT field/.test(e) || `a seat file with no SEAT was accepted: ${e.slice(0, 160)}` },
+  { scenario: "happy", seat: "SEAT: read <CWD>\nVERIFY: touch <CWD>/seat-verify-must-not-run\n", expect: EXIT.USAGE,
+    why: "VERIFY runs an unsandboxed /bin/sh with the caller's own rights. A newline inside any caller-supplied value creates a new field, so a relay copying values verbatim could introduce one — measured, it ran. From a seat file it now needs --allow-seat-verify, which only the command line can carry",
+    assertStderr: (e) => /allow-seat-verify/.test(e) || `a seat file supplied a verifier unasked: ${e.slice(0, 200)}` },
+  { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nVERIFY: true\n", expect: EXIT.OK, args: ["--allow-seat-verify"],
+    why: "the escape hatch works and is explicit: with --allow-seat-verify on the command line the same file runs its verifier",
+    assert: (r) => (r.verify?.ok === true && r.seatFileFields?.includes("VERIFY"))
+      || `the permitted seat verifier did not run: ${JSON.stringify({ v: r.verify, f: r.seatFileFields })}` },
+  { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\n", expect: EXIT.OK,
+    why: "the report names what the FILE declared, so a wrapped seat is not indistinguishable from a hand-typed one",
+    assert: (r) => (Array.isArray(r.seatFileFields) && r.seatFileFields.join(",") === "SEAT,EXPECT")
+      || `seatFileFields wrong: ${JSON.stringify(r.seatFileFields)}` },
+
+  // --- caps and bounds the docs publish as numbers ---
+  { scenario: "long-answer",      expect: EXIT.OK, args: ["--brief"],
+    why: "--brief publishes 20 lines / 4000 bytes as a bound; the 'clipped' marker used to be appended AFTER the cap, so the field whose whole job is to be a bound always exceeded it",
+    assert: (r) => {
+      const bytes = Buffer.byteLength(String(r.answer), "utf8");
+      if (bytes > 4000) return `--brief returned ${bytes} bytes, past its own 4000-byte cap`;
+      if (r.answerTruncated !== true) return "a 200-line answer was not marked truncated";
+      return /full answer at/.test(String(r.answer)) || "the clip marker lost its forwarding address";
+    } },
+
+  { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", "true"],
+    env: { CODEX_DELEGATE_VERIFY_FLOOR_MS: "600000" },
+    why: "a declared verifier the wall clock left no room for was NOT run and NOT reported as a failure: verifyResult stayed null, both verify rungs test for it, and the ladder fell through to the weaker gates — a run with an unrun check reaching exit 0 is the one shape --verify exists to prevent",
+    assert: (r) => (r.verifySkipped === "budget-exhausted" && r.verify === null)
+      || `the skipped verifier was not reported as such: ${JSON.stringify({ s: r.verifySkipped, v: r.verify })}` },
+
+  // --- the read level's writable root is $TMPDIR, so $TMPDIR needs the guard every root gets ---
+  { scenario: "happy",            expect: EXIT.USAGE,
+    env: { CODEX_DELEGATE_STATE_DIR: protectedState, TMPDIR: protectedTmp },
+    why: "$TMPDIR IS the read level's grant, and it reached the sandbox unexamined: measured, `TMPDIR=~/.codex/x --level read` exited 0 with the server reporting write access inside the directory that holds the receipts",
+    assertStderr: (e) => /refusing to grant write access/.test(e)
+      || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` }
 ];
 
 let seatSeq = 0;
@@ -299,7 +434,12 @@ function run(c) {
       [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]), "--timeout", "20",
        ...(c.json === false ? ["--footer"] : c.json === "omit" ? [] : ["--json"]),
        "--prompt", "irrelevant, the server is scripted", ...(c.args ?? [])],
-      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario, ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
+      // A state directory of this suite's own: every case used to write locks, an isolated Codex home and
+      // the answer log into the caller's real ~/.codex-delegate, so a suite run concurrent with a real
+      // delegation overwrote that delegation's inherited config with this fixture's values.
+      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
+               CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
+               ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
         stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
     p.stdout.on("data", (d) => { out += d; });

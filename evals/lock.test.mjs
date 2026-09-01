@@ -23,7 +23,17 @@ const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "dri
 const FAKE = path.join(HERE, "fake-app-server.mjs");
 const EXIT = { OK: 0, USAGE: 2, TRANSPORT: 4, VERIFY_FAILED: 9, BUSY: 10 };
 
-const LOCK_DIR = path.join(os.homedir(), ".codex-delegate", "locks");
+// A state directory of this suite's own. Without it every case wrote into the caller's real
+// ~/.codex-delegate — the locks it plants, the isolated Codex home it rewrites, the answer log it
+// prunes — so running the tests mutated production state, and a suite run concurrent with a real
+// delegation replaced that delegation's inherited config with the fixture's `model = "fake-model"`.
+// Measured: after a suite run, ~/.codex-delegate/home/config.toml holds exactly that.
+//
+// It does NOT weaken the case below that pins the lock dir against a moving $HOME: a driver that
+// regressed to os.homedir() would ignore this variable and put its lock under the decoy home, which is
+// precisely what that case looks for.
+const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "codex-lock-state-"));
+const LOCK_DIR = path.join(STATE_DIR, "locks");
 // Must mirror acquireLock exactly: the key is the directory's IDENTITY (dev:ino), not its spelling, so
 // that a case-variant or renamed path cannot produce a second lock for one directory.
 const lockFor = (dir) => {
@@ -50,7 +60,8 @@ function run(dir, { scenario = "happy", timeout = 30, args = [], env = {} } = {}
       [DRIVER, "--level", "write", ...(dir === null ? [] : ["--cwd", dir]),
        "--timeout", String(timeout), "--json", "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
       { env: (() => {
-          const e = { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario, ...env };
+          const e = { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
+                      CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env };
           // `undefined` in a spawn env is stringified, so an unset variable has to be deleted outright.
           for (const [k, v] of Object.entries(env)) if (v === undefined) delete e[k];
           return e;
@@ -658,7 +669,7 @@ test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts
 test("the answer log is pruned by age",
   "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
   async () => {
-    const answers = path.join(os.homedir(), ".codex-delegate", "answers");
+    const answers = path.join(STATE_DIR, "answers");
     fs.mkdirSync(answers, { recursive: true, mode: 0o700 });
     const planted = path.join(answers, `zzz-prune-eval-${crypto.randomBytes(4).toString("hex")}.md`);
     fs.writeFileSync(planted, "stale");
@@ -669,6 +680,144 @@ test("the answer log is pruned by age",
     const survived = fs.existsSync(planted);
     fs.rmSync(planted, { force: true });
     return survived ? "a 30-day-old answer survived the prune" : true;
+  });
+
+// ---------------------------------------------------------------- signals and teardown
+//
+// No case anywhere sent the driver a signal. Every guarantee it publishes about teardown — the group is
+// waited out, the lock is released only afterwards, a repeat signal escalates — was pinned by exactly one
+// case that covers NORMAL COMPLETION, and the two mechanisms that satisfy it are redundant, so removing
+// either left the suite green. These cases send the signals.
+
+// A shim that leaves a TERM-ignoring descendant inside the codex process group, the shape of a test
+// server or watcher a turn walks away from. The marker makes it findable without guessing.
+const survivorMark = `CDSURV${crypto.randomBytes(3).toString("hex")}`;
+const survivorShim = fs.mkdtempSync(path.join(os.tmpdir(), "codex-lock-surv-"));
+fs.writeFileSync(path.join(survivorShim, "codex"),
+  `#!/bin/sh\nsh -c 'trap "" TERM; sleep 300 #${survivorMark}' &\nexec "${process.execPath}" "${FAKE}" "$@"\n`,
+  { mode: 0o755 });
+const survivorsAlive = () =>
+  spawnSync("pgrep", ["-f", survivorMark], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
+const reapSurvivors = () => { try { spawnSync("pkill", ["-9", "-f", survivorMark]); } catch {} };
+
+// Spawns a write-level run and hands back the child, so a case can signal it mid-turn.
+function spawnRun(dir, { scenario = "stalled-turn", args = [], shim = survivorShim } = {}) {
+  const p = spawn(process.execPath,
+    [DRIVER, "--level", "write", "--cwd", dir, "--timeout", "60", "--allow-no-commands", ...args,
+     "--prompt", "irrelevant, the server is scripted"],
+    { env: { ...process.env, PATH: `${shim}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
+             CODEX_DELEGATE_STATE_DIR: STATE_DIR },
+      stdio: ["ignore", "pipe", "pipe"] });
+  let out = "", err = "";
+  p.stdout.on("data", (d) => { out += d; });
+  p.stderr.on("data", (d) => { err += d; });
+  const done = new Promise((res) => p.on("close", (code) => res({ code, out, err })));
+  // The accumulating stderr, so a case can wait for the driver to announce its thread. The lock is taken
+  // BEFORE codex is spawned, so "the lock exists" does not mean "there is a turn to report": under load
+  // a signal sent on that signal arrived while rootThreadId was still null and got the documented
+  // exit 4 for a run with nothing to hand back. Waiting for `threadId=` is waiting for the precondition
+  // the case is actually about.
+  return { p, done, stderrSoFar: () => err };
+}
+const waitFor = async (fn, ms = 15000) => {
+  for (const end = Date.now() + ms; Date.now() < end; ) { if (fn()) return true; await new Promise((r) => setTimeout(r, 25)); }
+  return false;
+};
+
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  test(`${sig} reports the turn, sweeps the group and releases the lock`,
+    sig === "SIGHUP"
+      ? "SIGHUP had no handler at all, so Node's default terminated the driver outright: measured — exit 129, a TERM-ignoring descendant reparented to pid 1, the cwd lock left behind and a zero-byte report. It is what a closing terminal sends, i.e. the ordinary end of a backgrounded delegation"
+      : "a cancelled run used to exit 4 with an EMPTY report, discarding the commands, files and answer already in memory; the turn did not complete, which is exit 1, and the evidence belongs to the caller",
+    async () => {
+      reapSurvivors();
+      const d = freshDir(`sig-${sig}`);
+      const { p, done, stderrSoFar } = spawnRun(d);
+      if (!await waitFor(() => survivorsAlive().length > 0)) { p.kill("SIGKILL"); reapSurvivors(); return "the shim never produced a survivor"; }
+      if (!await waitFor(() => fs.existsSync(lockFor(d)))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never took its lock"; }
+      // And wait for the thread itself. Signalling on the lock alone is a race the driver wins
+      // correctly — no thread means nothing to report, which is exit 4 — but it is not this case.
+      if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never announced a thread"; }
+      p.kill(sig);
+      const { code, out } = await done;
+      const orphans = survivorsAlive();
+      const lockLeft = fs.existsSync(lockFor(d));
+      reapSurvivors();
+      if (orphans.length) return `${sig} left ${orphans.length} descendant(s) behind: ${orphans.join(",")}`;
+      if (lockLeft) return `${sig} left the cwd lock at ${lockFor(d)}`;
+      if (code !== 1) return `${sig} exited ${code}, expected 1 (the turn did not complete)`;
+      let r = null;
+      try { r = JSON.parse(out); } catch { return `${sig} produced no JSON report (${out.length} bytes of stdout)`; }
+      return r.turnStatus === "interrupted" || `the report did not say the turn was interrupted: ${JSON.stringify(r.turnStatus)}`;
+    });
+}
+
+test("the lock is released only after the process group is dead",
+  "the published guarantee is that a next writer cannot enter a directory where the previous run's descendants are still dying. Both mechanisms that kill the group are redundant for the survivor case, so removing the WAIT left every case green — what the wait actually buys is this ordering, and nothing measured it",
+  async () => {
+    reapSurvivors();
+    // Measured as a DIFFERENCE against a control, not as an absolute: the lock is released microseconds
+    // before the process exits either way, so comparing the two events cannot separate a driver that
+    // waited from one that did not. What separates them is how long the run takes when the group holds a
+    // TERM-ignoring member — the full SIGTERM wait before the SIGKILL escalation, or nothing at all.
+    const timeRun = async (shim, label) => {
+      const d = freshDir(`group-wait-${label}`);
+      const t0 = Date.now();
+      const { p, done } = spawnRun(d, { scenario: "happy", shim });
+      const { code } = await done;
+      return { ms: Date.now() - t0, code, lockLeft: fs.existsSync(lockFor(d)), p };
+    };
+    const control = await timeRun(shimDir, "control");
+    if (control.code !== EXIT.OK) return `the control run exited ${control.code}`;
+    const withSurvivor = await timeRun(survivorShim, "survivor");
+    const orphans = survivorsAlive();
+    reapSurvivors();
+    if (withSurvivor.code !== EXIT.OK) return `the survivor run exited ${withSurvivor.code}`;
+    if (orphans.length) return `the run left ${orphans.length} descendant(s) behind`;
+    if (withSurvivor.lockLeft || control.lockLeft) return "a completed run left its lock behind";
+    // The wait is 2 s. 1 s is far above scheduling noise and far below the real bound.
+    const extra = withSurvivor.ms - control.ms;
+    return extra >= 1000
+      ? true
+      : `a TERM-ignoring descendant cost the run only ${extra}ms over the control (${control.ms}ms -> ${withSurvivor.ms}ms) — the group was not waited out before the lock was released`;
+  });
+
+test("--worktree refuses a destination that a symlink puts outside the checked repository",
+  "checkRoot(repo) guards where the worktree is asked FROM, not where it lands. With <repo>/.claude a symlink, git created directories in the target and would have checked a whole tree out there — running its hooks — before the cwd check refused the run",
+  async () => {
+    const repo = freshDir("wt-link");
+    if (spawnSync("git", ["init", "-q", repo]).status !== 0) return "git init failed";
+    spawnSync("git", ["-C", repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init"]);
+    // The protected target: this suite's own state directory, which checkRoot refuses by identity.
+    fs.symlinkSync(STATE_DIR, path.join(repo, ".claude"));
+    const before = fs.readdirSync(STATE_DIR).sort().join(",");
+    const p = spawn(process.execPath,
+      [DRIVER, "--worktree", repo, "--timeout", "30", "--allow-no-commands", "--prompt", "scripted"],
+      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "happy",
+               CODEX_DELEGATE_STATE_DIR: STATE_DIR }, stdio: ["ignore", "pipe", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => { err += d; });
+    const code = await new Promise((res) => p.on("close", res));
+    if (code !== EXIT.USAGE) return `expected exit 2, got ${code}: ${err.trim().slice(0, 160)}`;
+    if (/created worktree/.test(err)) return "the worktree was created before the guard refused it";
+    const after = fs.readdirSync(STATE_DIR).sort().join(",");
+    return before === after || `the refused run still wrote into the protected directory: ${before} -> ${after}`;
+  });
+
+test("a second --seat-file is a usage error, not a silently ignored one",
+  "only the first --seat-file pair is expanded and removed; the second survived into parseArgs, set o.seatFile and was never read — a caller believing something untrue about which seat is running",
+  async () => {
+    const a = path.join(shimDir, "dup-a.txt"), b = path.join(shimDir, "dup-b.txt");
+    fs.writeFileSync(a, `SEAT: read ${shimDir}\n`);
+    fs.writeFileSync(b, `SEAT: write ${shimDir}\n`);
+    const p = spawn(process.execPath, [DRIVER, "--seat-file", a, "--seat-file", b, "--prompt", "x"],
+      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, CODEX_DELEGATE_STATE_DIR: STATE_DIR },
+        stdio: ["ignore", "pipe", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => { err += d; });
+    const code = await new Promise((res) => p.on("close", res));
+    if (code !== EXIT.USAGE) return `expected exit 2, got ${code}`;
+    return /more than once/.test(err) || `stderr did not name the duplicate: ${err.trim().slice(0, 140)}`;
   });
 
 let failed = 0;
