@@ -162,6 +162,12 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
+  { scenario: "progress",         expect: EXIT.OK, args: ["--progress"],
+    why: "--progress announces each item start on stderr, so a long seat is watchable live — a native subagent's progress visibility, without the delta firehose",
+    assertStderr: (e) => /> run: echo hi/.test(e) || `no progress line: ${e.slice(0, 160)}` },
+  { scenario: "progress",         expect: EXIT.OK,
+    why: "without --progress the same events stay silent: the default report contract does not grow noise",
+    assertStderr: (e) => !/> run:/.test(e) || "progress lines appeared without --progress" },
   { scenario: "echo-input",       expect: EXIT.OK, args: ["--attach", attachFile],
     why: "--attach maps a local image into the turn input as the protocol's localImage item — the parity a native subagent has when a screenshot is pasted into its prompt",
     assert: (r) => {
