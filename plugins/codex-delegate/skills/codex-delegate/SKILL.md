@@ -67,6 +67,8 @@ dependencies, and settle it with the user first: write plus network is an exfilt
 node <repo-or-plugin-root>/evals/protocol.test.mjs       # the protocol and the result gates
 node <repo-or-plugin-root>/evals/lock.test.mjs           # the cwd lock and the worktree lifecycle
 node <repo-or-plugin-root>/evals/attach-pasted.test.mjs  # handing a seat the user's pasted images
+node <repo-or-plugin-root>/evals/conformance.test.mjs    # does the fixture still speak like the pinned protocol?
+node <repo-or-plugin-root>/evals/agent-contract.test.mjs # does the shipped relay agent still match the driver?
 node <repo-or-plugin-root>/evals/fidelity.test.mjs       # does the fixture still answer like YOUR codex?
 ```
 

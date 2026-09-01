@@ -8,7 +8,9 @@ exits 10 rather than racing the first one's edits, tests and cleanup. Resuming a
 open exits 10 as well: its old events would otherwise satisfy the new invocation while the new prompt was
 never consumed.
 
-The lock lives in `~/.codex-delegate/locks/`, **not** in the directory it protects — a lock inside the cwd
+The lock lives in `~/.codex-delegate/locks/` (or under `$CODEX_DELEGATE_STATE_DIR`, which relocates all
+of this driver's state — two runs under different values therefore do NOT exclude each other), **not**
+in the directory it protects — a lock inside the cwd
 gets staged and committed by a turn running `git add -A` under `--commit`. It is keyed on the directory's
 identity (`dev:ino`), not on how the path was spelled, so a symlink, a rename or a case-variant cannot
 produce a second lock for one directory. Each file holds the pid, the cwd it locks and a start time, and
@@ -30,9 +32,14 @@ survives, as a backstop and nothing else: a marker whose mtime is over an hour o
 if a live process still bears its pid, because after an hour that pid is more likely recycled than
 stalled.
 
+The lock covers the whole run, not just the turn: the job-registry record and the isolated Codex home
+are written and read inside it, and an `--mcp` run's private home is deleted right after the release.
+
 The lock is released **after** the driver has waited its child process group out — SIGTERM, up to 2 s,
 then SIGKILL and up to 1 s more — so a next writer does not walk into a directory where the previous
-run's test servers are still dying. That wait is bounded: a group member alive after those three
+run's test servers are still dying. A completed `--worktree` turn quiesces that group even earlier,
+before the tree is harvested and removed, so a command the turn backgrounded cannot still be writing
+into the bytes being archived. That wait is bounded: a group member alive after those three
 seconds does not hold the lock any longer, and a driver killed with `SIGKILL` releases nothing at all
 (the next run reclaims the stale lock after finding its pid dead). It still serialises invocations
 rather than directories. What it does not cover at all is a shared scratch directory being deleted out
