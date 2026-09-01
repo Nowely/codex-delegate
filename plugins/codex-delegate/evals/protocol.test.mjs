@@ -113,6 +113,10 @@ const mismatchDay = rolloutDay.replace(sessionsDir, mismatchSessions);
 fs.mkdirSync(mismatchDay, { recursive: true });
 fs.writeFileSync(path.join(mismatchDay, "rollout-2026-01-01T00-00-00-thr_root.jsonl"), `${rolloutLine("thr_someone_else")}\n`);
 
+// The RPC log for the interrupt case: the effect of turn/interrupt is server-side and otherwise
+// invisible, so the fixture records what it was sent.
+const interruptLog = path.join(shimDir, "rpc-interrupt.log");
+
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
   { scenario: "stale-turn",       expect: EXIT.NO_COMMANDS,         why: "the command and answer belong to an earlier turn on the same thread" },
@@ -154,6 +158,13 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
+  { scenario: "stalled-turn",     expect: EXIT.TIMEOUT, args: ["--timeout", "0.5"], env: { FAKE_RPC_LOG: interruptLog },
+    why: "a timed-out turn is asked to END, not just killed: turn/interrupt marks the turn in the rollout and leaves the thread idle, so --resume on a cancelled seat is not a gamble",
+    assert: () => {
+      let log = "";
+      try { log = fs.readFileSync(interruptLog, "utf8"); } catch {}
+      return /turn\/interrupt/.test(log) || `the driver never sent turn/interrupt: ${JSON.stringify(log)}`;
+    } },
   { scenario: "probe-negative",   expect: EXIT.OK,
     why: "a no-match grep or a false test is a probe answering 'no', not a failed command — routine research seats exited 11 for finding nothing",
     assert: (r) => (r.commandsFailed === 0 && r.commandsProbeNegative === 2)

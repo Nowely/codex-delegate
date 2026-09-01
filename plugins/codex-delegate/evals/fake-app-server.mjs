@@ -69,6 +69,11 @@ const TURN2 = "turn_root_retry";
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
+  // Every request method, appended as it arrives: the only way a suite can assert that the driver SENT
+  // something whose effect is otherwise invisible (turn/interrupt on a run being torn down).
+  if (process.env.FAKE_RPC_LOG && m.method) {
+    try { fs.appendFileSync(process.env.FAKE_RPC_LOG, `${m.method}\n`); } catch {}
+  }
   if (!m.method) {
     if (!pendingApproval || m.id !== pendingApproval.id) return;
     const p = pendingApproval;
@@ -85,6 +90,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
   if (m.method === "initialize") { w(reply(m.id, { userAgent: "fake", codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" })); return; }
   if (m.method === "initialized") return;
+  if (m.method === "turn/interrupt") { w(reply(m.id, {})); return; }
 
   // The driver asks the real server what the caller's config resolves to, instead of parsing their TOML —
   // so the fixture has to answer it too. It did not, and every case then sat out the driver's probe

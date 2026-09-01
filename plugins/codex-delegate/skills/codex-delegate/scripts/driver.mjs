@@ -1869,6 +1869,17 @@ function errKind(e) {
   return "unknown";
 }
 
+// Ask the server to end the turn cleanly before the group is torn down. Without this a cancelled or
+// timed-out seat's turn died WITH the process: the rollout never recorded an interruption and the
+// thread was not reliably idle, so --resume on a cancelled seat was a gamble. Fire-and-forget — the
+// report must not wait on a server that may be the reason we are cancelling; shutdown()'s stdin.end
+// flushes the write, and the SIGTERM grace gives the server time to act on it.
+function interruptTurn() {
+  const turnId = rootTurnId ?? [...ownedTurns].at(-1) ?? null;
+  if (!child || !rootThreadId || !requestFn || turnId === null) return;
+  try { requestFn("turn/interrupt", { threadId: rootThreadId, turnId }).catch(() => {}); } catch {}
+}
+
 function finish(reason) {
   if (settled) return;
   settled = true;
@@ -2211,7 +2222,7 @@ async function main() {
   // Once a child exists, a timeout hands back the partial result rather than discarding it; before that
   // there is nothing to report, so abort() also has to unblock a stdin read that may never end.
   const deadline = setTimeout(() => {
-    if (child && rootThreadId) finish("timedOut");
+    if (child && rootThreadId) { interruptTurn(); finish("timedOut"); }
     else abort(EXIT.TIMEOUT, `timed out after ${opts.timeout}s`);
     // Anchored on the process start, not on this line: the config probe runs before this timer is
     // armed, and a relative deadline overshot the caller's wall clock by however long it took.
@@ -2399,7 +2410,7 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     // on transport (4), which means "codex crashed or the rights were wrong" and did not happen here.
     // Before a thread exists there is nothing to report, and 4 stays.
     process.stderr.write(`codex-delegate: interrupted by ${sig}\n`);
-    if (child && rootThreadId) { finish("interrupted"); return; }
+    if (child && rootThreadId) { interruptTurn(); finish("interrupted"); return; }
     abort(EXIT.TRANSPORT, `interrupted by ${sig} before the thread existed`);
     shutdown().then(() => process.exit(EXIT.TRANSPORT));
   });
