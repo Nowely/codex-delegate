@@ -787,6 +787,27 @@ test("--mcp carries the caller's mcp_servers as per-run spawn config, never thro
     return !/cfg:mcp_servers/.test(log) || "a run WITHOUT --mcp received an MCP grant";
   });
 
+test("--steer-file reaches the running turn as turn/steer",
+  "a native subagent can be corrected mid-task by just typing; a seat could only be killed. Text appended to the steer file must arrive at the server as a steer on the LIVE turn, and the file must be drained so the same text is not sent twice",
+  async () => {
+    const d = freshDir("steer");
+    const steer = path.join(d, "steer.txt");
+    const rpcLog = path.join(d, "rpc.log");
+    const { p, done, stderrSoFar } = spawnRun(d, { shim: shimDir, args: ["--steer-file", steer], env: { FAKE_RPC_LOG: rpcLog } });
+    if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); return "the run never announced a thread"; }
+    if (!await waitFor(() => { try { return /turn\/start/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }))
+      { p.kill("SIGKILL"); return "the turn never started"; }
+    await new Promise((r) => setTimeout(r, 150));
+    fs.writeFileSync(steer, "focus on the lock path only\n");
+    const steered = await waitFor(() => { try { return /turn\/steer/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }, 8000);
+    const drained = await waitFor(() => { try { return fs.readFileSync(steer, "utf8") === ""; } catch { return false; } }, 3000);
+    p.kill("SIGTERM");
+    await done;
+    if (!steered) return "the steer never reached the server";
+    if (!drained) return "the steer file was not drained after sending";
+    return true;
+  });
+
 test("the answer log is pruned by age",
   "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
   async () => {
