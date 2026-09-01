@@ -92,7 +92,7 @@ Rights
 
   --seat-file F      read the seat's declaration from F — one "FIELD: value" per
                      line (SEAT/EFFORT/TIMEOUT/EXPECT/VERIFY/NETWORK/MODEL/
-                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/COMMIT/BRIEF/
+                     WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/ATTACH/COMMIT/BRIEF/
                      ALLOW_NO_COMMANDS), values taken literally to end of line.
                      SEAT is required and must come FIRST. For a wrapper: write
                      the values, do not build a command line out of them.
@@ -106,6 +106,8 @@ Rights
 
 Turn
   --prompt TEXT      the task; omit to read it from stdin
+  --attach FILE      attach a local image (png/jpg/jpeg/gif/webp/bmp) or audio
+                     file (wav/mp3/m4a/ogg/flac) to the prompt; repeatable
   --web-search cached|indexed|live
                      off by default: a search makes the turn depend on what the
                      index says today
@@ -224,7 +226,7 @@ prints none. Codes decided after the turn can all carry executed work.
 //     seat file it now requires --allow-seat-verify on the COMMAND LINE, which is the one place the
 //     coordinator writes directly and no relayed value can reach. A coordinator that wants a verifier
 //     passes --verify itself; a relay does not get to introduce one.
-const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE"]);
+const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH", "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE", "ATTACH"]);
 let seatFileFields = null;   // what the file actually declared, for the report
 function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
@@ -241,7 +243,7 @@ function argvFromSeatFile(file, allowSeatVerify) {
     if (!SEAT_FIELDS.has(field)) fail(EXIT.USAGE, `--seat-file: unknown field ${JSON.stringify(field)}; allowed: ${[...SEAT_FIELDS].join(", ")}`);
     if (seen.size === 0 && field !== "SEAT")
       fail(EXIT.USAGE, `--seat-file: the first field must be SEAT, not ${field} — a seat file that does not open with its rights declaration lets a later line supply them`);
-    if (field !== "WRITABLE" && seen.has(field)) fail(EXIT.USAGE, `--seat-file: ${field} appears more than once`);
+    if (field !== "WRITABLE" && field !== "ATTACH" && seen.has(field)) fail(EXIT.USAGE, `--seat-file: ${field} appears more than once`);
     if (field === "VERIFY" && !allowSeatVerify)
       fail(EXIT.USAGE, "--seat-file: VERIFY runs an unsandboxed shell with your own rights, so it is refused from a seat file unless --allow-seat-verify is given on the command line; pass --verify there instead");
     seen.add(field);
@@ -269,7 +271,8 @@ function argvFromSeatFile(file, allowSeatVerify) {
     }
     if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
     const FLAGS = { EFFORT: "--effort", TIMEOUT: "--timeout", EXPECT: "--expect-command", VERIFY: "--verify",
-                    MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema", WRITABLE: "--writable" };
+                    MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
+                    WRITABLE: "--writable", ATTACH: "--attach" };
     out.push(FLAGS[field], value);
   }
   if (!seen.has("SEAT")) fail(EXIT.USAGE, "--seat-file: no SEAT field; the seat's rights must be declared, not defaulted");
@@ -285,7 +288,7 @@ function parseArgs(argv) {
   // way (null means "whatever the config chose"); effort now matches it.
   // JSON is the default report: the only real caller is an agent, and every documented recipe passed
   // --json by hand while forgetting it cost a footer nobody parses. --footer opts back out for a human.
-  const o = { level: "read", timeout: 900, writable: [], json: true };
+  const o = { level: "read", timeout: 900, writable: [], attach: [], json: true };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -308,6 +311,7 @@ function parseArgs(argv) {
       // which is the better shape for a long one anyway.
       case "--prompt": o.prompt = need(++i, a); break;
       case "--writable": o.writable.push(need(++i, a)); break;
+      case "--attach": o.attach.push(need(++i, a)); break;
       case "--commit": o.commit = true; break;
       case "--resume": o.resume = need(++i, a); break;
       case "--ephemeral": o.ephemeral = true; break;
@@ -341,6 +345,21 @@ function parseArgs(argv) {
   // overrun by accident — an argv-sized prompt failed later, in the server, as a mid-turn refusal.
   if (o.prompt !== undefined && Buffer.byteLength(o.prompt) > MAX_PROMPT_BYTES)
     fail(EXIT.USAGE, `--prompt exceeds ${MAX_PROMPT_BYTES} bytes; pipe a long prompt on stdin instead`);
+  // --attach maps a local file into the turn's input as the protocol's own item kind — the parity a
+  // native subagent has when a screenshot is pasted into its prompt. Checked here so a typo costs
+  // nothing: the server would otherwise refuse it mid-turn, after the delegation was already paid for.
+  const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
+                         webp: "localImage", bmp: "localImage",
+                         wav: "localAudio", mp3: "localAudio", m4a: "localAudio", ogg: "localAudio", flac: "localAudio" };
+  o.attachments = o.attach.map((p) => {
+    let real;
+    try { real = fs.realpathSync(path.resolve(p)); } catch { return fail(EXIT.USAGE, `--attach: ${p} does not exist`); }
+    if (!fs.statSync(real).isFile()) fail(EXIT.USAGE, `--attach: ${real} is not a regular file`);
+    const kind = ATTACH_KINDS[(real.split(".").pop() ?? "").toLowerCase()];
+    if (!kind) fail(EXIT.USAGE, `--attach: unsupported file type for ${real}; images (${Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === "localImage").join("/")}) and audio (${Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === "localAudio").join("/")})`);
+    return { type: kind, path: real };
+  });
+
   // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
   // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
   if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
@@ -2429,7 +2448,7 @@ async function main() {
   if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
   lastTurnParams = {
     threadId: rootThreadId,
-    input: [{ type: "text", text: prompt, text_elements: [] }],
+    input: [{ type: "text", text: prompt, text_elements: [] }, ...(opts.attachments ?? [])],
     model: opts.model ?? null, effort: null,
     ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
   };
