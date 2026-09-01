@@ -172,9 +172,10 @@ const CASES = [
   { scenario: "rich-items",       expect: EXIT.OK,
     why: "reasoning summaries, tool/search items and subagent threads used to be dropped on the floor — a turn that mostly searched or delegated looked idle; they are now VISIBLE in the report while the child's command still counts for nothing",
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
+        && r.otherItems?.some((x) => x.type === "webSearch" && x.detail === "node atomics")
         && r.subagentThreads?.length === 1 && r.subagentThreads[0].threadId === "thr_child"
         && r.subagentThreads[0].commands === 1 && r.commandsSucceeded === 1)
-      || `visibility fields wrong: ${JSON.stringify({ reasoning: r.reasoningSummary, other: r.otherItemCounts, sub: r.subagentThreads, cmds: r.commandsSucceeded })}` },
+      || `visibility fields wrong: ${JSON.stringify({ reasoning: r.reasoningSummary, other: r.otherItemCounts, items: r.otherItems, sub: r.subagentThreads, cmds: r.commandsSucceeded })}` },
   { scenario: "progress",         expect: EXIT.OK, args: ["--progress"],
     why: "--progress announces each item start on stderr, so a long seat is watchable live — a native subagent's progress visibility, without the delta firehose",
     assertStderr: (e) => /> run: echo hi/.test(e) || `no progress line: ${e.slice(0, 160)}` },

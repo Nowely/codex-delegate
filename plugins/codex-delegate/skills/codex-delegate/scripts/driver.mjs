@@ -108,6 +108,10 @@ Turn
   --prompt TEXT      the task; omit to read it from stdin
   --attach FILE      attach a local image (png/jpg/jpeg/gif/webp/bmp) or audio
                      file (wav/mp3/m4a/ogg/flac) to the prompt; repeatable
+  --steer-file F     poll F once a second during the turn: new text is sent to
+                     the RUNNING turn as a steer message and the file is
+                     truncated — the way to correct a long seat without killing
+                     it. Steering is input, never rights
   --review T         run the server's native reviewer instead of a prompt:
                      T = uncommitted | branch:<ref> | commit:<sha>. The review
                      is the answer; implies --allow-no-commands and excludes
@@ -325,6 +329,7 @@ function parseArgs(argv) {
       case "--writable": o.writable.push(need(++i, a)); break;
       case "--attach": o.attach.push(need(++i, a)); break;
       case "--review": o.review = need(++i, a); break;
+      case "--steer-file": o.steerFile = need(++i, a); break;
       case "--commit": o.commit = true; break;
       case "--resume": o.resume = need(++i, a); break;
       case "--ephemeral": o.ephemeral = true; break;
@@ -1547,6 +1552,7 @@ const escalations = [];     // refused permission requests — the sandbox was s
 const interactions = [];    // requests that needed a human: no sandbox change can answer them
 const reasoningSummaries = [];  // root-thread reasoning item summaries — the inspectable thinking a Claude subagent's transcript has
 const otherItemCounts = {}; // root-thread item types the evidence gates ignore (mcpToolCall, webSearch, plan, …), counted so the report does not silently drop them
+const otherItems = [];      // a bounded descriptor per such item — enough to see WHAT was searched or called without a full transcript
 const subagentThreads = new Map();  // threads the server started under ours: id -> {items, commands}
 let turnStatus = null;
 let turnError = null;
@@ -1727,8 +1733,13 @@ function handleMessage(msg) {
     // Everything else — mcpToolCall, webSearch, plan, collabAgentToolCall, whatever a later server
     // adds — is counted by type: the report used to drop these on the floor, so a turn that mostly
     // searched or called tools looked idle.
-    if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning"].includes(it.type))
+    if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning"].includes(it.type)) {
       otherItemCounts[it.type] = (otherItemCounts[it.type] ?? 0) + 1;
+      if (otherItems.length < 50) {
+        const detail = String(it.query ?? it.tool ?? it.server ?? "").slice(0, 120);
+        otherItems.push({ type: it.type, ...(detail ? { detail } : {}) });
+      }
+    }
     // A write-level run said nothing about what it WROTE. The schema carries it — FileChangeThreadItem
     // requires {changes:[{path,kind,diff}], status}, and PatchApplyStatus includes failed and declined —
     // so a patch that failed for a reason other than a refused approval was invisible in both the report
@@ -2267,6 +2278,26 @@ function decideExitCode(ev, verifySkipped) {
   return code;
 }
 
+// The steer channel: a file the coordinator appends to, polled once a second while the turn runs. New
+// text becomes a turn/steer message on the live turn and the file is truncated — a correction path a
+// native subagent has (the user can just keep typing) and a seat had not. Input only, never rights.
+function startSteerPoll() {
+  if (!opts.steerFile) return;
+  const timer = setInterval(() => {
+    if (settled) { clearInterval(timer); return; }
+    if (rootThreadId === null || rootTurnId === null || !requestFn) return;
+    let text = "";
+    try { text = fs.readFileSync(opts.steerFile, "utf8"); } catch { return; }
+    if (!text.trim()) return;
+    try { fs.writeFileSync(opts.steerFile, ""); } catch { return; }
+    process.stderr.write(`codex-delegate: steering the turn (${Buffer.byteLength(text)} bytes)\n`);
+    requestFn("turn/steer", { threadId: rootThreadId, expectedTurnId: rootTurnId,
+      input: [{ type: "text", text: text.trim(), text_elements: [] }] })
+      .catch((e) => process.stderr.write(`codex-delegate: steer rejected (${e.message})\n`));
+  }, 1000);
+  timer.unref?.();
+}
+
 function finish(reason) {
   if (settled) return;
   settled = true;
@@ -2321,6 +2352,7 @@ function finish(reason) {
     // visible activity, never evidence.
     reasoningSummary: reasoningSummaries.length ? reasoningSummaries.join("\n---\n").slice(0, 8000) : null,
     otherItemCounts: Object.keys(otherItemCounts).length ? otherItemCounts : null,
+    otherItems: otherItems.length ? otherItems : null,
     subagentThreads: [...subagentThreads.entries()].map(([threadId, t]) => ({ threadId, ...t })),
     // What a seat FILE declared, in order, when one was used. A wrapped seat is otherwise indistinguishable
     // from a hand-typed one in the report, and the fields a relay wrote are exactly what a coordinator
@@ -2632,6 +2664,7 @@ async function main() {
   // should not have to wait for the end to learn which run it is.
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
   writeJob({ threadId: rootThreadId, pid: process.pid, cwd, level: opts.level, started: new Date().toISOString() });
+  startSteerPoll();
 
   if (opts.review) {
     // The server's own reviewer, on this thread. No lastTurnParams: a transient retry cannot replay a
