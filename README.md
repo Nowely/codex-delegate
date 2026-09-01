@@ -56,6 +56,8 @@ costs nothing, calls no model:
 node evals/protocol.test.mjs   # the protocol and the result gates
 node evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
 node evals/attach-pasted.test.mjs   # handing a seat the images the user pasted
+node evals/conformance.test.mjs     # does the fixture still speak like the pinned protocol?
+node evals/agent-contract.test.mjs  # does the shipped relay agent still match the driver?
 node evals/fidelity.test.mjs   # does the fixture still match YOUR codex?
 ```
 
@@ -151,7 +153,8 @@ skills/codex-delegate/           the skill: SKILL.md (the operating manual), scr
                                  which live only in the Claude Code transcript), references/
 agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
-evals/                           four suites — protocol, lock, attach-pasted, and fidelity against
+evals/                           six suites — protocol, lock, attach-pasted, conformance (the fixture
+                                 against the pinned schemas), agent-contract, and fidelity against
                                  the live server
 schema-0.150.1/                  the pinned protocol schema the driver is written against; kept in the
                                  repo (and therefore in plugin installs) deliberately — it is the

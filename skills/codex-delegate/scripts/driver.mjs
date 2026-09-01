@@ -1865,9 +1865,9 @@ function handleMessage(msg) {
     if (settled) return;
     turnStatus = p?.turn?.status ?? "unknown";
     // Populated only when the turn failed, and it carries an enumerated cause worth acting on:
-    // usageLimitExceeded / serverOverloaded / responseStreamDisconnected -> retried below, once;
+    // serverOverloaded / internalServerError / the transport causes -> retried below, once (RETRYABLE);
     // contextWindowExceeded -> the handoff was too large, split it; unauthorized -> stop;
-    // sandboxError -> the rights level was wrong.
+    // sandboxError -> the rights level was wrong; usageLimitExceeded -> a quota, not a blip.
     turnError = p?.turn?.error ?? null;
     // The comment above always KNEW which causes are transient; nothing acted on it, so a provider
     // blip failed the whole delegation. ONE bounded retry, and only while the turn produced NOTHING
@@ -1981,9 +1981,16 @@ function answerSchemaErrors(text) {
   return schemaErrors(parsed.answerJson, opts.outputSchema);
 }
 
-// The backoff per transient cause. A disconnected stream is ready again almost at once; an overloaded
-// server and an exceeded usage window deserve a real pause.
-const RETRYABLE = { responseStreamDisconnected: 2000, serverOverloaded: 10000, usageLimitExceeded: 10000 };
+// The backoff per transient cause, taken from CodexErrorInfo in the pinned schema rather than from
+// prose. The transport causes arrive as OBJECT variants ({responseStreamDisconnected:{httpStatusCode}}),
+// which errKind() flattens to their key; serverOverloaded and internalServerError are bare strings.
+// usageLimitExceeded is deliberately absent: a quota window does not clear in ten seconds, so retrying
+// it only spends the caller's deadline. responseTooManyFailedAttempts is absent too — codex has
+// already retried by the time it says that.
+const RETRYABLE = {
+  responseStreamDisconnected: 2000, responseStreamConnectionFailed: 2000, httpConnectionFailed: 2000,
+  internalServerError: 5000, serverOverloaded: 10000,
+};
 function startTransientRetry(cause) {
   const delayMs = RETRYABLE[cause];
   transientRetries.push({ cause, delayMs });

@@ -40,7 +40,27 @@ const TURN = "turn_root";
 const OTHER_TURN = "turn_stale";
 const OTHER_THREAD = "thr_sub";
 
-const w = (...objs) => process.stdout.write(objs.map((o) => JSON.stringify(o)).join("\n") + "\n");
+// Every line this fixture emits, appended for the conformance suite: the schemas in schema-<version>/
+// are the only oracle for whether a fixture still speaks like the real server, and until this hook
+// existed nothing read them — the fixture could invent a field and every case stayed green.
+const EMIT_LOG = process.env.FAKE_EMIT_LOG;
+// The method being answered, so the log can say which response schema a `result` should be checked
+// against. It rides in the LOG only — the stream the driver reads is untouched.
+let answering = null;
+// A few scenarios emit something the real server never would — that IS the scenario (a response to an
+// id nobody sent). They carry __deliberatelyMalformed, which rides in the log and is stripped from the
+// stream, so the conformance suite can exclude them BY NAME instead of a blanket allowance.
+const w = (...objs) => {
+  const line = objs.map(({ __deliberatelyMalformed, ...rest }) => JSON.stringify(rest)).join("\n") + "\n";
+  if (EMIT_LOG) {
+    try {
+      fs.appendFileSync(EMIT_LOG, objs.map((o) =>
+        JSON.stringify(o?.result !== undefined && o?.id !== undefined ? { ...o, __method: answering } : o)
+      ).join("\n") + "\n");
+    } catch {}
+  }
+  process.stdout.write(line);
+};
 const reply = (id, result) => ({ jsonrpc: "2.0", id, result });
 const note = (method, params) => ({ jsonrpc: "2.0", method, params });
 
@@ -84,6 +104,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (process.env.FAKE_RPC_LOG && m.method) {
     try { fs.appendFileSync(process.env.FAKE_RPC_LOG, `${m.method}\n`); } catch {}
   }
+  if (m.method) answering = m.method;
   if (!m.method) {
     if (!pendingApproval || m.id !== pendingApproval.id) return;
     const p = pendingApproval;
@@ -283,14 +304,14 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       // streams, so the report's accounting is pinned by the ordinary case.
       case "happy":
         w(R, cmd(TURN, THREAD),
-          note("thread/tokenUsage/updated", { threadId: THREAD, tokenUsage: {
+          note("thread/tokenUsage/updated", { threadId: THREAD, turnId: TURN, tokenUsage: {
             last: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 135 },
             total: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 135 },
             modelContextWindow: 272000 } }),
           // A SUBAGENT thread's usage, arriving after the root's and carrying a different total. Codex
           // spawns its own threads and this notification is per-thread; without a competing event the
           // root-thread filter could be deleted and the assertion below still read 135.
-          note("thread/tokenUsage/updated", { threadId: "thr_child", tokenUsage: {
+          note("thread/tokenUsage/updated", { threadId: "thr_child", turnId: TURN, tokenUsage: {
             last: { inputTokens: 9000, cachedInputTokens: 0, outputTokens: 900, reasoningOutputTokens: 0, totalTokens: 9900 },
             total: { inputTokens: 9000, cachedInputTokens: 0, outputTokens: 900, reasoningOutputTokens: 0, totalTokens: 9900 },
             modelContextWindow: 272000 } }),
@@ -372,7 +393,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
       // A request no unattended client can satisfy.
       case "needs-user":
-        w(R, { jsonrpc: "2.0", id: 9003, method: "item/tool/requestUserInput", params: { threadId: THREAD, turnId: TURN, itemId: "item_q", isBlocking: true, questions: [{ id: "q1", prompt: "which?" }] } });
+        w(R, { jsonrpc: "2.0", id: 9003, method: "item/tool/requestUserInput", params: { threadId: THREAD, turnId: TURN, itemId: "item_q", isBlocking: true, questions: [{ id: "q1", header: "choice", question: "which?", options: null }] } });
         setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "carried on regardless"), done(TURN, THREAD)), 30);
         break;
 
@@ -421,14 +442,14 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         break;
 
       case "turn-failed":
-        w(R, cmd(TURN, THREAD), done(TURN, THREAD, "failed", { codexErrorInfo: "usageLimitExceeded", message: "quota" }));
+        w(R, cmd(TURN, THREAD), done(TURN, THREAD, "failed", { codexErrorInfo: "serverOverloaded", message: "busy" }));
         break;
 
       // A transient stream failure before ANY observable work, then a clean second turn: the one shape
       // the driver retries. The first turn emits nothing but its failure.
       case "transient-then-ok":
         if (turnStarts === 1)
-          w(R, done(TURN, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
+          w(R, done(TURN, THREAD, "failed", { codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } }, message: "stream lost" }));
         else
           w(R, cmd(thisTurn, THREAD), msg(thisTurn, THREAD, "recovered answer"), done(thisTurn, THREAD));
         break;
@@ -439,12 +460,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         w(R, note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
             item: { id: "item_m1", type: "mcpToolCall", server: "tracker", tool: "create_ticket",
                     arguments: "{}", status: "completed", result: null, error: null, durationMs: 5 } }),
-          done(TURN, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
+          done(TURN, THREAD, "failed", { codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } }, message: "stream lost" }));
         break;
 
       // The same transient cause on BOTH turns: one retry is the whole budget.
       case "transient-always":
-        w(R, done(thisTurn, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
+        w(R, done(thisTurn, THREAD, "failed", { codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } }, message: "stream lost" }));
         break;
 
       // A successful command that is not the one the caller demanded.
@@ -483,7 +504,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
       // A response carrying an id nobody sent, then the real one.
       case "unknown-response-id":
-        w({ jsonrpc: "2.0", id: 4242, result: { thread: { id: "bogus" }, turn: { id: "bogus" } } },
+        w({ jsonrpc: "2.0", id: 4242, result: { thread: { id: "bogus" }, turn: { id: "bogus" } },
+            __deliberatelyMalformed: "a response to an id nobody sent; a well-formed one would not test that it is discarded" },
           R, cmd(TURN, THREAD), msg(TURN, THREAD, "fine"), done(TURN, THREAD));
         break;
 
@@ -497,7 +519,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       // MCP elicitation with a null turnId, which the schema allows.
       case "mcp-null-turn":
         w(R, { jsonrpc: "2.0", id: 9102, method: "mcpServer/elicitation/request",
-               params: { threadId: THREAD, turnId: null, serverName: "fake", mode: "form", message: "?", requestedSchema: { type: "object" } } });
+               params: { threadId: THREAD, turnId: null, serverName: "fake", mode: "form", message: "?", requestedSchema: { type: "object", properties: {} } } });
         setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "carried on"), done(TURN, THREAD)), 30);
         break;
 

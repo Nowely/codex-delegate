@@ -5,6 +5,11 @@
 
 ## Bypasses of `--expect-command`
 
+A plain probe answering "no" — `grep`/`rg`/`test`/`diff`/`cmp` exiting **1 exactly** — is not a failed
+command and never raises exit 11; it is counted separately as `commandsProbeNegative`. The exemption is
+for a PLAIN command only: a pipe, a compound, a substitution or a multi-line script keeps failure
+semantics, because its exit 1 may belong to another command in the chain.
+
 One accidental bypass is worth knowing, because it needs no intent: `pnpm -w exec vitest run | tail -5`
 exits with `tail`'s status, so a failing suite reports success, and Codex pipes to `head`/`tail` routinely
 just to cap output. The contrived bypass is real too — a command that is literally `true # vitest` scores
@@ -25,7 +30,7 @@ The rows are read in order; the first that matches decides.
 | observed | meaning | exit |
 | --- | --- | --- |
 | `127` / `126` | **not measured.** The shell never ran the command — a typo, or a tool missing from the *driver's* `PATH`, which a launchd or hook context routinely lacks | **12** |
-| no status at all | **not measured.** Killed at the deadline, or the spawn itself failed | **12** |
+| no status at all | **not measured.** Killed at the deadline, drowned in more than 64 MB of output, or the spawn itself failed | **12** |
 | any other status, zero or not | **measured.** The check ran and gave its verdict | `0` passes, else **9** |
 
 A fourth state is not in the table because it produces no exit status to observe: with under 100 ms of
@@ -35,8 +40,8 @@ declared and not measured is the same instruction to the caller however it came 
 through to the weaker gates and reach exit 0, which is the one shape `--verify` exists to prevent.
 
 The other `verifySkipped` values are not exit 12, because the ladder has already spoken: a timeout is
-exit 3 and a failed turn exit 1, and running a check against a half-written tree would only add a
-misleading verdict.
+exit 3, and a turn that did not complete is exit 2 when the server rejected the request as invalid and
+exit 1 otherwise. Running a check against a half-written tree would only add a misleading verdict.
 
 A verifier that exits `0` while a background process still holds its stdout is a **pass**: the deadline
 fires on the pipe, but the exit status was observed and is proof. Keep verifiers cheap and quiet anyway —

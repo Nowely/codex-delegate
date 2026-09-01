@@ -5,10 +5,14 @@
 
 Chromium dies under the seatbelt sandbox with `MachPortRendezvousServer: Permission denied`: the profile is
 `deny default` and never grants `mach-register`, so `bootstrap_check_in()` fails in the browser process.
-`--single-process` never constructs that server. With the override below the full suite runs green inside
-the sandbox — 121 files, 2518 passed, identical to an unsandboxed reference run, serial and ~1.6× slower.
+`--single-process` never constructs that server. With the override below the full suite ran green inside
+the sandbox — 121 files, 2518 passed, identical to an unsandboxed reference run, serial and ~1.6× slower
+(measured once on another repository, before driver 0.4.0 and codex 0.150.1; the shape of the fix is what
+carries over, not the numbers — re-measure on yours).
 
-Write this **untracked** file at the worktree root, so the repo's own config is untouched:
+Write this **untracked** file at the worktree root, so the repo's own config is untouched. Note that a
+completed `--worktree` turn now archives every untracked file into `worktreeUntrackedPath`, so this
+config rides into the harvest: drop it before applying the archive anywhere.
 
 ```ts
 // <worktree>/vite.codex.config.ts
@@ -23,7 +27,9 @@ for (const project of config.test.projects) {
 export default config
 ```
 
-Then run with `--network` (needed for `pnpm install`) and `--no-file-parallelism` (both mandatory):
+Then run with `--network` and `--no-file-parallelism` (both mandatory). `--network` is necessary but not
+sufficient for `pnpm install`: the store under `$HOME` is not writable at write level and the driver
+refuses to grant `$HOME`, so a COLD store fails even with egress — the run below assumes a warm one.
 
 ```
 pnpm install --frozen-lockfile && pnpm -w exec vitest run --config vite.codex.config.ts --no-file-parallelism
@@ -35,6 +41,8 @@ the browser rather than failing a test. That is a Chromium limit, reproduced ide
 sandbox, which is why `--no-file-parallelism` is mandatory and the whole run is serial (~1.6× slower).
 `--network` is needed twice over: for `pnpm install`, and because vitest's Vite server binds loopback TCP,
 which the base profile refuses. The override casts the imported config to `any` and mutates
-`test.projects[].test.browser`; if the repo's `vite.config.ts` is ever refactored into a function, the flag
-silently stops applying and the run reverts to the Mach-port crash — loudly, at least.
+`test.projects[].test.browser`. If the repo's `vite.config.ts` is refactored into a FUNCTION, `config.test`
+is undefined and the config load throws a `TypeError` — vitest never starts, which is loud. The silent
+path is the `project.test?.browser` guard: reshape `test.projects` and the loop quietly becomes a no-op,
+the flag stops applying, and the run reverts to the Mach-port crash.
 
