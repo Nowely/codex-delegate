@@ -21,19 +21,22 @@ decorrelated when it was not.
 
 ## The runnable suites
 
-`protocol.test.mjs` IS runnable and should stay green:
+All six suites are runnable and should stay green:
 
 ```bash
-node evals/protocol.test.mjs      # every case in CASES, against evals/fake-app-server.mjs
-node evals/lock.test.mjs          # the cwd lock, which the protocol suite cannot reach
-node evals/fidelity.test.mjs      # does the FIXTURE answer like the real server? needs codex, skips without
+node evals/protocol.test.mjs        # every case in CASES, against evals/fake-app-server.mjs
+node evals/lock.test.mjs            # the cwd lock, which the protocol suite cannot reach
+node evals/attach-pasted.test.mjs   # handing a seat the images the user pasted
+node evals/conformance.test.mjs     # the fixture against the pinned schemas
+node evals/agent-contract.test.mjs  # the shipped relay agent against the driver
+node evals/fidelity.test.mjs        # does the FIXTURE answer like the real server? needs codex, skips without
 ```
 
 The counts are deliberately not written down here — the last one was wrong twice in two days. The `CASES`
 arrays are the inventory.
 
-`fidelity.test.mjs` asks a different question from the other two, and it exists because of a failure the
-other two structurally cannot see. They drive the driver against the fixture, which proves the driver
+`fidelity.test.mjs` asks a different question from the fixture-driven suites, and it exists because of
+a failure they structurally cannot see. They drive the driver against the fixture, which proves the driver
 behaves as the FIXTURE expects — and the fixture is one person's model of the server. When that model is
 wrong, driver and fixture are wrong identically and every case stays green while production fails. That
 happened twice in one day: `move_path` dropped from a rename, and the cwd not subtracted from
@@ -204,8 +207,8 @@ Struck by being attacked: the verify-exit-126 branch (covered), the `budget-exha
 lock-release ordering (covered as a differential), the seat file's rights-injection surface (covered),
 `$TMPDIR` as a writable root (covered), the worktree destination (covered).
 
-Still untouched: resume, `--ephemeral`, and the stdout drain path. The two suites' own assertions were
-used as mutation detectors but never questioned. Nobody has installed this on a clean machine other
+Still untouched: resume, `--ephemeral`, and the stdout drain path. The protocol and lock suites' own
+assertions were used as mutation detectors but never questioned. Nobody has installed this on a clean machine other
 than in a redirected `HOME` under an audit. The `--host-home` path, Linux, and the managed-profile
 (`managedWebSearchModes`) path are unmeasured. Strike items from this list by attacking them, not by
 shipping features near them.
