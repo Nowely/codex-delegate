@@ -140,8 +140,8 @@ Turn
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
   --timeout SECONDS  default 900, at most 7200
-  --resume THREAD    continue a thread; "--resume last" continues the newest
-                     recorded run (the registry lives in ~/.codex-delegate/jobs).
+  --resume THREAD    continue a thread; "--resume last" continues the newest run
+                     recorded FOR THIS --cwd (registry: ~/.codex-delegate/jobs).
                      --ephemeral leaves no thread behind
 
 Gate — what counts as the turn having done the work
@@ -157,10 +157,12 @@ Isolation
   databases codex keeps there persist between runs, which is what makes an
   isolated run faster than a host-home one rather than slower
   --host-home        use the caller's ~/.codex instead, plugins and all
-  --mcp              carry the caller's [mcp_servers] — and ONLY them — into the
-                     isolated home: the seat gets your MCP tools without your
-                     plugins, skills and trust records. The servers run with
-                     your rights, as they do under --host-home; grant deliberately
+  --mcp              carry the caller's [mcp_servers] — and ONLY them — into a
+                     PRIVATE per-run home (0600, removed at exit, so tokens in a
+                     server's env table never reach argv or shared state): the
+                     seat gets your MCP tools without your plugins, skills and
+                     trust records, at the cost of the shared home's warm caches.
+                     The servers run with your rights, as under --host-home
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
   min(5 s, max(1 s, --timeout)) and normally ~120 ms. It counts against the one
@@ -652,23 +654,28 @@ function resolveCodexBin() {
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
 let mcpFromProbe = null;   // the caller's mcp_servers table, captured by the probe under --mcp only
 
-// Flatten the probe's mcp_servers object into `-c mcp_servers.<name>.<key>=<value>` spawn entries.
-// As -c ARGS, not the shared config file, deliberately: the isolated home's config.toml is shared by
-// every concurrent run, so a per-invocation grant written there leaks into runs that never asked for
-// it (and the last-known-good path could carry a stale grant into a --mcp-less run) — found by a live
-// codex review of the first version, which wrote the file. Spawn args are per-run by construction.
+// Serialise the probe's mcp_servers object into TOML for a PRIVATE per-run home's config.toml.
+//
+// Neither obvious home works. The SHARED isolated config leaks a per-invocation grant into concurrent
+// runs that never asked for it (found by a live codex review). `-c` spawn args fix that and introduce
+// something worse: an MCP server's `env` table routinely holds tokens, and argv is world-readable —
+// `ps` on macOS, /proc/<pid>/cmdline on Linux — so a read seat in an unrelated repository could have
+// read a write seat's GitHub token (found by the review seat that followed). A per-run home keeps the
+// grant per-run AND keeps the secrets in a 0600 file, which is where the caller's own config keeps
+// them. The cost is the shared home's warm caches, paid only by runs that ask for --mcp.
+//
 // Only shapes the driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string
 // arrays, and a string-valued env table; a server using anything richer, or a name that is not a bare
 // TOML key, is skipped OUT LOUD rather than mangled.
-function mcpConfigEntries(servers) {
+function tomlMcpServers(servers) {
   const bare = (k) => /^[A-Za-z0-9_-]+$/.test(k);
-  const out = [];
+  const lines = [];
   for (const [name, cfg] of Object.entries(servers ?? {})) {
     if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg) || !bare(name)) {
       process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} has a shape or name the driver cannot carry faithfully; skipped\n`);
       continue;
     }
-    const entries = [];
+    const scalars = [], env = [];
     let carriable = true;
     const value = (v) =>
       typeof v === "string" ? tomlString(v)
@@ -682,21 +689,22 @@ function mcpConfigEntries(servers) {
         for (const [ek, ev] of Object.entries(v)) {
           const val = typeof ev === "string" && bare(ek) ? tomlString(ev) : null;
           if (val === null) { carriable = false; break; }
-          entries.push([`mcp_servers.${name}.env.${ek}`, val]);
+          env.push(`${ek} = ${val}`);
         }
       } else {
         const val = bare(k) ? value(v) : null;
         if (val === null) { carriable = false; break; }
-        entries.push([`mcp_servers.${name}.${k}`, val]);
+        scalars.push(`${k} = ${val}`);
       }
     }
     if (!carriable) {
       process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} uses a config shape the driver cannot carry faithfully; skipped\n`);
       continue;
     }
-    out.push(...entries);
+    lines.push(`[mcp_servers.${name}]`, ...scalars);
+    if (env.length) lines.push(`[mcp_servers.${name}.env]`, ...env);
   }
-  return out;
+  return lines;
 }
 // Resolves { entries, failed }: `failed` marks an ASKING that failed (spawn, timeout, error reply), as
 // opposed to a config with nothing to inherit — the two used to share the value [], and the failure
@@ -820,12 +828,20 @@ function managedWebSearchModes() {
   return modes.length ? modes : undefined;   // an empty list permits nothing, which is not "unrestricted"
 }
 
+let perRunHome = null;   // removed at shutdown; only --mcp creates one
+
 async function isolatedHome() {
   // The isolated home moves with the driver's own state; the REAL ~/.codex it borrows credentials and
   // sessions from does not, and must not — a test harness redirecting state has no business inventing
   // an auth.json, and the rollout receipt has to land where the published verification recipe looks.
   const base = passwdHome("the isolated Codex home");
-  const home = path.join(stateDir("the isolated Codex home"), "home");
+  // --mcp gets a home of its OWN, for the two reasons in the comment on tomlMcpServers: the grant must
+  // not outlive this run in shared state, and its secrets must sit in a 0600 file rather than in argv.
+  // Everything else keeps the shared home, whose warm caches are what make an isolated run fast.
+  const home = opts.mcp
+    ? path.join(stateDir("the isolated Codex home"), "homes", crypto.randomBytes(8).toString("hex"))
+    : path.join(stateDir("the isolated Codex home"), "home");
+  if (opts.mcp) perRunHome = home;
   try { fs.mkdirSync(home, { recursive: true, mode: 0o700 }); }
   catch (e) { fail(EXIT.USAGE, `cannot create the isolated Codex home ${home}: ${e.message}`); }
   for (const name of ["auth.json", "sessions"]) {
@@ -869,8 +885,9 @@ async function isolatedHome() {
   // Still failing: keep the LAST KNOWN GOOD config instead of truncating it. Rewriting on failure was
   // the racy half of the shared-home hazard — a failed probe clobbered the config a concurrent healthy
   // run had just written, and both then ran against account defaults. Concurrent HEALTHY runs write the
-  // same bytes (same caller config), so their race is harmless.
-  if (probe.failed && fs.existsSync(cfg)) {
+  // same bytes (same caller config), so their race is harmless. A per-run home has no last-known-good
+  // to keep and no peer to race, so it always writes.
+  if (probe.failed && !opts.mcp && fs.existsSync(cfg)) {
     process.stderr.write(`codex-delegate: keeping the previously inherited config (last known good) at ${cfg}\n`);
     return home;
   }
@@ -880,7 +897,9 @@ async function isolatedHome() {
   // which would have redirected this write onto whatever it pointed at.
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(tmp, probe.entries.map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
+    const body = probe.entries.map(([k, v]) => `${k} = ${v}\n`).join("")
+      + (opts.mcp && mcpFromProbe ? `${tomlMcpServers(mcpFromProbe).join("\n")}\n` : "");
+    fs.writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
@@ -1074,16 +1093,25 @@ function writeJob(fields) {
     pruneAnswers(dir);
   } catch {}
 }
-// `--resume last`: the newest job record wins, ended or not — a still-running seat's thread refuses
-// the resume anyway (exit 10), which is the honest answer for "the last seat is still working".
-function resolveResumeLast() {
+// `--resume last`: the newest job record FOR THIS CWD, ended or not — a still-running seat's thread
+// refuses the resume anyway (exit 10), which is the honest answer for "the last seat is still
+// working". Scoped by cwd because the registry is machine-wide and a fan-out is the headline use: with
+// seats in two repositories the newest record is routinely the other repository's, and resuming it
+// would answer a follow-up about repo2 from a conversation entirely about repo1 — a mix-up no sandbox
+// assert can catch, since the resumed thread is handed the cwd it was asked for.
+function resolveResumeLast(forCwd) {
   let names = [];
   try { names = fs.readdirSync(jobsDir()).filter((n) => n.endsWith(".json")); } catch {}
-  const newest = names
-    .map((n) => { try { return { n, t: fs.statSync(path.join(jobsDir(), n)).mtimeMs }; } catch { return null; } })
-    .filter(Boolean).sort((a, b) => b.t - a.t)[0];
-  if (!newest) fail(EXIT.USAGE, "--resume last: no previous run is recorded in the job registry");
-  const id = newest.n.replace(/\.json$/, "");
+  const here = names.map((n) => {
+    const p = path.join(jobsDir(), n);
+    try {
+      const rec = JSON.parse(fs.readFileSync(p, "utf8"));
+      if (canonPath(rec?.cwd ?? "") !== forCwd) return null;
+      return { n, t: fs.statSync(p).mtimeMs };
+    } catch { return null; }
+  }).filter(Boolean).sort((a, b) => b.t - a.t)[0];
+  if (!here) fail(EXIT.USAGE, `--resume last: no previous run in ${forCwd} is recorded in the job registry`);
+  const id = here.n.replace(/\.json$/, "");
   process.stderr.write(`codex-delegate: --resume last -> ${id}\n`);
   return id;
 }
@@ -1141,6 +1169,12 @@ function createWorktree(repo) {
   checkRoot(fs.realpathSync(parent));
   const add = spawnSync("git", ["-C", repo, "worktree", "add", "--detach", dir], { encoding: "utf8" });
   if (add.status !== 0) fail(EXIT.USAGE, `git worktree add failed: ${String(add.stderr).trim().slice(0, 200)}`);
+  // The commit the tree started at. The harvest diffs against THIS, not against HEAD: a seat with
+  // --commit moves HEAD, and `git diff HEAD` then reports nothing while the work sits in commits that
+  // a detached worktree's removal makes unreachable. Recorded at creation because afterwards there is
+  // no way to ask what the base was.
+  const base = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const baseSha = base.status === 0 ? base.stdout.trim() : null;
   let ledger = null;
   try {
     const ledgerDir = path.join(stateDir("the worktree ledger"), "worktrees");
@@ -1149,7 +1183,7 @@ function createWorktree(repo) {
     fs.writeFileSync(ledger, JSON.stringify({ path: dir, repo, pid: process.pid, started: new Date().toISOString() }), { mode: 0o600 });
   } catch { ledger = null; }   // a missing trace must not refuse the run
   process.stderr.write(`codex-delegate: created worktree ${dir}\n`);
-  worktreeInfo = { repo, dir, ledger, disposed: false };
+  worktreeInfo = { repo, dir, ledger, baseSha, name, disposed: false };
   return dir;
 }
 
@@ -1163,23 +1197,27 @@ function createWorktree(repo) {
 function disposeWorktree(turnDone) {
   if (!worktreeInfo || worktreeInfo.disposed) return null;
   worktreeInfo.disposed = true;
-  const { repo, dir, ledger } = worktreeInfo;
+  const { repo, dir, ledger, baseSha, name } = worktreeInfo;
   const res = { worktreePath: dir, worktreeRemoved: false, worktreePreserved: null, worktreeHarvested: false,
                 worktreeDiffStat: null, worktreeDiffPath: null, worktreeUntrackedPath: null,
-                worktreeIgnoredDropped: null, worktreeFleet: null };
+                worktreeIgnoredDropped: null, worktreeCommitsRef: null, worktreeFleet: null };
   const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
   const clean = st.status === 0 && st.stdout.trim() === "";
   if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
   else if (st.status !== 0) res.worktreePreserved = "git status failed in the worktree";
   else if (!clean) {
-    // `git diff HEAD`, not bare `git diff`: dirtiness is decided by `status --porcelain`, which sees
-    // staged changes, so the harvest must see them too — the bare form omits them, and a turn that
-    // staged work without committing lost that half. HEAD always exists in a tree `worktree add
-    // --detach` created; the bare form stays as a fallback for a git that refuses HEAD.
+    // Diffed against the commit the tree STARTED at, not against HEAD. Dirtiness is decided by
+    // `status --porcelain`, which sees staged changes, so the harvest must see them too — and a seat
+    // with --commit moves HEAD, where `git diff HEAD` reports nothing at all while the work sits in
+    // commits that removing a detached worktree makes unreachable. Against the base, one patch carries
+    // committed, staged and unstaged work alike. HEAD and the bare form remain as fallbacks.
     const diffVs = (extra) => {
-      let r = spawnSync("git", ["-C", dir, "diff", "HEAD", ...extra], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-      if (r.status !== 0) r = spawnSync("git", ["-C", dir, "diff", ...extra], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-      return r;
+      for (const against of [...(baseSha ? [[baseSha]] : []), ["HEAD"], []]) {
+        const r = spawnSync("git", ["-C", dir, "diff", ...against, ...extra],
+          { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+        if (r.status === 0) return r;
+      }
+      return { status: 1, stdout: "", stderr: "every diff form failed" };
     };
     const ds = diffVs(["--stat"]);
     if (ds.status === 0 && ds.stdout.trim()) res.worktreeDiffStat = ds.stdout.trim().slice(0, 2000);
@@ -1213,6 +1251,18 @@ function disposeWorktree(turnDone) {
       if (ign.status === 0 && ign.stdout.length) {
         const names = String(ign.stdout).split("\0").filter(Boolean);
         res.worktreeIgnoredDropped = { count: names.length, sample: names.slice(0, 10) };
+      }
+      // A patch reproduces content, not history. If the seat COMMITTED, its commits are reachable only
+      // from this detached worktree's HEAD, and removing the tree strands them — so they get a real ref
+      // in the main repository first. Cheap, permanent, and named in the report; without it a
+      // --worktree --commit seat's whole history was destroyed by the removal below.
+      const head = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" });
+      const headSha = head.status === 0 ? head.stdout.trim() : null;
+      if (headSha && baseSha && headSha !== baseSha) {
+        const ref = `refs/codex-delegate/${name}`;
+        const upd = spawnSync("git", ["-C", repo, "update-ref", ref, headSha], { encoding: "utf8" });
+        if (upd.status !== 0) return `the seat's commits could not be preserved (${String(upd.stderr).trim().slice(0, 120)})`;
+        res.worktreeCommitsRef = ref;
       }
       return null;
     };
@@ -1376,7 +1426,6 @@ async function setup() {
 
   // After parseArgs, so --help works on a machine with no codex at all.
   codexBin = resolveCodexBin();
-  if (opts.resume === "last") opts.resume = resolveResumeLast();
 
   // Two levels, mirroring Claude's own subagents: a reader that can run things but not touch your files,
   // and a writer confined to a directory you chose. Everything else is a modifier.
@@ -1396,6 +1445,9 @@ async function setup() {
   // --cwd is the primary writable root above read, so it needs the same guard as a hand-added root.
   cwd = resolveDir(opts.cwd, "--cwd");
   if (opts.level !== "read") checkRoot(cwd);
+
+  // After the cwd exists, because "last" means the last seat HERE.
+  if (opts.resume === "last") opts.resume = resolveResumeLast(cwd);
 
   // $TMPDIR IS the read level's writable root — that is the whole of the level's grant — so it needs the
   // same guard every other writable root gets, and it did not have it. checkRoot was applied to --cwd,
@@ -1480,10 +1532,7 @@ async function setup() {
     ...(opts.level === "write" ? [
       ["sandbox_workspace_write.network_access", String(Boolean(opts.network))],
       ["sandbox_workspace_write.writable_roots", `[${roots.map((r) => JSON.stringify(r)).join(",")}]`]
-    ] : []),
-    // Per-run by construction: a grant riding the spawn args cannot leak into a concurrent run the
-    // way one written into the shared isolated config could.
-    ...(opts.mcp && mcpFromProbe ? mcpConfigEntries(mcpFromProbe) : [])
+    ] : [])
   ];
   spawnArgs = ["--strict-config", ...config.flatMap(([k, v]) => ["-c", `${k}=${v}`]), "app-server"];
 }
@@ -1542,6 +1591,9 @@ function shutdown() {
       }
     }
     releaseLock();
+    // A --mcp run's private home holds the caller's MCP secrets in a 0600 file; it exists for this run
+    // only, so it goes with the run rather than accumulating under the state dir.
+    if (perRunHome) { try { fs.rmSync(perRunHome, { recursive: true, force: true }); } catch {} perRunHome = null; }
   })();
   return shutdownDone;
 }
@@ -2161,7 +2213,10 @@ function classifyEvidence() {
   // 7 of 26 read seats in one audit session. Exit 1 EXACTLY, and only a PLAIN probe command: a pipe,
   // a compound or a substitution keeps failure semantics, because its exit 1 may be someone else's.
   // `declined` is an approval refusal whatever the code says, and never a probe answer.
-  const PROBE_RE = /^\s*(?:grep|rg|egrep|fgrep|test|\[|diff|cmp|git\s+(?:diff|grep))(?:\s[^|&;`$]*)?$/;
+  // The excluded set carries \n and \r for a reason: codex routinely sends multi-line `bash -lc`
+  // scripts, and without them "grep -q needle file\npnpm test" matched as a plain probe — laundering a
+  // failed test suite into "the probe answered no" and exiting 0 under an answer claiming success.
+  const PROBE_RE = /^\s*(?:grep|rg|egrep|fgrep|test|\[|diff|cmp|git\s+(?:diff|grep))(?:\s[^|&;`$\n\r]*)?$/;
   const probeNegative = (c) => c.status !== "declined" && c.exitCode === 1 && PROBE_RE.test(String(c.command));
   const probeNegatives = commands.filter(probeNegative);
   // A command that ran and FAILED belongs to neither set, so it was printed nowhere — while the footer
@@ -2335,10 +2390,14 @@ function startSteerPoll() {
     // meantime survives (only the consumed prefix is removed). A rejected steer is echoed to stderr
     // and drained too: leaving it would resend it every second forever, and losing it silently is
     // what this ordering exists to prevent — the coordinator can read it back off the log.
+    // Only the consumed PREFIX is removed. A writer that replaced the file rather than appending to it
+    // (`>` instead of `>>`, or the write-temp-then-rename a careful concurrent writer uses) leaves
+    // content that is not an extension of what was sent — truncating there would destroy a correction
+    // that had never been delivered, so it is left alone and goes out on the next tick.
     const drain = () => {
       try {
         const now = fs.readFileSync(opts.steerFile, "utf8");
-        fs.writeFileSync(opts.steerFile, now.startsWith(text) ? now.slice(text.length) : "");
+        if (now.startsWith(text)) fs.writeFileSync(opts.steerFile, now.slice(text.length));
       } catch {}
       inFlight = false;
     };
@@ -2347,6 +2406,8 @@ function startSteerPoll() {
       .then(drain)
       .catch((e) => {
         process.stderr.write(`codex-delegate: steer REJECTED (${e.message}); the text was not delivered:\n${text.trim()}\n`);
+        // Drained even on rejection: leaving it would resend the same rejected text every second, and
+        // the line above is the copy the coordinator can read back.
         drain();
       });
   }, 1000);
@@ -2475,7 +2536,10 @@ function finish(reason) {
 
 // The human footer: the same facts as the JSON report, arranged for a reader.
 function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
-  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, answer } = ev;
+  // Every field the body reads, schemaErrs included: leaving it out made `--footer --output-schema`
+  // throw inside an already-settled finish(), where abort() is a no-op — the run hung past its own
+  // --timeout and printed no report at all. Verified by reproduction, then by the case below.
+  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, answer, schemaErrs } = ev;
   {
     const L = [answer, ""];
     L.push(`--- verification -----------------------------------------`);
@@ -2500,6 +2564,8 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
       if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
       if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
       if (worktree.worktreeUntrackedPath) L.push(`  untracked files saved to ${worktree.worktreeUntrackedPath}`);
+      if (worktree.worktreeCommitsRef)
+        L.push(`  the seat's commits are kept at ${worktree.worktreeCommitsRef} (git log ${worktree.worktreeCommitsRef})`);
       if (worktree.worktreeIgnoredDropped)
         L.push(`  ${worktree.worktreeIgnoredDropped.count} git-ignored file(s) were NOT harvested and are gone: ` +
           `${worktree.worktreeIgnoredDropped.sample.join(", ")}${worktree.worktreeIgnoredDropped.count > worktree.worktreeIgnoredDropped.sample.length ? ", …" : ""}`);

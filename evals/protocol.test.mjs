@@ -214,6 +214,13 @@ const CASES = [
     why: "a no-match grep or a false test is a probe answering 'no', not a failed command — routine research seats exited 11 for finding nothing",
     assert: (r) => (r.commandsFailed === 0 && r.commandsProbeNegative === 2)
       || `probe verdicts miscounted: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "probe-multiline",  expect: EXIT.COMMAND_FAILED,
+    why: "codex sends multi-line bash scripts; a newline is a command separator too, so 'grep -q x file\\npnpm test' exiting 1 is a failed suite, not a probe answering no",
+    assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
+      || `a multi-line script was laundered into a probe: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "schema-good",      expect: EXIT.OK, json: false, args: ["--output-schema", schemaFile],
+    why: "--footer with --output-schema threw a ReferenceError inside an already-settled finish(), where abort() is a no-op: the run hung past its own --timeout and printed nothing. No case combined the two",
+    assertText: (t) => /output-schema: matched/.test(t) || `the footer lost its schema verdict: ${t.slice(-200)}` },
   { scenario: "probe-error",      expect: EXIT.COMMAND_FAILED,
     why: "probes reserve exit 2 for real trouble — a bad pattern is a failure, not a 'no'" },
   { scenario: "probe-compound",   expect: EXIT.COMMAND_FAILED,

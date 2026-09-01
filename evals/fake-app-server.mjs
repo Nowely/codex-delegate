@@ -569,6 +569,15 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
+      // A MULTI-LINE bash script whose first line is a probe and whose second is the real work. Codex
+      // routinely sends these; without newlines in the probe regex's excluded set, the failed suite
+      // was laundered into "a probe answered no" and the run exited 0.
+      case "probe-multiline":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "grep -q needle src/main.mjs\npnpm test", exitCode: 1, status: "failed" }),
+          msg(TURN, THREAD, "all tests pass"), done(TURN, THREAD));
+        break;
+
       // A skill-file read succeeds, the real command fails, and the answer claims it passed. The report
       // must show the failure; the old one filtered it out of both lists.
       case "hidden-failure":
