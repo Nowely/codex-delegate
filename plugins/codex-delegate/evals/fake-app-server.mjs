@@ -376,6 +376,20 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         w(R, cmd(TURN, THREAD), done(TURN, THREAD, "failed", { codexErrorInfo: "usageLimitExceeded", message: "quota" }));
         break;
 
+      // A transient stream failure before ANY observable work, then a clean second turn: the one shape
+      // the driver retries. The first turn emits nothing but its failure.
+      case "transient-then-ok":
+        if (turnStarts === 1)
+          w(R, done(TURN, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
+        else
+          w(R, cmd(thisTurn, THREAD), msg(thisTurn, THREAD, "recovered answer"), done(thisTurn, THREAD));
+        break;
+
+      // The same transient cause on BOTH turns: one retry is the whole budget.
+      case "transient-always":
+        w(R, done(thisTurn, THREAD, "failed", { codexErrorInfo: "responseStreamDisconnected", message: "stream lost" }));
+        break;
+
       // A successful command that is not the one the caller demanded.
       case "wrong-command":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,10p ~/.codex/skills/x/SKILL.md" }),
