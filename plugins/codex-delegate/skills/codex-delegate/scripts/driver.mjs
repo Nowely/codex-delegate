@@ -147,6 +147,10 @@ Isolation
   databases codex keeps there persist between runs, which is what makes an
   isolated run faster than a host-home one rather than slower
   --host-home        use the caller's ~/.codex instead, plugins and all
+  --mcp              carry the caller's [mcp_servers] — and ONLY them — into the
+                     isolated home: the seat gets your MCP tools without your
+                     plugins, skills and trust records. The servers run with
+                     your rights, as they do under --host-home; grant deliberately
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
   min(5 s, max(1 s, --timeout)) and normally ~120 ms. It counts against the one
@@ -329,6 +333,7 @@ function parseArgs(argv) {
       case "--brief": o.brief = true; break;
       case "--progress": o.progress = true; break;
       case "--host-home": o.hostHome = true; break;
+      case "--mcp": o.mcp = true; break;
       case "--json": o.json = true; break;   // the default; kept so existing recipes stay valid
       case "--footer": o.json = false; break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
@@ -635,6 +640,45 @@ function resolveCodexBin() {
 }
 
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
+let mcpFromProbe = null;   // the caller's mcp_servers table, captured by the probe under --mcp only
+
+// Serialise the probe's mcp_servers object back into TOML the isolated home can load. Only shapes the
+// driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string arrays, and a
+// string-valued env table; a server using anything richer is skipped OUT LOUD rather than mangled.
+// (Hand-building TOML is exactly what the probe exists to avoid, but this is generation from JSON with
+// quoted values, not parsing — the family of edge cases that killed the parser does not apply.)
+function tomlMcpServers(servers) {
+  const bare = (k) => /^[A-Za-z0-9_-]+$/.test(k) ? k : tomlString(k);
+  const lines = [];
+  for (const [name, cfg] of Object.entries(servers ?? {})) {
+    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg)) {
+      process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} has a non-table config; skipped\n`);
+      continue;
+    }
+    const scalars = [], env = [];
+    let carriable = true;
+    for (const [k, v] of Object.entries(cfg)) {
+      if (k === "env" && v && typeof v === "object" && !Array.isArray(v)) {
+        for (const [ek, ev] of Object.entries(v)) {
+          if (typeof ev === "string") env.push(`${bare(ek)} = ${tomlString(ev)}`);
+          else carriable = false;
+        }
+      }
+      else if (typeof v === "string") scalars.push(`${bare(k)} = ${tomlString(v)}`);
+      else if (typeof v === "number" && Number.isFinite(v)) scalars.push(`${bare(k)} = ${v}`);
+      else if (typeof v === "boolean") scalars.push(`${bare(k)} = ${v}`);
+      else if (Array.isArray(v) && v.every((x) => typeof x === "string")) scalars.push(`${bare(k)} = [${v.map(tomlString).join(", ")}]`);
+      else if (v !== null && v !== undefined) carriable = false;
+    }
+    if (!carriable) {
+      process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} uses a config shape the driver cannot carry faithfully; skipped\n`);
+      continue;
+    }
+    lines.push(`[mcp_servers.${bare(name)}]`, ...scalars);
+    if (env.length) lines.push(`[mcp_servers.${bare(name)}.env]`, ...env);
+  }
+  return lines;
+}
 // Resolves { entries, failed }: `failed` marks an ASKING that failed (spawn, timeout, error reply), as
 // opposed to a config with nothing to inherit — the two used to share the value [], and the failure
 // half silently changed which model answers, making otherwise identical runs nondeterministic.
@@ -709,6 +753,7 @@ function inheritedConfig() {
         const wrong = INHERITED.filter((k) => cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== "string");
         if (wrong.length)
           process.stderr.write(`codex-delegate: the caller's Codex config reports ${wrong.join(", ")} as something other than text; those are not carried across\n`);
+        if (opts?.mcp && cfg.mcp_servers && typeof cfg.mcp_servers === "object") mcpFromProbe = cfg.mcp_servers;
         return finish(INHERITED.filter((k) => typeof cfg[k] === "string").map((k) => [k, tomlString(cfg[k])]));
       }
     });
@@ -814,7 +859,9 @@ async function isolatedHome() {
   // which would have redirected this write onto whatever it pointed at.
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(tmp, probe.entries.map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
+    const body = probe.entries.map(([k, v]) => `${k} = ${v}\n`).join("")
+      + (mcpFromProbe ? `${tomlMcpServers(mcpFromProbe).join("\n")}\n` : "");
+    fs.writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
