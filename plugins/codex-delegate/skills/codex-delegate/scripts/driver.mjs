@@ -964,11 +964,21 @@ function disposeWorktree(turnDone) {
   else if (st.status !== 0) res.worktreePreserved = "git status failed in the worktree";
   else if (!clean) {
     res.worktreePreserved = "the tree holds changes; harvest them, then remove";
-    const ds = spawnSync("git", ["-C", dir, "diff", "--stat"], { encoding: "utf8" });
+    // `git diff HEAD`, not bare `git diff`: dirtiness is decided by `status --porcelain`, which sees
+    // staged changes, so the harvest must see them too — the bare form omits them, and a turn that
+    // staged work without committing reported a null diff beside "harvest them, then remove" and a
+    // force-remove command that deleted the only copy. HEAD always exists in a tree `worktree add
+    // --detach` created; the bare form stays as a fallback for a git that refuses HEAD.
+    const diffVs = (extra) => {
+      let r = spawnSync("git", ["-C", dir, "diff", "HEAD", ...extra], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+      if (r.status !== 0) r = spawnSync("git", ["-C", dir, "diff", ...extra], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+      return r;
+    };
+    const ds = diffVs(["--stat"]);
     if (ds.status === 0 && ds.stdout.trim()) res.worktreeDiffStat = ds.stdout.trim().slice(0, 2000);
-    // The tracked diff, saved beside the answer for harvesting without a shell. Untracked files are not
-    // in it — they are exactly why the tree itself is preserved.
-    const full = spawnSync("git", ["-C", dir, "diff"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    // The tracked diff (staged and unstaged), saved beside the answer for harvesting without a shell.
+    // Untracked files are not in it — they are exactly why the tree itself is preserved.
+    const full = diffVs([]);
     if (full.status === 0 && full.stdout) {
       try {
         const p = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}.diff`);
