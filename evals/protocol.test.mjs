@@ -96,6 +96,11 @@ const protectedState = path.join(shimDir, "state");
 const protectedTmp = path.join(protectedState, "tmp");
 fs.mkdirSync(protectedTmp, { recursive: true });
 
+// A directory whose name holds TWO consecutive spaces, for the seat-file literalness case: the SEAT
+// value used to be split on whitespace and rejoined with single spaces, silently rewriting the path.
+const spacedDir = path.join(shimDir, "two  spaces");
+fs.mkdirSync(spacedDir);
+
 const mismatchSessions = path.join(shimDir, "sessions-mismatch");
 const mismatchDay = rolloutDay.replace(sessionsDir, mismatchSessions);
 fs.mkdirSync(mismatchDay, { recursive: true });
@@ -342,6 +347,9 @@ const CASES = [
     assert: (r) => (r.level === "read" && r.network === false && r.sandbox?.type === "workspaceWrite"
         && (r.sandbox?.writableRoots ?? []).length <= 1 && String(r.expectCommand).includes("--commit"))
       || `a seat-file value escaped into flags: ${JSON.stringify({ l: r.level, n: r.network, roots: r.sandbox?.writableRoots })}` },
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWDSP>\nEXPECT: echo\n",
+    why: "the SEAT value is literal to end of line: a path holding consecutive spaces was split on whitespace and rejoined with single spaces, silently rewriting where the rights land",
+    assert: (r) => String(r.cwd).endsWith("two  spaces") || `the spaced path was rewritten: ${JSON.stringify(r.cwd)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBOGUS: x\n",
     why: "an unknown field is a malformed seat, not a field to ignore — a typo must never silently become a different seat",
     assertStderr: (t) => /unknown field "BOGUS"/.test(t) || `stderr did not name the field: ${t.slice(0, 120)}` },
@@ -446,7 +454,7 @@ function run(c) {
     let seatArgs = [];
     if (c.seat) {
       const f = path.join(shimDir, `seat-${seatSeq++}.txt`);
-      fs.writeFileSync(f, c.seat.replaceAll("<CWD>", shimDir));
+      fs.writeFileSync(f, c.seat.replaceAll("<CWD>", shimDir).replaceAll("<CWDSP>", spacedDir));
       seatArgs = ["--seat-file", f];
     }
     const p = spawn(process.execPath,
