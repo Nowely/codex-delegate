@@ -764,6 +764,25 @@ test("every run is recorded in the job registry, and --resume last finds the new
     return r.threadId === "thr_root" || `the wrong thread was resumed: ${JSON.stringify(r.threadId)}`;
   });
 
+test("--mcp carries the caller's mcp_servers into the isolated home, and only carriable ones",
+  "the isolated home strips MCP tools wholesale and --host-home restores everything; --mcp is the middle ground — tools without plugins, skills and trust records — and a server whose config cannot be carried faithfully is skipped out loud, not mangled",
+  async () => {
+    const cfg = path.join(STATE_DIR, "home", "config.toml");
+    const withMcp = await run(freshDir("mcp-on"), { args: ["--mcp"], env: { FAKE_MCP: "1" } });
+    if (withMcp.code !== EXIT.OK) return `the --mcp run exited ${withMcp.code}`;
+    let body = "";
+    try { body = fs.readFileSync(cfg, "utf8"); } catch { return "no isolated config was written"; }
+    if (!/\[mcp_servers\.docs\]/.test(body) || !/command = "docs-server"/.test(body) || !/\[mcp_servers\.docs\.env\]/.test(body))
+      return `the carriable server did not reach the isolated config: ${JSON.stringify(body)}`;
+    if (/exotic/.test(body)) return "an uncarriable server was mangled into the config instead of skipped";
+    if (!/exotic.*cannot carry/.test(withMcp.err))
+      return `the skip was silent: ${withMcp.err.trim().slice(0, 200)}`;
+    const without = await run(freshDir("mcp-off"), { env: { FAKE_MCP: "1" } });
+    if (without.code !== EXIT.OK) return `the follow-up run exited ${without.code}`;
+    try { body = fs.readFileSync(cfg, "utf8"); } catch { return "the config vanished"; }
+    return !/mcp_servers/.test(body) || "a run WITHOUT --mcp kept the previous run's MCP grant";
+  });
+
 test("the answer log is pruned by age",
   "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
   async () => {
@@ -837,6 +856,12 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
       // And wait for the thread itself. Signalling on the lock alone is a race the driver wins
       // correctly — no thread means nothing to report, which is exit 4 — but it is not this case.
       if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never announced a thread"; }
+      // And for the TURN: the interrupt needs a turn id, and threadId= is announced before the
+      // turn/start response arrives. The rpc log records the request reaching the fixture; a short
+      // settle lets the driver consume the response that carries the id.
+      if (!await waitFor(() => { try { return /turn\/start/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }))
+        { p.kill("SIGKILL"); reapSurvivors(); return "the turn never started"; }
+      await new Promise((r) => setTimeout(r, 150));
       p.kill(sig);
       const { code, out } = await done;
       const orphans = survivorsAlive();

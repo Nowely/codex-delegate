@@ -225,7 +225,7 @@ re-taken. Re-check after a codex upgrade.
 | agent with `isolation: "worktree"` | `--worktree <repo> --network` | edits and runs tests, including browser tests (see [references/browser-tests.md](references/browser-tests.md)). Installs need a cache inside the tree: `npm install --cache "$PWD/.npm-cache"`; `pnpm install --frozen-lockfile` works against a warm store |
 | the same, committing | `--level write --cwd <worktree> --commit` | full: add and commit succeed |
 | fan-out of many agents | many concurrent invocations | memory-bound: ~181 MB median per isolated seat (471 MB with `--host-home`), turn overhead 7–12 s dominated by provider round-trips |
-| a subagent's MCP tools | **none, by default** | the price of the isolated home; `--host-home` restores them, and their nondeterminism |
+| a subagent's MCP tools | **none, by default** | the price of the isolated home. `--mcp` carries the caller's `[mcp_servers]` — and only them — into the isolated home (the servers run with your rights); `--host-home` restores everything, plugins, skills and nondeterminism included |
 | web search | `--web-search cached\|indexed\|live` | off unless asked; a managed device may permit only some modes, and the driver refuses a forbidden one (exit 2) rather than letting the server substitute silently |
 | an image in the prompt | `--attach <file>` (repeatable; `ATTACH:` in a seat file) | the protocol's `localImage`/`localAudio` input items — png/jpg/jpeg/gif/webp/bmp and wav/mp3/m4a/ogg/flac. Checked before the turn, so a typo costs nothing |
 | watching a running subagent | `--progress` | one stderr line per item start (run/edit/search) without the delta firehose; the rollout under `~/.codex/sessions` stays the full live transcript |
