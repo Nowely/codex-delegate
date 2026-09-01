@@ -558,6 +558,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           done(TURN, THREAD));
         break;
 
+      // The turn input, echoed back as the answer: the only way a case can see what the driver SENT
+      // as input items (--attach mapping, text ordering).
+      case "echo-input":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify(m.params?.input ?? [])), done(TURN, THREAD));
+        break;
+
       // An answer with no phase at all, which the schema permits.
       case "null-phase":
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "unphased but real", null), done(TURN, THREAD));
