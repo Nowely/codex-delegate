@@ -162,6 +162,13 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
+    why: "--review runs the server's native reviewer: the exitedReviewMode payload is the answer, and a turn with no commands is its ordinary success",
+    assert: (r) => (/off-by-one in clamp/.test(String(r.answer)) && r.commandsSucceeded === 0 && r.otherItemCounts?.exitedReviewMode === 1)
+      || `the review did not become the answer: ${JSON.stringify({ a: String(r.answer).slice(0, 60), c: r.commandsSucceeded })}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted"],
+    why: "--review builds its own prompt; a --prompt beside it (the harness always passes one here) is a contradiction, not an extra",
+    assertStderr: (e) => /--review builds its own prompt/.test(e) || `the contradiction was not named: ${e.slice(0, 140)}` },
   { scenario: "rich-items",       expect: EXIT.OK,
     why: "reasoning summaries, tool/search items and subagent threads used to be dropped on the floor — a turn that mostly searched or delegated looked idle; they are now VISIBLE in the report while the child's command still counts for nothing",
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
@@ -514,7 +521,7 @@ function run(c) {
     const p = spawn(process.execPath,
       [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]), "--timeout", "20",
        ...(c.json === false ? ["--footer"] : c.json === "omit" ? [] : ["--json"]),
-       "--prompt", "irrelevant, the server is scripted", ...(c.args ?? [])],
+       ...(c.noPrompt ? [] : ["--prompt", "irrelevant, the server is scripted"]), ...(c.args ?? [])],
       // A state directory of this suite's own: every case used to write locks, an isolated Codex home and
       // the answer log into the caller's real ~/.codex-delegate, so a suite run concurrent with a real
       // delegation overwrote that delegation's inherited config with this fixture's values.

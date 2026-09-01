@@ -764,23 +764,27 @@ test("every run is recorded in the job registry, and --resume last finds the new
     return r.threadId === "thr_root" || `the wrong thread was resumed: ${JSON.stringify(r.threadId)}`;
   });
 
-test("--mcp carries the caller's mcp_servers into the isolated home, and only carriable ones",
-  "the isolated home strips MCP tools wholesale and --host-home restores everything; --mcp is the middle ground — tools without plugins, skills and trust records — and a server whose config cannot be carried faithfully is skipped out loud, not mangled",
+test("--mcp carries the caller's mcp_servers as per-run spawn config, never through shared state",
+  "the isolated home strips MCP tools wholesale and --host-home restores everything; --mcp is the middle ground — and the grant must ride the -c spawn args, because one written into the shared config.toml leaks into concurrent runs that never asked for it (found by a live codex review of the first version)",
   async () => {
     const cfg = path.join(STATE_DIR, "home", "config.toml");
-    const withMcp = await run(freshDir("mcp-on"), { args: ["--mcp"], env: { FAKE_MCP: "1" } });
+    const onLog = path.join(freshDir("mcp-log"), "on.log");
+    const withMcp = await run(freshDir("mcp-on"), { args: ["--mcp"], env: { FAKE_MCP: "1", FAKE_RPC_LOG: onLog } });
     if (withMcp.code !== EXIT.OK) return `the --mcp run exited ${withMcp.code}`;
+    let log = "";
+    try { log = fs.readFileSync(onLog, "utf8"); } catch { return "the fixture logged nothing"; }
+    if (!/cfg:mcp_servers\.docs\.command/.test(log) || !/cfg:mcp_servers\.docs\.env\.TOKEN/.test(log))
+      return `the carriable server did not reach the spawn config: ${JSON.stringify(log.split("\n").filter((l) => /mcp/.test(l)))}`;
+    if (/cfg:mcp_servers\.exotic/.test(log)) return "an uncarriable server was mangled into the config instead of skipped";
+    if (!/exotic.*cannot carry/.test(withMcp.err)) return `the skip was silent: ${withMcp.err.trim().slice(0, 200)}`;
     let body = "";
     try { body = fs.readFileSync(cfg, "utf8"); } catch { return "no isolated config was written"; }
-    if (!/\[mcp_servers\.docs\]/.test(body) || !/command = "docs-server"/.test(body) || !/\[mcp_servers\.docs\.env\]/.test(body))
-      return `the carriable server did not reach the isolated config: ${JSON.stringify(body)}`;
-    if (/exotic/.test(body)) return "an uncarriable server was mangled into the config instead of skipped";
-    if (!/exotic.*cannot carry/.test(withMcp.err))
-      return `the skip was silent: ${withMcp.err.trim().slice(0, 200)}`;
-    const without = await run(freshDir("mcp-off"), { env: { FAKE_MCP: "1" } });
+    if (/mcp_servers/.test(body)) return "the per-run grant leaked into the SHARED config file";
+    const offLog = path.join(freshDir("mcp-log-off"), "off.log");
+    const without = await run(freshDir("mcp-off"), { env: { FAKE_MCP: "1", FAKE_RPC_LOG: offLog } });
     if (without.code !== EXIT.OK) return `the follow-up run exited ${without.code}`;
-    try { body = fs.readFileSync(cfg, "utf8"); } catch { return "the config vanished"; }
-    return !/mcp_servers/.test(body) || "a run WITHOUT --mcp kept the previous run's MCP grant";
+    try { log = fs.readFileSync(offLog, "utf8"); } catch { return "the second fixture logged nothing"; }
+    return !/cfg:mcp_servers/.test(log) || "a run WITHOUT --mcp received an MCP grant";
   });
 
 test("the answer log is pruned by age",

@@ -17,6 +17,16 @@ const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? ""
 import readline from "node:readline";
 
 const SCENARIO = process.env.FAKE_SCENARIO ?? "happy";
+// The -c config this server was spawned with, one `cfg:<key>` line each — the only way a suite can see
+// a per-run grant that rides the spawn args (--mcp) rather than any file.
+if (process.env.FAKE_RPC_LOG) {
+  try {
+    fs.appendFileSync(process.env.FAKE_RPC_LOG,
+      process.argv.slice(2)
+        .filter((a, i, all) => all[i - 1] === "-c" && a.includes("="))
+        .map((a) => `cfg:${a.slice(0, a.indexOf("="))}\n`).join(""));
+  } catch {}
+}
 // The driver passes its config as `-c key=value` spawn args, so the fixture can report back what it was
 // actually told — which is the only way to test that a flag the driver DID NOT send stayed unsent.
 const CFG = Object.fromEntries(process.argv.slice(2)
@@ -219,6 +229,22 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       activePermissionProfile: profile,
       sandbox: sb
     }));
+    return;
+  }
+
+  if (m.method === "review/start") {
+    // Inline review: the turn runs on the caller's thread; the review payload arrives as the
+    // exitedReviewMode item and the turn completes with no commands at all.
+    const R = reply(m.id, { reviewThreadId: m.params?.threadId ?? THREAD,
+      turn: { id: TURN, status: "inProgress", items: [], error: null } });
+    w(R,
+      // A failing probe of the reviewer's own — measured live, real reviews run failing greps as
+      // their working method, and that must not turn the run into exit 11.
+      cmd(TURN, THREAD, { command: "grep -n clamp src/util.mjs", exitCode: 1, status: "failed" }),
+      note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+        item: { id: "item_rv", type: "exitedReviewMode",
+                review: { overallCorrectness: "needs-work", findings: [{ title: "off-by-one in clamp", body: "the loop stops early" }] } } }),
+      done(TURN, THREAD));
     return;
   }
 
