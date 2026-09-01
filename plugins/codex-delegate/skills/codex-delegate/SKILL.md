@@ -11,7 +11,7 @@ description: >-
   they forbid it ("no codex", "just you"): a refusal is still a composition this skill decides, and an
   all-Claude panel owes the user one line naming its shared bias. Skip for trivia and mechanical
   fact-gathering; knowing the answer is not a reason to skip a requested second opinion.
-version: 0.4.0
+version: 0.5.0
 license: MIT
 ---
 
