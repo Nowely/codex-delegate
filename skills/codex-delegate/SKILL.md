@@ -350,6 +350,14 @@ a live delegation is using — and two runs under different values do not exclud
   inside `permissions.<profile>.*`. Validate first: [references/config-drift.md](references/config-drift.md).
 - A seat that starts background load must kill it from a `trap 'kill $PIDS' EXIT INT TERM`, not from a
   line at the end — a parent that dies first orphans the load to PID 1.
+- **That applies to YOUR shell too, and `jobs -p` will not save you.** Measured while auditing this
+  skill: a coordinator generating CPU load with `for i in $(seq 1 10); do (while :; do :; done) & done`
+  and cleaning up with `LOADPIDS=$(jobs -p); …; kill $LOADPIDS` left twenty-two busy loops reparented to
+  PID 1, burning half a core each for nearly eight hours. Under the tool harness the command runs inside
+  its own `zsh -c` wrapper, where `jobs -p` reported nothing, so `kill` killed nothing and the wrapper
+  exited first. Record pids as you spawn them (`p=$!; PIDS="$PIDS $p"`), arm the trap before the loop,
+  and prefer `kill -9 -$$` on the whole group. Then check with
+  `ps -eo pid,ppid,etime,command | awk '$2==1'` — a delegation's own teardown is not what leaks here.
 - **A seat whose method is to make things fail will exit 11** — mutation testing, red-green repro,
   bisection. That is your flag choice, not the seat: pass `--verify` with the end condition you
   actually want; a passing check overrules failed commands by design.
