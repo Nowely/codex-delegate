@@ -1792,10 +1792,19 @@ function finish(reason) {
   // "NEVER RAN pnpm test" while the run exited 0 under an answer claiming the tests passed.
   const verdictFailed = (c) => c.status === "failed" || c.status === "declined";
   const blocked = commands.filter((c) => !verdictFailed(c) && typeof c.exitCode !== "number");
+  // A probe whose exit code answers a QUESTION is not a failed command: grep/rg exit 1 for "no match",
+  // test/[ for "false", diff/cmp for "the files differ" — each reserves 2 for real trouble. Counting
+  // them as failures made a routine research seat exit 11 for a grep that found nothing — measured,
+  // 7 of 26 read seats in one audit session. Exit 1 EXACTLY, and only a PLAIN probe command: a pipe,
+  // a compound or a substitution keeps failure semantics, because its exit 1 may be someone else's.
+  // `declined` is an approval refusal whatever the code says, and never a probe answer.
+  const PROBE_RE = /^\s*(?:grep|rg|egrep|fgrep|test|\[|diff|cmp|git\s+(?:diff|grep))(?:\s[^|&;`$]*)?$/;
+  const probeNegative = (c) => c.status !== "declined" && c.exitCode === 1 && PROBE_RE.test(String(c.command));
+  const probeNegatives = commands.filter(probeNegative);
   // A command that ran and FAILED belongs to neither set, so it was printed nowhere — while the footer
   // told the reader to check the list. A suite that ran and failed under a final answer claiming it
   // passed is exactly the case this report exists to expose.
-  const failedCmds = commands.filter((c) => verdictFailed(c) || (typeof c.exitCode === "number" && c.exitCode !== 0));
+  const failedCmds = commands.filter((c) => !probeNegative(c) && (verdictFailed(c) || (typeof c.exitCode === "number" && c.exitCode !== 0)));
   // A patch that could not be applied is the same class of fact as a command that failed, and was counted
   // nowhere: PatchApplyStatus has failed and declined, and neither reached the ladder.
   const failedPatches = fileChanges.filter(verdictFailed);
@@ -1955,6 +1964,8 @@ function finish(reason) {
         schemaKeywordsUnchecked: opts.schemaUnchecked } : {}),
     commandsSucceeded: ran.length, commandsMatchingExpectation: expected.length,
     commandsFailed: failedCmds.length, commandsBlocked: blocked.length,
+    // Probes that answered "no" (a no-match grep, a false test) — not failures, not successes.
+    commandsProbeNegative: probeNegatives.length,
     // For a rename the file that EXISTS afterwards is the destination; report that, not the source.
     filesTouched: fileChanges.filter((f) => f.status === "completed").map((f) => f.move ?? f.path),
     fileChangesFailed: failedPatches,
@@ -2028,6 +2039,7 @@ function finish(reason) {
     }
     L.push(`commands: ${ran.length} succeeded` +
       `${failedCmds.length ? `, ${failedCmds.length} FAILED` : ""}` +
+      `${probeNegatives.length ? `, ${probeNegatives.length} probe(s) answered no` : ""}` +
       `${blocked.length ? `, ${blocked.length} never ran` : ""}`);
     for (const c of ran.slice(-8)) L.push(`  exit=${c.exitCode} ${c.command.slice(0, 90)}`);
     for (const c of failedCmds) L.push(`  FAILED exit=${c.exitCode} ${c.command.slice(0, 90)}`);
