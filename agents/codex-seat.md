@@ -24,7 +24,8 @@ optional (defaults in brackets):
     WEB_SEARCH: cached|indexed|live  [omit -> off]
     OUTPUT_SCHEMA: <path to a strict JSON Schema file>  [omit]
     REVIEW: uncommitted | branch:<ref> | commit:<sha>   [omit; runs the server's own reviewer, which
-                        builds its own prompt — the body is then only context, not the task]
+                        builds its own prompt — the driver reads no body at all, so a non-empty body
+                        beside REVIEW is a contradiction: report it and run nothing]
     RESUME: <threadId> | last   [omit; continues that thread, "last" = the newest run in this cwd]
     PROGRESS: yes      [omit; one stderr line per item start, for a long seat]
     ALLOW_NO_COMMANDS: yes  [omit]
