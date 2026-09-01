@@ -162,6 +162,12 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
+  { scenario: "rich-items",       expect: EXIT.OK,
+    why: "reasoning summaries, tool/search items and subagent threads used to be dropped on the floor — a turn that mostly searched or delegated looked idle; they are now VISIBLE in the report while the child's command still counts for nothing",
+    assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
+        && r.subagentThreads?.length === 1 && r.subagentThreads[0].threadId === "thr_child"
+        && r.subagentThreads[0].commands === 1 && r.commandsSucceeded === 1)
+      || `visibility fields wrong: ${JSON.stringify({ reasoning: r.reasoningSummary, other: r.otherItemCounts, sub: r.subagentThreads, cmds: r.commandsSucceeded })}` },
   { scenario: "progress",         expect: EXIT.OK, args: ["--progress"],
     why: "--progress announces each item start on stderr, so a long seat is watchable live — a native subagent's progress visibility, without the delta firehose",
     assertStderr: (e) => /> run: echo hi/.test(e) || `no progress line: ${e.slice(0, 160)}` },

@@ -558,6 +558,23 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           done(TURN, THREAD));
         break;
 
+      // The activity the evidence gates ignore: a reasoning summary, a web search, and a subagent
+      // thread doing work of its own. All must reach the report as VISIBILITY; none may become
+      // evidence (the child's command must not count).
+      case "rich-items":
+        w(R,
+          note("thread/started", { thread: { ...thread("thr_child"), id: "thr_child", parentThreadId: THREAD } }),
+          cmd(TURN, THREAD),
+          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: "item_r1", type: "reasoning", summary: ["Weighed A against B", "chose A"], content: [] } }),
+          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: "item_w1", type: "webSearch", query: "node atomics", results: [] } }),
+          note("item/completed", { threadId: "thr_child", turnId: "turn_child", completedAtMs: now(),
+            item: { id: "item_c1", type: "commandExecution", command: "grep x", exitCode: 0, status: "completed",
+                    cwd: "/tmp", commandActions: [], aggregatedOutput: "", processId: null, durationMs: 1 } }),
+          msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
       // item/started before the completion pair: what --progress announces.
       case "progress":
         w(R,
