@@ -602,6 +602,9 @@ function resolveCodexBin() {
 }
 
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
+// Resolves { entries, failed }: `failed` marks an ASKING that failed (spawn, timeout, error reply), as
+// opposed to a config with nothing to inherit — the two used to share the value [], and the failure
+// half silently changed which model answers, making otherwise identical runs nondeterministic.
 function inheritedConfig() {
   return new Promise((resolve) => {
     let child;
@@ -613,7 +616,12 @@ function inheritedConfig() {
     // announced its timeout on schedule and then sat waiting for a grandchild. Before this probe existed
     // the same case exited at 2.1 s.
     try { child = spawn(codexBin, ["--strict-config", "app-server"], { stdio: ["pipe", "pipe", "pipe"], detached: true }); }
-    catch { return resolve([]); }
+    catch (e) {
+      // The async failures below all warn; a synchronous spawn failure was the one path that fell back
+      // to account defaults without a word.
+      process.stderr.write(`codex-delegate: could not read the caller's Codex config (spawn failed: ${e.message}); model and effort fall back to the account default\n`);
+      return resolve({ entries: [], failed: true });
+    }
     probeChild = child;
     let buf = "", done = false;
     const finish = (v, why) => {
@@ -631,7 +639,7 @@ function inheritedConfig() {
       if (why) process.stderr.write(`codex-delegate: could not read the caller's Codex config (${why}); model and effort fall back to the account default\n`);
       probeChild = null;
       probeCancel = null;
-      resolve(v);
+      resolve({ entries: v, failed: Boolean(why) });
     };
     probeCancel = () => finish([], undefined);
     // Bounded well under any caller's budget, and never longer than it: this runs BEFORE the turn deadline
@@ -753,13 +761,27 @@ async function isolatedHome() {
   // the same way it reads the caller's own file, and the -c payload is untouched.
   // Rewritten every run, which also keeps the server's trusted-project appends from accumulating.
   const cfg = path.join(home, "config.toml");
+  let probe = await inheritedConfig();
+  // A transient hiccup gets ONE retry before its silence becomes nondeterminism, and only when the wall
+  // clock still leaves room for the probe's own budget plus a turn.
+  if (probe.failed && startedAtMs + (opts?.timeout ?? 900) * 1000 - Date.now() > 6000) {
+    probe = await inheritedConfig();
+  }
+  // Still failing: keep the LAST KNOWN GOOD config instead of truncating it. Rewriting on failure was
+  // the racy half of the shared-home hazard — a failed probe clobbered the config a concurrent healthy
+  // run had just written, and both then ran against account defaults. Concurrent HEALTHY runs write the
+  // same bytes (same caller config), so their race is harmless.
+  if (probe.failed && fs.existsSync(cfg)) {
+    process.stderr.write(`codex-delegate: keeping the previously inherited config (last known good) at ${cfg}\n`);
+    return home;
+  }
   // Random, not the pid. Two runs in different PID namespaces over one mounted home share a pid, and then
   // both write the same temp name — measured as a partial read and an ENOENT from the loser's rename.
   // "wx" on top of that: it fails rather than following a symlink someone left at the predictable name,
   // which would have redirected this write onto whatever it pointed at.
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(tmp, (await inheritedConfig()).map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
+    fs.writeFileSync(tmp, probe.entries.map(([k, v]) => `${k} = ${v}\n`).join(""), { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch {}
