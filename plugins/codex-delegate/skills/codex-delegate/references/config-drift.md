@@ -5,7 +5,16 @@
 
 Misspelled config keys are swallowed silently by both `-c` and the app-server. `tools.web_search` is a real
 key that looks like the web-search switch and does nothing; the actual one is top-level `web_search`, which
-the driver sets to `disabled`. Validate any new key offline first:
+the driver sets to whatever `--web-search` asked for and to `disabled` only when the flag is absent.
+
+**There are two config surfaces, and this oracle covers one.** The `-c` payload carries `web_search`, the
+read profile, `default_permissions`, `model_reasoning_effort` and `sandbox_workspace_write.*`. The
+isolated home's `config.toml` carries the four inherited keys (`model`, `model_reasoning_effort`,
+`personality`, `service_tier`) and, under `--mcp`, the caller's whole `[mcp_servers]` table — `--mcp`
+adds no `-c` entry at all. A key destined for that file has to be validated by putting it in a
+config.toml and starting codex under `--strict-config`, not with `-c`.
+
+Validate any new `-c` key offline first:
 
 ```bash
 codex exec --strict-config -s read-only --skip-git-repo-check -C /tmp \
@@ -34,10 +43,13 @@ grant, while the profile still applies under its correct id:
 -c 'permissions.pY.filesysten={":tmpdir"="write"}' -P pY  ->  TMPDIR_DENIED
 ```
 
-This is why the driver's read-level assert checks the **effect** — sandbox type `workspaceWrite` and
-`writableRoots` equal to exactly `[$TMPDIR]`, canonicalised on both sides — rather than the profile's name.
-A name-only check passes in both cases above; verified live, introducing exactly this typo now exits 4
-before any model turn. Check a profile the same way yourself:
+This is why the driver's read-level assert checks the **effect** as well as the name: sandbox type
+`workspaceWrite`, no network access, the cwd present in `runtimeWorkspaceRoots`, and `writableRoots`
+equal to exactly `[$TMPDIR]` — or exactly empty when `--cwd` IS `$TMPDIR`, where the server moves it to
+`runtimeWorkspaceRoots` instead — canonicalised on both sides. The profile id is asserted first, but a
+name-only check passes in both cases above; verified live, introducing exactly this typo now exits 4
+before any model turn. ($TMPDIR itself also goes through the protected-root guard before the turn, so
+`TMPDIR=~/.codex/x --level read` is a usage error rather than something this assert has to catch.) Check a profile the same way yourself:
 
 ```bash
 codex sandbox -c 'permissions.codex_delegate_read.extends=":read-only"' \
