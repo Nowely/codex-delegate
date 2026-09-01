@@ -1484,6 +1484,9 @@ const messages = [];        // root-thread agentMessage items only
 const fileChanges = [];     // root-thread fileChange items: what the turn actually wrote
 const escalations = [];     // refused permission requests — the sandbox was sized too small
 const interactions = [];    // requests that needed a human: no sandbox change can answer them
+const reasoningSummaries = [];  // root-thread reasoning item summaries — the inspectable thinking a Claude subagent's transcript has
+const otherItemCounts = {}; // root-thread item types the evidence gates ignore (mcpToolCall, webSearch, plan, …), counted so the report does not silently drop them
+const subagentThreads = new Map();  // threads the server started under ours: id -> {items, commands}
 let turnStatus = null;
 let turnError = null;
 let selectedModel = null;   // what the server resolved, which may not be what was asked for
@@ -1631,10 +1634,34 @@ function handleMessage(msg) {
     if (line) process.stderr.write(`codex-delegate: > ${line}\n`);
   }
 
+  // A subagent thread the server started under ours: registered so its activity is visible in the
+  // report rather than invisibly filtered. Evidence attribution stays root-only — a child's command is
+  // never proof of OUR work — but a coordinator deserves to know the children existed and how busy
+  // they were.
+  if (msg.method === "thread/started" && p?.thread?.parentThreadId && rootThreadId !== null
+      && p.thread.parentThreadId === rootThreadId)
+    subagentThreads.set(p.thread.id, { items: 0, commands: 0 });
+  if (msg.method === "item/completed" && subagentThreads.has(p?.threadId ?? "")) {
+    const t = subagentThreads.get(p.threadId);
+    t.items++;
+    if (p.item?.type === "commandExecution") t.commands++;
+  }
+
   if (msg.method === "item/completed" && isRoot(p)) {
     const it = p.item;
     if (it?.type === "commandExecution") commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status });
     if (it?.type === "agentMessage" && it.text) messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
+    // The summary is the same artefact a Claude subagent's transcript exposes as its thinking; bounded,
+    // because reasoning can be long and the report is not the place for a novel.
+    if (it?.type === "reasoning") {
+      const s = Array.isArray(it.summary) ? it.summary.join("\n") : String(it.summary ?? "");
+      if (s.trim() && reasoningSummaries.length < 40) reasoningSummaries.push(s.slice(0, 2000));
+    }
+    // Everything else — mcpToolCall, webSearch, plan, collabAgentToolCall, whatever a later server
+    // adds — is counted by type: the report used to drop these on the floor, so a turn that mostly
+    // searched or called tools looked idle.
+    if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning"].includes(it.type))
+      otherItemCounts[it.type] = (otherItemCounts[it.type] ?? 0) + 1;
     // A write-level run said nothing about what it WROTE. The schema carries it — FileChangeThreadItem
     // requires {changes:[{path,kind,diff}], status}, and PatchApplyStatus includes failed and declined —
     // so a patch that failed for a reason other than a refused approval was invisible in both the report
@@ -2197,6 +2224,12 @@ function finish(reason) {
     // Transient provider failures the driver absorbed with a bounded backoff; empty on the vast
     // majority of runs, and the honest record of the delay when it happened.
     transientRetries,
+    // What the turn did beyond commands and files: the model's own summaries of its reasoning
+    // (bounded), item types the gates ignore, and the subagent threads the server ran under ours —
+    // visible activity, never evidence.
+    reasoningSummary: reasoningSummaries.length ? reasoningSummaries.join("\n---\n").slice(0, 8000) : null,
+    otherItemCounts: Object.keys(otherItemCounts).length ? otherItemCounts : null,
+    subagentThreads: [...subagentThreads.entries()].map(([threadId, t]) => ({ threadId, ...t })),
     // What a seat FILE declared, in order, when one was used. A wrapped seat is otherwise indistinguishable
     // from a hand-typed one in the report, and the fields a relay wrote are exactly what a coordinator
     // needs to see when it did not write them itself.
@@ -2278,6 +2311,10 @@ function finish(reason) {
       for (const f of wrote.slice(-12)) L.push(f.move ? `  rename ${f.path} -> ${f.move}` : `  ${f.kind} ${f.path}`);
     }
     for (const f of failedPatches) L.push(`  PATCH ${String(f.status).toUpperCase()} ${f.path}`);
+    if (Object.keys(otherItemCounts).length)
+      L.push(`other activity: ${Object.entries(otherItemCounts).map(([k, v]) => `${k} x${v}`).join(", ")}`);
+    if (subagentThreads.size)
+      L.push(`subagent threads: ${[...subagentThreads.entries()].map(([id, t]) => `${id} (${t.items} item(s), ${t.commands} command(s))`).join("; ")}`);
     if (escalations.length) {
       L.push(`escalations refused: ${escalations.length} — the sandbox was too small for this task.`);
       for (const e of escalations) L.push(`  ${e.method} ${e.detail}`);
