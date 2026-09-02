@@ -155,12 +155,61 @@ test("the driver call echoes an absolute report path for the Read tool",
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the agent's default TIMEOUT states why it is not the driver's",
-  "560 against the driver's 900 is exactly the kind of unexplained constant that becomes folklore; it exists because the Bash tool caps a call at 600 s",
+test("TIMEOUT is the SEAT's clock and WAIT_TIMEOUT is this call's, and the two are not conflated",
+  "560 used to be a cap on the seat itself, because the Bash tool ended the call and the seat with it. The seat is detached now: capping it at nine minutes again would refuse every long delegation for a reason that no longer exists",
   () => {
-    if (!/TIMEOUT: <seconds> \[560/.test(agent)) return "the 560 s default is gone or reworded beyond recognition";
-    if (!/600/.test(agent)) return "the derivation (the 600 s Bash cap) is not stated beside it";
-    return /--timeout <sec>\s*\(default 900|default 900/.test(driver) || "the driver's own default is no longer 900, so the agent's note is stale";
+    const problems = [];
+    if (!/TIMEOUT: <seconds> \[omit -> 7200/.test(agent)) problems.push("TIMEOUT no longer defaults to the driver's detached 7200");
+    if (/[Aa]bove 560 is a BAD\s*HEADER/.test(flat)) problems.push("the removed 'a TIMEOUT above 560 is a bad header' rule is back");
+    if (/backgrounds the driver/.test(flat)) problems.push("the agent still says the Bash tool BACKGROUNDS the driver at its cap; measured, an explicit timeout KILLS it");
+    if (!/WAIT_TIMEOUT: <seconds>/.test(agent)) problems.push("WAIT_TIMEOUT is not documented as this call's own budget");
+    if (!/o\.timeout = 7200/.test(driver)) problems.push("the driver no longer defaults a detached run's --timeout to 7200");
+    return problems.length === 0 || problems.join("; ");
+  });
+
+test("the relay always writes DETACH: yes and WAIT_TIMEOUT: 560, verbatim",
+  "a seat that is not detached dies with the Bash call that started it — measured: the tool SIGTERMs the process group at an explicit timeout — so the two lines are the whole of the transport, and a relay that writes them only sometimes loses exactly the long seats they exist for",
+  () => {
+    const problems = [];
+    if (!/^ +DETACH: yes$/m.test(agent)) problems.push("the literal `DETACH: yes` line the relay always writes is gone");
+    if (!/^ +WAIT_TIMEOUT: 560$/m.test(agent)) problems.push("the literal `WAIT_TIMEOUT: 560` line is gone");
+    if (!/ALWAYS add/.test(agent)) problems.push("step 1 no longer says the two lines are added unconditionally");
+    for (const f of ["DETACH", "WAIT_TIMEOUT"])
+      if (!seatFields.includes(f)) problems.push(`${f} is not a seat-file field the driver accepts`);
+    if (!/580000 ms, whatever TIMEOUT says/.test(agent)) problems.push("step 3 no longer pins the Bash timeout independently of the seat's own clock");
+    return problems.length === 0 || problems.join("; ");
+  });
+
+test("COLLECT is the way back to a seat that came back still running",
+  "the running shape names a threadId and nothing else can act on it: without COLLECT the coordinator holds an address it cannot use, and the seat's answer is written to a file nobody reads",
+  () => {
+    const problems = [];
+    if (!seatFields.includes("COLLECT")) problems.push("COLLECT is not a seat-file field the driver accepts");
+    if (!/COLLECT: <threadId>/.test(agent)) problems.push("COLLECT is not documented in the header table");
+    // The driver's own mapping, read out of the source: COLLECT must reach --wait or the collection
+    // never happens.
+    if (!/COLLECT: "--wait"/.test(driver)) problems.push("the driver no longer maps COLLECT to --wait");
+    if (!/--wait ID/.test(driver)) problems.push("the driver's usage no longer documents --wait");
+    if (!/body must be EMPTY/.test(agent)) problems.push("the agent does not require an empty body beside COLLECT");
+    return problems.length === 0 || problems.join("; ");
+  });
+
+test("a seat that outlived the wait comes back as the running shape, not as a failure",
+  "the coordinator has to be able to tell 'still working, here is its address' from 'ran and produced nothing'; conflated, a detached panel reads as five dead seats",
+  () => {
+    const i = agent.indexOf("    exitCode: 10  turnStatus: running");
+    if (i < 0) return "no running-shape envelope starting `exitCode: 10  turnStatus: running`";
+    const block = agent.slice(i, agent.indexOf("--- answer", i) + 30);
+    const problems = [];
+    for (const k of ["threadId", "pid", "jobPath", "reportPath"])
+      if (!new RegExp(`\\b${k}\\b`).test(block)) problems.push(`the running shape does not name ${k}`);
+    if (!/seat still running: collect with COLLECT: <threadId>/.test(block))
+      problems.push("the running shape does not tell the coordinator how to collect it");
+    if (!/--- answer \(0 bytes\) ---/.test(block)) problems.push("the running shape has no 0-byte answer marker");
+    if (!/three shapes/.test(agent)) problems.push("the agent still promises only two return shapes");
+    // And the driver must actually emit it.
+    if (!/turnStatus: "running"/.test(driver)) problems.push("the driver no longer emits a running handle");
+    return problems.length === 0 || problems.join("; ");
   });
 
 // The envelope block: the relay's whole return above the answer, sliced out so a key can be asserted
@@ -179,7 +228,11 @@ test("the success envelope names every coordinator-critical report key",
     const critical = ["exitCode", "turnStatus", "turnError", "threadId", "receiptOk", "receiptPath",
                       "commandsSucceeded", "filesTouched", "verify", "answerPath", "answerTruncated",
                       "outputSchemaOk", "schemaErrors", "schemaKeywordsUnchecked",
-                      "worktreePath", "worktreeDiffPath", "worktreeUntrackedPath", "worktreeCommitsRef",
+                      // Everything a cut seat hands back instead of an answer, and what the budget cost:
+                      // without these, exit 3 through this relay is indistinguishable from silence.
+                      "cut", "timing", "budget", "commentaryPath", "answerPartialPath", "resumedFrom",
+                      "worktreePath", "worktreeRepo", "worktreeBase", "worktreeRestored",
+                      "worktreeDiffPath", "worktreeUntrackedPath", "worktreeCommitsRef",
                       "worktreeIgnoredDropped", "worktreeFleet", "worktreePreserved", "worktreeRemoveCommand"];
     const problems = [];
     const absent = critical.filter((k) => !new RegExp(`\\b${k}\\b`).test(envelope));
@@ -189,13 +242,22 @@ test("the success envelope names every coordinator-critical report key",
     return problems.length === 0 || problems.join("; ");
   });
 
-test("a TIMEOUT the Bash tool cannot honour is a bad header, not a value to pass through",
-  "measured: TIMEOUT 700 was written verbatim, the Bash tool backgrounded the driver at its 600 s cap instead of killing it, and the relay improvised a failure envelope while the seat was still running",
+test("a killed call is not a killed seat: the missing EXIT= line has a recovery, in order",
+  "measured (E4): with an explicit timeout the Bash tool SIGTERMs the process group and returns `Command timed out` with no EXIT= line. The seat is detached and untouched — the old rule, which said the tool backgrounds the driver and told the relay to give up, threw away a live run",
   () => {
     const problems = [];
-    if (!/[Aa]bove 560 is a BAD\s*HEADER/.test(flat)) problems.push("the agent does not call a TIMEOUT above 560 a bad header");
-    if (!/no EXIT= line/.test(flat)) problems.push("the agent does not say the backgrounded call returns no EXIT= line");
-    if (!/No `EXIT=` line/.test(agent)) problems.push("a Bash result without EXIT= is not listed as a run-ending failure");
+    if (!/Command timed out` and no `EXIT=` line/.test(agent)) problems.push("the timed-out-call case is not listed as a run-ending Bash result");
+    if (!/SIGTERM/.test(flat)) problems.push("the agent does not say the tool KILLS the call at its cap");
+    if (!/handle recovered from the report/.test(agent)) problems.push("the first recovery (Read the REPORT path, relay the running shape) is missing");
+    if (!/handle recovered from stderr/.test(agent)) problems.push("the second recovery (the driver's threadId=/pid=/jobPath= line on stderr) is missing");
+    if (!/--jobs --cwd/.test(agent)) problems.push("the last resort (hand the coordinator --jobs --cwd) is missing");
+    // The stderr line the recovery reads has to be one the driver actually writes.
+    // Two lines carry it: the FRONT writes one into the stderr file this relay names, and the detached
+    // run writes one into its own. The relay reads the first; both must exist or one recovery is blind.
+    if (!/detached: threadId=\$\{handle\.threadId\} pid=\$\{handle\.pid\} jobPath=/.test(driver))
+      problems.push("the detached front does not print a threadId=/pid=/jobPath= line to its own stderr");
+    if (!/detached run: threadId=\$\{rootThreadId\} pid=\$\{process\.pid\} jobPath=/.test(driver))
+      problems.push("the detached run does not print a threadId=/pid=/jobPath= line to its own stderr");
     if (!/`exitCode` wins over the `EXIT=` line/.test(flat)) problems.push("the agent does not say the parsed report's exitCode wins over the EXIT= line");
     return problems.length === 0 || problems.join("; ");
   });

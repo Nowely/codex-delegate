@@ -1611,6 +1611,66 @@ test("a PRESERVED tree keeps its ledger entry, so something still names it",
     return true;
   });
 
+test("a detached run's lock is the RUN's, and the front that started it releases nothing",
+  "the front holds no lock by construction — it branches before setup — so a lock naming the front would be released the moment the front returned its handle, and a second writer would walk into a directory a live seat is editing",
+  async () => {
+    const d = freshDir("detach-lock");
+    const { code, out, err } = await run(d, { scenario: "slow-turn", timeout: 60, args: ["--detach"] });
+    if (code !== EXIT.BUSY) return `--detach exited ${code}, expected the handle's 10: ${err.trim().slice(0, 200)}`;
+    let h = null; try { h = JSON.parse(out); } catch { return `the handle is not JSON: ${out.slice(0, 160)}`; }
+    const p = lockFor(d);
+    // The front has exited (run() resolved on its close) and the lock is still there.
+    if (!fs.existsSync(p)) return "the front's exit took the detached run's lock with it";
+    let held = null; try { held = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+    if (held?.pid !== h.pid) return `the lock names ${held?.pid}, not the detached run ${h.pid}`;
+    let alive = false;
+    try { process.kill(h.pid, 0); alive = true; } catch {}
+    if (!alive) return "the lock names a process that is already gone";
+    // The app-server's group, recorded once it existed: the second half of the reclaim rule.
+    if (!Number.isInteger(held.appServerPgid) || held.appServerPgid <= 0)
+      return `the lock carries no app-server group: ${JSON.stringify(held)}`;
+    for (const end = Date.now() + 20000; fs.existsSync(p) && Date.now() < end; )
+      await new Promise((r) => setTimeout(r, 25));
+    if (fs.existsSync(p)) { fs.rmSync(p, { force: true }); return "the detached run never released its lock"; }
+    return true;
+  });
+
+test("a lock is reclaimed only when the driver AND its app-server group are both gone",
+  "a SIGKILLed driver leaves codex still writing the tree: reclaiming on the driver's pid alone lets a second run in beside it, and two seats editing one checkout is the failure the lock exists for",
+  async () => {
+    const d = freshDir("pgid-reclaim");
+    fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+    // Its own group leader, so the negative pid names exactly it.
+    const group = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"],
+      { detached: true, stdio: "ignore" });
+    group.unref();
+    const plant = () => fs.writeFileSync(lockFor(d), JSON.stringify({
+      // Above the system maximum: dead, and not recyclable into existence either.
+      pid: 2147483646, cwd: fs.realpathSync(d), started: "old", appServerPgid: group.pid }));
+    try {
+      plant();
+      const busy = await run(d);
+      if (busy.code !== EXIT.BUSY)
+        return `a lock whose codex group is still alive was reclaimed anyway (exit ${busy.code})`;
+      if (!new RegExp(`codex process group ${group.pid}`).test(busy.err))
+        return `the refusal did not name the orphaned group: ${busy.err.trim().slice(0, 200)}`;
+      // The group dies; the same lock is now abandoned by both halves of the rule.
+      try { process.kill(-group.pid, "SIGKILL"); } catch {}
+      for (const end = Date.now() + 5000; Date.now() < end; ) {
+        try { process.kill(-group.pid, 0); } catch { break; }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      plant();
+      const free = await run(d);
+      if (free.code !== EXIT.OK)
+        return `a lock whose driver and group are both gone was not reclaimed (exit ${free.code}): ${free.err.trim().slice(0, 200)}`;
+    } finally {
+      try { process.kill(-group.pid, "SIGKILL"); } catch {}
+      fs.rmSync(lockFor(d), { force: true });
+    }
+    return true;
+  });
+
 let failed = 0;
 for (const c of CASES) {
   let verdict;
