@@ -358,6 +358,9 @@ const CASES = [
       || `write results wrong: touched=${JSON.stringify(r.filesTouched)} failed=${JSON.stringify(r.fileChangesFailed)}` },
   { scenario: "resume-active",    expect: EXIT.BUSY, args: ["--resume", "thr_root"],
     why: "a deliberate refusal after the child is spawned kept its exit code only by accident: shutdown SIGTERMs the child and the exit handler rewrote every one of them to 4, making the documented exit 10 unreachable" },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--resume", "thr_root"],
+    why: "which thread a turn continued was announced on stderr only — which a relay shows on failure — so a resumed run's report was indistinguishable from a fresh one, and `--resume last` is exactly where the wrong thread gets picked silently",
+    assert: (r) => r.resumedFrom === "thr_root" || `the report did not name the thread it continued: ${JSON.stringify(r.resumedFrom)}` },
   { scenario: "happy",            expect: EXIT.OK, env: { TMPDIR: null },
     why: "when --cwd IS the tmpdir the server subtracts it from writableRoots and reports it under runtimeWorkspaceRoots; demanding it in both places refused a legitimate scratch-directory run",
     assert: (r) => JSON.stringify(r.sandbox?.writableRoots) === "[]"

@@ -83,14 +83,24 @@ Rights
                      — a stock Linux shell does not set it)
   --level write      workspace-write over --cwd; takes a per-directory lock
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
-                     there at write level, and dispose of it afterwards: once the
-                     turn completed, the work is harvested — the tracked diff and
-                     an archive of untracked files land under
-                     ~/.codex-delegate/answers/, paths in the report — and the
-                     tree is removed (a clean tree whose turn never started is
-                     removed too). A turn that did not complete, or a harvest
-                     that failed, preserves the tree and the report says why and
-                     how to remove it (implies --level write; replaces --cwd)
+                     there at write level, and dispose of it afterwards. The tree
+                     is created at the repository's HEAD — the LAST COMMIT — so
+                     your uncommitted and staged changes, your untracked and
+                     git-ignored files and your installed dependencies are NOT in
+                     it: a verifier that needs node_modules exits 1 there unless
+                     the seat installs them, and a seat asked about work in
+                     progress finds an empty diff and reports success. Commit or
+                     stash first, or run on the live tree with
+                     --level write --cwd REPO. Once the turn completed, the work
+                     is harvested — the tracked diff and an archive of untracked
+                     files land under ~/.codex-delegate/answers/, paths in the
+                     report — and the tree is removed (a clean tree whose turn
+                     never started is removed too). A turn that did not complete,
+                     or a harvest that failed, preserves the tree and the report
+                     says why and how to remove it. With --resume the tree is
+                     REBUILT rather than cut from HEAD: the base commit of that
+                     thread's own tree, plus the diff and untracked archive its
+                     harvest saved (implies --level write; replaces --cwd)
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   --commit           also grant the git common dir, for a turn that commits
@@ -156,8 +166,14 @@ Turn
   --effort ${[...EFFORTS].join("|")}
   --timeout SECONDS  default 900, at most 7200
   --resume THREAD    continue a thread; "--resume last" continues the newest run
-                     recorded FOR THIS --cwd (registry: ~/.codex-delegate/jobs).
-                     --ephemeral leaves no thread behind
+                     recorded for this --cwd OR, with --worktree, for this
+                     repository (registry: ~/.codex-delegate/jobs). The report
+                     names the thread actually continued as resumedFrom — check
+                     it when you passed "last". \`--worktree REPO --resume ID\`
+                     rebuilds that thread's worktree from its base commit and its
+                     harvested work and continues there; without a job record
+                     holding that base commit it is refused rather than run
+                     against a fresh tree. --ephemeral leaves no thread behind
 
 Gate — what counts as the turn having done the work
   --expect-command RE   a command matching RE must have run. RE is matched against
@@ -472,7 +488,6 @@ function parseArgs(argv) {
   // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
   // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
   if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
-  if (o.worktree && o.resume) fail(EXIT.USAGE, "--worktree and --resume are contradictory: resume a thread in the tree it started in, via --cwd");
   if (o.worktree && o.levelExplicit && o.level === "read") fail(EXIT.USAGE, "--worktree requires --level write");
   if (o.worktree) o.level = "write";
   if (!o.cwd && !o.worktree) fail(EXIT.USAGE, "--cwd is required");
@@ -909,6 +924,26 @@ const keysInConfig = (cfg) => {
   catch { return []; }
 };
 
+// A home with no owner file is either older than this driver or a run killed between the mkdir and the
+// write one line later, so age decides it; anything else is reaped the moment its owner is gone.
+// Bounded and sorted like the worktree ledger, and never fatal.
+// Longer than the longest legal run (--timeout caps at 7200 s), so an ownerless home is never one whose
+// owner file simply has not been written yet.
+const HOME_BACKSTOP_MS = 3 * 3600000;
+function reapPerRunHomes(dir) {
+  try {
+    for (const n of fs.readdirSync(dir).sort().slice(0, 50)) {
+      const home = path.join(dir, n);
+      if (home === perRunHome) continue;
+      let owner = null;
+      try { owner = JSON.parse(fs.readFileSync(path.join(home, "owner.json"), "utf8")); } catch {}
+      if (owner ? holderAlive(owner) : Date.now() - fs.statSync(home).mtimeMs < HOME_BACKSTOP_MS) continue;
+      fs.rmSync(home, { recursive: true, force: true });
+      process.stderr.write(`codex-delegate: reaped a crashed --mcp run's private home ${home}\n`);
+    }
+  } catch {}
+}
+
 async function isolatedHome() {
   // The isolated home moves with the driver's own state; the REAL ~/.codex it borrows credentials and
   // sessions from does not, and must not — a test harness redirecting state has no business inventing
@@ -923,6 +958,18 @@ async function isolatedHome() {
   if (opts.mcp) perRunHome = home;
   try { fs.mkdirSync(home, { recursive: true, mode: 0o700 }); }
   catch (e) { fail(EXIT.USAGE, `cannot create the isolated Codex home ${home}: ${e.message}`); }
+  if (opts.mcp) {
+    // shutdown() removes this home; a SIGKILL cannot, and nothing else did — measured: `--mcp` plus
+    // `kill -9` left homes/<hex>/config.toml holding an MCP server's token, indefinitely. So the home
+    // names its owner and the next --mcp run reaps the ones whose owner is gone, exactly as the worktree
+    // ledger is reconciled. Written before the sweep, so this home is never its own candidate.
+    try {
+      fs.writeFileSync(path.join(home, "owner.json"),
+        JSON.stringify({ pid: process.pid, identity: processIdentity(process.pid), started: new Date().toISOString() }),
+        { mode: 0o600 });
+    } catch {}
+    reapPerRunHomes(path.dirname(home));
+  }
   for (const name of ["auth.json", "sessions"]) {
     const link = path.join(home, name), target = path.join(base, ".codex", name);
     // sessions is CREATED when absent rather than skipped, and the difference is the whole receipt story.
@@ -1194,6 +1241,23 @@ function releaseLock() {
   lockPath = null;
 }
 
+// ---------------------------------------------------------------- git
+// Every git this driver spawns runs with the CALLER's rights over a tree a seat may have written: with
+// --commit the seat holds the git common dir, where config, hooks and external diff drivers are all code
+// that the harvest, the removal and the NEXT run's `worktree add` would execute before anyone reads the
+// report. A command-line -c outranks every config file, so the three execution paths are disarmed in one
+// place that no call site can forget, and a hook that survives anyway is bounded rather than
+// unsignalable — a stalling post-checkout used to outlive --timeout entirely.
+const GIT_TIMEOUT_MS = 120_000;
+const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external="];
+// --no-ext-diff and --no-textconv on every diff: `diff.external` is only one of the two ways a repository
+// asks git to run a program, the other being a gitattributes driver, and textconv output is not appliable.
+const GIT_DIFF_SAFE = ["--no-ext-diff", "--no-textconv"];
+function git(dir, args, extra = {}) {
+  return spawnSync("git", [...GIT_SAFE, "-C", dir, ...args],
+    { encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL", ...extra });
+}
+
 // ---------------------------------------------------------------- worktree
 // --worktree is parity with a Claude subagent's isolation:"worktree": the driver creates a uniquely
 // named detached worktree, runs the turn inside it, and removes it afterwards ONLY when the tree is
@@ -1222,7 +1286,14 @@ function writeJob(fields) {
     const p = path.join(dir, `${rootThreadId}.json`);
     let prev = {};
     try { prev = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
-    fs.writeFileSync(p, JSON.stringify({ ...prev, ...fields }), { mode: 0o600 });
+    // Replaced by rename(2), not rewritten in place: an in-place write is a window in which the record is
+    // truncated, and a concurrent `--resume last` that fails to parse it discards it and continues an
+    // OLDER thread. A reader sees one whole version or the other.
+    const tmp = `${p}.${crypto.randomBytes(8).toString("hex")}.tmp`;
+    try {
+      fs.writeFileSync(tmp, JSON.stringify({ ...prev, ...fields }), { mode: 0o600 });
+      fs.renameSync(tmp, p);
+    } finally { fs.rmSync(tmp, { force: true }); }
     pruneAnswers(dir);
   } catch {}
 }
@@ -1235,11 +1306,18 @@ function writeJob(fields) {
 function resolveResumeLast(forCwd) {
   let names = [];
   try { names = fs.readdirSync(jobsDir()).filter((n) => n.endsWith(".json")); } catch {}
+  // A --worktree seat records the worktree as its cwd, and that directory is REMOVED when the seat
+  // finishes, so canonPath of it is null and cwd alone never matched: `--resume last` from the
+  // repository skipped every worktree seat and continued the newest READ seat instead. The repository
+  // the tree was cut from is the name that survives, so either identifies the run.
+  // An empty field is not a match: path.resolve("") is the driver's own cwd, which would let a record
+  // with no cwd at all answer for whatever directory the driver happens to be started in.
+  const isHere = (v) => typeof v === "string" && v !== "" && canonPath(v) === forCwd;
   const here = names.map((n) => {
     const p = path.join(jobsDir(), n);
     try {
       const rec = JSON.parse(fs.readFileSync(p, "utf8"));
-      if (canonPath(rec?.cwd ?? "") !== forCwd) return null;
+      if (!isHere(rec?.cwd) && !isHere(rec?.repo)) return null;
       return { n, t: fs.statSync(p).mtimeMs };
     } catch { return null; }
   }).filter(Boolean).sort((a, b) => b.t - a.t)[0];
@@ -1249,37 +1327,104 @@ function resolveResumeLast(forCwd) {
   return id;
 }
 
+const ledgerDir = () => path.join(stateDir("the worktree ledger"), "worktrees");
+// The trace a crashed run leaves. Written BEFORE `git worktree add`, because a SIGKILL between the add
+// and the write left a checked-out tree that no ledger named and no reconciler could ever find, and
+// rewritten with the base commit once there is one. Best-effort: a missing trace must not refuse a run.
+function writeLedger(name, fields) {
+  try {
+    const dir = ledgerDir();
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const p = path.join(dir, `${name}.json`);
+    fs.writeFileSync(p, JSON.stringify(fields), { mode: 0o600 });
+    return p;
+  } catch { return null; }
+}
+
+// Nothing else names this commit, so removing the tree that holds it loses it. An answer git could not
+// give counts as unreachable: a redundant ref costs a ref, a missing one costs the seat's history.
+function reachableFromAnyRef(repo, sha) {
+  const r = git(repo, ["for-each-ref", "--contains", sha, "--count=1", "--format=%(refname)"]);
+  return r.status === 0 && r.stdout.trim() !== "";
+}
+
+// The record of the seat a `--worktree REPO --resume ID` continues. A record that cannot say where the
+// tree started is a refusal rather than a silent fresh tree at HEAD: a seat handed a tree that is not
+// the one its thread worked in reviews the wrong files and exits 0.
+function priorWorktreeJob(id, repo) {
+  let rec = null;
+  try { rec = JSON.parse(fs.readFileSync(path.join(jobsDir(), `${id}.json`), "utf8")); } catch {}
+  if (!rec?.baseSha)
+    fail(EXIT.USAGE, `--worktree with --resume ${id}: the job registry holds ${rec ? "no base commit for that thread" : "no record of that thread"}, ` +
+      `so the tree it ran in cannot be rebuilt; resume it with --level write --cwd on a tree you restore yourself`);
+  if (rec.repo && canonPath(rec.repo) !== repo)
+    fail(EXIT.USAGE, `--worktree ${repo} with --resume ${id}: that thread ran in ${rec.repo}; resume it there`);
+  return { ...rec, threadId: id };
+}
+
 // What CRASHED runs left behind, reconciled on the next --worktree invocation — the moment the cost is
 // amortized and worktrees are already the topic. A ledger entry whose owner is dead names either a
 // tree that is gone (drop the entry), a clean tree (remove both), or a dirty one (keep both and say
 // so). Entries used to accumulate forever with no owner and no reconciler. Best-effort, never fatal.
 function reconcileWorktreeLedgers() {
   try {
-    const ledgerDir = path.join(stateDir("the worktree ledger"), "worktrees");
-    for (const n of fs.readdirSync(ledgerDir).filter((x) => x.endsWith(".json")).slice(0, 50)) {
-      const p = path.join(ledgerDir, n);
+    const dir = ledgerDir();
+    // Sorted before the bound, or the filesystem's own order decides who is ever looked at: a directory
+    // that hands back the same 50 names every time starves every entry after them. The names open with a
+    // base36 timestamp, so ascending is oldest first.
+    for (const n of fs.readdirSync(dir).filter((x) => x.endsWith(".json")).sort().slice(0, 50)) {
+      const p = path.join(dir, n);
       let e = null;
       try { e = JSON.parse(fs.readFileSync(p, "utf8")); } catch { fs.rmSync(p, { force: true }); continue; }
-      if (holderAlive({ pid: e?.pid })) continue;
+      if (holderAlive(e)) continue;
       if (!e?.path || !fs.existsSync(e.path)) { fs.rmSync(p, { force: true }); continue; }
-      const st = spawnSync("git", ["-C", e.path, "status", "--porcelain"], { encoding: "utf8" });
-      if (st.status === 0 && st.stdout.trim() === "" &&
-          spawnSync("git", ["-C", e.repo ?? e.path, "worktree", "remove", e.path], { encoding: "utf8" }).status === 0) {
+      const repo = e.repo ?? e.path;
+      const how = e.state === "preserved" ? "an earlier run preserved" : "a crashed run left";
+      const st = git(e.path, ["status", "--porcelain"]);
+      if (st.status !== 0 || st.stdout.trim() !== "") {
+        process.stderr.write(`codex-delegate: ${how} work at ${e.path}; harvest it, then: git -C ${repo} worktree remove --force ${e.path}\n`);
+        continue;
+      }
+      // A crashed --commit seat leaves a SPOTLESS tree whose HEAD holds its commits, and a detached
+      // worktree's removal is the only thing that referenced them — reproduced: the tree was removed as
+      // "clean" and `git fsck` then reported the commits dangling. So the base the tree started at is
+      // asked first, and for an entry written before that field existed, reachability has to be
+      // disproven instead. The ref goes in BEFORE the removal, never after.
+      const head = git(e.path, ["rev-parse", "HEAD"]);
+      const headSha = head.status === 0 ? head.stdout.trim() : null;
+      // An unreadable HEAD is not "no commits": removal would strand whatever it named.
+      if (!headSha) {
+        process.stderr.write(`codex-delegate: HEAD of the crashed tree ${e.path} could not be read, so it is left in place; ` +
+          `harvest it, then: git -C ${repo} worktree remove --force ${e.path}\n`);
+        continue;
+      }
+      const committed = Boolean(headSha) && (e.baseSha ? headSha !== e.baseSha : !reachableFromAnyRef(repo, headSha));
+      let kept = null;
+      if (committed) {
+        kept = `refs/codex-delegate/${n.replace(/\.json$/, "")}`;
+        if (git(repo, ["update-ref", kept, headSha]).status !== 0) {
+          process.stderr.write(`codex-delegate: a crashed run's commits at ${e.path} could not be given a ref, so the tree is left in place; ` +
+            `harvest it, then: git -C ${repo} worktree remove --force ${e.path}\n`);
+          continue;
+        }
+      }
+      if (git(repo, ["worktree", "remove", e.path]).status === 0) {
         fs.rmSync(p, { force: true });
-        process.stderr.write(`codex-delegate: removed a crashed run's clean worktree ${e.path}\n`);
+        process.stderr.write(`codex-delegate: removed a crashed run's clean worktree ${e.path}` +
+          `${kept ? ` (its commits are kept at ${kept})` : ""}\n`);
       } else {
-        process.stderr.write(`codex-delegate: a crashed run left work at ${e.path}; harvest it, then: git -C ${e.repo ?? "<repo>"} worktree remove --force ${e.path}\n`);
+        process.stderr.write(`codex-delegate: ${how} work at ${e.path}; harvest it, then: git -C ${repo} worktree remove --force ${e.path}\n`);
       }
     }
   } catch {}
 }
 
-function createWorktree(repo) {
+function createWorktree(repo, prior = null) {
   // Guarded BEFORE `git worktree add` mutates anything: a repo inside a protected root used to be
   // checked out (running its hooks) and only then refused by the cwd check.
   checkRoot(repo);
   reconcileWorktreeLedgers();
-  const chk = spawnSync("git", ["-C", repo, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8" });
+  const chk = git(repo, ["rev-parse", "--is-inside-work-tree"]);
   if (chk.status !== 0 || chk.stdout.trim() !== "true") fail(EXIT.USAGE, `--worktree needs a git work tree at ${repo}`);
   const name = `codex-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   const dir = path.join(repo, ".claude", "worktrees", name);
@@ -1300,24 +1445,83 @@ function createWorktree(repo) {
   // And again on what was actually created, so a link swapped in during the mkdir is still caught
   // before git writes a single object.
   checkRoot(fs.realpathSync(parent));
-  const add = spawnSync("git", ["-C", repo, "worktree", "add", "--detach", dir], { encoding: "utf8" });
-  if (add.status !== 0) fail(EXIT.USAGE, `git worktree add failed: ${String(add.stderr).trim().slice(0, 200)}`);
+  const owner = { pid: process.pid, identity: processIdentity(process.pid), started: new Date().toISOString() };
+  // Written before the add, and it names a path that does not exist yet: the reconciler drops an entry
+  // whose tree is absent, so the only thing an interrupted add can leave is a tree the ledger already
+  // names. The reverse order lost the tree entirely.
+  let ledger = writeLedger(name, { path: dir, repo, ...owner, state: "creating" });
+  // --resume rebuilds the tree its thread ran in, so it starts where that tree started, not at today's
+  // HEAD; a fresh seat starts at HEAD.
+  const at = prior?.baseSha ? [prior.baseSha] : [];
+  const add = git(repo, ["worktree", "add", "--detach", dir, ...at]);
+  if (add.status !== 0) {
+    // Only when nothing was created: an add that died mid-checkout leaves the tree this entry exists to name.
+    if (ledger && !fs.existsSync(dir)) { try { fs.rmSync(ledger, { force: true }); } catch {} }
+    fail(EXIT.USAGE, `git worktree add failed: ${String(add.stderr).trim().slice(0, 200)}`);
+  }
   // The commit the tree started at. The harvest diffs against THIS, not against HEAD: a seat with
   // --commit moves HEAD, and `git diff HEAD` then reports nothing while the work sits in commits that
   // a detached worktree's removal makes unreachable. Recorded at creation because afterwards there is
   // no way to ask what the base was.
-  const base = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const base = git(dir, ["rev-parse", "HEAD"]);
   const baseSha = base.status === 0 ? base.stdout.trim() : null;
-  let ledger = null;
-  try {
-    const ledgerDir = path.join(stateDir("the worktree ledger"), "worktrees");
-    fs.mkdirSync(ledgerDir, { recursive: true, mode: 0o700 });
-    ledger = path.join(ledgerDir, `${name}.json`);
-    fs.writeFileSync(ledger, JSON.stringify({ path: dir, repo, pid: process.pid, started: new Date().toISOString() }), { mode: 0o600 });
-  } catch { ledger = null; }   // a missing trace must not refuse the run
-  process.stderr.write(`codex-delegate: created worktree ${dir}\n`);
-  worktreeInfo = { repo, dir, ledger, baseSha, name, disposed: false };
+  worktreeInfo = { repo, dir, ledger, baseSha, name, restored: null, disposed: false };
+  // Assigned above first, so the refusal below still disposes of the tree it is refusing over. Without a
+  // base every later question about this tree is unanswerable: the harvest cannot diff against it, and
+  // "did the seat commit?" reads as no — so the seat's own commits would be dropped silently. Refused
+  // here, before a single token is spent.
+  if (!baseSha)
+    fail(EXIT.USAGE, `cannot read HEAD in the new worktree ${dir} (${String(base.stderr).trim().slice(0, 160) || "git rev-parse failed"}); ` +
+      `without the base commit the seat's work cannot be harvested, so the turn is not started`);
+  ledger = writeLedger(name, { path: dir, repo, ...owner, baseSha }) ?? ledger;
+  worktreeInfo.ledger = ledger;
+  process.stderr.write(`codex-delegate: created worktree ${dir}${prior?.baseSha ? ` at ${baseSha} (rebuilding the tree of thread ${prior.threadId ?? "?"})` : ""}\n`);
+  if (prior) worktreeInfo.restored = restorePriorWork(dir, prior);
   return dir;
+}
+
+// A --worktree seat is continued by rebuilding the tree its thread ran in: the same base commit, then
+// the patch and the untracked archive that seat's harvest saved. Content, not history — the patch was
+// taken against the base and already carries whatever the seat committed, so a tree built on the
+// commits ref would apply it twice; those commits stay reachable at worktreeCommitsRef.
+// Every failure here is fatal: a seat handed a tree that is not the one its thread worked in reports on
+// the wrong files and exits 0.
+function restorePriorWork(dir, prior) {
+  const restored = { diff: null, untracked: null, commitsRef: prior.worktreeCommitsRef ?? null };
+  // Every refusal below leaves a tree that reproduces nothing the answer log does not still hold, and
+  // keeping it would have every later reconciler announce it as work someone must harvest.
+  const abandon = () => {
+    git(worktreeInfo.repo, ["worktree", "remove", "--force", dir]);
+    if (worktreeInfo.ledger) { try { fs.rmSync(worktreeInfo.ledger, { force: true }); } catch {} }
+    worktreeInfo.disposed = true;
+  };
+  const gone = (what, p) => (abandon(), fail(EXIT.USAGE, `--resume: the ${what} of that thread is no longer at ${p} ` +
+    `(the answer log is pruned after 14 days), so its tree cannot be rebuilt; resume it with --level write --cwd on a tree you restore yourself`));
+  if (prior.worktreeDiffPath) {
+    if (!fs.existsSync(prior.worktreeDiffPath)) gone("harvested diff", prior.worktreeDiffPath);
+    const ap = git(dir, ["apply", "--binary", prior.worktreeDiffPath]);
+    if (ap.status !== 0) {
+      abandon();
+      fail(EXIT.USAGE, `--resume: the harvested diff ${prior.worktreeDiffPath} does not apply to ${prior.baseSha} ` +
+        `(${String(ap.stderr).trim().slice(0, 160)}); the tree cannot be rebuilt`);
+    }
+    restored.diff = prior.worktreeDiffPath;
+  }
+  if (prior.worktreeUntrackedPath) {
+    if (!fs.existsSync(prior.worktreeUntrackedPath)) gone("untracked archive", prior.worktreeUntrackedPath);
+    const tar = spawnSync("tar", ["-xzf", prior.worktreeUntrackedPath, "-C", dir],
+      { encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL" });
+    if (tar.status !== 0) {
+      abandon();
+      fail(EXIT.USAGE, `--resume: the untracked archive ${prior.worktreeUntrackedPath} could not be unpacked ` +
+        `(${String(tar.stderr).trim().slice(0, 160)}); the tree cannot be rebuilt`);
+    }
+    restored.untracked = prior.worktreeUntrackedPath;
+  }
+  process.stderr.write(`codex-delegate: restored the thread's work into ${dir}` +
+    `${restored.diff ? " (tracked diff" : " (nothing to apply"}${restored.untracked ? " + untracked archive)" : ")"}` +
+    `${restored.commitsRef ? `; its earlier commits remain at ${restored.commitsRef}` : ""}\n`);
+  return restored;
 }
 
 // Runs AFTER the turn settled and after --verify (the verifier executes in the tree).
@@ -1330,17 +1534,18 @@ function createWorktree(repo) {
 function disposeWorktree(turnDone) {
   if (!worktreeInfo || worktreeInfo.disposed) return null;
   worktreeInfo.disposed = true;
-  const { repo, dir, ledger, baseSha, name } = worktreeInfo;
-  const res = { worktreePath: dir, worktreeRemoved: false, worktreePreserved: null, worktreeHarvested: false,
+  const { repo, dir, ledger, baseSha, name, restored } = worktreeInfo;
+  const res = { worktreePath: dir, worktreeRepo: repo, worktreeBase: baseSha, worktreeRestored: restored,
+                worktreeRemoved: false, worktreePreserved: null, worktreeHarvested: false,
                 worktreeDiffStat: null, worktreeDiffPath: null, worktreeUntrackedPath: null,
                 worktreeIgnoredDropped: null, worktreeCommitsRef: null, worktreeFleet: null };
-  const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
+  const st = git(dir, ["status", "--porcelain"]);
   const clean = st.status === 0 && st.stdout.trim() === "";
   // Commits are work even when the tree is spotless. A --commit seat that committed everything leaves
   // `git status --porcelain` empty, so the clean branch below used to remove the tree and strand those
   // commits behind no ref at all — the same loss the dirty path was fixed for, reached by the tidier
   // seat. Harvesting is therefore driven by "dirty OR HEAD moved", not by dirtiness alone.
-  const headNow = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const headNow = git(dir, ["rev-parse", "HEAD"]);
   const headSha = headNow.status === 0 ? headNow.stdout.trim() : null;
   const committed = Boolean(baseSha && headSha && headSha !== baseSha);
   if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
@@ -1353,8 +1558,7 @@ function disposeWorktree(turnDone) {
     // committed, staged and unstaged work alike. HEAD and the bare form remain as fallbacks.
     const diffVs = (extra) => {
       for (const against of [...(baseSha ? [[baseSha]] : []), ["HEAD"], []]) {
-        const r = spawnSync("git", ["-C", dir, "diff", ...against, ...extra],
-          { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+        const r = git(dir, ["diff", ...GIT_DIFF_SAFE, ...against, ...extra], { maxBuffer: 64 * 1024 * 1024 });
         if (r.status === 0) return r;
       }
       return { status: 1, stdout: "", stderr: "every diff form failed" };
@@ -1372,8 +1576,8 @@ function disposeWorktree(turnDone) {
         fs.writeFileSync(`${base}.diff`, full.stdout, { mode: 0o600 });
         res.worktreeDiffPath = `${base}.diff`;
       }
-      const ls = spawnSync("git", ["-C", dir, "ls-files", "--others", "--exclude-standard", "-z"],
-        { maxBuffer: 64 * 1024 * 1024 });
+      const ls = git(dir, ["ls-files", "--others", "--exclude-standard", "-z"],
+        { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 });
       if (ls.status !== 0) return "the untracked list could not be taken";
       if (ls.stdout.length) {
         const tar = spawnSync("tar", ["-czf", `${base}.untracked.tgz`, "-C", dir, "--null", "-T", "-"],
@@ -1386,8 +1590,8 @@ function disposeWorktree(turnDone) {
       // (a harvest that swept node_modules would be useless). They are still deleted by the removal
       // below, so the report NAMES them rather than letting a dropped build artefact — or a stray
       // .env — disappear silently. Counted, not archived: the decision is the reader's.
-      const ign = spawnSync("git", ["-C", dir, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
-        { maxBuffer: 64 * 1024 * 1024 });
+      const ign = git(dir, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+        { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 });
       if (ign.status === 0 && ign.stdout.length) {
         const names = String(ign.stdout).split("\0").filter(Boolean);
         res.worktreeIgnoredDropped = { count: names.length, sample: names.slice(0, 10) };
@@ -1398,7 +1602,7 @@ function disposeWorktree(turnDone) {
       // --worktree --commit seat's whole history was destroyed by the removal below.
       if (committed) {
         const ref = `refs/codex-delegate/${name}`;
-        const upd = spawnSync("git", ["-C", repo, "update-ref", ref, headSha], { encoding: "utf8" });
+        const upd = git(repo, ["update-ref", ref, headSha]);
         if (upd.status !== 0) return `the seat's commits could not be preserved (${String(upd.stderr).trim().slice(0, 120)})`;
         res.worktreeCommitsRef = ref;
       }
@@ -1409,13 +1613,13 @@ function disposeWorktree(turnDone) {
     if (why) res.worktreePreserved = `the tree holds changes and the harvest failed (${why}); harvest by hand, then remove`;
     else {
       res.worktreeHarvested = true;
-      const rm = spawnSync("git", ["-C", repo, "worktree", "remove", "--force", dir], { encoding: "utf8" });
+      const rm = git(repo, ["worktree", "remove", "--force", dir]);
       if (rm.status === 0) res.worktreeRemoved = true;
       else res.worktreePreserved = `harvested, but git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
     }
   } else {
     // A clean tree needs no force, and anything git refuses to remove here is worth looking at.
-    const rm = spawnSync("git", ["-C", repo, "worktree", "remove", dir], { encoding: "utf8" });
+    const rm = git(repo, ["worktree", "remove", dir]);
     if (rm.status === 0) res.worktreeRemoved = true;
     else res.worktreePreserved = `git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
   }
@@ -1425,10 +1629,14 @@ function disposeWorktree(turnDone) {
   // path can hold.
   const shq = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
   if (!res.worktreeRemoved) res.worktreeRemoveCommand = `git -C ${shq(repo)} worktree remove --force ${shq(dir)}`;
-  const fleet = spawnSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" });
+  const fleet = git(repo, ["worktree", "list", "--porcelain"]);
   if (fleet.status === 0)
     res.worktreeFleet = fleet.stdout.split("\n").filter((l) => l.startsWith("worktree ") && l.includes("/.claude/worktrees/")).length;
-  if (ledger) { try { fs.rmSync(ledger, { force: true }); } catch {} }
+  // Only a removed tree has nothing left to name: dropping the entry made every preserved tree invisible
+  // to the reconciler, which is the one reader that would ever mention it again.
+  if (ledger && res.worktreeRemoved) { try { fs.rmSync(ledger, { force: true }); } catch {} }
+  else if (ledger) writeLedger(name, { path: dir, repo, baseSha, pid: process.pid,
+    identity: processIdentity(process.pid), started: new Date().toISOString(), state: "preserved" });
   return res;
 }
 
@@ -1441,9 +1649,9 @@ function worktreeLastResort() {
   const { repo, dir, ledger } = worktreeInfo;
   let removed = false;
   if (!child) {
-    const st = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
+    const st = git(dir, ["status", "--porcelain"]);
     if (st.status === 0 && st.stdout.trim() === "")
-      removed = spawnSync("git", ["-C", repo, "worktree", "remove", dir], { encoding: "utf8" }).status === 0;
+      removed = git(repo, ["worktree", "remove", dir]).status === 0;
   }
   if (removed) { if (ledger) { try { fs.rmSync(ledger, { force: true }); } catch {} } }
   else process.stderr.write(`codex-delegate: worktree PRESERVED at ${dir} (run ended before disposition); ` +
@@ -1578,7 +1786,13 @@ async function setup() {
   if (opts.level === "read" && (opts.network || opts.writable.length))
     fail(EXIT.USAGE, "--network and --writable belong to --level write");
 
-  if (opts.worktree) opts.cwd = createWorktree(resolveDir(opts.worktree, "--worktree"));
+  if (opts.worktree) {
+    const repo = resolveDir(opts.worktree, "--worktree");
+    // Resolved against the REPOSITORY, before the tree exists: "the last seat here" for a worktree seat
+    // cannot mean its own cwd, which was removed when it finished.
+    if (opts.resume === "last") opts.resume = resolveResumeLast(repo);
+    opts.cwd = createWorktree(repo, opts.resume ? priorWorktreeJob(opts.resume, repo) : null);
+  }
 
   // --cwd is the primary writable root above read, so it needs the same guard as a hand-added root.
   cwd = resolveDir(opts.cwd, "--cwd");
@@ -1647,7 +1861,7 @@ async function setup() {
     // worktree — where index.lock and COMMIT_EDITMSG live at the root — cannot be narrowed at all.
     // workspace-write has no deny-list, so "grant .git except hooks and config" is unexpressible here;
     // expressing it needs a permissions profile, which is a larger change than this flag.
-    const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" });
+    const r = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
     if (r.status !== 0) fail(EXIT.USAGE, "--commit needs a git repository at --cwd");
     const resolved = checkRoot(resolveDir(r.stdout.trim(), "the repository git directory"));
     // From a linked worktree the common dir is the MAIN clone's .git — config, hooks and every ref.
@@ -2754,6 +2968,10 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // from being believed. The grant is `sandbox.writableRoots`; assertWriteSandbox now refuses any
     // difference between them, but the field should not have needed that to be unambiguous.
     writableRootsRequested: roots, network: Boolean(opts.network),
+    // Which thread this turn continued, after `last` was resolved. The resolution used to be announced
+    // on stderr only, which a relay shows on failure — so a report could not be told apart from a run
+    // that started a fresh thread, and `last` is exactly where the wrong thread is picked silently.
+    resumedFrom: opts.resume ?? null,
     // Which Codex installation answered, and which VERSION of it: the userAgent the initialize response
     // carries was read and dropped, so version drift was named only after a method came back -32601.
     // null means the server sent a userAgent this driver could not read a version out of.
@@ -2834,7 +3052,14 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const out = opts.json
     ? `${JSON.stringify({ ...report, commands }, null, 2)}\n`
     : renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped);
-  writeJob({ exitCode: code, turnStatus, answerPath, endedAt: new Date().toISOString() });
+  writeJob({ exitCode: code, turnStatus, answerPath, endedAt: new Date().toISOString(),
+    // Only a successful harvest updates the rebuild pointers: on a preserved tree the work is still in
+    // the tree, and overwriting them with null would throw away the last state that CAN be rebuilt. The
+    // commits ref is kept when this turn made none — the earlier ref still names that thread's history.
+    ...(worktree?.worktreeHarvested
+      ? { worktreeDiffPath: worktree.worktreeDiffPath, worktreeUntrackedPath: worktree.worktreeUntrackedPath,
+          ...(worktree.worktreeCommitsRef ? { worktreeCommitsRef: worktree.worktreeCommitsRef } : {}) }
+      : {}) });
   process.exitCode = code;
   // Exit only once stdout has actually drained. A large report on a pipe is chunked, and exiting on the
   // next tick truncates it at the pipe buffer — measured at 262144 bytes for a 20MB report.
@@ -2881,6 +3106,7 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
       L.push(`config: ${configInherited.source === "last-known-good"
         ? `INHERITED FROM AN EARLIER RUN (${configInherited.keys.join(", ") || "no keys"}) — the probe failed this time`
         : "NOTHING INHERITED — this turn ran on the account defaults, not on your config.toml"}`);
+    if (opts.resume) L.push(`resumed thread ${opts.resume}`);
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
     if (rootThreadId) L.push(receipt?.verified
       ? `receipt: ${receiptPath}  (originator=${receipt.originator ?? "?"} provider=${receipt.modelProvider ?? "?"})`
@@ -2895,6 +3121,9 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
       L.push(worktree.worktreeRemoved
         ? `worktree: removed (${worktree.worktreeHarvested ? "work harvested" : "clean"}) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
         : `worktree: PRESERVED at ${worktree.worktreePath} — ${worktree.worktreePreserved}`);
+      if (worktree.worktreeRestored)
+        L.push(`  rebuilt at ${worktree.worktreeBase} from ${worktree.worktreeRestored.diff ?? "no saved diff"}` +
+          `${worktree.worktreeRestored.untracked ? " + untracked archive" : ""}`);
       if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
       if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
       if (worktree.worktreeUntrackedPath) L.push(`  untracked files saved to ${worktree.worktreeUntrackedPath}`);
@@ -3180,7 +3409,10 @@ async function main() {
   // the key to tailing its live rollout under ~/.codex/sessions — a coordinator watching a long seat
   // should not have to wait for the end to learn which run it is.
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
-  writeJob({ threadId: rootThreadId, pid: process.pid, cwd, level: opts.level, started: new Date().toISOString() });
+  writeJob({ threadId: rootThreadId, pid: process.pid, cwd, level: opts.level, started: new Date().toISOString(),
+    // A worktree seat's cwd is removed when the seat finishes, so the repository it was cut from and the
+    // commit it started at are what a later --resume can still name.
+    ...(worktreeInfo ? { repo: worktreeInfo.repo, baseSha: worktreeInfo.baseSha, worktreeName: worktreeInfo.name } : {}) });
   startSteerPoll();
 
   if (opts.review) {
