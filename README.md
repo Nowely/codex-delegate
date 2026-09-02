@@ -7,6 +7,18 @@ locates, opens and checks — and the exit code is derived from what actually ha
 process status that says nothing about the task, so a seat that did nothing cannot report as though it
 had.
 
+## Goal
+
+A coordinator agent, Sonnet or Opus, that has loaded this skill must be able to launch a Codex subagent
+on the first attempt and get a finished, verifiable answer back, with nothing to configure and nothing
+to know in advance. The defaults have to produce what a native Claude Code subagent does: one call, it
+waits as long as the work takes, it returns the answer, and it is stopped only by silence or by the
+coordinator. Everything else here serves that. Rights are declared per call so the coordinator never
+wonders what the seat may touch; exit codes are derived from evidence so a seat that did nothing cannot
+report as though it had; the relay agent's defaults are the native ones. Where a knob and a default
+compete, the default wins. Where a rule must be known to succeed, that is a defect in this repository,
+not in the coordinator.
+
 ## Prerequisites
 
 - **`codex` CLI, installed and authenticated.** `codex` must be on `PATH` and signed in — check with
