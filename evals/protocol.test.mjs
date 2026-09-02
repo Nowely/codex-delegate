@@ -986,6 +986,59 @@ const CASES = [
       if (!/timed out after 2s/.test(e)) return `the pre-thread timeout did not announce itself: ${e.slice(0, 200)}`;
       return ms >= 1800 || `the pre-thread abort fired after ${ms}ms of a 2000ms budget — a grace early`;
     } }
+,
+
+  // --- the default: no wall clock at all, the way a native subagent runs ---
+  { scenario: "slow-turn",        expect: EXIT.OK, noTimeout: true,
+    why: "the default arms NO wall-clock rung: a turn that takes its time finishes and reports cut: null, where the old 900 s default made every seat a budget the coordinator had to size",
+    assert: (r, ms) => (r.cut === null && r.turnStatus === "completed" && ms > 1200)
+      || `the default run was bounded by something: ${JSON.stringify({ cut: r.cut, turnStatus: r.turnStatus, ms })}` },
+  { scenario: "echo-instructions", expect: EXIT.OK, noTimeout: true,
+    why: "the model has no clock, so what it is TOLD is the whole of what it can plan against: told 'about N seconds' when nothing is counting, it rushes work it had time for",
+    assert: (r) => {
+      const a = String(r.answer);
+      if (/seconds of wall clock/.test(a)) return `the default run still promised the seat a wall clock: ${a.slice(0, 160)}`;
+      return /There is no wall-clock limit on this turn; it is cut only after 900 seconds of silence or by the coordinator\./.test(a)
+        || `the no-wall-clock sentence is not the one the seat was given: ${a.slice(0, 200)}`;
+    } },
+  { scenario: "idle-silence",     expect: EXIT.TIMEOUT, noTimeout: true, args: ["--idle-timeout", "1"],
+    why: "with no wall clock the silence guard is what ends a hung seat, and it must end it on its own budget rather than waiting for a clock that was never set",
+    assert: (r, ms) => (r.cut?.kind === "idle" && r.cut.limit === 1 && ms < 20000)
+      || `the silent turn was not cut on the idle budget alone: ${JSON.stringify({ cut: r.cut, ms })}` },
+  { scenario: "happy",            expect: EXIT.OK, noTimeout: true, args: ["--effort", "high"],
+    why: "the 'high effort with a short clock' warning is about a clock that was SET; on the default it would fire on every run and warn about a budget nobody declared",
+    assertStderr: (e) => !/measured failure shape/.test(e)
+      || `the effort warning fired with no wall clock: ${e.slice(0, 200)}` },
+  { scenario: "stalled-turn",     expect: EXIT.TIMEOUT, noTimeout: true, args: ["--timeout", "1"],
+    why: "opting IN still buys the three rungs: an explicit budget cuts the turn at its own deadline and names itself in cut.kind",
+    assert: (r) => (r.cut?.kind === "wall" && r.cut.limit === 1 && r.turnStatus === "timedOut")
+      || `an explicit --timeout stopped cutting: ${JSON.stringify({ cut: r.cut, t: r.turnStatus })}` },
+
+  // --- the volume cap: the bound neither silence nor tokens can express ---
+  { scenario: "many-commands",    expect: EXIT.TIMEOUT, noTimeout: true, args: ["--max-commands", "2"],
+    why: "a turn that loops is neither silent nor expensive — each iteration rearms the idle guard and costs one call — so with no wall clock only a count ends it. This is the maxTurns a native subagent has",
+    assert: (r) => {
+      if (r.cut?.kind !== "commands") return `the loop was not cut on the command budget: ${JSON.stringify(r.cut)}`;
+      if (r.cut.limit !== 2 || r.cut.observed !== 2) return `the commands cut misreported its own budget: ${JSON.stringify(r.cut)}`;
+      if (r.turnStatus !== "maxCommands") return `the cut turn's status was ${JSON.stringify(r.turnStatus)}`;
+      // The third command never ran: the cut goes out as the second completes.
+      if (r.commandsSucceeded !== 2) return `the cap let ${r.commandsSucceeded} commands through, not 2`;
+      return /split the task or raise --max-commands/.test(String(r.hint))
+        || `exit 3 on a command cut did not name the budget that ran out: ${JSON.stringify(r.hint)}`;
+    } },
+  { scenario: "many-commands",    expect: EXIT.OK, noTimeout: true, args: ["--max-commands", "0"],
+    why: "0 disables it, like --idle-timeout's 0: the same six-command turn then runs to its own end",
+    assert: (r) => (r.cut === null && r.commandsSucceeded === 6)
+      || `--max-commands 0 did not disable the cap: ${JSON.stringify({ cut: r.cut, cmds: r.commandsSucceeded })}` },
+  { scenario: "many-commands",    expect: EXIT.OK, noTimeout: true,
+    why: "the 1000 default is a safety net, not a bound a six-command seat can feel",
+    assert: (r) => (r.cut === null && r.commandsSucceeded === 6)
+      || `the default command cap bit an ordinary turn: ${JSON.stringify({ cut: r.cut, cmds: r.commandsSucceeded })}` },
+  { scenario: "many-commands",    expect: EXIT.TIMEOUT, noTimeout: true,
+    seat: "SEAT: read <CWD>\nMAX_COMMANDS: 2\n",
+    why: "and it rides the seat file, or the relay cannot express the bound the driver enforces — the drift class the audit found in PROGRESS/REVIEW/RESUME",
+    assert: (r) => ((r.seatFileFields ?? []).includes("MAX_COMMANDS") && r.cut?.kind === "commands" && r.cut.limit === 2)
+      || `the seat file's command cap did not reach the run: ${JSON.stringify({ fields: r.seatFileFields, cut: r.cut })}` }
 ];
 
 // Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells
@@ -1011,7 +1064,10 @@ function run(c) {
       seatArgs = ["--seat-file", f];
     }
     const p = spawn(process.execPath,
-      [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]), "--timeout", "20",
+      // Every case gets a wall clock so a hung fixture cannot stall the suite; `noTimeout` opts out, and
+      // that is the only way to measure the DEFAULT — which is now no wall clock at all.
+      [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]),
+       ...(c.noTimeout ? [] : ["--timeout", "20"]),
        ...(c.json === false ? ["--footer"] : c.json === "omit" ? [] : ["--json"]),
        ...(c.noPrompt ? [] : ["--prompt", "irrelevant, the server is scripted"]), ...(c.args ?? [])],
       // A state directory of this suite's own: every case used to write locks, an isolated Codex home and
@@ -1237,7 +1293,10 @@ flow("--jobs derives running, crashed and ended from pid liveness, and spawns no
     const jobs = path.join(state, "jobs");
     fs.mkdirSync(jobs, { recursive: true });
     const base = { cwd: shimDir, level: "read", started: new Date().toISOString(), timeout: 900 };
-    fs.writeFileSync(path.join(jobs, "thr_run.json"), JSON.stringify({ ...base, pid: process.pid, runId: "r1" }));
+    fs.writeFileSync(path.join(jobs, "thr_run.json"), JSON.stringify({ ...base, pid: process.pid, runId: "r1",
+      // The mid-flight snapshot a live run keeps rewriting: --jobs is what a coordinator polls when it
+      // did not keep the handle, and "running" alone does not say whether the seat is working.
+      lastEventAt: new Date().toISOString(), tokensSpent: 4200, commandsSeen: 7, phase: "commandExecution" }));
     fs.writeFileSync(path.join(jobs, "thr_dead.json"), JSON.stringify({ ...base, pid: deadPid() }));
     fs.writeFileSync(path.join(jobs, "thr_done.json"), JSON.stringify({ ...base, pid: deadPid(),
       endedAt: new Date().toISOString(), exitCode: 0, answerPath: "/tmp/a.md" }));
@@ -1258,9 +1317,92 @@ flow("--jobs derives running, crashed and ended from pid liveness, and spawns no
     if (rows.length !== 3) return `--cwd did not narrow the listing: ${JSON.stringify(rows.map((r) => r.threadId))}`;
     if (by.thr_run?.status !== "running" || by.thr_dead?.status !== "crashed" || by.thr_done?.status !== "ended")
       return `derived statuses wrong: ${JSON.stringify(rows.map((r) => [r.threadId, r.status]))}`;
-    for (const k of ["threadId", "cwd", "repo", "level", "pid", "status", "exitCode", "startedAt", "endedAt", "answerPath", "reportPath", "runId"])
+    for (const k of ["threadId", "cwd", "repo", "level", "pid", "status", "exitCode", "startedAt", "endedAt",
+                     "answerPath", "reportPath", "runId", "lastEventAt", "tokensSpent", "commandsSeen", "phase"])
       if (!(k in by.thr_done)) return `--jobs dropped the ${k} field: ${JSON.stringify(by.thr_done)}`;
+    // Carried through, not merely present: a listing that nulled them would answer every poll with
+    // "a process exists", which is what the record already said.
+    if (by.thr_run.tokensSpent !== 4200 || by.thr_run.commandsSeen !== 7 || by.thr_run.phase !== "commandExecution"
+        || !Number.isFinite(Date.parse(by.thr_run.lastEventAt)))
+      return `--jobs did not carry the mid-flight fields: ${JSON.stringify(by.thr_run)}`;
     return true;
+  });
+
+flow("with no wall clock, a prompt that never arrives on stdin is ended by the silence budget",
+  "the wall clock used to be the only thing that could unblock the stdin read; with no clock, a pipe left open by a caller that has since died would hold the driver open forever, with no thread, no report and nobody to reclaim it",
+  async () => {
+    const state = flowState();
+    const p = spawn(process.execPath, [DRIVER, "--level", "read", "--cwd", shimDir, "--json", "--idle-timeout", "2"],
+      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "happy",
+               CODEX_DELEGATE_STATE_DIR: state },
+        // A pipe nobody ever writes to and nobody closes: the shape of a dead caller.
+        stdio: ["pipe", "pipe", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => { err += d; });
+    p.stdout.resume();
+    const startedAt = Date.now();
+    const code = await new Promise((r) => { p.on("close", r); setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, 20000); });
+    const ms = Date.now() - startedAt;
+    if (code !== EXIT.TIMEOUT) return `expected exit 3, got ${code} after ${ms}ms: ${err.slice(0, 200)}`;
+    if (!/no prompt arrived on stdin within the 2s silence budget/.test(err))
+      return `the abort did not name the budget that ended it: ${err.slice(0, 200)}`;
+    return ms < 15000 || `the silence budget took ${ms}ms to fire`;
+  });
+
+flow("a detached run with no --timeout records no wall clock, and still ends on its own",
+  "the detached route used to default to 7200 s because nobody was waiting on it; with no wall clock anywhere, one default covers every route and a coordinator has nothing to size",
+  async () => {
+    const state = flowState();
+    const { code, out, err } = await run({ scenario: "slow-turn", args: ["--detach"], noTimeout: true,
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.BUSY) return `expected exit 10, got ${code}: ${err.slice(0, 200)}`;
+    const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
+    if (h?.turnStatus !== "running") return `the handle is not the running shape: ${out.slice(0, 160)}`;
+    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
+    if (!rec) return "the detached run never finished";
+    if (rec.timeout !== 0) return `the detached run recorded a wall clock of ${rec.timeout}`;
+    if (rec.exitCode !== EXIT.OK) return `the unbounded detached run exited ${rec.exitCode}`;
+    return true;
+  });
+
+flow("--cancel still stops a seat with no wall clock, hours after it started",
+  "the age guard used to fall back to 7200 s for a run that declared no budget, so a default seat became uncancellable after 2 h 01 — while the relay's own wait loop runs for ~4 h. The pid-recycling guard is the recorded identity, which holderAlive already checks; an invented cap only made 'stopped by you' false where it mattered",
+  async () => {
+    const state = flowState();
+    const jobs = path.join(state, "jobs");
+    fs.mkdirSync(jobs, { recursive: true });
+    // A real process to signal, and the identity the driver would have recorded for it: a pid alone
+    // could be a stranger, and this is the check that says it is not.
+    const sleeper = spawn("/bin/sh", ["-c", "sleep 30"], { stdio: "ignore" });
+    const identity = (() => {
+      try {
+        const stat = fs.readFileSync(`/proc/${sleeper.pid}/stat`, "utf8");
+        const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+        if (after[19]) return `starttime:${after[19]}`;
+      } catch {}
+      const r = spawnSync("ps", ["-o", "lstart=", "-p", String(sleeper.pid)],
+        { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+      const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
+      return t ? `lstart:${t}` : null;
+    })();
+    fs.writeFileSync(path.join(jobs, "thr_old.json"), JSON.stringify({
+      cwd: shimDir, level: "read", pid: sleeper.pid, identity, timeout: 0,
+      started: new Date(Date.now() - 3 * 3600 * 1000).toISOString() }));
+    const { code, err } = await run({ scenario: "happy", args: ["--cancel", "thr_old"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    const gone = await until(() => { try { process.kill(sleeper.pid, 0); return null; } catch { return true; } });
+    try { sleeper.kill("SIGKILL"); } catch {}
+    if (code !== EXIT.OK) return `--cancel refused a three-hour-old seat with no wall clock: exit ${code} (${err.slice(0, 200)})`;
+    if (!gone) return "the signal never reached the recorded pid";
+    // And a run that DID declare a budget still gets the age guard: the pid it names is the one the
+    // record can no longer vouch for.
+    fs.writeFileSync(path.join(jobs, "thr_bounded.json"), JSON.stringify({
+      cwd: shimDir, level: "read", pid: process.pid, timeout: 60,
+      started: new Date(Date.now() - 3 * 3600 * 1000).toISOString() }));
+    const bounded = await run({ scenario: "happy", args: ["--cancel", "thr_bounded"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    return (bounded.code === EXIT.USAGE && /longer ago than its own budget/.test(bounded.err))
+      || `a declared budget lost its age guard: exit ${bounded.code} (${bounded.err.slice(0, 200)})`;
   });
 
 flow("--cancel signals the run, and the interrupted report lands at the run's own report path",
@@ -1436,7 +1578,9 @@ for (const c of CASES) {
   try {
     assertion = c.assertStderr ? c.assertStderr(err, ms)
       : c.assertText ? c.assertText(out)
-        : c.assert ? (report ? c.assert(report) : "expected a JSON report, but stdout was not JSON") : true;
+        // ms as well as the report: a rung whose whole content is WHEN it fires (or does not) cannot be
+        // told from one that never armed by reading the report alone.
+        : c.assert ? (report ? c.assert(report, ms) : "expected a JSON report, but stdout was not JSON") : true;
   } catch (e) { assertion = `assert threw: ${e.message}`; }
   const ok = code === c.expect && assertion === true;
   if (!ok) {

@@ -138,7 +138,8 @@ test("the scratch directory comes from one mktemp call, not from an unexpandable
   () => {
     const problems = [];
     if (!/mktemp -d "\$\{TMPDIR:-\/tmp\}\/codex-seat\.XXXXXXXX"/.test(agent)) problems.push("the mktemp -d pre-step is gone or reworded");
-    if (!/TWO Bash calls/.test(agent)) problems.push("the agent no longer states the Bash-call budget (mktemp, then the driver)");
+    if (!/ONE Bash call for the `mktemp` of step 0, ONE for the driver of step 4/.test(agent))
+      problems.push("the agent no longer states the Bash-call budget (mktemp, the driver, then only waits)");
     if (/\$TMPDIR\/(seat|task|report|stderr)-/.test(agent)) problems.push("a scratch path is still written as $TMPDIR/..., which the Write and Read tools cannot expand");
     return problems.length === 0 || problems.join("; ");
   });
@@ -151,20 +152,54 @@ test("the driver call echoes an absolute report path for the Read tool",
     const problems = [];
     if (!/echo "EXIT=\$\? [^"]*REPORT=[^"]*report-/.test(block)) problems.push("the driver call does not echo EXIT= together with an absolute REPORT= path");
     if (!/2> ?"?\$D\/stderr-/.test(block)) problems.push("stderr is not captured beside the report");
-    if (!/REPORT=/.test(agent.slice(agent.indexOf("```sh") + shellBlocks.join("").length))) problems.push("the read step does not point at the echoed REPORT= path");
+    if (!/Read the path printed after `REPORT=`/.test(agent)) problems.push("the read step does not point at the echoed REPORT= path");
     return problems.length === 0 || problems.join("; ");
   });
 
-test("TIMEOUT is the SEAT's clock and WAIT_TIMEOUT is this call's, and the two are not conflated",
-  "560 used to be a cap on the seat itself, because the Bash tool ended the call and the seat with it. The seat is detached now: capping it at nine minutes again would refuse every long delegation for a reason that no longer exists",
+test("TIMEOUT is the SEAT's clock, WAIT_TIMEOUT is one wait's, and neither is written by default",
+  "560 used to be a cap on the seat itself, because the Bash tool ended the call and the seat with it. The seat is detached now, and the driver has no wall clock unless one is asked for: a relay that writes a TIMEOUT nobody declared reintroduces exactly the bound the default exists to remove",
   () => {
     const problems = [];
-    if (!/TIMEOUT: <seconds> \[omit -> 7200/.test(agent)) problems.push("TIMEOUT no longer defaults to the driver's detached 7200");
+    if (!/TIMEOUT: <seconds> \[omit -> no wall clock/.test(agent)) problems.push("the header table no longer says an omitted TIMEOUT means no wall clock");
     if (/[Aa]bove 560 is a BAD\s*HEADER/.test(flat)) problems.push("the removed 'a TIMEOUT above 560 is a bad header' rule is back");
     if (/backgrounds the driver/.test(flat)) problems.push("the agent still says the Bash tool BACKGROUNDS the driver at its cap; measured, an explicit timeout KILLS it");
-    if (!/WAIT_TIMEOUT: <seconds>/.test(agent)) problems.push("WAIT_TIMEOUT is not documented as this call's own budget");
-    if (!/o\.timeout = 7200/.test(driver)) problems.push("the driver no longer defaults a detached run's --timeout to 7200");
+    if (!/WAIT_TIMEOUT: <secs>\s+\[the relay writes 560/.test(agent)) problems.push("WAIT_TIMEOUT is not documented as one wait's own budget");
+    // The relay writes TIMEOUT only when the header carried it, and no sentence tells a coordinator to
+    // pick a number for it: sizing a wall clock is the configuration this default removes.
+    if (!/Write every other field ONLY if the header carried it, `TIMEOUT:` included/.test(flat))
+      problems.push("step 1 no longer says TIMEOUT is written only when the header carried it");
+    if (/(size|choose|pick|set) (a |an |the )?(longer |larger )?TIMEOUT/i.test(flat))
+      problems.push("a sentence still tells the coordinator to size TIMEOUT");
+    // And the driver's own default is the same fact: no wall clock on any route.
+    if (!/o = \{ level: "read", timeout: 0,/.test(driver)) problems.push("the driver's --timeout no longer defaults to 0");
+    if (/o\.timeout = 7200/.test(driver)) problems.push("a route still defaults --timeout to 7200");
     return problems.length === 0 || problems.join("; ");
+  });
+
+test("the relay waits in a loop rather than handing back a handle at the first timeout",
+  "one Agent call that returns the answer whenever the work is done is what a native subagent does; a relay that gives up after one 560 s wait turns every long seat into a handle the coordinator has to collect by hand",
+  () => {
+    const problems = [];
+    const loop = shellBlocks.find((b) => /--wait /.test(b));
+    if (!loop) return "no shell block runs the driver's --wait collector";
+    if (!/--wait <threadId> --wait-timeout 560/.test(loop)) problems.push(`the wait call is not \`--wait <threadId> --wait-timeout 560\`: ${loop.trim().slice(0, 80)}`);
+    if (!/at most 24 repeats/.test(flat)) problems.push("the repeat cap (24, about four hours) is missing");
+    // The one interpolated value in the loop, and the one check that makes interpolating it safe.
+    if (!/\^\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{12\}\$/.test(agent))
+      problems.push("the threadId UUID check the loop interpolates against is missing");
+    if (!/no\s+value out of the prompt ever reaches this line/.test(agent))
+      problems.push("the loop does not say that nothing from the prompt reaches its command line");
+    if (!/only the `--wait` repeats of step 5/.test(agent)) problems.push("the Bash-call budget does not name the wait repeats");
+    if (!/--wait ID/.test(driver)) problems.push("the driver's usage no longer documents --wait");
+    return problems.length === 0 || problems.join("; ");
+  });
+
+test("the relay body stays a page of rules",
+  "the body is read in full on every seat launch, and prose that is not a rule is what drifts first: 160 lines is the measured ceiling at which the relay still followed every step",
+  () => {
+    const body = agent.split(/^---$/m)[2] ?? "";
+    const n = body.replace(/^\n+|\n+$/g, "").split("\n").length;
+    return n <= 160 || `the relay body is ${n} lines, over the 160-line ceiling`;
   });
 
 test("the relay always writes DETACH: yes and WAIT_TIMEOUT: 560, verbatim",
@@ -176,7 +211,7 @@ test("the relay always writes DETACH: yes and WAIT_TIMEOUT: 560, verbatim",
     if (!/ALWAYS add/.test(agent)) problems.push("step 1 no longer says the two lines are added unconditionally");
     for (const f of ["DETACH", "WAIT_TIMEOUT"])
       if (!seatFields.includes(f)) problems.push(`${f} is not a seat-file field the driver accepts`);
-    if (!/580000 ms, whatever TIMEOUT says/.test(agent)) problems.push("step 3 no longer pins the Bash timeout independently of the seat's own clock");
+    if (!/590000 ms, whatever TIMEOUT says/.test(agent)) problems.push("step 3 no longer pins the Bash timeout independently of the seat's own clock");
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -286,14 +321,20 @@ test("the two failure shapes are distinct, and neither puts the relay's own text
     return problems.length === 0 || problems.join("; ");
   });
 
-test("SEAT read documents its optional directory",
-  "the driver maps `read <dir>` to --cwd <dir>; undocumented, a multi-repo coordinator has no way to point a read seat anywhere but the relay's own cwd",
+test("SEAT read documents its optional directory, and a prompt with no header at all is one",
+  "the driver maps `read <dir>` to --cwd <dir>; undocumented, a multi-repo coordinator has no way to point a read seat anywhere but the relay's own cwd — and a header-less prompt has no SEAT line to fill in, which is the case the default is FOR",
   () => {
     if (!/SEAT: read \[<dir>\]/.test(agent)) return "the header table does not show `read [<dir>]`";
     if (!/kind === "read".*--cwd/s.test(driver.slice(driver.indexOf('if (kind === "read")'), driver.indexOf('if (kind === "read")') + 200)))
       return "the driver no longer maps SEAT read <dir> to --cwd";
-    return /When `read` names no\s*directory, add the current one/.test(flat) || "step 1 no longer says to fill in the current directory";
+    return /No `SEAT:` line at all, or `read` with no directory, is `SEAT: read \/abs\/path` with the current one\./.test(flat)
+      || "step 1 no longer says a missing SEAT line and a bare `read` are both the current directory";
   });
+
+test("the body the relay writes starts at the TASK: line and keeps the label",
+  "measured in both WP8-D live runs: a sonnet relay read TASK: as the header's end marker and copied only what followed it",
+  () => /starts at the `TASK:` line and includes that line, label and all/.test(flat)
+    || "step 2 no longer says the body starts at, and includes, the TASK: line");
 
 test("the description keeps model, effort and schema out of the Agent tool's options",
   "those options act on the relay — a schema reshapes the relay's return and a model downgrade replaces the sonnet the relay eval pinned — while the seat runs on whatever the header said",

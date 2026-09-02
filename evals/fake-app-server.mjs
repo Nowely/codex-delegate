@@ -95,6 +95,9 @@ export const SCENARIOS = {
   "reasoning-summary": { reasoningSummary: "detailed" },
   "late-completion": { outputSchema: true, timeout: 0.4 },
   "stalled-turn": { timeout: 0.5 },
+  // Six commands 150 ms apart, then an answer: the shape --max-commands bounds. It ends on its own when
+  // nothing caps it, so the conformance suite drives it to completion like any other scenario.
+  "many-commands": {},
 };
 if (!Object.hasOwn(SCENARIOS, SCENARIO)) {
   process.stderr.write(`fake-app-server: ${JSON.stringify(SCENARIO)} is not in SCENARIOS; an uninventoried name would answer as the default scenario and measure nothing\n`);
@@ -300,6 +303,9 @@ const done = (turnId, threadId, status = "completed", error = null) =>
 let requestedThread = null;
 let pendingApproval = null;
 let turnStarts = 0;
+// Set by turn/interrupt: a scenario emitting on a timer must stop when the turn is cut, or it keeps
+// writing items into a turn the client has already ended.
+let interrupted = false;
 const TURN2 = "turn_root_retry";
 
 function onLine(line) {
@@ -343,6 +349,7 @@ function onLine(line) {
   }
   if (m.method === "initialized") return;
   if (m.method === "turn/interrupt") {
+    interrupted = true;
     w(reply(m.id, {}));
     // A server that DOES flush the in-flight message when the turn is interrupted, and closes the turn
     // inside the driver's grace. Measured on 0.150.1 the live server does NOT (E1) — cut-partial is that
@@ -351,7 +358,8 @@ function onLine(line) {
       w(msg(TURN, THREAD, "flushed at the interrupt"), done(TURN, THREAD, "interrupted"));
     // A turn that CLOSES on the interrupt without flushing anything: the cut is recorded and the report
     // lands inside the grace. budget-hard deliberately does neither, so the grace expires there.
-    if (SCENARIO === "budget-jump" || SCENARIO === "idle-silence" || SCENARIO === "idle-subagent")
+    if (SCENARIO === "budget-jump" || SCENARIO === "idle-silence" || SCENARIO === "idle-subagent"
+        || SCENARIO === "many-commands")
       w(done(TURN, THREAD, "interrupted"));
     return;
   }
@@ -773,6 +781,19 @@ function onLine(line) {
           w(reasoningItem("turn_child", "thr_child", [`child thinking ${n}`]));
           if (++n >= 12) { clearInterval(iv); w(msg(TURN, THREAD, "root answered after the subagent"), done(TURN, THREAD)); }
         }, 300);
+        break;
+      }
+
+      // Six commands, one every 150 ms, then an answer. Nothing here is silent and nothing is expensive,
+      // so only a count bounds it: this is the loop --max-commands exists for.
+      case "many-commands": {
+        w(R);
+        let n = 0;
+        const iv = setInterval(() => {
+          if (interrupted) { clearInterval(iv); return; }
+          w(cmd(TURN, THREAD, { command: `echo step ${n}` }));
+          if (++n >= 6) { clearInterval(iv); w(msg(TURN, THREAD, "six commands later"), done(TURN, THREAD)); }
+        }, 150);
         break;
       }
 
