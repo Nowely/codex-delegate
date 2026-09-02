@@ -128,6 +128,16 @@ fs.writeFileSync(path.join(mismatchDay, "rollout-2026-01-01T00-00-00-thr_root.js
 // The RPC log for the interrupt case: the effect of turn/interrupt is server-side and otherwise
 // invisible, so the fixture records what it was sent.
 const interruptLog = path.join(shimDir, "rpc-interrupt.log");
+// One log per case that counts steers: the fixture APPENDS, so a shared file would let one case read
+// another's sends and a "sent exactly once" assertion would depend on the order the suite runs in.
+const budgetSoftLog = path.join(shimDir, "rpc-budget-soft.log");
+const budgetJumpLog = path.join(shimDir, "rpc-budget-jump.log");
+const reviewBudgetLog = path.join(shimDir, "rpc-review-budget.log");
+const steersIn = (file) => {
+  let log = "";
+  try { log = fs.readFileSync(file, "utf8"); } catch {}
+  return log.split("\n").filter((l) => l.startsWith("turn/steer"));
+};
 
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
@@ -767,7 +777,117 @@ const CASES = [
       || `no warning for high effort under a short clock: ${e.slice(0, 300)}` },
   { scenario: "happy",            expect: EXIT.OK, args: ["--effort", "low"],
     why: "and it must stay quiet otherwise: a warning printed on every run is a warning nobody reads",
-    assertStderr: (e) => !/measured failure shape/.test(e) || `the effort warning fired for low effort: ${e.slice(0, 200)}` }
+    assertStderr: (e) => !/measured failure shape/.test(e) || `the effort warning fired for low effort: ${e.slice(0, 200)}` },
+
+  // --- the token budget: the bound a wall clock cannot express ---
+  { scenario: "budget-soft",      expect: EXIT.OK, args: ["--budget-tokens", "1000", "--timeout", "5"],
+    env: { FAKE_RPC_LOG: budgetSoftLog },
+    why: "the 80% rung, and it is a threshold rather than a level: usage arrives once per API call (E2), so a steer sent per event in the band between 80% and 100% would interrupt the very writing it asked for",
+    assert: (r) => {
+      const steers = steersIn(budgetSoftLog);
+      if (steers.length !== 1) return `the budget steer went out ${steers.length} time(s): ${JSON.stringify(steers)}`;
+      if (!steers[0].includes("BUDGET: you have used 80% (850 of 1000 tokens). Stop investigating now; write your final answer with what you have and say what you did not get to."))
+        return `the steer did not name the spend: ${steers[0]}`;
+      return (r.budget?.tokens === 1000 && r.budget?.spentTokens === 950 && r.budget?.softSteerAt === 850)
+        || `the report's budget is wrong: ${JSON.stringify(r.budget)}`;
+    } },
+  { scenario: "budget-hard",      expect: EXIT.TIMEOUT, args: ["--budget-tokens", "1000", "--timeout", "5"],
+    why: "the 100% rung lands on the same exit as the wall clock, with cut.kind naming which budget ran out — and it is a CUT, so the answer streaming when it landed comes back as the partial the interrupt discards",
+    assert: (r) => {
+      if (r.turnStatus !== "budgetExhausted") return `the turn status did not name the budget: ${JSON.stringify(r.turnStatus)}`;
+      if (r.cut?.kind !== "tokens" || r.cut.limit !== 1000 || r.cut.observed !== 1200)
+        return `the cut did not name the token budget it was cut on: ${JSON.stringify(r.cut)}`;
+      if (r.cut.completedInGrace !== false) return `nothing closed the turn, so completedInGrace must be false: ${JSON.stringify(r.cut)}`;
+      if (String(r.answer) !== "") return `an unfinished partial was promoted to the answer: ${JSON.stringify(String(r.answer).slice(0, 80))}`;
+      if (r.answerPartial !== "half an answer and no more") return `the partial was not reassembled from the deltas: ${JSON.stringify(r.answerPartial)}`;
+      if (!/a larger --budget-tokens/.test(String(r.hint))) return `exit 3 on a token cut told the caller to widen the clock: ${JSON.stringify(r.hint)}`;
+      return (r.budget?.spentTokens === 1200 && r.budget?.softSteerAt === 850)
+        || `the report's budget is wrong: ${JSON.stringify(r.budget)}`;
+    } },
+  { scenario: "budget-jump",      expect: EXIT.TIMEOUT, args: ["--budget-tokens", "1000", "--timeout", "5"],
+    env: { FAKE_RPC_LOG: budgetJumpLog },
+    why: "one API call can cross both thresholds; steering a turn that is about to be interrupted spends more of a budget that is already gone, so the hard rung wins outright and the report says the steer never happened",
+    assert: (r) => {
+      const steers = steersIn(budgetJumpLog);
+      if (steers.length) return `a turn about to be cut was steered first: ${JSON.stringify(steers)}`;
+      if (r.budget?.softSteerAt !== null) return `softSteerAt must be null when no steer went out: ${JSON.stringify(r.budget)}`;
+      return (r.cut?.kind === "tokens" && r.cut.observed === 1500 && r.turnStatus === "budgetExhausted")
+        || `the jump was not cut on the token budget: ${JSON.stringify({ cut: r.cut, t: r.turnStatus })}`;
+    } },
+  { scenario: "budget-resume",    expect: EXIT.OK, args: ["--resume", "thr_root", "--budget-tokens", "1000"],
+    why: "spend is INVOCATION-local: tokenUsage.total is cumulative for the thread, so a resumed seat would arrive already over any budget its earlier turns had spent. Measured live, thread/resume announces that history in one usage event carrying the PREVIOUS turn's id — reading it as this invocation's first call overcharged a real resumed seat by one prior API call (27296 tokens reported as 40835)",
+    assert: (r) => (r.budget?.spentTokens === 300 && r.budget?.softSteerAt === null && r.cut === null && r.resumedFrom === "thr_root")
+      || `the resumed seat was charged for its earlier turns: ${JSON.stringify({ budget: r.budget, cut: r.cut, from: r.resumedFrom })}` },
+  { scenario: "budget-resume-fallback", expect: EXIT.OK, args: ["--resume", "thr_root", "--budget-tokens", "1000"],
+    why: "and where that pre-turn event never arrives, the history is still recoverable from the first event of our OWN turn: total minus last, which E2 measured as exactly the call that event reports",
+    assert: (r) => (r.budget?.spentTokens === 300 && r.cut === null)
+      || `the fallback baseline did not recover the thread's history: ${JSON.stringify({ budget: r.budget, cut: r.cut })}` },
+  { scenario: "null-phase",       expect: EXIT.OK, args: ["--budget-tokens", "1000"],
+    why: "a budget nothing was ever counted against did not bound the run: spentTokens null says 'not counted', which is a different fact from 0, and the clock stays the only bound",
+    assert: (r) => (r.budget?.tokens === 1000 && r.budget?.spentTokens === null && r.budget?.softSteerAt === null)
+      || `a budget with no usage event reported a spend: ${JSON.stringify(r.budget)}` },
+  { scenario: "null-phase",       expect: EXIT.OK, args: ["--budget-tokens", "1000"],
+    why: "and it says so out loud, because a report that only carried null would let the caller believe the budget had held",
+    assertStderr: (e) => /sent no token-usage event/.test(e) || `the uncounted budget was silent: ${e.slice(0, 200)}` },
+  { scenario: "echo-instructions", expect: EXIT.OK, args: ["--budget-tokens", "50000"],
+    why: "the seat is told the token budget for the same reason it is told the clock: it cannot see either one, and a budget it cannot plan against is one it spends on investigation",
+    assert: (r) => /seconds of wall clock, and about 50000 tokens, for this turn/.test(String(r.answer))
+      || `the token budget never reached the seat: ${String(r.answer).slice(0, 240)}` },
+  { scenario: "review-instructions", expect: EXIT.OK, noPrompt: true,
+    args: ["--review", "uncommitted", "--budget-tokens", "50000"],
+    why: "and NOT under --review, where the server builds the reviewer's whole prompt: a budget sentence there names bounds the reviewer cannot act on, in a turn whose shape is fixed",
+    assert: (r) => {
+      if (!/unattended/.test(String(r.answer))) return `the review turn carried no developerInstructions at all: ${String(r.answer).slice(0, 160)}`;
+      return !/seconds of wall clock/.test(String(r.answer))
+        || `a review turn was given a budget sentence: ${String(r.answer).slice(0, 240)}`;
+    } },
+  { scenario: "review-inline",    expect: EXIT.OK, noPrompt: true,
+    args: ["--review", "uncommitted", "--budget-tokens", "1000"], env: { FAKE_RPC_LOG: reviewBudgetLog },
+    why: "the steers the DRIVER invents are refused under --review — the reviewer answers its own prompt in a fixed shape and 'write your final answer now' names nothing it can act on — while the accounting behind them keeps running",
+    assert: (r) => {
+      const steers = steersIn(reviewBudgetLog);
+      if (steers.length) return `the server's own reviewer was steered: ${JSON.stringify(steers)}`;
+      return (r.budget?.spentTokens === 900 && r.budget?.softSteerAt === null)
+        || `the review's spend was not counted: ${JSON.stringify(r.budget)}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: lots\n",
+    why: "a budget is a number of tokens; anything else is a caller who meant something the driver cannot guess, and defaulting it would hide the mistake behind an uncut turn",
+    assertStderr: (e) => /--budget-tokens must be a positive whole number/.test(e)
+      || `a non-numeric BUDGET_TOKENS was accepted: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nIDLE_TIMEOUT: soon\n",
+    why: "same for the idle guard, whose 0 means OFF — a value that is not a number would silently disable the hang guard",
+    assertStderr: (e) => /--idle-timeout must be a number of seconds/.test(e)
+      || `a non-numeric IDLE_TIMEOUT was accepted: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: 100000\nIDLE_TIMEOUT: 300\n",
+    why: "and both ride the seat file, or the relay cannot express the bounds the driver enforces — the drift class the audit found in PROGRESS/REVIEW/RESUME",
+    assert: (r) => ((r.seatFileFields ?? []).includes("BUDGET_TOKENS") && (r.seatFileFields ?? []).includes("IDLE_TIMEOUT")
+        && r.budget?.tokens === 100000 && r.budget?.spentTokens === 135)
+      || `the seat file's budget did not reach the run: ${JSON.stringify({ fields: r.seatFileFields, budget: r.budget })}` },
+
+  // --- the idle guard: the bound that tells a working turn from a hung one ---
+  { scenario: "idle-silence",     expect: EXIT.TIMEOUT, args: ["--idle-timeout", "1", "--timeout", "8"],
+    why: "a turn that says NOTHING is the hang the wall clock cannot name: --timeout is a budget a healthy turn may spend in full, so only silence distinguishes them, and every root event rearms it",
+    assert: (r) => (r.cut?.kind === "idle" && r.cut.limit === 1 && r.cut.observed >= 1 && r.turnStatus === "timedOut")
+      || `the silent turn was not cut on the idle budget: ${JSON.stringify({ cut: r.cut, t: r.turnStatus })}` },
+  { scenario: "idle-subagent",    expect: EXIT.OK, args: ["--idle-timeout", "1", "--timeout", "20"],
+    why: "Codex runs its own threads under ours, and their notifications are the turn working: judging liveness on the root thread alone cut a seat whose subagent had been busy for seconds. Liveness is inclusive; evidence of SUCCESS stays root-only, so the child's command still satisfies no gate",
+    assert: (r) => {
+      if (r.cut !== null) return `a turn whose subagent was working throughout was cut: ${JSON.stringify(r.cut)}`;
+      if (r.subagentThreads?.[0]?.threadId !== "thr_child") return `the subagent thread was not registered: ${JSON.stringify(r.subagentThreads)}`;
+      // The root ran exactly one command; the child's is counted for the child and for nothing else.
+      return (r.commandsSucceeded === 1 && r.tokenUsage?.total?.totalTokens === 100)
+        || `a child thread's work leaked into the root's evidence: ${JSON.stringify({ cmds: r.commandsSucceeded, usage: r.tokenUsage?.total })}`;
+    } },
+  { scenario: "idle-silence",     expect: EXIT.TIMEOUT, args: ["--idle-timeout", "0", "--timeout", "2"],
+    why: "0 disables it, and a disabled guard must be OFF rather than instant: the same silent turn then runs to the wall clock and is cut with cut.kind wall",
+    assert: (r) => r.cut?.kind === "wall"
+      || `--idle-timeout 0 did not disable the idle guard: ${JSON.stringify(r.cut)}` },
+  { scenario: "no-thread",        expect: EXIT.TIMEOUT, args: ["--timeout", "2"],
+    why: "the pre-thread rung fires at T, not a grace early: with no thread there is nothing to interrupt, so the grace buys nothing and spending it would shorten the caller's own budget",
+    assertStderr: (e, ms) => {
+      if (!/timed out after 2s/.test(e)) return `the pre-thread timeout did not announce itself: ${e.slice(0, 200)}`;
+      return ms >= 1800 || `the pre-thread abort fired after ${ms}ms of a 2000ms budget — a grace early`;
+    } }
 ];
 
 // Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells
@@ -820,14 +940,17 @@ function run(c) {
     // threw inside an event handler and the suite stalled forever instead of reporting anything. The
     // scripted server answers in milliseconds, so anything near this bound is a defect, not slowness.
     const bell = setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, 30000);
-    p.on("close", (code) => { clearTimeout(bell); resolve({ code, out, err }); });
+    // How long the run took, for the rungs whose whole content is WHEN they fire: a case that only
+    // reads the report cannot tell a deadline honoured from one shortened by a grace.
+    const startedAt = Date.now();
+    p.on("close", (code) => { clearTimeout(bell); resolve({ code, out, err, ms: Date.now() - startedAt }); });
   });
 }
 
 let failed = 0;
 for (const c of CASES) {
   const label = `${c.scenario}${c.args?.length ? ` ${c.args.join(" ")}` : ""}`;
-  const { code, out, err } = await run(c);
+  const { code, out, err, ms } = await run(c);
   let report = null;
   try { report = JSON.parse(out); } catch {}
   // An exit code alone cannot catch a report that destroys information — two runs with opposite verify
@@ -836,7 +959,7 @@ for (const c of CASES) {
   // per-case guard, so one bad property access aborted every case after it and skipped cleanup.
   let assertion;
   try {
-    assertion = c.assertStderr ? c.assertStderr(err)
+    assertion = c.assertStderr ? c.assertStderr(err, ms)
       : c.assertText ? c.assertText(out)
         : c.assert ? (report ? c.assert(report) : "expected a JSON report, but stdout was not JSON") : true;
   } catch (e) { assertion = `assert threw: ${e.message}`; }
