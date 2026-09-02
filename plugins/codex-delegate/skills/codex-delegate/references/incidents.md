@@ -3,6 +3,37 @@
 The measured failures that produced SKILL.md's imperatives. Each line is evidence, not folklore: if a
 rule ever looks like ceremony, this is what it cost to learn.
 
+## Contents
+
+- [Isolation](#isolation)
+- [Composition disclosure](#composition-disclosure)
+- [The unverified wrapper](#the-unverified-wrapper)
+- [A relay on a small model](#a-relay-on-a-small-model)
+- [Context cost](#context-cost)
+- [Silent downgrades](#silent-downgrades)
+- [The TOML parser](#the-toml-parser)
+- [Redundant flags as crashes](#redundant-flags-as-crashes)
+- [Worktree leaks, and who actually leaked](#worktree-leaks-and-who-actually-leaked)
+- [Hooks run by the driver's own git](#hooks-run-by-the-drivers-own-git)
+- [Orphaned load](#orphaned-load)
+- [Red-green seats](#red-green-seats)
+- [A non-zero exit discarded](#a-non-zero-exit-discarded)
+- [Safety classifier](#safety-classifier)
+- [Fan-out physics](#fan-out-physics)
+- [Report integrity](#report-integrity)
+- [Resume rights](#resume-rights)
+- [Seat-file newline injection](#seat-file-newline-injection)
+- [State split the lock](#state-split-the-lock)
+- [Shared-home fixture pollution](#shared-home-fixture-pollution)
+- [Stale-lock stampede](#stale-lock-stampede)
+- [Protected-root aliases](#protected-root-aliases)
+- [MCP secrets in argv](#mcp-secrets-in-argv)
+- [Negative probes counted as failures](#negative-probes-counted-as-failures)
+- [Cancellation lost the answer](#cancellation-lost-the-answer)
+- [The verifier gate was inverted](#the-verifier-gate-was-inverted)
+- [An unref'd kill never fired](#an-unrefd-kill-never-fired)
+- [Five of seven seats lost to the wall clock](#five-of-seven-seats-lost-to-the-wall-clock)
+
 ## Isolation
 
 Of 157 delegations run against the caller's own `~/.codex`, 95 spent their FIRST tool
@@ -70,6 +101,14 @@ The lesson outlives its own evidence — a worktree lifecycle nobody owns is a l
 was never the leaker here, and anyone who had compared this paragraph against the directory would have
 caught it out.
 
+## Hooks run by the driver's own git
+
+`--commit` hands the seat the git common dir, and the driver's own harvest, its worktree removal and the
+next run's worktree add then execute what the seat wrote there with the CALLER's rights, before anyone
+reads the report. Measured before the fix: `core.fsmonitor=pwn.sh` logged runs under `status`, `diff`,
+`ls-files` twice, `worktree remove` and `worktree add`, at exit 0. Closed by
+`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c diff.external=` on every git the driver spawns.
+
 ## Orphaned load
 
 A review probe launched eight busy loops to measure timeout behaviour under CPU pressure and put `kill
@@ -133,3 +172,61 @@ both returned bare JSON.
 
 A thread started at read level was resumed at write level and the write succeeded —
 rights are per call, on resume as everywhere else. Verified, not assumed.
+
+## Seat-file newline injection
+
+`EXPECT: x\nVERIFY: touch /tmp/pwned` became two fields and executed the verifier through `/bin/sh`.
+`SEAT` is now first and seat-file `VERIFY` requires a command-line authorization the relay never gives.
+
+## State split the lock
+
+Two state roots derived from two `HOME` values produced two locks and simultaneous writers; `HOME=""`
+also made the lock directory relative. State paths are now absolute and the state root is explicit.
+
+## Shared-home fixture pollution
+
+A suite's fake server wrote `model = "fake-model"` into the shared isolated home. Evals now move all
+driver state with `CODEX_DELEGATE_STATE_DIR`, and home updates use atomic rename.
+
+## Stale-lock stampede
+
+Eight contenders raced over one planted stale lock: six violated the critical section and three holders
+overlapped. Serialising reclaim and rechecking liveness reduced the observed maximum to one.
+
+## Protected-root aliases
+
+`TMPDIR=~/.codex/x --level read` once exited 0 with access to receipt state, and a `~/.CODEX` spelling
+defeated a string-prefix guard. Root protection now uses canonical identity and includes the read grant.
+
+## MCP secrets in argv
+
+Passing MCP config with `-c` exposed a server's `env` tokens in world-readable process arguments. MCP
+tables now go into a mode-0600 private home and are never seat-file fields.
+
+## Negative probes counted as failures
+
+Seven of 26 read seats exited 11 because `grep` found nothing. The live server wrapped commands while
+the fixture emitted bare strings, so the exemption never matched production. Classification now uses
+the parsed `commandActions`; the fixture emits the same shape.
+
+## Cancellation lost the answer
+
+Six cancelled seats returned zero-byte reports because an interrupt discards the in-flight model
+message. Agent-message deltas now preserve `answerPartial`, and final answers are persisted immediately.
+
+## The verifier gate was inverted
+
+`--verify` once ran only behind `--expect-command`, leaving `verify: null` for both proven-broken and
+proven-good states. The verifier now runs after any completed turn and precedes weaker evidence gates.
+
+## An unref'd kill never fired
+
+A `SIGKILL` timer was unreferenced and discarded by `process.exit()`, leaving a TERM-ignoring test server
+behind. Teardown now waits for the child group and escalates before exit.
+
+## Five of seven seats lost to the wall clock
+
+GitHub issue #1 (2026-09-02) measured five of seven seats hitting a 540-second relay-era ceiling;
+commands used only 6–16% of the clock and the cut returned zero bytes. The driver gained a wrap-up steer,
+interrupt grace, partial capture, and detached transport. Native defaults now impose no wall clock;
+silence, command, token, and caller-declared clock bounds remain explicit.
