@@ -20,15 +20,24 @@ and one qualification.
 | agent with `isolation: "worktree"` | `--worktree <repo>` | writes from HEAD without implicit network; see `--help` |
 | the same, committing | `--worktree <repo> --commit` | commits persist at `worktreeCommitsRef`; see `--help` |
 | fan-out of many agents | concurrent driver invocations | memory-bound rather than throttled; see [Fan-out and reporting](#fan-out-and-reporting) |
+| a subagent that outlives the call | `--detach` | returns a handle (exit 10, `turnStatus` running) and the run survives the session; see `--help` |
+| collecting a finished subagent | `--wait <id\|last>` | delivers the run's own report byte for byte under its own exit code; see `--help` |
+| listing / stopping running agents | `--jobs`, `--cancel <id>` | status derived from pid liveness; a cancel lands the full interrupted report; see `--help` |
 | a subagent's MCP tools | `--mcp` | copies representable servers into a private run home; see `--help` |
 | web search | `--web-search cached\|indexed\|live` | off unless requested; see `--help` |
 | a local image or audio file | `--attach <file>` | repeatable and command-line only; see `--help` |
 | an image the user pasted | `scripts/attach-pasted.mjs` | decodes transcript images before delegation; see `--help` |
 | watching a running subagent | `--progress` | reports item starts without delta noise; see `--help` |
-| a review pass | `--review uncommitted\|branch:<ref>\|commit:<sha>` | uses the server's native reviewer; see `--help` |
+| a review pass | `--review uncommitted\|branch:<ref>\|commit:<sha>` | uses the native reviewer; `uncommitted` excludes a fresh `--worktree`; see `--help` |
 | correcting a running subagent | `--steer-file <file>` | changes input but never rights; see `--help` |
 | a schema-validated return | `--output-schema <file>` | spends one corrective turn before exit 13; see `--help` |
 | a short return plus transcript | `--brief` | full generated text remains at `answerPath`; see `--help` |
+| branch an existing agent context | `--fork <threadId> [--fork-through <turnId>]` | creates a new resumable thread with the caller's declared rights |
+| compact a long continuation | `--resume <threadId> --compact` | compacts before the next turn |
+| a subset of MCP tools | `--mcp --mcp-server <name>` | repeatable allowlist; filesystem and network flags still govern built-in tools |
+| per-turn reasoning-summary density | `--reasoning-summary auto\|concise\|detailed` | passed as `turn/start.summary` |
+| structured adversarial review | [adversarial-review.md](adversarial-review.md) plus [`review-output.schema.json`](../schemas/review-output.schema.json) | strict, grounded ship/no-ship result |
+| optional stop-time review | `CODEX_DELEGATE_STOP_GATE=1 node scripts/stop-gate.mjs` | reviews uncommitted work; intentionally not registered as a hook |
 | a permission prompt | none — refused, recorded, exit 6 | deliberate; see Escalations |
 
 “Escalations” refers to [SKILL.md's escalation and lock rules](../SKILL.md#escalations-and-locks).
@@ -59,8 +68,21 @@ The default private `CODEX_HOME` excludes the user's plugins, skills, MCP tools,
 entries on stderr, and deletes the home at exit; those servers run with the user's rights. `--host-home`
 restores the whole host configuration, including its nondeterminism.
 
+Supplying a model or effort triggers `model/list` validation before the thread starts. The driver also
+reads `account/rateLimits/read` once: an exhausted primary window is refused, while an unavailable
+snapshot is reported on stderr and does not block the seat.
+
 Web search is disabled unless a mode is requested. A managed device may allow only some modes; the
 driver refuses a forbidden mode with exit 2 instead of accepting a silent substitution.
+
+### Effort
+
+| Effort | Use |
+| --- | --- |
+| `low` | fact lookup |
+| `medium` | ordinary review |
+| `high`, `xhigh` | refutation, competing designs, a second implementation |
+| `max`, `ultra` | the hardest problems; `ultra` delegates to its own subagent threads |
 
 ### Attachments and pasted images
 
@@ -79,7 +101,10 @@ calls the driver and preserves turn order; selection, age limits, storage, and d
 `--progress` writes one stderr line for each run/edit/search item start; the rollout under
 `~/.codex/sessions` remains the full live transcript. `--review` returns the native review payload as
 the answer; failed reviewer probes do not themselves fail the run, and no prompt is required.
-`--steer-file` polls once per second, drains appended text into the active turn, and never changes rights.
+`--steer-file` polls once per second, **claims** the file by renaming it aside, sends its text into the
+active turn, and never changes rights. The inbox path is free as soon as text is claimed, so a correction
+written while the previous one is in flight lands in a fresh file for the next tick.
+The latest `turn/diff/updated` payload is retained at `turnDiffPath`.
 
 `--output-schema` constrains generation and then validates independently. Every object in the schema
 must set `additionalProperties: false` and list all properties in `required`; express optionality with a
@@ -103,6 +128,10 @@ concurrent writer its own cwd; read seats take no lock and may share one.
 | native wrapper agents launched together | each reports separately | each run needs wrapper reasoning |
 | Workflow agents | each reports by phase | verification and synthesis are staged |
 | one shell that ends in `wait` | reports after the slowest child | the next step requires all results |
+| `--detach` plus a later `--wait` | no notification; poll `--jobs` or block in `--wait` | workflows, `-p` sessions, the relay, anything past the tool's call cap |
+
+From the main conversation the short-seat route is the blocking driver in a `run_in_background: true`
+Bash call, which has no cap and notifies on completion (measured).
 
 Do not background a wrapper script that forks driver calls with `&` and exits: the harness tracks its
 parent, the children are reparented, and no result returns. The driver finds `codex` through PATH and

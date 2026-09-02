@@ -3,6 +3,59 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+### Relay
+
+- Made the header optional, preserved `TASK:` in the body, resolved the driver across install routes,
+  returned the complete report envelope and verbatim answer, and distinguished gate verdicts from runs
+  that never started.
+
+### Documentation
+
+- Rebuilt the skill as a compact Agent Skills entrypoint, added focused parity and incident references,
+  and stated the governing goal: a native-style one-call subagent with nothing to configure.
+
+### Evidence path
+
+- Classified parsed command actions rather than shell wrappers, restored real negative-probe handling,
+  treated unknown command verdicts as exit 11, aligned review shapes with the live server, and added a
+  live-turn fidelity path.
+
+### Robustness
+
+- Hardened signal teardown, stdout framing and draining, config inheritance, lock identity, seat-file
+  booleans, steering claims, protected roots, and verifier process groups; streamed verifier output and
+  added the read-profile sandboxed verifier.
+
+### Worktree lifecycle
+
+- Made driver-owned git immune to hooks, fsmonitor, text conversion, and external diffs; recorded intent
+  before checkout, retained refs before cleanup, reaped abandoned MCP homes, and allowed finished
+  worktree threads to resume by rebuilding their harvested content.
+
+### Issue #1
+
+- Preserved answers at a caller-declared wall-clock cut with wrap-up steering, interrupt grace, partial
+  capture, and timing; added token and silence bounds.
+- Added detached seats and `--wait`, `--wait-timeout`, `--jobs`, and `--cancel`, plus relay fields
+  `DETACH`, `WAIT_TIMEOUT`, and `COLLECT`. Job records expose mid-flight progress; `endedAt` follows the
+  completed report. Locks and worktree ledgers retain `appServerPgid` and are reclaimed only after both
+  driver and app-server group are gone.
+- Changed native defaults to no wall clock, 15 minutes of silence, and 1,000 commands. The relay detaches
+  and waits repeatedly so one Agent call lasts as long as the work.
+
+### Parity
+
+- Added fork, model/effort catalogue preflight, rate-limit snapshots, compact continuation, turn diffs,
+  reasoning-summary control, MCP-server subsets, strict adversarial review, and an opt-in stop-time gate.
+
+### Structure and CI
+
+- Added `npm test` over seven suites, a shared harness, exported driver constants, generated help and
+  exit-ladder text, package/version agreement checks, and CI for the six free suites across Linux and
+  macOS on Node 18 and 24. Added `--allow-failed-commands` for expected probe failures.
+
 ## [v0.6.0] — 2026-09-01
 
 - Completed a documentation-only best-practice pass: corrected eleven drifted claims, reduced the

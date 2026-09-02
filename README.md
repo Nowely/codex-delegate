@@ -25,9 +25,12 @@ not in the coordinator.
   `codex login status`. Runs reuse your credentials: `auth.json` is symlinked from your real `~/.codex`.
 - **codex-cli 0.150.1.** Everything here is measured against that build; `schema-0.150.1/` is the
   pinned protocol reference. After upgrading codex, run the fidelity suite (below) before trusting a run.
-- **Node 18 or later.** No dependencies: the driver is one file importing only `node:` builtins.
-- **macOS is the only measured platform.** Linux should work — the driver uses portable Node APIs — but
-  nobody has run it there.
+- **Node 18 or later.** Declared in `package.json` (`engines`) and run in CI on 18 and 24, Linux and
+  macOS. No dependencies: the driver is one file importing only `node:` builtins.
+- **macOS and Linux are both measured.** CI runs every suite that needs no `codex` binary on
+  ubuntu-latest and macos-latest; the one macOS-only call (the managed-preferences plist) is guarded.
+  Export `TMPDIR` when you do: at `--level read` it *is* the grant, a stock Linux shell leaves it unset,
+  and the driver refuses that with exit 2 before spawning anything.
 - **Your `~/.codex/config.toml` is the default policy.** Model, reasoning effort, personality and
   service tier are inherited from it unless overridden per call (`--model`, `--effort`); the driver
   deliberately sets no defaults of its own.
@@ -83,16 +86,14 @@ Verify the install from the checkout (plugin installs carry the suites too, unde
 costs nothing, calls no model:
 
 ```bash
-node evals/protocol.test.mjs   # the protocol and the result gates
-node evals/lock.test.mjs       # the cwd lock and the worktree lifecycle
-node evals/attach-pasted.test.mjs   # handing a seat the images the user pasted
-node evals/conformance.test.mjs     # does the fixture still speak like the pinned protocol?
-node evals/agent-contract.test.mjs  # does the shipped relay agent still match the driver?
-node evals/fidelity.test.mjs   # does the fixture still match YOUR codex?
+npm test    # = node evals/run-all.mjs — every suite, cheapest first, stops at the first red
 ```
 
-The last one is what to watch after a `codex` upgrade: it performs a real handshake and diffs it
-against the fixture, so protocol drift shows up as a failing case instead of a confident wrong answer.
+The last suite it runs, `fidelity`, is what to watch after a `codex` upgrade: it performs a real
+handshake and diffs it against the fixture, so protocol drift shows up as a failing case instead of a
+confident wrong answer. Without `codex` on `PATH` it skips and exits 0, which is what CI does; before a
+release run `node evals/fidelity.test.mjs --require-live` locally, where the skip becomes a failure.
+`CODEX_DELEGATE_LIVE_TURN=1` also spends one real turn.
 
 Run the suites from the **repository or plugin root**. Do not compute that root by appending `../..`
 to the skill path: where the skill is a symlink (the clone-and-symlink install above), Node collapses
@@ -119,12 +120,13 @@ say what that does and does not prove).
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
 agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed,
-use `Agent(subagent_type: "codex-delegate:codex-seat", prompt: "SEAT: read\nTASK: …")` or
+use `Agent(subagent_type: "codex-delegate:codex-seat", prompt: "TASK: …\nCHECK: …\nRETURN: …")` or
 `agentType: "codex-delegate:codex-seat"` in a workflow; the skill is
 `codex-delegate:codex-delegate`. A clone-and-symlink install instead uses bare `codex-seat` for both
-agent call spellings and `codex-delegate` for the skill. The pinned relay maps the SEAT header to
-driver flags, runs it once, and returns Codex's answer verbatim with the thread id and receipt, never
-an answer of its own.
+agent call spellings and `codex-delegate` for the skill. Add `SEAT: worktree <repo>` before `TASK:` for
+a managed writer. The pinned relay maps an optional header to driver flags, launches one seat, waits as
+long as it takes, and returns Codex's answer verbatim with the thread id and receipt, never an answer of
+its own.
 
 ## Rights, per call
 
@@ -135,12 +137,28 @@ an answer of its own.
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
 | `+ --network` / `--writable DIR` / `--commit` | egress, an extra root, or the repository's git dir — each an explicit opt-in |
 
+## Runs that outlive the call
+
+A detached run survives this process, its shell and the session; the run directory under the state dir
+is its transport.
+
+| Flag | Effect |
+| --- | --- |
+| `--detach` | start the turn in its own process group and print a handle: exit 10, `turnStatus: running`, `threadId`, `pid`, `runId`, and the paths its report and stderr will land at. Bounded by `--idle-timeout`, `--max-commands` and any `--timeout` exactly as a blocking run is |
+| `--wait-timeout S` | how long this process waits before handing back the handle: 0 under `--detach`, 7200 under `--wait` |
+| `--wait <id\|last>` | collect a detached run: its report to stdout and its stderr to stderr, byte for byte, under the code the run itself decided; exit 4 if it died without one |
+| `--jobs [--cwd R]` | the registry as JSON, status from pid liveness — `running` / `crashed` / `ended` — plus `lastEventAt`, `tokensSpent`, `commandsSeen` and `phase`; spawns nothing |
+| `--cancel <id>` | `SIGTERM` the run; its own handler writes the full interrupted report |
+
 ## Trust and verification
 
 - **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
   ladder of exit codes from the event stream. `SKILL.md` documents the ladder.
 - **Three gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
-  the model; `--expect-command <regex>` demands the work matched a declared signature;
+  the model — but with the coordinator's own rights, env and network, so a verifier that executes tree
+  contents (`npm test` runs the seat's `package.json` script) is running the seat's code; prefer one
+  that does not, or add `--verify-sandboxed` to put it behind the read-only profile;
+  `--expect-command <regex>` demands the work matched a declared signature;
   `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can
   be fooled: `SKILL.md` and [references/result-gates.md](skills/codex-delegate/references/result-gates.md).
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
@@ -174,10 +192,11 @@ carries no stability promise — hence the pinned schema and the fidelity suite.
 
 ```bash
 codex app-server generate-json-schema --out schema-<new-version>/
-node evals/fidelity.test.mjs
+npm test
+node evals/fidelity.test.mjs --require-live
 ```
 
-then re-run the remaining suites and re-check
+Then inspect any fixture/live difference and re-check
 [the dated parity reference](skills/codex-delegate/references/parity.md).
 
 ## Layout
@@ -189,13 +208,19 @@ skills/codex-delegate/           the skill: SKILL.md (the operating manual), scr
                                  which live only in the Claude Code transcript), references/
 agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
-evals/                           six suites — protocol, lock, attach-pasted, conformance (the fixture
-                                 against the pinned schemas), agent-contract, and fidelity against
-                                 the live server
+evals/                           seven suites — package (what ships, and the version it claims),
+                                 agent-contract, attach-pasted, conformance (the fixture against the
+                                 pinned schemas), protocol, lock, and fidelity against the live
+                                 server; run-all.mjs runs them, lib/harness.mjs is their shared machinery
+package.json                     private; the Node floor and `npm test`
+.github/workflows/ci.yml         the six free suites on {ubuntu, macOS} × Node {18, 24}
 schema-0.150.1/                  the pinned protocol schema the driver is written against; kept in the
                                  repo (and therefore in plugin installs) deliberately — it is the
                                  regeneration oracle the upgrade recipe diffs against, and stripping it
-                                 from installs would also strip the suites this README tells you to run
+                                 from installs would also strip the suites this README tells you to run.
+                                 The two consolidated `*.schemas.json` bundles inside it are read by
+                                 nothing here — conformance loads the per-type files. They stay so a
+                                 `diff -r` against a regeneration is clean
 ```
 
 Canonical homes for repeated stories:

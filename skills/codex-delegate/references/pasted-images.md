@@ -7,6 +7,9 @@
     --pasted-pick 1,3-4     1-based indices within ONE selected turn
     --pasted-allow-old      permit a turn >12h older than the session's newest record
 
+Everything after a bare `--` is the driver's; that `--` is what ends attach-pasted's own flags. If the
+latest human turn carries no image it refuses with exit 2 and names `--list` rather than reaching back.
+
 There is deliberately **no offset selector** (`back:2`, `--turns N`): machine records — task
 notifications, the skill loader's own injections, tool results — share the `user` type and interleave
 with yours, and a message queued while you compose the call shifts the count. An offset therefore

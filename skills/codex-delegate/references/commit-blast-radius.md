@@ -15,3 +15,10 @@ breaks any pre-commit hook that stashes (lint-staged runs `git stash`, which nee
 roots at all — it needs a permissions profile, which is a bigger change than this flag. Until then: prefer
 harvesting a diff over granting `--commit`, and when you do grant it, point `--cwd` at a worktree of a
 throwaway clone.
+
+The driver's own git is not exposed to what a `--commit` seat writes there. Every git it spawns carries
+`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c diff.external=`, every diff adds
+`--no-ext-diff --no-textconv`, and each call has a 120-second timeout with `SIGKILL`. Without that,
+harvest, worktree removal, and the next checkout ran the seat's hooks, fsmonitor, and external diff with
+the caller's rights before anyone read the report. This does not protect the seat's own commands or
+`--verify`, which run with the rights granted to them.

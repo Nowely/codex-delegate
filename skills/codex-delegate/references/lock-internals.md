@@ -13,8 +13,11 @@ of this driver's state — two runs under different values therefore do NOT excl
 in the directory it protects — a lock inside the cwd
 gets staged and committed by a turn running `git add -A` under `--commit`. It is keyed on the directory's
 identity (`dev:ino`), not on how the path was spelled, so a symlink, a rename or a case-variant cannot
-produce a second lock for one directory. Each file holds the pid, the cwd it locks and a start time, and
-the exit-10 message names the file to delete if the holder is really gone. `$TMPDIR` was rejected as a home
+produce a second lock for one directory. Each file holds the pid, a **second identity** for that pid (its
+process start time, from `ps -o lstart=` or `/proc/<pid>/stat`), the cwd it locks, and a start time. A pid
+alone is not an identity: lock files outlive reboots and `SIGKILL`, so a recycled pid otherwise makes a
+directory busy forever. A mismatched identity is stale; one that cannot be read proves nothing, so the
+lock is honoured. The exit-10 message names the file to delete if the holder is really gone. `$TMPDIR` was rejected as a home
 for it: it is a mutable environment variable, so two runs on one cwd under different values would take two
 different locks and both proceed, and it is the one place a `--level read` turn can write.
 
@@ -32,8 +35,12 @@ survives, as a backstop and nothing else: a marker whose mtime is over an hour o
 if a live process still bears its pid, because after an hour that pid is more likely recycled than
 stalled.
 
-The lock covers the whole run, not just the turn: the job-registry record and the isolated Codex home
-are written and read inside it, and an `--mcp` run's private home is deleted right after the release.
+The lock covers the whole run, not just the turn: the job-registry record is written and read inside it,
+and an `--mcp` run's private home is deleted right after release. The isolated Codex home is written
+**before** the lock: its config probe is a second process, and holding a write lock across it made an idle
+directory report exit 10. Concurrent writers there are safe by atomic rename, not by the lock. Detached
+records carry the app-server process group; a stale lock is reclaimed only when both driver and group are
+gone.
 
 The lock is released **after** the driver has waited its child process group out — SIGTERM, up to 2 s,
 then SIGKILL and up to 1 s more — so a next writer does not walk into a directory where the previous
@@ -44,4 +51,3 @@ seconds does not hold the lock any longer, and a driver killed with `SIGKILL` re
 (the next run reclaims the stale lock after finding its pid dead). It still serialises invocations
 rather than directories. What it does not cover at all is a shared scratch directory being deleted out
 from under a run by other work on the machine; give every concurrent run its own uniquely named cwd.
-
