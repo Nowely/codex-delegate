@@ -18,14 +18,27 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SCENARIOS } from "./fake-app-server.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 const DRIVER = path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs");
 const FAKE = path.join(HERE, "fake-app-server.mjs");
 
-const schemaDir = fs.readdirSync(ROOT).find((n) => /^schema-\d/.test(n));
+// The upgrade recipe in README.md generates a SECOND schema-<version>/ beside the old one, and
+// readdirSync order is not sorted — so "the first one that matches" could validate the fixture against
+// the version being replaced and say nothing. Pick the newest by version and name it in the output.
+const schemaDirs = fs.readdirSync(ROOT).filter((n) => /^schema-\d/.test(n))
+  .sort((a, b) => {
+    const part = (n) => n.slice("schema-".length).split(".").map((x) => Number.parseInt(x, 10) || 0);
+    const [pa, pb] = [part(a), part(b)];
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pb[i] ?? 0) - (pa[i] ?? 0);
+    return a < b ? 1 : -1;
+  });
+const schemaDir = schemaDirs[0];
 if (!schemaDir) { console.log("FAIL  no schema-<version>/ directory in the repository root"); process.exit(1); }
+if (schemaDirs.length > 1)
+  console.log(`note  ${schemaDirs.length} schema directories present; validating against the newest, ${schemaDir} (also: ${schemaDirs.slice(1).join(", ")})`);
 const SCHEMAS = path.join(ROOT, schemaDir);
 const load = (rel) => JSON.parse(fs.readFileSync(path.join(SCHEMAS, rel), "utf8"));
 
@@ -109,9 +122,11 @@ function check(value, schemaIn, root, at = "$") {
   return errs;
 }
 
-// Every scenario the fixture implements, read out of its own switch so a new one cannot be forgotten.
-const fixtureSrc = fs.readFileSync(FAKE, "utf8");
-const scenarios = [...new Set([...fixtureSrc.matchAll(/^\s*case "([a-z0-9-]+)":/gm)].map((m) => m[1]))];
+// Every scenario the fixture implements, taken from the fixture's own exported inventory. It used to be
+// a regex over `case` labels, which silently skipped every scenario dispatched before the turn/start
+// switch — all the sandbox-assert cases, the resume case and both review emitters, eleven in all. The
+// object review payload survived in exactly that gap.
+const scenarios = Object.keys(SCENARIOS);
 
 // A few scenarios only emit their interesting messages when the driver asks for the matching feature.
 const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-conformance-"));
@@ -123,22 +138,23 @@ fs.writeFileSync(schemaFile, JSON.stringify({
   type: "object", additionalProperties: false, required: ["verdict", "count"],
   properties: { verdict: { type: "string" }, count: { type: "integer" } },
 }));
-const EXTRA = {
-  "schema-good": ["--output-schema", schemaFile], "schema-retry": ["--output-schema", schemaFile],
-  "schema-never": ["--output-schema", schemaFile], "schema-retry-refused": ["--output-schema", schemaFile],
-  "late-completion": ["--timeout", "0.4", "--output-schema", schemaFile],
-  "stalled-turn": ["--timeout", "0.5"],
-  "resume-active": ["--resume", "thr_root"],
-};
-const REVIEW = new Set(["review-broken"]);
+// The inventory says what each scenario needs; the translation into flags lives here, because the
+// fixture cannot know the path of a schema file this suite writes.
+function argsFor(scenario) {
+  const s = SCENARIOS[scenario];
+  return [
+    ...(s.review ? ["--review", s.review] : ["--prompt", "conformance"]),
+    ...(s.resume ? ["--resume", s.resume] : []),
+    ...(s.outputSchema ? ["--output-schema", schemaFile] : []),
+    "--timeout", String(s.timeout ?? 20),
+  ];
+}
 
 function runScenario(scenario) {
   return new Promise((resolve) => {
     const emit = path.join(shimDir, `emit-${scenario}.jsonl`);
     try { fs.rmSync(emit, { force: true }); } catch {}
-    const args = [DRIVER, "--level", "read", "--cwd", shimDir, "--timeout", "20", "--json",
-      ...(REVIEW.has(scenario) ? ["--review", "uncommitted"] : ["--prompt", "conformance"]),
-      ...(EXTRA[scenario] ?? [])];
+    const args = [DRIVER, "--level", "read", "--cwd", shimDir, "--json", ...argsFor(scenario)];
     const p = spawn(process.execPath, args, {
       env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
              FAKE_EMIT_LOG: emit, CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state") },

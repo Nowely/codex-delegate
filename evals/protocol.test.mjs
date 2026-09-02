@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SCENARIOS } from "./fake-app-server.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
@@ -168,10 +169,28 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
-  { scenario: "happy",            expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
+  { scenario: "review-inline",    expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
     why: "--review runs the server's native reviewer: the exitedReviewMode payload is the answer, and a turn with no commands is its ordinary success",
     assert: (r) => (/off-by-one in clamp/.test(String(r.answer)) && r.commandsSucceeded === 0 && r.otherItemCounts?.exitedReviewMode === 1)
       || `the review did not become the answer: ${JSON.stringify({ a: String(r.answer).slice(0, 60), c: r.commandsSucceeded })}` },
+  { scenario: "review-inline",    expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
+    why: "ExitedReviewModeThreadItem.review is a STRING in the pinned schema and in every live review; the fixture's invented object kept a dead stringify branch in the driver alive, and the answer a caller reads must be the review, not a JSON dump of one",
+    assert: (r) => {
+      if (/^[[{]/.test(String(r.answer).trim())) return `the review came back as a JSON blob: ${String(r.answer).slice(0, 80)}`;
+      if (r.otherItemCounts?.enteredReviewMode !== 1) return `the review was not preceded by enteredReviewMode: ${JSON.stringify(r.otherItemCounts)}`;
+      // The reviewer's own failing probe and its one non-probe failure are its working method: the
+      // waiver is keyed on a review having ARRIVED, and both must be visible in the report.
+      return (r.commandsFailed === 1 && r.commandsProbeNegative === 1)
+        || `the reviewer's own commands were misclassified: ${JSON.stringify({ f: r.commandsFailed, p: r.commandsProbeNegative })}`;
+    } },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "the caller's own prompt comes back as a userMessage item at the top of every live turn; counted as activity it made every report claim work the seat never did, and as observable work it would have disarmed the transient-retry guard",
+    assert: (r) => (r.otherItemCounts === null || r.otherItemCounts.userMessage === undefined)
+      || `the caller's own prompt was reported as activity: ${JSON.stringify(r.otherItemCounts)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted", "--worktree", "/tmp"], noPrompt: true,
+    why: "a --worktree is created detached at HEAD and therefore holds no uncommitted changes: measured, the pair exited 0 answering 'no staged, unstaged, or untracked changes to review' — a review that examined nothing, reported as a clean bill of health",
+    assertStderr: (e) => /--review uncommitted and --worktree are contradictory/.test(e)
+      || `the empty-tree review was not refused: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted"],
     why: "--review builds its own prompt; a --prompt beside it (the harness always passes one here) is a contradiction, not an extra",
     assertStderr: (e) => /--review builds its own prompt/.test(e) || `the contradiction was not named: ${e.slice(0, 140)}` },
@@ -199,7 +218,7 @@ const CASES = [
       || `visibility fields wrong: ${JSON.stringify({ reasoning: r.reasoningSummary, other: r.otherItemCounts, items: r.otherItems, sub: r.subagentThreads, cmds: r.commandsSucceeded })}` },
   { scenario: "progress",         expect: EXIT.OK, args: ["--progress"],
     why: "--progress announces each item start on stderr, so a long seat is watchable live — a native subagent's progress visibility, without the delta firehose",
-    assertStderr: (e) => /> run: echo hi/.test(e) || `no progress line: ${e.slice(0, 160)}` },
+    assertStderr: (e) => /> run: .*echo hi/.test(e) || `no progress line: ${e.slice(0, 160)}` },
   { scenario: "progress",         expect: EXIT.OK,
     why: "without --progress the same events stay silent: the default report contract does not grow noise",
     assertStderr: (e) => !/> run:/.test(e) || "progress lines appeared without --progress" },
@@ -228,9 +247,33 @@ const CASES = [
       return /turn\/interrupt/.test(log) || `the driver never sent turn/interrupt: ${JSON.stringify(log)}`;
     } },
   { scenario: "probe-negative",   expect: EXIT.OK,
-    why: "a no-match grep or a false test is a probe answering 'no', not a failed command — routine research seats exited 11 for finding nothing",
-    assert: (r) => (r.commandsFailed === 0 && r.commandsProbeNegative === 2)
-      || `probe verdicts miscounted: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+    why: "a no-match grep or a false test is a probe answering 'no', not a failed command — routine research seats exited 11 for finding nothing. The commands arrive WRAPPED (`/bin/zsh -c '...'`), which is the whole reason the exemption used to be dead: the pattern was anchored on the wrapper",
+    assert: (r) => {
+      if (!(r.commands ?? []).every((c) => /^\/bin\/zsh -c /.test(c.command)))
+        return `the fixture stopped emitting the live wrapper, so this case no longer tests anything: ${JSON.stringify((r.commands ?? []).map((c) => c.command))}`;
+      return (r.commandsFailed === 0 && r.commandsProbeNegative === 2)
+        || `probe verdicts miscounted: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}`;
+    } },
+  { scenario: "probe-quoted",     expect: EXIT.OK,
+    why: "the server wraps a script carrying a double quote in double quotes and escapes the inner ones — measured live — so the bare command survives only in commandActions; unwrapping the text by hand cannot recover it, and the probe exemption dies again for exactly the seats that use quoted patterns",
+    assert: (r) => (r.commandsFailed === 0 && r.commandsProbeNegative === 1)
+      || `a quoted probe was not recovered from the server's own parse: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "probe-piped",      expect: EXIT.COMMAND_FAILED,
+    why: "a probe piped into another command exits with the LAST command's status, and the server parses it into two actions — classifying on the first one would launder `grep x | tail` exiting 1 into 'the probe answered no'",
+    assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
+      || `a pipeline was laundered into a probe: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "escalated",        expect: EXIT.ESCALATED,
+    why: "a refused approval completes its item as DECLINED with no exit code: that is a failure whatever the code says, never an unresolved command, and never a probe answering 'no' however grep-shaped its text",
+    assert: (r) => (r.commandsFailed === 2 && r.commandsBlocked === 0 && r.commandsProbeNegative === 0)
+      || `a declined command was misclassified: ${JSON.stringify({ f: r.commandsFailed, b: r.commandsBlocked, p: r.commandsProbeNegative })}` },
+  { scenario: "blocked-command",  expect: EXIT.COMMAND_FAILED,
+    why: "a command item with no numeric exit code that is neither failed nor declined has no verdict at all; the footer printed it as NEVER RAN while the ladder ignored it, so one success beside one unresolved command reported ok: true under an answer claiming the suite passed",
+    assert: (r) => (r.commandsBlocked === 1 && r.commandsFailed === 0 && r.commandsSucceeded === 1)
+      || `the unresolved command was not counted: ${JSON.stringify({ b: r.commandsBlocked, f: r.commandsFailed, s: r.commandsSucceeded })}` },
+  { scenario: "blocked-command",  expect: EXIT.OK, args: ["--verify", "true"],
+    why: "an unresolved command lands on the same rung as a failed one, and takes the same waiver: the caller's own check measured the end state, which outranks a missing verdict",
+    assert: (r) => (r.verify?.ok === true && r.commandsBlocked === 1)
+      || `the waiver did not apply: ${JSON.stringify({ v: r.verify, b: r.commandsBlocked })}` },
   { scenario: "probe-multiline",  expect: EXIT.COMMAND_FAILED,
     why: "codex sends multi-line bash scripts; a newline is a command separator too, so 'grep -q x file\\npnpm test' exiting 1 is a failed suite, not a probe answering no",
     assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
@@ -541,6 +584,17 @@ const CASES = [
     assertStderr: (e) => /refusing to grant write access/.test(e)
       || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` }
 ];
+
+// Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells
+// would reach the fixture's default branch, and a case that measures nothing looks exactly like a case
+// that passes.
+{
+  const unknown = [...new Set(CASES.map((c) => c.scenario))].filter((s) => !Object.hasOwn(SCENARIOS, s));
+  if (unknown.length) {
+    console.log(`FAIL  scenario(s) not in the fixture's inventory: ${unknown.join(", ")}`);
+    process.exit(1);
+  }
+}
 
 let seatSeq = 0;
 function run(c) {
