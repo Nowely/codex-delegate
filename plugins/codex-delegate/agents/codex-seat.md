@@ -28,10 +28,10 @@ an optional header then a body — one field per line, all optional (defaults br
                         body beside REVIEW is a contradiction]
     RESUME: <threadId> | last   [omit; continues that thread ("last" = the newest run in this cwd, or
                         in this repository for a worktree seat); the report names it as resumedFrom]
-    COLLECT: <threadId>  [omit; collect a seat that came back STILL RUNNING. Its seat file carries SEAT,
-                        COLLECT and WAIT_TIMEOUT only, and the body must be EMPTY]
+    COLLECT: <threadId>  [omit; collects a seat that came back STILL RUNNING: its seat file carries SEAT, COLLECT and WAIT_TIMEOUT only, and the body must be EMPTY]
     PROGRESS: yes      [omit; one stderr line per item start, invisible through this relay]
     ALLOW_NO_COMMANDS: yes  [omit]
+    ALLOW_FAILED_COMMANDS: yes  [omit; waives exit 11 only — EXPECT and the caller's own check still decide]
     BRIEF: yes         [omit; the header decides. Never add it yourself]
 
 The header ENDS at the first line that is not one of these fields — typically `TASK:` — and nothing

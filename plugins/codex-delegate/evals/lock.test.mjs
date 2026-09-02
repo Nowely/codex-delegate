@@ -16,12 +16,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
-const FAKE = path.join(HERE, "fake-app-server.mjs");
-const EXIT = { OK: 0, USAGE: 2, TRANSPORT: 4, VERIFY_FAILED: 9, BUSY: 10 };
+import { DRIVER, EXIT, FAKE, codexShim, lockKey, registry, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
 
 // A state directory of this suite's own. Without it every case wrote into the caller's real
 // ~/.codex-delegate — the locks it plants, the isolated Codex home it rewrites, the answer log it
@@ -32,18 +27,14 @@ const EXIT = { OK: 0, USAGE: 2, TRANSPORT: 4, VERIFY_FAILED: 9, BUSY: 10 };
 // It does NOT weaken the case below that pins the lock dir against a moving $HOME: a driver that
 // regressed to os.homedir() would ignore this variable and put its lock under the decoy home, which is
 // precisely what that case looks for.
-const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "codex-lock-state-"));
+const STATE_DIR = tempDir("codex-lock-state-");
 const LOCK_DIR = path.join(STATE_DIR, "locks");
-// Must mirror acquireLock exactly: the key is the directory's IDENTITY (dev:ino), not its spelling, so
-// that a case-variant or renamed path cannot produce a second lock for one directory.
-const lockFor = (dir) => {
-  const st = fs.statSync(dir);
-  return path.join(LOCK_DIR, `${crypto.createHash("sha256").update(`${st.dev}:${st.ino}`).digest("hex")}.lock`);
-};
+// acquireLock's own key function, not a copy of it: the key is the directory's IDENTITY (dev:ino), and a
+// second implementation here would let the two drift while every case stayed green.
+const lockFor = (dir) => path.join(LOCK_DIR, lockKey(fs.statSync(dir)));
 
-const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-lock-shim-"));
-fs.writeFileSync(path.join(shimDir, "codex"),
-  `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+const shimDir = tempDir("codex-lock-shim-");
+codexShim(shimDir);
 
 const workDirs = [];
 function freshDir(name) {
@@ -55,27 +46,14 @@ function freshDir(name) {
 // --level write, so acquireLock actually runs. A slow scenario is used where a case needs the lock held
 // while a second run tries for it.
 function run(dir, { scenario = "happy", timeout = 30, args = [], env = {} } = {}) {
-  return new Promise((resolve) => {
-    const p = spawn(process.execPath,
-      [DRIVER, "--level", "write", ...(dir === null ? [] : ["--cwd", dir]),
-       "--timeout", String(timeout), "--json", "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
-      { env: (() => {
-          const e = { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
-                      CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env };
-          // `undefined` in a spawn env is stringified, so an unset variable has to be deleted outright.
-          for (const [k, v] of Object.entries(env)) if (v === undefined) delete e[k];
-          return e;
-        })(),
-        stdio: ["ignore", "pipe", "pipe"] });
-    let out = "", err = "";
-    p.stdout.on("data", (d) => { out += d; });
-    p.stderr.on("data", (d) => { err += d; });
-    p.on("close", (code) => resolve({ code, out, err }));
-  });
+  return spawnNode(
+    [DRIVER, "--level", "write", ...(dir === null ? [] : ["--cwd", dir]),
+     "--timeout", String(timeout), "--json", "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
+    { env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
+             CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env } }).done;
 }
 
-const CASES = [];
-const test = (name, why, fn) => CASES.push({ name, why, fn });
+const { cases: CASES, test } = registry();
 
 test("parseArgs rejects the listed invalid arguments before the turn starts",
   "each usage guard is part of the CLI contract; letting any one through either starts a turn with unintended rights or fails later for a misleading reason",
@@ -919,39 +897,107 @@ test("the answer log is pruned by age",
 // either left the suite green. These cases send the signals.
 
 // A shim that leaves a TERM-ignoring descendant inside the codex process group, the shape of a test
-// server or watcher a turn walks away from. The marker makes it findable without guessing.
-const survivorMark = `CDSURV${crypto.randomBytes(3).toString("hex")}`;
-const survivorShim = fs.mkdtempSync(path.join(os.tmpdir(), "codex-lock-surv-"));
+// server or watcher a turn walks away from.
+//
+// The descendant announces itself by creating a file NAMED after its own pid, and `exec`s sleep so that
+// one pid is the whole survivor: an ignored disposition survives execve, so the sleep inherits the
+// ignored TERM. Detection was `pgrep -f` over a comment marker in the shim's command line, which needs
+// a process table this suite may not be allowed to read — under a sandbox every signal case failed with
+// "the shim never produced a survivor" before it reached any signal handling. The file's NAME carries
+// the pid, so it is complete the moment the redirect creates it, with no partial-write window.
+const survivorShim = tempDir("codex-lock-surv-");
+const survivorPids = tempDir("codex-lock-surv-pids-");
 fs.writeFileSync(path.join(survivorShim, "codex"),
-  `#!/bin/sh\nsh -c 'trap "" TERM; sleep 300 #${survivorMark}' &\nexec "${process.execPath}" "${FAKE}" "$@"\n`,
+  `#!/bin/sh\nsh -c 'trap "" TERM; : > "${survivorPids}/$$"; exec sleep 300' &\nexec "${process.execPath}" "${FAKE}" "$@"\n`,
   { mode: 0o755 });
-const survivorsAlive = () =>
-  spawnSync("pgrep", ["-f", survivorMark], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
-const reapSurvivors = () => { try { spawnSync("pkill", ["-9", "-f", survivorMark]); } catch {} };
+const survivorPidFiles = () => { try { return fs.readdirSync(survivorPids); } catch { return []; } };
+const survivorsAlive = () => {
+  const alive = [];
+  for (const name of survivorPidFiles()) {
+    const pid = Number(name);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    // EPERM is a live process this suite may not signal, which is still a survivor; anything else means
+    // the pid is gone, and its file goes with it so a reused pid cannot be read as a second survivor.
+    try { process.kill(pid, 0); alive.push(name); }
+    catch (e) { if (e?.code === "EPERM") alive.push(name); else fs.rmSync(path.join(survivorPids, name), { force: true }); }
+  }
+  return alive;
+};
+const reapSurvivors = () => {
+  for (const name of survivorPidFiles()) {
+    const pid = Number(name);
+    if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    fs.rmSync(path.join(survivorPids, name), { force: true });
+  }
+};
 
 // Spawns a write-level run and hands back the child, so a case can signal it mid-turn.
 function spawnRun(dir, { scenario = "stalled-turn", args = [], shim = survivorShim, env = {} } = {}) {
-  const p = spawn(process.execPath,
+  const { child: p, done, stderrSoFar } = spawnNode(
     [DRIVER, "--level", "write", "--cwd", dir, "--timeout", "60", "--allow-no-commands", ...args,
      "--prompt", "irrelevant, the server is scripted"],
-    { env: { ...process.env, PATH: `${shim}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
-             CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env },
-      stdio: ["ignore", "pipe", "pipe"] });
-  let out = "", err = "";
-  p.stdout.on("data", (d) => { out += d; });
-  p.stderr.on("data", (d) => { err += d; });
-  const done = new Promise((res) => p.on("close", (code) => res({ code, out, err })));
+    { env: { PATH: `${shim}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
+             CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env } });
   // The accumulating stderr, so a case can wait for the driver to announce its thread. The lock is taken
   // BEFORE codex is spawned, so "the lock exists" does not mean "there is a turn to report": under load
   // a signal sent on that signal arrived while rootThreadId was still null and got the documented
   // exit 4 for a run with nothing to hand back. Waiting for `threadId=` is waiting for the precondition
   // the case is actually about.
-  return { p, done, stderrSoFar: () => err };
+  return { p, done, stderrSoFar };
 }
 const waitFor = async (fn, ms = 15000) => {
   for (const end = Date.now() + ms; Date.now() < end; ) { if (fn()) return true; await new Promise((r) => setTimeout(r, 25)); }
   return false;
 };
+
+// The preconditions every signal case needs before it can signal anything: a survivor in the group, the
+// lock taken, the thread announced and the turn started. Returns null when they all arrived, or the
+// reason they did not — and kills the run either way, so a failure leaves nothing behind.
+async function readyToSignal(p, stderrSoFar, rpcLog) {
+  const fail = (why) => { p.kill("SIGKILL"); reapSurvivors(); return why; };
+  if (!await waitFor(() => survivorsAlive().length > 0)) return fail("the shim never produced a survivor");
+  if (!await waitFor(() => fs.existsSync(rpcLog) && /thread\/start/.test(fs.readFileSync(rpcLog, "utf8"))))
+    return fail("the run never started a thread");
+  // Signalling on the lock alone is a race the driver wins correctly — no thread means nothing to report,
+  // which is exit 4 — but it is not what these cases are about.
+  if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) return fail("the run never announced a thread");
+  // And for the TURN: the interrupt needs a turn id, and threadId= is announced before the turn/start
+  // response arrives. The rpc log records the request reaching the fixture; a short settle lets the
+  // driver consume the response that carries the id.
+  if (!await waitFor(() => { try { return /turn\/start/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }))
+    return fail("the turn never started");
+  await new Promise((r) => setTimeout(r, 150));
+  return null;
+}
+
+test("--host-home sweeps the group and releases the lock exactly as an isolated run does",
+  "the coverage ledger lists --host-home as unmeasured. It is the one path that sets no CODEX_HOME and links nothing into place, so every teardown guarantee is reached through different setup code there — and a TERM-ignoring descendant is the shape that separates a group waited out from one merely signalled",
+  async () => {
+    reapSurvivors();
+    const d = freshDir("host-home");
+    // A home of this suite's own. --host-home hands the child the driver's own environment untouched, so
+    // this is what keeps the case off the caller's real ~/.codex; the fixture opens neither.
+    const home = tempDir("codex-lock-host-home-");
+    const rpcLog = path.join(d, "rpc-host-home.log");
+    const { p, done, stderrSoFar } = spawnRun(d, { args: ["--host-home"],
+      env: { FAKE_RPC_LOG: rpcLog, HOME: home, CODEX_HOME: path.join(home, ".codex") } });
+    const notReady = await readyToSignal(p, stderrSoFar, rpcLog);
+    if (notReady) return notReady;
+    p.kill("SIGTERM");
+    const { code, out } = await done;
+    const orphans = survivorsAlive();
+    const lockLeft = fs.existsSync(lockFor(d));
+    reapSurvivors();
+    if (orphans.length) return `--host-home left ${orphans.length} descendant(s) behind: ${orphans.join(",")}`;
+    if (lockLeft) return `--host-home left the cwd lock at ${lockFor(d)}`;
+    if (code !== 1) return `--host-home exited ${code}, expected 1 (the turn did not complete)`;
+    let r = null;
+    try { r = JSON.parse(out); } catch { return `--host-home produced no JSON report (${out.length} bytes of stdout)`; }
+    // The flag's own effect, so the case cannot pass on a run that quietly used the isolated home after all.
+    if (r.codexHome !== null) return `--host-home ran against ${JSON.stringify(r.codexHome)}, not the caller's own home`;
+    if (r.turnStatus !== "interrupted") return `the report did not say the turn was interrupted: ${JSON.stringify(r.turnStatus)}`;
+    return true;
+  });
 
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   test(`${sig} reports the turn, sweeps the group and releases the lock`,
@@ -963,17 +1009,9 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
       const d = freshDir(`sig-${sig}`);
       const rpcLog = path.join(d, `rpc-${sig}.log`);
       const { p, done, stderrSoFar } = spawnRun(d, { env: { FAKE_RPC_LOG: rpcLog } });
-      if (!await waitFor(() => survivorsAlive().length > 0)) { p.kill("SIGKILL"); reapSurvivors(); return "the shim never produced a survivor"; }
       if (!await waitFor(() => fs.existsSync(lockFor(d)))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never took its lock"; }
-      // And wait for the thread itself. Signalling on the lock alone is a race the driver wins
-      // correctly — no thread means nothing to report, which is exit 4 — but it is not this case.
-      if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never announced a thread"; }
-      // And for the TURN: the interrupt needs a turn id, and threadId= is announced before the
-      // turn/start response arrives. The rpc log records the request reaching the fixture; a short
-      // settle lets the driver consume the response that carries the id.
-      if (!await waitFor(() => { try { return /turn\/start/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }))
-        { p.kill("SIGKILL"); reapSurvivors(); return "the turn never started"; }
-      await new Promise((r) => setTimeout(r, 150));
+      const notReady = await readyToSignal(p, stderrSoFar, rpcLog);
+      if (notReady) return notReady;
       p.kill(sig);
       const { code, out } = await done;
       const orphans = survivorsAlive();
@@ -1674,14 +1712,7 @@ test("a lock is reclaimed only when the driver AND its app-server group are both
     return true;
   });
 
-let failed = 0;
-for (const c of CASES) {
-  let verdict;
-  try { verdict = await c.fn(); }
-  catch (e) { verdict = `threw: ${e.message}`; }
-  if (verdict === true) console.log(`ok    ${c.name}`);
-  else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
-}
+const failed = await runCases(CASES);
 
 // Several cases plant locks in the suite's own state directory on purpose. Compute their paths while
 // the work directories still exist, or the residue outlives the suite.
@@ -1691,6 +1722,5 @@ for (const d of workDirs) {
 }
 // Every tempdir this suite made, not just the work dirs: STATE_DIR and the survivor shim used to be
 // left behind on every run — 217 had accumulated in $TMPDIR before anyone counted.
-for (const d of [shimDir, STATE_DIR, survivorShim]) fs.rmSync(d, { recursive: true, force: true });
-console.log(failed ? `\n${failed}/${CASES.length} failed` : `\nall ${CASES.length} passed`);
-process.exit(failed ? 1 : 0);
+for (const d of [shimDir, STATE_DIR, survivorShim, survivorPids]) fs.rmSync(d, { recursive: true, force: true });
+process.exit(summarize(failed, CASES.length));

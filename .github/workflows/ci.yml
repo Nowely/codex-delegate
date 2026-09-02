@@ -1,0 +1,53 @@
+name: CI
+
+# The six suites that need no `codex` binary and call no model. Nothing but a person's memory was running
+# them. The matrix exists because the driver has one macOS-only call (the managed preferences plist) and
+# Linux was never measured at all, and because the Node floor package.json declares — 18 — was a claim
+# nothing tested.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    name: suites (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["18", "24"]
+    env:
+      # $TMPDIR is the whole grant at --level read, and a stock Linux shell does not set it: without this
+      # every read-level case is a usage error before anything is spawned.
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # evals/package.test.mjs compares the tree's version against the newest v* tag, and a shallow
+          # checkout carries no tags at all.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # Parsed before anything runs: a syntax error under the older engine is the one failure that must
+      # not arrive disguised as a broken test.
+      - name: Parse every shipped script under this engine
+        run: |
+          node --check skills/codex-delegate/scripts/driver.mjs
+          node --check skills/codex-delegate/scripts/attach-pasted.mjs
+          node --check skills/codex-delegate/scripts/stop-gate.mjs
+          node --check evals/fake-app-server.mjs
+      # No install step: the driver, the suites and the fixture import node: builtins only.
+      # run-all's seventh suite, fidelity, needs the real `codex` and is not installed here: it skips,
+      # says so, and exits 0. It stays a LOCAL pre-release step — it needs an authenticated home and its
+      # live-turn case spends real money — and `--require-live` is the flag for that local gate.
+      - name: Suites
+        run: npm test
+

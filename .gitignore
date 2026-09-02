@@ -4,3 +4,8 @@
 .codex-delegate.lock
 
 .DS_Store
+
+# Claude Code's per-checkout state, none of it this plugin's payload: the model pin in
+# settings.local.json is one machine's, and worktrees/ is where --worktree cuts its trees.
+# They stay untracked here only via one contributor's global excludes otherwise.
+.claude/

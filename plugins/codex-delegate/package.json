@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node evals/run-all.mjs"
+  }
+}

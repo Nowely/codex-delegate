@@ -13,17 +13,10 @@
 // REPORTED as unchecked rather than silently skipped, so "conformant" cannot come to mean "nothing was
 // looked at".
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { SCENARIOS } from "./fake-app-server.mjs";
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(HERE, "..");
-const DRIVER = path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs");
-const FAKE = path.join(HERE, "fake-app-server.mjs");
+import { DRIVER, ROOT, codexShim, spawnNode, tempDir } from "./lib/harness.mjs";
 
 // The upgrade recipe in README.md generates a SECOND schema-<version>/ beside the old one, and
 // readdirSync order is not sorted — so "the first one that matches" could validate the fixture against
@@ -133,10 +126,8 @@ function check(value, schemaIn, root, at = "$") {
 const scenarios = Object.keys(SCENARIOS);
 
 // A few scenarios only emit their interesting messages when the driver asks for the matching feature.
-const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-conformance-"));
-process.on("exit", () => { try { fs.rmSync(shimDir, { recursive: true, force: true }); } catch {} });
-fs.writeFileSync(path.join(shimDir, "codex"),
-  `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+const shimDir = tempDir("codex-conformance-");
+codexShim(shimDir);
 const schemaFile = path.join(shimDir, "s.json");
 fs.writeFileSync(schemaFile, JSON.stringify({
   type: "object", additionalProperties: false, required: ["verdict", "count"],
@@ -159,23 +150,14 @@ function argsFor(scenario) {
   ];
 }
 
-function runScenario(scenario) {
-  return new Promise((resolve) => {
-    const emit = path.join(shimDir, `emit-${scenario}.jsonl`);
-    try { fs.rmSync(emit, { force: true }); } catch {}
-    const args = [DRIVER, "--level", "read", "--cwd", shimDir, "--json", ...argsFor(scenario)];
-    const p = spawn(process.execPath, args, {
-      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
-             FAKE_EMIT_LOG: emit, CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state") },
-      stdio: ["ignore", "ignore", "ignore"] });
-    const bell = setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, 30000);
-    p.on("close", () => {
-      clearTimeout(bell);
-      let lines = [];
-      try { lines = fs.readFileSync(emit, "utf8").split("\n").filter((l) => l.trim()); } catch {}
-      resolve(lines);
-    });
-  });
+async function runScenario(scenario) {
+  const emit = path.join(shimDir, `emit-${scenario}.jsonl`);
+  try { fs.rmSync(emit, { force: true }); } catch {}
+  await spawnNode([DRIVER, "--level", "read", "--cwd", shimDir, "--json", ...argsFor(scenario)], {
+    env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
+           FAKE_EMIT_LOG: emit, CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state") },
+    stdio: ["ignore", "ignore", "ignore"], killAfterMs: 30000 }).done;
+  try { return fs.readFileSync(emit, "utf8").split("\n").filter((l) => l.trim()); } catch { return []; }
 }
 
 let failed = 0, validated = 0, notifications = 0, requests = 0, responses = 0;
