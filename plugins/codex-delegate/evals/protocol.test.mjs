@@ -38,6 +38,10 @@ fs.writeFileSync(schemaFile, JSON.stringify({
   type: "object", additionalProperties: false, required: ["verdict", "count"],
   properties: { verdict: { type: "string", enum: ["ok", "bad"] }, count: { type: "integer" } }
 }));
+// A $TMPDIR the caller exports, distinct from --cwd: with the two equal the server subtracts the root
+// and the "an explicit TMPDIR is honoured" case would pass on an empty list.
+const explicitTmp = path.join(shimDir, "explicit-tmp");
+fs.mkdirSync(explicitTmp);
 const notExec = path.join(shimDir, "not-executable");
 fs.writeFileSync(notExec, "#!/bin/sh\necho unreachable\n", { mode: 0o644 });
 const laxSchemaFile = path.join(shimDir, "lax.schema.json");
@@ -122,9 +126,7 @@ fs.writeFileSync(path.join(mismatchDay, "rollout-2026-01-01T00-00-00-thr_root.js
 const interruptLog = path.join(shimDir, "rpc-interrupt.log");
 // One log per case that counts steers: the fixture APPENDS, so a shared file would let one case read
 // another's sends and a "sent exactly once" assertion would depend on the order the suite runs in.
-const budgetSoftLog = path.join(shimDir, "rpc-budget-soft.log");
-const budgetJumpLog = path.join(shimDir, "rpc-budget-jump.log");
-const reviewBudgetLog = path.join(shimDir, "rpc-review-budget.log");
+const reviewSteerLog = path.join(shimDir, "rpc-review-steer.log");
 const modelListLog = path.join(shimDir, "rpc-model-list.log");
 const unknownModelLog = path.join(shimDir, "rpc-unknown-model.log");
 const rateLimitLog = path.join(shimDir, "rpc-rate-limit.log");
@@ -305,9 +307,10 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nMCP: yes\n",
     why: "--mcp grants tool servers that run with the caller's rights outside the seat's sandbox; a relayed value must not be able to grant them",
     assertStderr: (e) => /unknown field "MCP"/.test(e) || `an injected MCP grant was accepted: ${e.slice(0, 160)}` },
-  { scenario: "progress",         expect: EXIT.OK, seat: "SEAT: read <CWD>\nEXPECT: echo\nPROGRESS: yes\n",
-    why: "the relay's header must keep up with the driver: PROGRESS/REVIEW/RESUME were added to the driver and the wrapper could not express them, the same drift class the audit found elsewhere",
-    assert: (r) => (r.seatFileFields ?? []).includes("PROGRESS") || `the seat file did not carry PROGRESS: ${JSON.stringify(r.seatFileFields)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nEXPECT: echo\nPROGRESS: yes\n",
+    why: "--progress instruments the CALLER's stderr, which a relay never shows, so it is a flag and a header naming it is a caller who believes something untrue about what he will see",
+    assertStderr: (e) => /PROGRESS is command-line-only; pass --progress/.test(e)
+      || `PROGRESS was still accepted as a seat field: ${e.slice(0, 200)}` },
   { scenario: "rich-items",       expect: EXIT.OK,
     why: "reasoning summaries, tool/search items and subagent threads used to be dropped on the floor — a turn that mostly searched or delegated looked idle; they are now VISIBLE in the report while the child's command still counts for nothing",
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
@@ -671,9 +674,9 @@ const CASES = [
   { scenario: "happy", seat: "EXPECT: foo\nSEAT: read <CWD>\n", expect: EXIT.USAGE,
     why: "SEAT must come FIRST. A relay that wrote any other field first left the rights slot open, and an injected `SEAT: write ...` line then defined them",
     assertStderr: (e) => /first field must be SEAT/.test(e) || `a seat file without a leading SEAT was accepted: ${e.slice(0, 160)}` },
-  { scenario: "happy", seat: "TIMEOUT: 20\nEXPECT: foo\n", expect: EXIT.USAGE,
-    why: "a seat file with no SEAT at all declares no rights, and defaulting them is exactly what a rights declaration exists to prevent",
-    assertStderr: (e) => /first field must be SEAT|no SEAT field/.test(e) || `a seat file with no SEAT was accepted: ${e.slice(0, 160)}` },
+  { scenario: "happy", seat: "# a header that declares nothing\n\n", expect: EXIT.USAGE,
+    why: "a seat file with no SEAT at all declares no rights, and defaulting them is exactly what a rights declaration exists to prevent. Comments and blank lines are the only way past the first-field check, so this is the case that reaches the final one",
+    assertStderr: (e) => /no SEAT field/.test(e) || `a seat file with no SEAT was accepted: ${e.slice(0, 160)}` },
   { scenario: "happy", seat: "SEAT: read <CWD>\nVERIFY: touch <CWD>/seat-verify-must-not-run\n", expect: EXIT.USAGE,
     why: "VERIFY runs an unsandboxed /bin/sh with the caller's own rights. A newline inside any caller-supplied value creates a new field, so a relay copying values verbatim could introduce one — measured, it ran. From a seat file it now needs --allow-seat-verify, which only the command line can carry",
     assertStderr: (e) => /allow-seat-verify/.test(e) || `a seat file supplied a verifier unasked: ${e.slice(0, 200)}` },
@@ -708,10 +711,35 @@ const CASES = [
     why: "$TMPDIR IS the read level's grant, and it reached the sandbox unexamined: measured, `TMPDIR=~/.codex/x --level read` exited 0 with the server reporting write access inside the directory that holds the receipts",
     assertStderr: (e) => /refusing to grant write access/.test(e)
       || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, unsetEnv: ["TMPDIR"],
-    why: "with TMPDIR unset — the default on a stock Linux shell — the read level grants nothing at all. The refusal lived in assertReadSandbox, AFTER thread/start, so every such seat spent a process and a thread to report exit 4 with a 0-byte report for something knowable before the spawn",
-    assertStderr: (e) => (/TMPDIR is unset/.test(e) && !/read sandbox is not what was asked for/.test(e))
-      || `an unset TMPDIR was not refused before the spawn: ${e.slice(0, 240)}` },
+  { scenario: "happy",            expect: EXIT.OK, unsetEnv: ["TMPDIR"],
+    why: "TMPDIR unset is the default in a stock Linux shell, and refusing it made every such seat a usage error over an environment variable the caller never thought about. A private 0700 directory of the run's own is the narrower grant — the seat can start a test runner, and what it gets is one run's scratch space rather than all of /tmp",
+    assert: (r) => {
+      const roots = r.sandbox?.writableRoots ?? [];
+      if (roots.length !== 1) return `the private temp grant is not exactly one root: ${JSON.stringify(roots)}`;
+      if (!/codex-delegate-tmp-/.test(roots[0])) return `the grant was not a directory of this run's own: ${JSON.stringify(roots[0])}`;
+      if (roots[0] === os.tmpdir() || roots[0] === "/tmp") return `the grant is the whole system temp dir: ${JSON.stringify(roots[0])}`;
+      if (r.tmpDir !== null) return `an empty private temp directory was reported as kept: ${JSON.stringify(r.tmpDir)}`;
+      return !fs.existsSync(roots[0]) || `the run's private temp directory outlived it: ${roots[0]}`;
+    } },
+  { scenario: "tmp-write",        expect: EXIT.OK, unsetEnv: ["TMPDIR"],
+    why: "the private directory is the read seat's ONLY writable root, and --brief tells the seat to leave long output in a file there and give its absolute path. Removing it at exit took that file with it, so the one path the answer named resolved to nothing — measured against the same teardown that removes the per-run home",
+    assert: (r) => {
+      const named = /full notes at (\S+)/.exec(String(r.answer))?.[1];
+      if (!named) return `the seat did not name the file it wrote: ${String(r.answer).slice(0, 160)}`;
+      if (!fs.existsSync(named)) return `the path the answer names was removed with the run: ${named}`;
+      if (r.tmpDir === null) return "a kept private temp directory was not named in the report";
+      if (path.dirname(named) !== r.tmpDir) return `the report's tmpDir is not the directory the file is in: ${JSON.stringify({ tmpDir: r.tmpDir, named })}`;
+      fs.rmSync(r.tmpDir, { recursive: true, force: true });
+      return true;
+    } },
+  { scenario: "happy",            expect: EXIT.OK, env: { TMPDIR: explicitTmp },
+    why: "an explicit TMPDIR is honoured unchanged — the private directory is a fallback for an unset variable, never a substitution for the caller's own choice",
+    assert: (r) => {
+      const roots = r.sandbox?.writableRoots ?? [];
+      if (r.tmpDir !== null) return `a caller's own TMPDIR was reported as this run's to remove: ${JSON.stringify(r.tmpDir)}`;
+      return (roots.length === 1 && roots[0] === fs.realpathSync(explicitTmp))
+        || `an explicit TMPDIR did not survive as the grant: ${JSON.stringify(roots)}`;
+    } },
 
   // --- a server that dies mid-turn still has to hand back what the turn did ---
   { scenario: "server-crash",     expect: EXIT.TRANSPORT,
@@ -885,90 +913,57 @@ const CASES = [
     why: "and it must stay quiet otherwise: a warning printed on every run is a warning nobody reads",
     assertStderr: (e) => !/measured failure shape/.test(e) || `the effort warning fired for low effort: ${e.slice(0, 200)}` },
 
-  // --- the token budget: the bound a wall clock cannot express ---
-  { scenario: "budget-soft",      expect: EXIT.OK, args: ["--budget-tokens", "1000", "--timeout", "5"],
-    env: { FAKE_RPC_LOG: budgetSoftLog },
-    why: "the 80% rung, and it is a threshold rather than a level: usage arrives once per API call (E2), so a steer sent per event in the band between 80% and 100% would interrupt the very writing it asked for",
-    assert: (r) => {
-      const steers = steersIn(budgetSoftLog);
-      if (steers.length !== 1) return `the budget steer went out ${steers.length} time(s): ${JSON.stringify(steers)}`;
-      if (!steers[0].includes("BUDGET: you have used 80% (850 of 1000 tokens). Stop investigating now; write your final answer with what you have and say what you did not get to."))
-        return `the steer did not name the spend: ${steers[0]}`;
-      return (r.budget?.tokens === 1000 && r.budget?.spentTokens === 950 && r.budget?.softSteerAt === 850)
-        || `the report's budget is wrong: ${JSON.stringify(r.budget)}`;
-    } },
-  { scenario: "budget-hard",      expect: EXIT.TIMEOUT, args: ["--budget-tokens", "1000", "--timeout", "5"],
-    why: "the 100% rung lands on the same exit as the wall clock, with cut.kind naming which budget ran out — and it is a CUT, so the answer streaming when it landed comes back as the partial the interrupt discards",
-    assert: (r) => {
-      if (r.turnStatus !== "budgetExhausted") return `the turn status did not name the budget: ${JSON.stringify(r.turnStatus)}`;
-      if (r.cut?.kind !== "tokens" || r.cut.limit !== 1000 || r.cut.observed !== 1200)
-        return `the cut did not name the token budget it was cut on: ${JSON.stringify(r.cut)}`;
-      if (r.cut.completedInGrace !== false) return `nothing closed the turn, so completedInGrace must be false: ${JSON.stringify(r.cut)}`;
-      if (String(r.answer) !== "") return `an unfinished partial was promoted to the answer: ${JSON.stringify(String(r.answer).slice(0, 80))}`;
-      if (r.answerPartial !== "half an answer and no more") return `the partial was not reassembled from the deltas: ${JSON.stringify(r.answerPartial)}`;
-      if (!/a larger --budget-tokens/.test(String(r.hint))) return `exit 3 on a token cut told the caller to widen the clock: ${JSON.stringify(r.hint)}`;
-      return (r.budget?.spentTokens === 1200 && r.budget?.softSteerAt === 850)
-        || `the report's budget is wrong: ${JSON.stringify(r.budget)}`;
-    } },
-  { scenario: "budget-jump",      expect: EXIT.TIMEOUT, args: ["--budget-tokens", "1000", "--timeout", "5"],
-    env: { FAKE_RPC_LOG: budgetJumpLog },
-    why: "one API call can cross both thresholds; steering a turn that is about to be interrupted spends more of a budget that is already gone, so the hard rung wins outright and the report says the steer never happened",
-    assert: (r) => {
-      const steers = steersIn(budgetJumpLog);
-      if (steers.length) return `a turn about to be cut was steered first: ${JSON.stringify(steers)}`;
-      if (r.budget?.softSteerAt !== null) return `softSteerAt must be null when no steer went out: ${JSON.stringify(r.budget)}`;
-      return (r.cut?.kind === "tokens" && r.cut.observed === 1500 && r.turnStatus === "budgetExhausted")
-        || `the jump was not cut on the token budget: ${JSON.stringify({ cut: r.cut, t: r.turnStatus })}`;
-    } },
-  { scenario: "budget-resume",    expect: EXIT.OK, args: ["--resume", "thr_root", "--budget-tokens", "1000"],
-    why: "spend is INVOCATION-local: tokenUsage.total is cumulative for the thread, so a resumed seat would arrive already over any budget its earlier turns had spent. Measured live, thread/resume announces that history in one usage event carrying the PREVIOUS turn's id — reading it as this invocation's first call overcharged a real resumed seat by one prior API call (27296 tokens reported as 40835)",
-    assert: (r) => (r.budget?.spentTokens === 300 && r.budget?.softSteerAt === null && r.cut === null && r.resumedFrom === "thr_root")
-      || `the resumed seat was charged for its earlier turns: ${JSON.stringify({ budget: r.budget, cut: r.cut, from: r.resumedFrom })}` },
-  { scenario: "budget-resume-fallback", expect: EXIT.OK, args: ["--resume", "thr_root", "--budget-tokens", "1000"],
-    why: "and where that pre-turn event never arrives, the history is still recoverable from the first event of our OWN turn: total minus last, which E2 measured as exactly the call that event reports",
-    assert: (r) => (r.budget?.spentTokens === 300 && r.cut === null)
-      || `the fallback baseline did not recover the thread's history: ${JSON.stringify({ budget: r.budget, cut: r.cut })}` },
-  { scenario: "null-phase",       expect: EXIT.OK, args: ["--budget-tokens", "1000"],
-    why: "a budget nothing was ever counted against did not bound the run: spentTokens null says 'not counted', which is a different fact from 0, and the clock stays the only bound",
-    assert: (r) => (r.budget?.tokens === 1000 && r.budget?.spentTokens === null && r.budget?.softSteerAt === null)
-      || `a budget with no usage event reported a spend: ${JSON.stringify(r.budget)}` },
-  { scenario: "null-phase",       expect: EXIT.OK, args: ["--budget-tokens", "1000"],
-    why: "and it says so out loud, because a report that only carried null would let the caller believe the budget had held",
-    assertStderr: (e) => /sent no token-usage event/.test(e) || `the uncounted budget was silent: ${e.slice(0, 200)}` },
-  { scenario: "echo-instructions", expect: EXIT.OK, args: ["--budget-tokens", "50000"],
-    why: "the seat is told the token budget for the same reason it is told the clock: it cannot see either one, and a budget it cannot plan against is one it spends on investigation",
-    assert: (r) => /seconds of wall clock, and about 50000 tokens, for this turn/.test(String(r.answer))
-      || `the token budget never reached the seat: ${String(r.answer).slice(0, 240)}` },
-  { scenario: "review-instructions", expect: EXIT.OK, noPrompt: true,
-    args: ["--review", "uncommitted", "--budget-tokens", "50000"],
-    why: "and NOT under --review, where the server builds the reviewer's whole prompt: a budget sentence there names bounds the reviewer cannot act on, in a turn whose shape is fixed",
+  // --- the token accounting the SERVER does, which is not a bound the driver enforces ---
+  { scenario: "review-instructions", expect: EXIT.OK, noPrompt: true, args: ["--review", "uncommitted"],
+    why: "under --review the server builds the reviewer's whole prompt, so the wall-clock sentence names a bound the reviewer cannot act on in a turn whose shape is fixed; the standing rules still ride",
     assert: (r) => {
       if (!/unattended/.test(String(r.answer))) return `the review turn carried no developerInstructions at all: ${String(r.answer).slice(0, 160)}`;
       return !/seconds of wall clock/.test(String(r.answer))
-        || `a review turn was given a budget sentence: ${String(r.answer).slice(0, 240)}`;
+        || `a review turn was given a wall-clock sentence: ${String(r.answer).slice(0, 240)}`;
     } },
   { scenario: "review-inline",    expect: EXIT.OK, noPrompt: true,
-    args: ["--review", "uncommitted", "--budget-tokens", "1000"], env: { FAKE_RPC_LOG: reviewBudgetLog },
-    why: "the steers the DRIVER invents are refused under --review — the reviewer answers its own prompt in a fixed shape and 'write your final answer now' names nothing it can act on — while the accounting behind them keeps running",
+    args: ["--review", "uncommitted"], env: { FAKE_RPC_LOG: reviewSteerLog },
+    why: "the steer the DRIVER invents is refused under --review — the reviewer answers its own prompt in a fixed shape and 'write your final answer now' names nothing it can act on — while the server's own accounting still reaches the report",
     assert: (r) => {
-      const steers = steersIn(reviewBudgetLog);
+      const steers = steersIn(reviewSteerLog);
       if (steers.length) return `the server's own reviewer was steered: ${JSON.stringify(steers)}`;
-      return (r.budget?.spentTokens === 900 && r.budget?.softSteerAt === null)
-        || `the review's spend was not counted: ${JSON.stringify(r.budget)}`;
+      return r.tokenUsage?.total?.totalTokens === 900
+        || `the review's token usage did not reach the report: ${JSON.stringify(r.tokenUsage?.total)}`;
     } },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: lots\n",
-    why: "a budget is a number of tokens; anything else is a caller who meant something the driver cannot guess, and defaulting it would hide the mistake behind an uncut turn",
-    assertStderr: (e) => /--budget-tokens must be a positive whole number/.test(e)
-      || `a non-numeric BUDGET_TOKENS was accepted: ${e.slice(0, 200)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nIDLE_TIMEOUT: soon\n",
-    why: "same for the idle guard, whose 0 means OFF — a value that is not a number would silently disable the hang guard",
-    assertStderr: (e) => /--idle-timeout must be a number of seconds/.test(e)
-      || `a non-numeric IDLE_TIMEOUT was accepted: ${e.slice(0, 200)}` },
-  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: 100000\nIDLE_TIMEOUT: 300\n",
-    why: "and both ride the seat file, or the relay cannot express the bounds the driver enforces — the drift class the audit found in PROGRESS/REVIEW/RESUME",
-    assert: (r) => ((r.seatFileFields ?? []).includes("BUDGET_TOKENS") && (r.seatFileFields ?? []).includes("IDLE_TIMEOUT")
-        && r.budget?.tokens === 100000 && r.budget?.spentTokens === 135)
-      || `the seat file's budget did not reach the run: ${JSON.stringify({ fields: r.seatFileFields, budget: r.budget })}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: 100000\n",
+    why: "the token budget is gone entirely — a rudimentary bound nobody could size honestly — so the field it rode is not a knob to re-spell but an unknown one, and a header carrying it must fail loudly rather than run unbounded",
+    assertStderr: (e) => /unknown field "BUDGET_TOKENS"/.test(e)
+      || `BUDGET_TOKENS was still understood: ${e.slice(0, 200)}` },
+
+  // --- the bounds and the transport are flags: a seat file naming one is exit 2 ---
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nTIMEOUT: 30\n",
+    why: "the wall clock is the configuration the default exists to remove: a relay that copies a TIMEOUT out of a header reintroduces exactly the bound every seat would otherwise have to size, so the field is refused and the flag stays for the caller who really wants one",
+    assertStderr: (e) => /TIMEOUT is command-line-only; pass --timeout/.test(e)
+      || `a seat file still set the wall clock: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nIDLE_TIMEOUT: 300\n",
+    why: "same for the two always-armed bounds: 900 s of silence and 1000 commands are native-like defaults, and a header able to widen or disable them is a hang guard a relayed value can switch off",
+    assertStderr: (e) => /IDLE_TIMEOUT is command-line-only; pass --idle-timeout/.test(e)
+      || `a seat file still set the silence guard: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nMAX_COMMANDS: 2\n",
+    assertStderr: (e) => /MAX_COMMANDS is command-line-only; pass --max-commands/.test(e)
+      || `a seat file still set the command cap: ${e.slice(0, 200)}`,
+    why: "the volume cap is the maxTurns a native subagent has; the driver owns it" },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nDETACH: yes\n",
+    why: "the transport is the driver's, not the header's: DETACH, WAIT_TIMEOUT and COLLECT describe how a run is carried rather than what it may do, and a relay that writes them is choosing a transport its coordinator never asked about",
+    assertStderr: (e) => /DETACH is command-line-only; pass --detach/.test(e)
+      || `a seat file still chose the transport: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nWAIT_TIMEOUT: 560\n",
+    assertStderr: (e) => /WAIT_TIMEOUT is command-line-only; pass --wait-timeout/.test(e)
+      || `a seat file still sized a wait: ${e.slice(0, 200)}`,
+    why: "one wait's own budget is the collector's business, and the collector is a flag" },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nCOLLECT: thr_root\n",
+    assertStderr: (e) => /COLLECT is command-line-only; pass --wait/.test(e)
+      || `a seat file still collected a run: ${e.slice(0, 200)}`,
+    why: "collecting a detached run is a whole mode of its own, reached with --wait" },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nTIMEOUT: 30\n", args: ["--timeout", "5"],
+    why: "and the refusal is not waived by passing the flag too: a seat file that names a bound is a caller who believes the file decides it, and running the flag's value silently would leave that belief in place",
+    assertStderr: (e) => /TIMEOUT is command-line-only/.test(e)
+      || `an explicit --timeout beside the field made the field acceptable: ${e.slice(0, 200)}` },
 
   // --- the idle guard: the bound that tells a working turn from a hung one ---
   { scenario: "idle-silence",     expect: EXIT.TIMEOUT, args: ["--idle-timeout", "1", "--timeout", "8"],
@@ -1043,10 +1038,24 @@ const CASES = [
     assert: (r) => (r.cut === null && r.commandsSucceeded === 6)
       || `the default command cap bit an ordinary turn: ${JSON.stringify({ cut: r.cut, cmds: r.commandsSucceeded })}` },
   { scenario: "many-commands",    expect: EXIT.TIMEOUT, noTimeout: true,
-    seat: "SEAT: read <CWD>\nMAX_COMMANDS: 2\n",
-    why: "and it rides the seat file, or the relay cannot express the bound the driver enforces — the drift class the audit found in PROGRESS/REVIEW/RESUME",
-    assert: (r) => ((r.seatFileFields ?? []).includes("MAX_COMMANDS") && r.cut?.kind === "commands" && r.cut.limit === 2)
-      || `the seat file's command cap did not reach the run: ${JSON.stringify({ fields: r.seatFileFields, cut: r.cut })}` }
+    seat: "SEAT: read <CWD>\n", args: ["--max-commands", "2"],
+    why: "the cap still reaches a SEAT-FILE run — the flag is appended after the file's own argv, which is the route a coordinator bounding a seat it did not author has to take",
+    assert: (r) => ((r.seatFileFields ?? []).join(",") === "SEAT" && r.cut?.kind === "commands" && r.cut.limit === 2)
+      || `the flag did not bound a seat-file run: ${JSON.stringify({ fields: r.seatFileFields, cut: r.cut })}` },
+
+  // --- the read level's cwd: a grant only where it grants something ---
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read\nEXPECT: echo\n",
+    why: "`SEAT: read` with no directory is the header a coordinator writes when the task is about the tree it is already standing in; refusing it made the ONE line a relay always has to fill in the one it could not omit",
+    assert: (r) => (r.cwd === (fs.realpathSync(process.cwd())) && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
+      || `a bare SEAT: read did not default to the current directory: ${JSON.stringify({ cwd: r.cwd, fields: r.seatFileFields })}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: write\n",
+    why: "and NOT at write level: there the cwd is the writable root itself, and a defaulted grant is one nobody made — the driver would hand the turn whatever directory the relay happened to be standing in",
+    assertStderr: (e) => /SEAT write needs a directory/.test(e)
+      || `a bare SEAT: write defaulted its writable root: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, noCwd: true, args: ["--level", "write"],
+    why: "the same rule on the command line, where --cwd used to be required at both levels",
+    assertStderr: (e) => /--cwd is required at --level write/.test(e)
+      || `--level write ran without a writable root: ${e.slice(0, 200)}` }
 ];
 
 // Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells
@@ -1074,7 +1083,7 @@ function run(c) {
     const { child: p, done } = spawnNode(
       // Every case gets a wall clock so a hung fixture cannot stall the suite; `noTimeout` opts out, and
       // that is the only way to measure the DEFAULT — which is now no wall clock at all.
-      [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]),
+      [DRIVER, ...(c.seat ? seatArgs : c.noCwd ? [] : ["--level", "read", "--cwd", shimDir]),
        ...(c.noTimeout ? [] : ["--timeout", "20"]),
        ...(c.json === false ? ["--footer"] : c.json === "omit" ? [] : ["--json"]),
        ...(c.noPrompt ? [] : ["--prompt", "irrelevant, the server is scripted"]), ...(c.args ?? [])],
@@ -1515,14 +1524,14 @@ flow("run directories are pruned on both bounds, and a run still writing into on
     return true;
   });
 
-flow("a seat file's DETACH does not detach the detached run's own child",
-  "the child re-reads the same seat file, DETACH line and all, so removing the flag from its command line cannot stop the recursion: --run-dir is what says 'you ARE the run', and without that precedence every relayed seat forks driver after driver",
+flow("a detached run's own child does not detach again",
+  "the child re-parses the front's command line, so the front has to strip --detach AND --run-dir has to win: without that precedence every seat forks driver after driver. DETACH is command-line-only now, so the seat file cannot reintroduce it either",
   async () => {
     const state = flowState();
     const { code, out, err } = await run({ scenario: "happy",
-      seat: "SEAT: read <CWD>\nTIMEOUT: 30\nDETACH: yes\nWAIT_TIMEOUT: 0\n",
+      seat: "SEAT: read <CWD>\n", args: ["--detach", "--timeout", "30", "--wait-timeout", "0"],
       env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.BUSY) return `the seat-file detach exited ${code}: ${err.slice(0, 200)}`;
+    if (code !== EXIT.BUSY) return `the detach exited ${code}: ${err.slice(0, 200)}`;
     const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
     if (h?.threadId !== "thr_root") return `no handle came back: ${out.slice(0, 160)}`;
     if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";

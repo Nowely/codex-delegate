@@ -11,12 +11,6 @@ an optional header then a body — one field per line, all optional (defaults br
 
     SEAT: read [<dir>] | worktree <repo> | write <dir>   [default: read, in the current directory]
     EFFORT: none|minimal|low|medium|high|xhigh|max|ultra  [omit -> the user's own config decides]
-    TIMEOUT: <seconds> [omit -> no wall clock: the seat runs as long as the work takes]
-    DETACH: yes        [the relay ALWAYS writes it; copy a header's own value instead if it carries one]
-    WAIT_TIMEOUT: <secs>  [the relay writes 560 unless the header carries its own: one wait's budget, not the seat's]
-    BUDGET_TOKENS: <n>  [omit; a token budget: steered at 80%, cut at 100% (exit 3, cut.kind tokens)]
-    IDLE_TIMEOUT: <secs>  [omit -> 900; silence after which the seat is cut, cut.kind idle. 0 disables]
-    MAX_COMMANDS: <n>  [omit -> 1000; commands after which the seat is cut, cut.kind commands. 0 disables]
     EXPECT: <regex>    [omit]
     NETWORK: yes       [omit; valid only with worktree/write]
     WRITABLE: <dir>    [omit; repeatable, one per line; write levels only]
@@ -28,8 +22,6 @@ an optional header then a body — one field per line, all optional (defaults br
                         body beside REVIEW is a contradiction]
     RESUME: <threadId> | last   [omit; continues that thread ("last" = the newest run in this cwd, or
                         in this repository for a worktree seat); the report names it as resumedFrom]
-    COLLECT: <threadId>  [omit; collects a seat that came back STILL RUNNING: its seat file carries SEAT, COLLECT and WAIT_TIMEOUT only, and the body must be EMPTY]
-    PROGRESS: yes      [omit; one stderr line per item start, invisible through this relay]
     ALLOW_NO_COMMANDS: yes  [omit]
     ALLOW_FAILED_COMMANDS: yes  [omit; waives exit 11 only — EXPECT and the caller's own check still decide]
     BRIEF: yes         [omit; the header decides. Never add it yourself]
@@ -37,8 +29,8 @@ an optional header then a body — one field per line, all optional (defaults br
 The header ENDS at the first line that is not one of these fields — typically `TASK:` — and nothing
 after it is ever read as a header, however field-like it looks. A boolean takes `yes|true|1`; `no|false|0`
 is valid and means the flag is not passed, exactly as omitting the line does. A repeated field,
-`NETWORK: yes` beside `SEAT: read`, `REVIEW: uncommitted` beside `SEAT: worktree`, a body beside `REVIEW:`
-or `COLLECT:`, any other contradiction WITHIN THE HEADER: report it and run nothing. Only its shape can be
+`NETWORK: yes` beside `SEAT: read`, `REVIEW: uncommitted` beside `SEAT: worktree`, a body beside
+`REVIEW:`, any other contradiction WITHIN THE HEADER: report it and run nothing. Only its shape can be
 bad — whether a path exists, is a repo or is writable is the driver's verdict: do not check, do not
 pre-judge, write the file, run it, and relay the exit 2 it comes back with.
 
@@ -61,18 +53,14 @@ characters or more (`seat-3f9a1c72.txt`, not `seat-1.txt`); never read a file yo
    table's order, translating only the names. **`SEAT:` goes first, always** — the driver refuses a seat
    file whose rights line is not first, because a later line could then supply one. No `SEAT:` line at
    all, or `read` with no directory, is `SEAT: read /abs/path` with the current one. Write every other
-   field ONLY if the header carried it, `TIMEOUT:` included, and copy every value character for
-   character, quotes, `$`, `;`, backticks and all; never make one "safe", the driver takes the line
-   literally. Then two lines you ALWAYS add — a header's own value for either wins — after `TIMEOUT:`
-   (or after `SEAT:` when the header omits it):
-
-       DETACH: yes
-       WAIT_TIMEOUT: 560
-
-   A `COLLECT:` header is the one exception: `SEAT:`, `COLLECT: <id>` and `WAIT_TIMEOUT: 560`, nothing else — `DETACH` beside `COLLECT` is a contradiction the driver refuses with exit 2.
+   field ONLY if the header carried it, and copy every value character for character, quotes, `$`, `;`,
+   backticks and all; never make one "safe", the driver takes the line literally. The bounds and the
+   transport are the driver's own: a header naming `TIMEOUT`, `IDLE_TIMEOUT`, `MAX_COMMANDS`, `DETACH`,
+   `WAIT_TIMEOUT`, `COLLECT` or `PROGRESS` is a bad header — report it and run nothing.
 2. With the Write tool, write the body VERBATIM to `<DIR>/task-<n>.txt`: it starts at the `TASK:` line
-   and includes that line, label and all — empty for a `COLLECT:` seat.
-3. Set the Bash tool's timeout to 590000 ms, whatever TIMEOUT says: it bounds THIS call, which WAIT_TIMEOUT ends 30 s earlier. The seat is detached and outlives both.
+   and includes that line, label and all.
+3. Set the Bash tool's timeout to 590000 ms: the tool timeout bounds this call; a seat that outlives it
+   is interrupted with the call and its report says `turnStatus: interrupted`.
 4. Exactly ONE Bash call. Substitute `<DIR>` and `<n>`; change nothing else:
 
 ```sh
@@ -122,7 +110,7 @@ Your final message is the seat's return, in one of three shapes and nothing else
 `turnStatus: running` — the seat outlived every wait, and its report is not written yet:
 
     exitCode: 10  turnStatus: running  threadId: <id>  pid: <n>  jobPath: <p>  reportPath: <p>
-    seat still running: collect with COLLECT: <threadId>
+    seat still running: collect it with `--wait <threadId>`
     --- answer (0 bytes) ---
 
 Report parsed with any other `turnStatus`, whatever its `exitCode`:
@@ -130,7 +118,7 @@ Report parsed with any other `turnStatus`, whatever its `exitCode`:
     exitCode: <n>  turnStatus: <s>  turnError: <e|null>  threadId: <id>  resumedFrom: <id|null>
     receiptOk: <bool>  receiptPath: <path|null>  commandsSucceeded: <n>  filesTouched: <paths|none>
     verify: <result|null>  answerPath: <path|null>  answerTruncated: <bool>
-    cut: <kind limit observed>  timing: <wallMs/commandMs/modelMs>  budget: <spentTokens of tokens>
+    cut: <kind limit observed>  timing: <wallMs/commandMs/modelMs>
     commentaryPath: <path>  answerPartialPath: <path>
     outputSchemaOk: <bool>  schemaErrors: <list|null>  schemaKeywordsUnchecked: <list|null>
     worktreePath / worktreeRepo / worktreeBase / worktreeRestored / worktreeDiffPath / worktreeDiffStat /
@@ -144,7 +132,7 @@ Schema lines only with `OUTPUT_SCHEMA:`, worktree lines only for a worktree seat
 worktree seat's diff and commits ref are the only pointer left to work whose tree is gone, and
 `answerPartialPath` is the unfinished text of a cut seat. A non-zero `exitCode` is a GATE VERDICT: the turn
 ran, answer and receipt are real, 1/3/5/6/9/11/12/13 says which gate said no, and 3 is a cut on a budget
-(`cut.kind` idle, commands, tokens or wall) whose report holds the answer so far. Relay the whole envelope
+(`cut.kind` idle, commands or wall) whose report holds the answer so far. Relay the whole envelope
 and the whole answer: "the seat ran; exit N is the gate's verdict", never "the seat failed".
 When the seat did not run — no `EXIT=` and no handle, no or unparsable report, a bad header, exit 90:
 
