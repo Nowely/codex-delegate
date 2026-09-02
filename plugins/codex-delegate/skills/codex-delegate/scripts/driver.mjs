@@ -39,7 +39,7 @@ const PINNED_CODEX = "0.150.1";
 // agree with .claude-plugin/plugin.json, with SKILL.md's metadata.version and with the newest v* tag;
 // evals/package.test.mjs is what makes that a fact rather than a habit. A saved report could not say
 // which driver produced it.
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 let codexVersion = null;   // what the server reported this run, parsed out of InitializeResponse.userAgent
 // The full ladder the model catalogue advertises (`codex debug models` -> supported_reasoning_levels),
 // not a subset: rejecting `max` as a usage error while the user's own config.toml asked for it is the
