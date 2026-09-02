@@ -20,7 +20,9 @@ import { SCENARIOS } from "./fake-app-server.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
+const STOP_GATE = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "stop-gate.mjs");
 const FAKE = path.join(HERE, "fake-app-server.mjs");
+const REVIEW_SCHEMA = path.join(HERE, "..", "skills", "codex-delegate", "schemas", "review-output.schema.json");
 
 // The driver spawns `codex` from PATH, so the shim has to be called exactly that.
 const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-delegate-test-"));
@@ -133,6 +135,11 @@ const interruptLog = path.join(shimDir, "rpc-interrupt.log");
 const budgetSoftLog = path.join(shimDir, "rpc-budget-soft.log");
 const budgetJumpLog = path.join(shimDir, "rpc-budget-jump.log");
 const reviewBudgetLog = path.join(shimDir, "rpc-review-budget.log");
+const modelListLog = path.join(shimDir, "rpc-model-list.log");
+const unknownModelLog = path.join(shimDir, "rpc-unknown-model.log");
+const rateLimitLog = path.join(shimDir, "rpc-rate-limit.log");
+const compactLog = path.join(shimDir, "rpc-compact.log");
+const mcpConfigLog = path.join(shimDir, "mcp-config.toml");
 const steersIn = (file) => {
   let log = "";
   try { log = fs.readFileSync(file, "utf8"); } catch {}
@@ -141,6 +148,93 @@ const steersIn = (file) => {
 
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
+  { scenario: "fork",             expect: EXIT.OK,
+    args: ["--fork", "thr_parent", "--fork-through", "turn_parent"],
+    why: "thread/fork branches through the requested turn with the same rights-bearing parameters as thread/start, and its response establishes the new root thread",
+    assert: (r) => {
+      let sent = null;
+      try { sent = JSON.parse(r.answer); } catch { return `the fixture did not echo fork params: ${String(r.answer).slice(0, 100)}`; }
+      return (r.threadId === "thr_root" && r.forkedFrom === "thr_parent" && r.forkedThrough === "turn_parent"
+          && sent.threadId === "thr_parent" && sent.lastTurnId === "turn_parent"
+          && fs.realpathSync(sent.cwd) === fs.realpathSync(shimDir)
+          && sent.approvalPolicy === "on-request" && sent.approvalsReviewer === "user"
+          && typeof sent.developerInstructions === "string" && sent.ephemeral === false)
+        || `fork request/report wrong: ${JSON.stringify({ thread: r.threadId, from: r.forkedFrom, through: r.forkedThrough, sent })}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE,
+    args: ["--fork", "thr_parent", "--resume", "thr_root"],
+    why: "forking and resuming select different thread identities and are refused together",
+    assertStderr: (e) => /--fork and --resume are contradictory/.test(e) || `the contradiction was not named: ${e.slice(0, 180)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: worktree /tmp\n",
+    args: ["--fork", "thr_parent"],
+    why: "a fork keeps the caller-declared cwd and cannot simultaneously create a new detached worktree",
+    assertStderr: (e) => /--fork and --worktree are contradictory/.test(e) || `the contradiction was not named: ${e.slice(0, 180)}` },
+  { scenario: "model-unknown",    expect: EXIT.USAGE, args: ["--effort", "minimal"],
+    env: { FAKE_RPC_LOG: modelListLog },
+    why: "model/list rejects an effort the catalogue does not advertise before thread/start pays the normal provider floor",
+    assertStderr: (e, ms) => {
+      const log = fs.existsSync(modelListLog) ? fs.readFileSync(modelListLog, "utf8") : "";
+      return (/model\/list/.test(log) && !/thread\/start/.test(log) && /not advertised/.test(e) && ms < 7000)
+        || `catalogue refusal was late or missing: ${JSON.stringify({ ms, log, err: e.slice(0, 180) })}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--model", "missing-model"],
+    env: { FAKE_RPC_LOG: unknownModelLog },
+    why: "model/list rejects a model name absent from the server catalogue before thread/start",
+    assertStderr: (e, ms) => {
+      const log = fs.existsSync(unknownModelLog) ? fs.readFileSync(unknownModelLog, "utf8") : "";
+      return (/model\/list/.test(log) && !/thread\/start/.test(log) && /not in model\/list/.test(e) && ms < 7000)
+        || `unknown-model refusal was late or missing: ${JSON.stringify({ ms, log, err: e.slice(0, 180) })}`;
+    } },
+  { scenario: "rate-limited",     expect: EXIT.USAGE, env: { FAKE_RPC_LOG: rateLimitLog },
+    why: "an account whose primary window is exhausted is refused during setup, before a thread is started",
+    assertStderr: (e, ms) => {
+      const log = fs.existsSync(rateLimitLog) ? fs.readFileSync(rateLimitLog, "utf8") : "";
+      return (/account\/rateLimits\/read/.test(log) && !/thread\/start/.test(log) && /primary.*100%/.test(e) && ms < 7000)
+        || `rate-limit refusal was late or missing: ${JSON.stringify({ ms, log, err: e.slice(0, 180) })}`;
+    } },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "the setup rate-limit snapshot reaches every completed report, so fan-outs can see approaching exhaustion",
+    assert: (r) => r.rateLimits?.primary?.usedPercent === 25
+      || `rateLimits missing from the report: ${JSON.stringify(r.rateLimits)}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { FAKE_RATELIMITS_ERROR: "1" },
+    why: "a server that REJECTS account/rateLimits/read — an older build, a managed device — costs the report its snapshot and nothing else; the unguarded await aborted the whole run at exit 4 with no report at all",
+    assert: (r) => r.rateLimits === null
+      || `a rejected snapshot did not leave rateLimits null: ${JSON.stringify(r.rateLimits)}` },
+  { scenario: "compact",          expect: EXIT.OK, args: ["--resume", "thr_root", "--compact"],
+    env: { FAKE_RPC_LOG: compactLog },
+    why: "--compact on a resumed thread finishes thread/compact/start before the next turn starts",
+    assert: () => {
+      const log = fs.existsSync(compactLog) ? fs.readFileSync(compactLog, "utf8") : "";
+      return log.indexOf("thread/resume") >= 0 && log.indexOf("thread/compact/start") > log.indexOf("thread/resume")
+          && log.indexOf("turn/start") > log.indexOf("thread/compact/start")
+        || `compact request order wrong: ${JSON.stringify(log)}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--compact"],
+    why: "compaction is meaningful only for a resumed thread and must not silently alter a fresh one",
+    assertStderr: (e) => /--compact requires --resume/.test(e) || `the missing resume was not named: ${e.slice(0, 160)}` },
+  { scenario: "turn-diff",        expect: EXIT.OK,
+    why: "the last turn/diff/updated payload is persisted under the answer log and named in the report",
+    assert: (r) => (typeof r.turnDiffPath === "string" && fs.readFileSync(r.turnDiffPath, "utf8") === "last diff\n")
+      || `the last diff was not persisted: ${JSON.stringify(r.turnDiffPath)}` },
+  { scenario: "reasoning-summary", expect: EXIT.OK, args: ["--reasoning-summary", "detailed"],
+    why: "--reasoning-summary forwards the selected density as turn/start.summary",
+    assert: (r) => {
+      let sent = null; try { sent = JSON.parse(r.answer); } catch {}
+      return sent?.summary === "detailed" || `turn/start summary was ${JSON.stringify(sent)}`;
+    } },
+  { scenario: "happy",            expect: EXIT.OK,
+    args: ["--mcp", "--mcp-server", "docs"],
+    env: { FAKE_MCP: "1", FAKE_MCP_CONFIG_LOG: mcpConfigLog },
+    why: "a --mcp-server allowlist copies only the named server into the private run home: the fixture also configures `search`, which is perfectly carriable and must still be left behind",
+    assert: () => {
+      const cfg = fs.existsSync(mcpConfigLog) ? fs.readFileSync(mcpConfigLog, "utf8") : "";
+      return (cfg.includes("[mcp_servers.docs]") && !cfg.includes("[mcp_servers.search]"))
+        || `MCP allowlist produced: ${JSON.stringify(cfg)}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--mcp", "--mcp-server", "missing"],
+    env: { FAKE_MCP: "1" },
+    why: "an unknown MCP server name is a usage error rather than a seat silently missing its requested tool",
+    assertStderr: (e) => /unknown server "missing"/.test(e) || `the unknown name was not reported: ${e.slice(0, 180)}` },
   { scenario: "stale-turn",       expect: EXIT.NO_COMMANDS,         why: "the command and answer belong to an earlier turn on the same thread" },
   { scenario: "early-completion", expect: EXIT.OK,                  why: "events that overtake the turn/start response are held and replayed, not lost" },
   { scenario: "foreign-thread",   expect: EXIT.NO_COMMANDS,         why: "a subagent's work on another thread is not ours" },
@@ -480,6 +574,10 @@ const CASES = [
     why: "a shape that never arrives is exit 13, not an exit 0 whose caller must remember to read answerJsonError",
     assert: (r) => (r.outputAttempts === 2 && r.outputSchemaOk === false && Array.isArray(r.schemaErrors) && r.schemaErrors.length > 0)
       || `schema-never report wrong: ${JSON.stringify({ a: r.outputAttempts, ok: r.outputSchemaOk, e: r.schemaErrors })}` },
+  { scenario: "schema-never",     expect: EXIT.SCHEMA, args: ["--output-schema", REVIEW_SCHEMA],
+    why: "the shipped adversarial-review schema passes strict-schema admission and reaches the turn; the scripted invalid answer then fails at output validation, not setup",
+    assert: (r) => (r.outputAttempts === 2 && r.outputSchemaOk === false && Array.isArray(r.schemaErrors))
+      || `the shipped schema did not reach output validation: ${JSON.stringify({ a: r.outputAttempts, ok: r.outputSchemaOk, e: r.schemaErrors })}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", "/nonexistent/schema.json"],
     why: "an unreadable schema is the caller's error, raised before anything runs",
     assertStderr: (t) => /--output-schema cannot read/.test(t) || `stderr did not name the schema file: ${t.slice(0, 120)}` },
@@ -968,6 +1066,79 @@ const deadPid = () => {
   const r = spawnSync(process.execPath, ["-e", ""]);
   return r.pid ?? 999999;
 };
+
+// A repository of this suite's OWN making. The dirty leg used to run on the checkout the suite lives in,
+// so it measured the developer's working tree rather than the gate: on a clean checkout the gate skipped,
+// no review was printed, and the case passed only while someone happened to have uncommitted work.
+const gitRepo = (name, dirty) => {
+  const dir = path.join(shimDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const git = (...args) => spawnSync("git", ["-c", "init.defaultBranch=main", "-c", "user.name=codex-delegate tests",
+    "-c", "user.email=tests@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+    "-C", dir, ...args], { encoding: "utf8" });
+  const init = spawnSync("git", ["-c", "init.defaultBranch=main", "init", "-q", dir], { encoding: "utf8" });
+  if (init.status !== 0) return { dir, error: `could not create ${name}: ${init.stderr}` };
+  fs.writeFileSync(path.join(dir, "tracked.txt"), "one\n");
+  const added = git("add", "tracked.txt");
+  const committed = git("commit", "-q", "--no-verify", "-m", "one");
+  if (added.status !== 0 || committed.status !== 0)
+    return { dir, error: `could not commit in ${name}: ${added.stderr}${committed.stderr}` };
+  if (dirty) fs.writeFileSync(path.join(dir, "untracked.txt"), "two\n");
+  return { dir, error: null };
+};
+
+flow("the opt-in stop gate reviews a dirty tree and skips a clean tree",
+  "the shipped hook helper must remain inert by default, print the native review verdict when enabled, and avoid launching a seat for a clean repository",
+  async () => {
+    const repo = gitRepo("dirty-stop-gate", true);
+    if (repo.error) return repo.error;
+    const cwd = repo.dir;
+    const inert = spawnSync(process.execPath, [STOP_GATE], {
+      input: JSON.stringify({ cwd }), encoding: "utf8",
+      env: { ...process.env, CODEX_DELEGATE_STOP_GATE: "0" }
+    });
+    if (inert.status !== 0 || inert.stdout !== "")
+      return `disabled gate was not inert: status=${inert.status} stdout=${JSON.stringify(inert.stdout)} stderr=${JSON.stringify(inert.stderr)}`;
+
+    const reviewed = spawnSync(process.execPath, [STOP_GATE], {
+      input: JSON.stringify({ cwd }), encoding: "utf8", timeout: 20000,
+      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`,
+        CODEX_DELEGATE_STOP_GATE: "1", CODEX_DELEGATE_STATE_DIR: flowState(),
+        FAKE_SCENARIO: "review-inline" }
+    });
+    if (reviewed.status !== 0 || !reviewed.stdout.includes("off-by-one"))
+      return `enabled gate did not print the review: status=${reviewed.status} stdout=${JSON.stringify(reviewed.stdout)} stderr=${JSON.stringify(reviewed.stderr)}`;
+
+    const clean = gitRepo("clean-stop-gate", false);
+    if (clean.error) return clean.error;
+    const skipped = spawnSync(process.execPath, [STOP_GATE], {
+      input: JSON.stringify({ cwd: clean.dir }), encoding: "utf8",
+      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`,
+        CODEX_DELEGATE_STOP_GATE: "1", CODEX_DELEGATE_STATE_DIR: flowState(),
+        FAKE_SCENARIO: "schema-never" }
+    });
+    return skipped.status === 0 && skipped.stdout === ""
+      ? true
+      : `clean gate did not skip: status=${skipped.status} stdout=${JSON.stringify(skipped.stdout)} stderr=${JSON.stringify(skipped.stderr)}`;
+  });
+
+flow("the stop gate prints the review a non-zero driver exit still carries",
+  "a post-turn exit code — a failed command, a missed expectation, a cut turn — arrives WITH the answer beside it; printing only stderr there discarded the very review the hook exists to show",
+  async () => {
+    const repo = gitRepo("failing-stop-gate", true);
+    if (repo.error) return repo.error;
+    const run = spawnSync(process.execPath, [STOP_GATE], {
+      input: JSON.stringify({ cwd: repo.dir }), encoding: "utf8", timeout: 20000,
+      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`,
+        CODEX_DELEGATE_STOP_GATE: "1", CODEX_DELEGATE_STATE_DIR: flowState(),
+        FAKE_SCENARIO: "review-broken" }
+    });
+    return (run.status === 1 && run.stdout.includes("I could not inspect that ref.")
+        && /review exit 11/.test(run.stderr))
+      ? true
+      : `the answer behind a non-zero exit was lost: status=${run.status} stdout=${JSON.stringify(run.stdout)} stderr=${JSON.stringify(run.stderr.slice(-300))}`;
+  });
+
 // Poll until the predicate holds, so a flow never sleeps for a fixed guess.
 async function until(fn, ms = 15000) {
   for (const end = Date.now() + ms; Date.now() < end; ) {
