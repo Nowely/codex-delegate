@@ -10,7 +10,7 @@
 //
 // Exit 0 if every case matches its expected exit code.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -947,6 +947,310 @@ function run(c) {
   });
 }
 
+// --- detached seats: a handshake, a wait and a collection, each step's state the next step's input ---
+//
+// One run of the driver cannot express any of this, so these are procedural rather than table cases.
+// Each gets a state directory of its own: every fixture run reports the SAME thread id, so a shared
+// registry would let one flow read another's record.
+const FLOWS = [];
+const flow = (name, why, fn) => FLOWS.push({ name, why, fn });
+let flowSeq = 0;
+const flowState = () => {
+  const d = path.join(shimDir, `flow-state-${flowSeq++}`);
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+};
+const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
+const recordOf = (state, id = "thr_root") => readJson(path.join(state, "jobs", `${id}.json`));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// A pid that is certainly gone: a process this suite started and reaped.
+const deadPid = () => {
+  const r = spawnSync(process.execPath, ["-e", ""]);
+  return r.pid ?? 999999;
+};
+// Poll until the predicate holds, so a flow never sleeps for a fixed guess.
+async function until(fn, ms = 15000) {
+  for (const end = Date.now() + ms; Date.now() < end; ) {
+    const v = fn();
+    if (v) return v;
+    await wait(25);
+  }
+  return null;
+}
+
+flow("--detach hands back a handle while the run is still going, and the run outlives the front",
+  "the whole point of the transport: the front returns exit 10 with an address, and the seat it started keeps working in a process the front does not own",
+  async () => {
+    const state = flowState();
+    const { code, out, err } = await run({ scenario: "slow-turn", args: ["--detach", "--timeout", "30"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.BUSY) return `expected exit 10, got ${code}: ${err.slice(0, 200)}`;
+    const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
+    if (!h) return `the handle is not JSON: ${out.slice(0, 160)}`;
+    if (h.detached !== true || h.exitCode !== EXIT.BUSY || h.turnStatus !== "running" || h.threadId !== "thr_root")
+      return `the handle is not the running shape: ${JSON.stringify(h)}`;
+    for (const k of ["pid", "runId", "jobPath", "reportPath", "stderrPath", "startedAt"])
+      if (h[k] === null || h[k] === undefined) return `the handle has no ${k}: ${JSON.stringify(h)}`;
+    // The handshake file the front waited on, and the run's own process — neither is the front's.
+    const launch = readJson(path.join(h.runDir, "launch.json"));
+    if (launch?.threadId !== "thr_root" || launch.pid !== h.pid)
+      return `launch.json does not name the run: ${JSON.stringify(launch)}`;
+    // The front is gone (run() resolved on its close) and the seat is not.
+    let alive = false;
+    try { process.kill(h.pid, 0); alive = true; } catch {}
+    const rec = recordOf(state);
+    if (!alive && !rec?.endedAt) return "the detached run is neither alive nor finished";
+    if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";
+    return true;
+  });
+
+flow("--wait delivers the detached run's report byte for byte, under the code the run itself decided",
+  "a collector that reformatted or re-derived anything would be a second report format to keep in sync; the coordinator must get exactly what the blocking driver would have printed",
+  async () => {
+    const state = flowState();
+    const first = await run({ scenario: "happy", args: ["--detach", "--timeout", "30"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (first.code !== EXIT.BUSY) return `the detach exited ${first.code}: ${first.err.slice(0, 200)}`;
+    const h = JSON.parse(first.out);
+    if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";
+    const onDisk = fs.readFileSync(h.reportPath, "utf8");
+    const collected = await run({ scenario: "happy", args: ["--wait", "thr_root", "--wait-timeout", "20"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (collected.out !== onDisk)
+      return `--wait did not deliver the report verbatim (${collected.out.length} bytes vs ${onDisk.length})`;
+    const rec = recordOf(state);
+    if (collected.code !== rec.exitCode)
+      return `--wait exited ${collected.code}, the run decided ${rec.exitCode}`;
+    if (JSON.parse(onDisk).exitCode !== rec.exitCode)
+      return `the record and the report disagree: ${rec.exitCode} vs ${JSON.parse(onDisk).exitCode}`;
+    return true;
+  });
+
+flow("--wait that runs out of budget hands back the handle, not a verdict",
+  "a collector that timed out into an exit code would turn 'I stopped waiting' into 'the seat failed', which is the confusion the whole running shape exists to prevent",
+  async () => {
+    const state = flowState();
+    const first = await run({ scenario: "stalled-turn", args: ["--detach", "--timeout", "30"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (first.code !== EXIT.BUSY) return `the detach exited ${first.code}: ${first.err.slice(0, 200)}`;
+    const h = JSON.parse(first.out);
+    const collected = await run({ scenario: "stalled-turn", args: ["--wait", "thr_root", "--wait-timeout", "1"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    try { process.kill(h.pid, "SIGKILL"); } catch {}
+    if (collected.code !== EXIT.BUSY) return `expected exit 10 at the budget, got ${collected.code}`;
+    const back = (() => { try { return JSON.parse(collected.out); } catch { return null; } })();
+    if (back?.turnStatus !== "running" || back.threadId !== "thr_root")
+      return `the budget did not return the running shape: ${collected.out.slice(0, 160)}`;
+    return true;
+  });
+
+flow("a run that died without writing a report is exit 4, not a wait that never ends",
+  "no endedAt and no process is the one state a poller cannot resolve on its own: saying 'still running' about a SIGKILLed seat wedges the coordinator for the fourteen days the record is kept",
+  async () => {
+    const state = flowState();
+    const jobs = path.join(state, "jobs");
+    fs.mkdirSync(jobs, { recursive: true });
+    fs.writeFileSync(path.join(jobs, "thr_dead.json"), JSON.stringify({
+      threadId: "thr_dead", pid: deadPid(), cwd: shimDir, level: "read",
+      started: new Date().toISOString(), timeout: 900 }));
+    const { code, err } = await run({ scenario: "happy", args: ["--wait", "thr_dead", "--wait-timeout", "5"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.TRANSPORT) return `expected exit 4, got ${code}: ${err.slice(0, 200)}`;
+    return /died without a report \(pid \d+ gone\)/.test(err) || `the refusal did not say why: ${err.slice(0, 200)}`;
+  });
+
+flow("--jobs derives running, crashed and ended from pid liveness, and spawns nothing",
+  "a stored status is a lie the moment the process holding it is killed; and a listing that started a codex to answer 'what is running' would cost a delegation per poll",
+  async () => {
+    const state = flowState();
+    const jobs = path.join(state, "jobs");
+    fs.mkdirSync(jobs, { recursive: true });
+    const base = { cwd: shimDir, level: "read", started: new Date().toISOString(), timeout: 900 };
+    fs.writeFileSync(path.join(jobs, "thr_run.json"), JSON.stringify({ ...base, pid: process.pid, runId: "r1" }));
+    fs.writeFileSync(path.join(jobs, "thr_dead.json"), JSON.stringify({ ...base, pid: deadPid() }));
+    fs.writeFileSync(path.join(jobs, "thr_done.json"), JSON.stringify({ ...base, pid: deadPid(),
+      endedAt: new Date().toISOString(), exitCode: 0, answerPath: "/tmp/a.md" }));
+    // A record belonging to another directory, to prove --cwd narrows rather than decorates.
+    fs.writeFileSync(path.join(jobs, "thr_other.json"), JSON.stringify({ ...base, cwd: os.tmpdir(), pid: process.pid }));
+    // A codex on PATH that would leave a trace if it were ever started.
+    const marker = path.join(state, "codex-ran");
+    const probeShim = path.join(state, "shim");
+    fs.mkdirSync(probeShim, { recursive: true });
+    fs.writeFileSync(path.join(probeShim, "codex"), `#!/bin/sh\necho ran >> "${marker}"\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+    const { code, out } = await run({ scenario: "happy", args: ["--jobs", "--cwd", shimDir],
+      env: { CODEX_DELEGATE_STATE_DIR: state, PATH: `${probeShim}:${process.env.PATH}` } });
+    if (code !== EXIT.OK) return `--jobs exited ${code}`;
+    if (fs.existsSync(marker)) return "--jobs spawned a codex";
+    const rows = (() => { try { return JSON.parse(out); } catch { return null; } })();
+    if (!Array.isArray(rows)) return `--jobs did not print an array: ${out.slice(0, 160)}`;
+    const by = Object.fromEntries(rows.map((r) => [r.threadId, r]));
+    if (rows.length !== 3) return `--cwd did not narrow the listing: ${JSON.stringify(rows.map((r) => r.threadId))}`;
+    if (by.thr_run?.status !== "running" || by.thr_dead?.status !== "crashed" || by.thr_done?.status !== "ended")
+      return `derived statuses wrong: ${JSON.stringify(rows.map((r) => [r.threadId, r.status]))}`;
+    for (const k of ["threadId", "cwd", "repo", "level", "pid", "status", "exitCode", "startedAt", "endedAt", "answerPath", "reportPath", "runId"])
+      if (!(k in by.thr_done)) return `--jobs dropped the ${k} field: ${JSON.stringify(by.thr_done)}`;
+    return true;
+  });
+
+flow("--cancel signals the run, and the interrupted report lands at the run's own report path",
+  "cancelling is only useful if the work so far survives it: the seat's own signal handler writes the full report, so the coordinator gets evidence rather than an empty file",
+  async () => {
+    const state = flowState();
+    const first = await run({ scenario: "stalled-turn", args: ["--detach", "--timeout", "60"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (first.code !== EXIT.BUSY) return `the detach exited ${first.code}: ${first.err.slice(0, 200)}`;
+    const h = JSON.parse(first.out);
+    const cancelled = await run({ scenario: "stalled-turn", args: ["--cancel", "thr_root"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (cancelled.code !== EXIT.OK) return `--cancel exited ${cancelled.code}: ${cancelled.err.slice(0, 200)}`;
+    if (!await until(() => recordOf(state)?.endedAt)) return "the cancelled run never wrote its record";
+    const report = readJson(h.reportPath);
+    if (report?.turnStatus !== "interrupted")
+      return `the cancelled run did not write an interrupted report: ${JSON.stringify(report?.turnStatus)}`;
+    if (report.exitCode !== EXIT.TURN_NOT_COMPLETED)
+      return `the interrupted report exited ${report.exitCode}, expected 1`;
+    // And a second --cancel is a refusal with a reason, not a signal into the void.
+    const again = await run({ scenario: "stalled-turn", args: ["--cancel", "thr_root"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (again.code !== EXIT.USAGE || !/already ended/.test(again.err))
+      return `cancelling a finished run was not refused: exit ${again.code} ${again.err.slice(0, 160)}`;
+    return true;
+  });
+
+flow("resuming a thread whose own driver is still alive is exit 10, decided locally",
+  "the server would refuse it too, but only after a worktree was cut, a lock taken and a session started — and 'still running' is knowable from the registry before any of that",
+  async () => {
+    const state = flowState();
+    const jobs = path.join(state, "jobs");
+    fs.mkdirSync(jobs, { recursive: true });
+    fs.writeFileSync(path.join(jobs, "thr_root.json"), JSON.stringify({
+      threadId: "thr_root", pid: process.pid, cwd: shimDir, level: "read",
+      started: new Date().toISOString(), timeout: 900, detached: true, runId: "r9" }));
+    const marker = path.join(state, "codex-ran");
+    const probeShim = path.join(state, "shim");
+    fs.mkdirSync(probeShim, { recursive: true });
+    fs.writeFileSync(path.join(probeShim, "codex"), `#!/bin/sh\necho ran >> "${marker}"\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+    for (const args of [["--resume", "thr_root"], ["--resume", "last"]]) {
+      const { code, err } = await run({ scenario: "happy", args,
+        env: { CODEX_DELEGATE_STATE_DIR: state, PATH: `${probeShim}:${process.env.PATH}` } });
+      if (code !== EXIT.BUSY) return `${args.join(" ")} exited ${code}, expected 10: ${err.slice(0, 200)}`;
+      if (!/is still running \(pid \d+\)/.test(err)) return `the refusal did not name the live run: ${err.slice(0, 200)}`;
+      if (fs.existsSync(marker)) return `${args.join(" ")} spawned a codex before refusing`;
+    }
+    return true;
+  });
+
+flow("the job record carries the mid-flight fields a poller reads",
+  "a detached seat cannot push progress anywhere (a subagent has no channel to its coordinator), so the record IS the progress: without lastEventAt, tokensSpent, commandsSeen and phase, --jobs can only say 'a process exists'",
+  async () => {
+    const state = flowState();
+    const { code } = await run({ scenario: "happy", args: ["--detach", "--timeout", "30"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.BUSY) return `the detach exited ${code}`;
+    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
+    if (!rec) return "the detached run never finished";
+    for (const k of ["lastEventAt", "commandsSeen", "phase", "runId", "runDir", "reportPath", "stderrPath", "promptPath", "detached", "identity", "timeout"])
+      if (rec[k] === undefined) return `the record has no ${k}: ${JSON.stringify(Object.keys(rec))}`;
+    if (!Number.isFinite(Date.parse(rec.lastEventAt))) return `lastEventAt is not a timestamp: ${rec.lastEventAt}`;
+    if (rec.commandsSeen !== 1 || rec.phase !== "agentMessage")
+      return `the mid-flight snapshot did not follow the turn: ${JSON.stringify({ c: rec.commandsSeen, p: rec.phase })}`;
+    return true;
+  });
+
+flow("endedAt is written only once the report has actually landed",
+  "endedAt is the flag every collector reads to decide the report is there: written before the bytes, a --wait racing a large report delivers a truncated one, and a report that never reached its caller is recorded as the success it was not",
+  async () => {
+    const state = flowState();
+    // stdout is closed before the report is written, so the write FAILS: the record must carry the
+    // transport failure, which is only possible if it is written after the write rather than before.
+    const { code } = await run({ scenario: "long-answer", closeStdout: true,
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.TRANSPORT) return `a report that could not be written exited ${code}, expected 4`;
+    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
+    if (!rec) return "no record was closed at all";
+    if (rec.exitCode !== EXIT.TRANSPORT)
+      return `the record says exit ${rec.exitCode} for a report that never reached its caller`;
+    return true;
+  });
+
+flow("run directories are pruned on both bounds, and a run still writing into one is never pruned",
+  "the run directory holds a whole report and a whole stderr per detached seat, so unbounded it is the answer log's growth problem with bigger files — but it is also the LIVE transport of a run in progress: removing it leaves the seat writing into an unlinked inode and the collector reading 'the run ended but left no report'",
+  async () => {
+    const state = flowState();
+    const runs = path.join(state, "runs");
+    fs.mkdirSync(runs, { recursive: true });
+    const at = (p, secondsAgo) => { const t = (Date.now() - secondsAgo * 1000) / 1000; fs.utimesSync(p, t, t); };
+    // Four hundred directories with staggered times, so the count bound has an unambiguous oldest.
+    const bulk = [];
+    for (let i = 0; i < 400; i++) {
+      const d = path.join(runs, `bulk-${String(i).padStart(3, "0")}`);
+      fs.mkdirSync(d);
+      fs.writeFileSync(path.join(d, "report.json"), "{}");
+      at(d, i + 1);
+      bulk.push(d);
+    }
+    // Older than both bounds and owned by nobody: the age bound must take it.
+    const old = path.join(runs, "aaaaaaaa-old");
+    fs.mkdirSync(old);
+    fs.writeFileSync(path.join(old, "report.json"), "{}");
+    at(old, 20 * 86400);
+    // Older still, and its launch.json names a process that is alive — this suite's own.
+    const live = path.join(runs, "aaaaaaaa-live");
+    fs.mkdirSync(live);
+    fs.writeFileSync(path.join(live, "launch.json"), JSON.stringify({ threadId: "thr_live", pid: process.pid }));
+    at(live, 21 * 86400);
+    const { code } = await run({ scenario: "happy", args: ["--detach", "--timeout", "30"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.BUSY) return `the detach exited ${code}`;
+    if (!fs.existsSync(live)) return "the prune deleted a run directory whose launch.json names a live process";
+    if (fs.existsSync(old)) return "a twenty-day-old run directory survived the age bound";
+    if (fs.existsSync(bulk[399])) return "the four-hundredth-oldest run directory survived the count bound";
+    if (!fs.existsSync(bulk[0])) return "the prune reached past its own bounds";
+    const left = fs.readdirSync(runs);
+    if (left.length !== 401) return `expected the fresh run, 399 of the bulk and the live one to remain, found ${left.length}`;
+    return true;
+  });
+
+flow("a seat file's DETACH does not detach the detached run's own child",
+  "the child re-reads the same seat file, DETACH line and all, so removing the flag from its command line cannot stop the recursion: --run-dir is what says 'you ARE the run', and without that precedence every relayed seat forks driver after driver",
+  async () => {
+    const state = flowState();
+    const { code, out, err } = await run({ scenario: "happy",
+      seat: "SEAT: read <CWD>\nTIMEOUT: 30\nDETACH: yes\nWAIT_TIMEOUT: 0\n",
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.BUSY) return `the seat-file detach exited ${code}: ${err.slice(0, 200)}`;
+    const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
+    if (h?.threadId !== "thr_root") return `no handle came back: ${out.slice(0, 160)}`;
+    if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";
+    const runs = fs.readdirSync(path.join(state, "runs"));
+    if (runs.length !== 1) return `one seat forked ${runs.length} runs: ${JSON.stringify(runs)}`;
+    return true;
+  });
+
+flow("the detach contradictions are refused, and a run directory that cannot be made is exit 2",
+  "one flag starts a run and the other two collect or discard it, so a driver that silently picked would run something the caller did not ask for; and the run directory IS the transport, so a state directory nobody can write has nowhere to put the report",
+  async () => {
+    const both = await run({ scenario: "happy", args: ["--detach", "--wait", "thr_root"] });
+    if (both.code !== EXIT.USAGE || !/contradictory/.test(both.err))
+      return `--detach with --wait was not refused: exit ${both.code} ${both.err.slice(0, 160)}`;
+    // An ephemeral run writes no job record, so the handle would name a jobPath that never appears and
+    // --wait, --jobs and --cancel would all have nothing to act on.
+    const eph = await run({ scenario: "happy", args: ["--detach", "--ephemeral"] });
+    if (eph.code !== EXIT.USAGE || !/--detach and --ephemeral are contradictory/.test(eph.err))
+      return `--detach with --ephemeral was not refused: exit ${eph.code} ${eph.err.slice(0, 160)}`;
+    const state = path.join(shimDir, `flow-ro-${flowSeq++}`);
+    fs.mkdirSync(state, { recursive: true });
+    fs.mkdirSync(path.join(state, "runs"));
+    fs.chmodSync(path.join(state, "runs"), 0o500);
+    try {
+      const { code, err } = await run({ scenario: "happy", args: ["--detach"],
+        env: { CODEX_DELEGATE_STATE_DIR: state } });
+      if (code !== EXIT.USAGE || !/cannot create its run directory/.test(err))
+        return `an unwritable state directory was not refused: exit ${code} ${err.slice(0, 200)}`;
+    } finally { fs.chmodSync(path.join(state, "runs"), 0o700); }
+    return true;
+  });
+
 let failed = 0;
 for (const c of CASES) {
   const label = `${c.scenario}${c.args?.length ? ` ${c.args.join(" ")}` : ""}`;
@@ -977,6 +1281,15 @@ for (const c of CASES) {
   }
 }
 
+for (const c of FLOWS) {
+  let verdict;
+  try { verdict = await c.fn(); }
+  catch (e) { verdict = `threw: ${e.message}`; }
+  if (verdict === true) console.log(`ok    ${c.name}`);
+  else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
+}
+
 fs.rmSync(shimDir, { recursive: true, force: true });
-console.log(failed ? `\n${failed}/${CASES.length} failed` : `\nall ${CASES.length} passed`);
+const total = CASES.length + FLOWS.length;
+console.log(failed ? `\n${failed}/${total} failed` : `\nall ${total} passed`);
 process.exit(failed ? 1 : 0);
