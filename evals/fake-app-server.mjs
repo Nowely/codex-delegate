@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
 const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? ""; } };
+import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +39,8 @@ export const SCENARIOS = {
   "probe-negative": {}, "probe-error": {}, "probe-compound": {}, "probe-multiline": {},
   "probe-piped": {}, "probe-quoted": {}, "hidden-failure": {}, "slow-turn": {}, "spawn-survivor": {}, "long-answer": {},
   "rich-items": {}, progress: {}, "echo-input": {}, "null-phase": {},
+  // A seat that leaves work in $TMPDIR and names the path in its answer — the shape --brief asks for.
+  "tmp-write": {},
   // The app-server process DIES mid-turn, after the thread and one command exist.
   "server-crash": {},
   // Two unbounded growth paths in the main transport: notifications with no turn/start response to
@@ -66,14 +69,6 @@ export const SCENARIOS = {
   "wrap-up": { timeout: 65 }, "cut-flush": { timeout: 1 }, "cut-partial": { timeout: 1 },
   // The answer arrives and the turn never ends: the window a SIGKILL empties.
   "answer-then-stall": { timeout: 1 },
-  // The token budget, whose events the driver only acts on with --budget-tokens; without it each of
-  // these stalls, so the wall clock ends them here.
-  //   budget-soft    several events in the band between the 80% steer and the cut
-  //   budget-hard    an answer STREAMING when the cut lands, after a soft steer
-  //   budget-jump    one event past both thresholds at once
-  //   budget-resume  a thread that already spent tokens before this invocation
-  "budget-soft": { timeout: 1 }, "budget-hard": { timeout: 1 }, "budget-jump": { timeout: 1 },
-  "budget-resume": { resume: "thr_root" }, "budget-resume-fallback": { resume: "thr_root" },
   // One command, then silence: only the idle guard tells this from a turn that is working.
   "idle-silence": { timeout: 1 },
   // The work is all on a SUBAGENT thread the server started under ours: the root says nothing for
@@ -268,11 +263,10 @@ const fileChangeItem = (turnId, threadId, { status = "completed", changes = [] }
   note("item/completed", { threadId, turnId, completedAtMs: now(),
     item: { id: `item_${seq}`, type: "fileChange", status, changes } });
 
-// One thread/tokenUsage/updated — the event a token budget is counted off. Measured (E2): one per API
-// call, so one per command plus one for the final message, with `last` the call just made and `total`
-// cumulative for the THREAD, earlier invocations included. The in/out split is shape; totalTokens is the
-// number the budget reads, and the two must be given separately or a resumed thread's baseline is
-// untestable.
+// One thread/tokenUsage/updated — the server's own accounting, which reaches the report as tokenUsage.
+// Measured (E2): one per API call, so one per command plus one for the final message, with `last` the
+// call just made and `total` cumulative for the THREAD, earlier invocations included. The in/out split
+// is shape; totalTokens is the number a coordinator reads.
 const usage = (turnId, threadId, total, last) =>
   note("thread/tokenUsage/updated", { threadId, turnId, tokenUsage: {
     last: { inputTokens: last, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: last },
@@ -357,9 +351,8 @@ function onLine(line) {
     if (SCENARIO === "cut-flush")
       w(msg(TURN, THREAD, "flushed at the interrupt"), done(TURN, THREAD, "interrupted"));
     // A turn that CLOSES on the interrupt without flushing anything: the cut is recorded and the report
-    // lands inside the grace. budget-hard deliberately does neither, so the grace expires there.
-    if (SCENARIO === "budget-jump" || SCENARIO === "idle-silence" || SCENARIO === "idle-subagent"
-        || SCENARIO === "many-commands")
+    // lands inside the grace. cut-partial deliberately does neither, so the grace expires there.
+    if (SCENARIO === "idle-silence" || SCENARIO === "idle-subagent" || SCENARIO === "many-commands")
       w(done(TURN, THREAD, "interrupted"));
     return;
   }
@@ -375,14 +368,6 @@ function onLine(line) {
       // answer — and answering ends the turn, which is what the rung is asking the model to do.
       if (SCENARIO === "wrap-up")
         w(cmd(TURN, THREAD), msg(TURN, THREAD, String(m.params?.input?.[0]?.text ?? "")), done(TURN, THREAD));
-      // The turn carries on past the 80% steer, spending more of the band between the two thresholds:
-      // the steer must go out ONCE however many events land in it.
-      if (SCENARIO === "budget-soft")
-        w(usage(TURN, THREAD, 900, 50), usage(TURN, THREAD, 950, 50),
-          msg(TURN, THREAD, "wrapping up as asked"), done(TURN, THREAD));
-      // The answer is still streaming when the next call takes the budget past 100%.
-      if (SCENARIO === "budget-hard")
-        w(agentDelta(TURN, THREAD, "item_a1", " and no more"), usage(TURN, THREAD, 1200, 350));
     };
     if (delay > 0) setTimeout(answer, delay);
     else answer();
@@ -548,11 +533,6 @@ function onLine(line) {
       activePermissionProfile: profile,
       sandbox: sb
     }));
-    // Measured live: thread/resume is followed by ONE usage event before the new turn exists, carrying
-    // the PREVIOUS turn's id and everything the thread has spent. thread/start emits none, which is why
-    // this rides here rather than in the turn/start switch. budget-resume-fallback deliberately omits
-    // it: a resumed thread whose baseline has to be recovered from the first in-turn event instead.
-    if (SCENARIO === "budget-resume") w(usage(OTHER_TURN, THREAD, 4800, 900));
     return;
   }
 
@@ -596,8 +576,7 @@ function onLine(line) {
       // review has actually arrived.
       cmd(TURN, THREAD, { command: "grep -n clamp src/util.mjs", exitCode: 1, status: "failed" }),
       cmd(TURN, THREAD, { command: "cat src/util.mjs.orig", exitCode: 1, status: "failed" }),
-      // A review costs tokens like any other turn, and the spend crosses the 80% mark of the budget the
-      // protocol case sets: the accounting still runs here, only the steer is refused.
+      // A review costs tokens like any other turn, and the server reports them the same way.
       usage(TURN, THREAD, 900, 900),
       reviewItem(TURN, THREAD, "exitedReviewMode",
         "Needs work: off-by-one in clamp — the loop stops early."),
@@ -735,34 +714,15 @@ function onLine(line) {
           agentDelta(TURN, THREAD, "item_a1", ", and this much more"));
         break;
 
-      // The 80% rung. The first call already lands in the band, and the steer handler above spends two
-      // more calls there before answering — so a steer sent per event rather than per threshold is
-      // visible in the RPC log.
-      case "budget-soft":
-        w(R, cmd(TURN, THREAD), usage(TURN, THREAD, 850, 850));
+      // The seat writes into $TMPDIR and names the file in its answer, which is what --brief tells it to
+      // do with anything long. No command really runs here, so the fixture performs the write the seat's
+      // command would: what is under test is whether the driver's teardown takes that file with it.
+      case "tmp-write": {
+        const f = path.join(process.env.TMPDIR ?? os.tmpdir(), "seat-note.txt");
+        try { fs.writeFileSync(f, "the seat's long output\n"); } catch {}
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, `full notes at ${f}`), done(TURN, THREAD));
         break;
-
-      // The 100% rung, reached one call after the 80% one, with an answer in flight: the deltas are the
-      // only copy of what the model had written (E1), exactly as under a wall-clock cut.
-      case "budget-hard":
-        w(R, agentDelta(TURN, THREAD, "item_a1", "half an answer"),
-          cmd(TURN, THREAD), usage(TURN, THREAD, 850, 850));
-        break;
-
-      // One call crosses both thresholds. Steering a turn that is about to be cut spends more of a
-      // budget that is already gone, so nothing may be sent.
-      case "budget-jump":
-        w(R, cmd(TURN, THREAD), usage(TURN, THREAD, 1500, 1500));
-        break;
-
-      // A resumed thread: `total` carries 4800 tokens this invocation never spent. budget-resume was
-      // told them by the pre-turn event above; budget-resume-fallback has to recover them from the
-      // first in-turn event, where total − last is everything before that one call.
-      case "budget-resume":
-      case "budget-resume-fallback":
-        w(R, cmd(TURN, THREAD), usage(TURN, THREAD, 5000, 200), usage(TURN, THREAD, 5100, 100),
-          msg(TURN, THREAD, "resumed and answered"), done(TURN, THREAD));
-        break;
+      }
 
       // One command, then nothing at all: the shape --timeout cannot tell from a turn that is working.
       case "idle-silence":
