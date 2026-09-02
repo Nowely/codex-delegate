@@ -3,10 +3,12 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
-## Unreleased — 0.8.0
+## 0.8.0 — 2026-09-03
 
-Measured against codex-cli 0.150.1. This simplification round removes coordinator decisions that had
-defaults and moves relay transport into the driver.
+Measured against codex-cli 0.150.1 on macOS (Node 24.11; the free suites on Linux and macOS, Node 18 and 24, in CI). Three commits since 0.7.0: the simplification round.
+
+This simplification round removes coordinator decisions that had defaults and moves the relay
+transport into the driver.
 
 ### Compatibility notes
 
