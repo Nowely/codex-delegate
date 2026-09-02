@@ -1257,6 +1257,338 @@ test("a correction appended while a steer is in flight is not overwritten",
     return second ? true : "a correction appended during the send never arrived";
   });
 
+
+// The git the DRIVER spawns, observed from outside: a shim that logs its own argv and execs the real
+// binary. Resolved before the shim exists, or `command -v git` would find the shim.
+const REAL_GIT = (() => {
+  const r = spawnSync("/usr/bin/env", ["sh", "-c", "command -v git"], { encoding: "utf8" });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : "git";
+})();
+
+test("no git the driver spawns runs the repository's hooks, fsmonitor or external diff",
+  "--commit hands the seat the git common dir, and the driver's own harvest, its worktree remove and the next run's worktree add then execute what the seat wrote there with the CALLER's rights — code execution before the report is read. Measured before the fix: core.fsmonitor=pwn.sh logged runs under status, diff, ls-files twice, worktree remove and worktree add, at exit 0",
+  async () => {
+    const repo = freshRepo("wt-hooks");
+    if (!repo) return "git setup failed";
+    const bin = freshDir("wt-hooks-bin");
+    const hookLog = path.join(bin, "hook.log");
+    const argvLog = path.join(bin, "argv.log");
+    const pwn = path.join(bin, "pwn.sh");
+    fs.writeFileSync(pwn, `#!/bin/sh\necho "fsmonitor/diff $*" >> ${hookLog}\nexit 0\n`, { mode: 0o755 });
+    fs.mkdirSync(path.join(repo, ".git", "hooks"), { recursive: true });
+    for (const h of ["post-checkout", "post-index-change", "reference-transaction", "pre-commit"])
+      fs.writeFileSync(path.join(repo, ".git", "hooks", h), `#!/bin/sh\necho "${h}" >> ${hookLog}\nexit 0\n`, { mode: 0o755 });
+    for (const [k, v] of [["core.fsmonitor", pwn], ["diff.external", pwn]])
+      if (spawnSync("git", ["-C", repo, "config", k, v]).status !== 0) return `git config ${k} failed`;
+    fs.writeFileSync(path.join(bin, "git"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> ${argvLog}\nexec ${REAL_GIT} "$@"\n`, { mode: 0o755 });
+    const { code, out, err } = await run(null, {
+      args: ["--worktree", repo, "--commit", "--verify", "printf 'seat-work\\n' >> seed"],
+      env: { PATH: `${bin}:${shimDir}:${process.env.PATH}` } });
+    let r = null; try { r = JSON.parse(out); } catch {}
+    try {
+      if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(0, 200)}`;
+      if (fs.existsSync(hookLog))
+        return `the repository's hooks ran under the driver's own git: ${fs.readFileSync(hookLog, "utf8").trim().slice(0, 300)}`;
+      let argv = "";
+      try { argv = fs.readFileSync(argvLog, "utf8"); } catch { return "the git shim was never reached, so nothing was measured"; }
+      const lines = argv.split("\n").filter(Boolean);
+      if (!lines.some((l) => /worktree add/.test(l))) return "the shim never saw `worktree add`";
+      if (!lines.some((l) => / diff /.test(l))) return "the shim never saw a diff, so the diff hardening is unmeasured";
+      for (const l of lines) {
+        for (const flag of ["core.hooksPath=/dev/null", "core.fsmonitor=false", "diff.external="])
+          if (!l.includes(flag)) return `a driver git ran without ${flag}: ${l.slice(0, 160)}`;
+        if (/ diff /.test(l) && !l.includes("--no-ext-diff")) return `a diff ran without --no-ext-diff: ${l.slice(0, 160)}`;
+      }
+      // The hardening must not cost the harvest: an external diff driver left in place would have
+      // produced an empty patch and this is what says it did not.
+      if (!r?.worktreeHarvested || !/seed/.test(r.worktreeDiffStat ?? ""))
+        return `the harvest lost the work: ${JSON.stringify({ harvested: r?.worktreeHarvested, stat: r?.worktreeDiffStat })}`;
+    } finally {
+      if (r?.worktreePath && fs.existsSync(r.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+      for (const p of [r?.worktreeDiffPath, r?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
+// A crashed run's ledger entry, planted by hand: `name` is the entry (and the ref) name, and the tree it
+// names is created here and left behind exactly as a SIGKILL would.
+function plantCrashedTree(repo, name, { commit = false, baseSha = true } = {}) {
+  const dir = path.join(repo, ".claude", "worktrees", name);
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  if (spawnSync("git", ["-C", repo, "worktree", "add", "--detach", dir], { encoding: "utf8" }).status !== 0) return null;
+  const head = () => spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const base = head();
+  if (commit) {
+    fs.appendFileSync(path.join(dir, "seed"), "crashed seat work\n");
+    const c = spawnSync("git", ["-C", dir, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qam", `crashed-${name}`],
+      { encoding: "utf8" });
+    if (c.status !== 0) return null;
+  }
+  const ledgerDir = path.join(STATE_DIR, "worktrees");
+  fs.mkdirSync(ledgerDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(ledgerDir, `${name}.json`),
+    JSON.stringify({ path: dir, repo, pid: 2147483646, started: "old", ...(baseSha ? { baseSha: base } : {}) }));
+  return { dir, base, head: head() };
+}
+
+test("the reconciler gives a crashed seat's commits a ref before it removes the tree that held them",
+  "reproduced: a crashed --commit seat leaves a SPOTLESS tree whose HEAD is the only thing referencing its commits, and removing it by porcelain alone stranded them — `git fsck` reported the commits dangling and the run announced 'removed a crashed run's clean worktree'",
+  async () => {
+    const repo = freshRepo("wt-reconcile-commits");
+    if (!repo) return "git setup failed";
+    // With a base recorded, and — for a ledger written before that field existed — without one, where
+    // reachability from any ref is what has to be disproven instead.
+    const withBase = plantCrashedTree(repo, "codex-crash-based", { commit: true });
+    const noBase = plantCrashedTree(repo, "codex-crash-legacy", { commit: true, baseSha: false });
+    if (!withBase || !noBase) return "planting the crashed trees failed";
+    const { code, err } = await run(null, { args: ["--worktree", repo] });
+    if (code !== EXIT.OK) return `the reconciling run exited ${code}: ${err.trim().slice(0, 200)}`;
+    for (const [name, planted] of [["codex-crash-based", withBase], ["codex-crash-legacy", noBase]]) {
+      if (fs.existsSync(planted.dir)) return `${name}: the crashed tree was not removed`;
+      if (fs.existsSync(path.join(STATE_DIR, "worktrees", `${name}.json`))) return `${name}: the ledger entry survived`;
+      const log = spawnSync("git", ["-C", repo, "log", "--format=%s", `refs/codex-delegate/${name}`], { encoding: "utf8" });
+      if (log.status !== 0 || !log.stdout.includes(`crashed-${name}`))
+        return `${name}: the commits were stranded — refs/codex-delegate/${name} does not carry them ` +
+          `(${String(log.stdout || log.stderr).trim().slice(0, 160)})`;
+    }
+    if (!/commits are kept at/.test(err)) return `the rescue was silent: ${err.trim().slice(0, 200)}`;
+    return true;
+  });
+
+test("the ledger entry exists before `git worktree add` creates anything",
+  "a SIGKILL between the add and the ledger write left a checked-out tree that no entry named, so no reconciler could ever find it — an orphan by construction, in the one path whose whole job is to leave a trace",
+  async () => {
+    const repo = freshRepo("wt-intent");
+    if (!repo) return "git setup failed";
+    const bin = freshDir("wt-intent-bin");
+    const snap = path.join(bin, "ledger-at-add.txt");
+    // The shim answers one question: what did the ledger directory hold at the instant of the add?
+    fs.writeFileSync(path.join(bin, "git"),
+      `#!/bin/sh\ncase "$*" in *"worktree add"*) ls "${path.join(STATE_DIR, "worktrees")}" > "${snap}" 2>&1 ;; esac\n` +
+      `exec ${REAL_GIT} "$@"\n`, { mode: 0o755 });
+    const { code, out, err } = await run(null, { args: ["--worktree", repo],
+      env: { PATH: `${bin}:${shimDir}:${process.env.PATH}` } });
+    if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(0, 200)}`;
+    let r = null; try { r = JSON.parse(out); } catch { return "no JSON report"; }
+    const name = path.basename(r.worktreePath ?? "");
+    let listing = "";
+    try { listing = fs.readFileSync(snap, "utf8"); } catch { return "the shim never saw `worktree add`"; }
+    return listing.includes(`${name}.json`)
+      || `the tree was created before its ledger entry existed; the directory then held: ${JSON.stringify(listing.trim().slice(0, 200))}`;
+  });
+
+test("the reconciler's bound reaches the OLDEST entries, not whichever fifty the filesystem lists first",
+  "the sweep took an unsorted first-50: on a directory that returns a stable order the same fifty are handed to every run and everything after them is starved forever, which for a ledger means a tree nobody ever reconciles",
+  async () => {
+    const repo = freshRepo("wt-starve");
+    if (!repo) return "git setup failed";
+    const ledgerDir = path.join(STATE_DIR, "worktrees");
+    fs.mkdirSync(ledgerDir, { recursive: true, mode: 0o700 });
+    // Named to sort before any real entry (a real name opens with a base36 timestamp), and CREATED in
+    // reverse, so insertion order and sorted order disagree. Each names a path that does not exist, so
+    // the entry is simply dropped and no git runs.
+    const names = Array.from({ length: 60 }, (_, i) => `codex-0000-${String(i).padStart(2, "0")}`);
+    for (const n of [...names].reverse())
+      fs.writeFileSync(path.join(ledgerDir, `${n}.json`),
+        JSON.stringify({ path: path.join(repo, ".claude", "worktrees", n), repo, pid: 2147483646, started: "old" }));
+    const { code, err } = await run(null, { args: ["--worktree", repo] });
+    if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(0, 200)}`;
+    const left = names.filter((n) => fs.existsSync(path.join(ledgerDir, `${n}.json`)));
+    for (const n of left) fs.rmSync(path.join(ledgerDir, `${n}.json`), { force: true });
+    const expected = names.slice(50);
+    if (left.join(",") !== expected.join(","))
+      return `the fifty oldest entries were not the ones reconciled; left behind: ${JSON.stringify(left)}`;
+    return true;
+  });
+
+test("--resume last from the repository finds a worktree seat, whose own cwd no longer exists",
+  "a worktree seat records the tree as its cwd and that tree is REMOVED when the seat finishes, so matching on cwd alone skipped every worktree seat: `--resume last` from the repository silently continued the newest READ seat instead",
+  async () => {
+    const repo = freshRepo("wt-resume-last");
+    if (!repo) return "git setup failed";
+    const first = await run(null, { args: ["--worktree", repo] });
+    if (first.code !== EXIT.OK) return `the worktree seat exited ${first.code}: ${first.err.trim().slice(0, 160)}`;
+    let r1 = null; try { r1 = JSON.parse(first.out); } catch { return "no JSON report from the worktree seat"; }
+    if (r1.resumedFrom !== null) return `a fresh seat reported resumedFrom=${JSON.stringify(r1.resumedFrom)}`;
+    if (fs.existsSync(r1.worktreePath)) return "the tree survived, so the case does not test what it claims";
+    const second = await run(repo, { args: ["--resume", "last"] });
+    if (second.code !== EXIT.OK) return `--resume last from the repository exited ${second.code}: ${second.err.trim().slice(0, 200)}`;
+    let r2 = null; try { r2 = JSON.parse(second.out); } catch { return "no JSON report from the resumed run"; }
+    if (r2.resumedFrom !== "thr_root") return `the report did not name the thread it continued: ${JSON.stringify(r2.resumedFrom)}`;
+    return true;
+  });
+
+test("--worktree REPO --resume ID rebuilds that thread's tree and continues in it",
+  "a completed worktree seat could not be continued at all: the tree was removed, --worktree --resume was refused outright, and the record's cwd pointed at a directory that no longer existed — the seat's base commit and harvested diff lived only in a one-shot report",
+  async () => {
+    const repo = freshRepo("wt-resume-rebuild");
+    if (!repo) return "git setup failed";
+    const first = await run(null, { args: ["--worktree", repo, "--verify",
+      "printf 'seat-line\\n' >> seed && printf 'scratch\\n' > scratch.txt"] });
+    if (first.code !== EXIT.OK) return `the first seat exited ${first.code}: ${first.err.trim().slice(0, 160)}`;
+    let r1 = null; try { r1 = JSON.parse(first.out); } catch { return "no JSON report from the first seat"; }
+    if (!r1.worktreeHarvested || !r1.worktreeDiffPath || !r1.worktreeUntrackedPath)
+      return `the first seat harvested nothing to rebuild from: ${JSON.stringify({ h: r1.worktreeHarvested, d: r1.worktreeDiffPath, u: r1.worktreeUntrackedPath })}`;
+    const second = await run(null, { args: ["--worktree", repo, "--resume", "last"] });
+    let r2 = null; try { r2 = JSON.parse(second.out); } catch {}
+    try {
+      if (second.code !== EXIT.OK) return `--worktree --resume exited ${second.code}: ${second.err.trim().slice(0, 200)}`;
+      if (!r2) return "no JSON report from the resumed seat";
+      if (r2.resumedFrom !== "thr_root") return `the resumed thread was not named: ${JSON.stringify(r2.resumedFrom)}`;
+      if (r2.worktreeBase !== r1.worktreeBase)
+        return `the rebuilt tree does not start where the thread's tree started: ${r2.worktreeBase} vs ${r1.worktreeBase}`;
+      if (r2.worktreeRestored?.diff !== r1.worktreeDiffPath || r2.worktreeRestored?.untracked !== r1.worktreeUntrackedPath)
+        return `the harvest was not restored into the tree: ${JSON.stringify(r2.worktreeRestored)}`;
+      // The rebuilt tree's OWN harvest is the proof the work was really there: this seat's verifier
+      // changed nothing, so anything in the diff came from the restore.
+      if (!/seed/.test(r2.worktreeDiffStat ?? ""))
+        return `the restored tracked work is not in the rebuilt tree: ${JSON.stringify(r2.worktreeDiffStat)}`;
+      const listing = spawnSync("tar", ["-tzf", r2.worktreeUntrackedPath ?? "/nonexistent"], { encoding: "utf8" });
+      if (listing.status !== 0 || !/scratch\.txt/.test(listing.stdout))
+        return `the restored untracked file is not in the rebuilt tree: ${String(listing.stdout || listing.stderr).trim().slice(0, 160)}`;
+      // A thread with no rebuildable record is refused rather than run against a fresh tree at HEAD.
+      const blind = await run(null, { args: ["--worktree", repo, "--resume", "thr_no_such_record"] });
+      if (blind.code !== EXIT.USAGE) return `an unrebuildable --worktree --resume exited ${blind.code}, expected 2`;
+      if (!/no record of that thread/.test(blind.err)) return `the refusal did not say why: ${blind.err.trim().slice(0, 200)}`;
+      if (worktreesUnder(repo).length) return `worktree directories left behind: ${JSON.stringify(worktreesUnder(repo))}`;
+    } finally {
+      if (r2?.worktreePath && fs.existsSync(r2.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r2.worktreePath]);
+      for (const p of [r1?.worktreeDiffPath, r1?.worktreeUntrackedPath, r2?.worktreeDiffPath, r2?.worktreeUntrackedPath])
+        if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
+test("a crashed --mcp run's private home is reaped by the next one",
+  "the home holds the caller's MCP servers' env tokens in a 0600 config.toml and is removed only in shutdown(); measured: --mcp plus kill -9 left homes/<hex>/config.toml with the token in it, and nothing ever reconciled homes/",
+  async () => {
+    const homes = path.join(STATE_DIR, "homes");
+    const dead = path.join(homes, "00000000deadbeef");
+    fs.mkdirSync(dead, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(dead, "config.toml"), 'TOKEN = "secret"\n', { mode: 0o600 });
+    fs.writeFileSync(path.join(dead, "owner.json"), JSON.stringify({ pid: 2147483646, started: "old" }), { mode: 0o600 });
+    const { code, err } = await run(freshDir("mcp-reap"), { args: ["--mcp"], env: { FAKE_MCP: "1" } });
+    if (code !== EXIT.OK) return `the --mcp run exited ${code}: ${err.trim().slice(0, 200)}`;
+    if (fs.existsSync(dead)) return "a dead owner's private home, holding its MCP secrets, survived the next --mcp run";
+    if (!/reaped a crashed --mcp run's private home/.test(err)) return `the reaping was silent: ${err.trim().slice(0, 200)}`;
+    return true;
+  });
+
+
+test("a crashed tree whose HEAD cannot be read is left in place, not removed",
+  "an unreadable HEAD is not evidence of 'no commits': the committed test read null as false, and the tree was then removed with no ref naming whatever its HEAD held",
+  async () => {
+    const repo = freshRepo("wt-head-unreadable");
+    if (!repo) return "git setup failed";
+    const planted = plantCrashedTree(repo, "codex-crash-blindhead", { commit: true });
+    if (!planted) return "planting the crashed tree failed";
+    const bin = freshDir("wt-head-bin");
+    // Only that tree's HEAD: the reconciling run needs every other rev-parse to work.
+    fs.writeFileSync(path.join(bin, "git"),
+      `#!/bin/sh\ncase "$*" in *"-C ${planted.dir} rev-parse HEAD"*) exit 1 ;; esac\nexec ${REAL_GIT} "$@"\n`, { mode: 0o755 });
+    const entry = path.join(STATE_DIR, "worktrees", "codex-crash-blindhead.json");
+    const { code, err } = await run(null, { args: ["--worktree", repo],
+      env: { PATH: `${bin}:${shimDir}:${process.env.PATH}` } });
+    try {
+      if (code !== EXIT.OK) return `the reconciling run exited ${code}: ${err.trim().slice(0, 200)}`;
+      if (!fs.existsSync(planted.dir)) return "the tree was removed although its HEAD could not be read";
+      if (!fs.existsSync(entry)) return "the ledger entry was dropped, so nothing names the tree any more";
+      if (!/HEAD of the crashed tree .* could not be read/.test(err))
+        return `the refusal to remove was silent: ${err.trim().slice(0, 200)}`;
+    } finally {
+      spawnSync("git", ["-C", repo, "worktree", "remove", "--force", planted.dir]);
+      fs.rmSync(entry, { force: true });
+    }
+    return true;
+  });
+
+test("a `worktree add` that died after creating the directory leaves its ledger entry behind",
+  "the entry written before the add is there for exactly this crash, and removing it unconditionally on a failed add turned the half-made tree into the unlisted orphan the entry exists to prevent",
+  async () => {
+    const repo = freshRepo("wt-add-orphan");
+    if (!repo) return "git setup failed";
+    const bin = freshDir("wt-add-orphan-bin");
+    // The destination is the last argument of `worktree add --detach <dir>`; create it and fail, exactly
+    // as an add killed mid-checkout leaves it.
+    fs.writeFileSync(path.join(bin, "git"),
+      `#!/bin/sh\ncase "$*" in *"worktree add"*) for a in "$@"; do last=$a; done; mkdir -p "$last"; ` +
+      `echo "planted" >&2; exit 1 ;; esac\nexec ${REAL_GIT} "$@"\n`, { mode: 0o755 });
+    const ledgerDir = path.join(STATE_DIR, "worktrees");
+    const { code } = await run(null, { args: ["--worktree", repo],
+      env: { PATH: `${bin}:${shimDir}:${process.env.PATH}` } });
+    const stranded = fs.readdirSync(ledgerDir).filter((n) => {
+      try {
+        const e = JSON.parse(fs.readFileSync(path.join(ledgerDir, n), "utf8"));
+        return e.state === "creating" && fs.existsSync(e.path);
+      } catch { return false; }
+    });
+    try {
+      if (code !== EXIT.USAGE) return `a failed worktree add exited ${code}, expected 2`;
+      if (stranded.length !== 1) return `the half-made tree is unlisted: ${stranded.length} ledger entries name it`;
+      // And the next run must say so rather than walk past it.
+      const { err } = await run(null, { args: ["--worktree", repo] });
+      const orphan = JSON.parse(fs.readFileSync(path.join(ledgerDir, stranded[0]), "utf8")).path;
+      if (!err.includes(orphan)) return `the reconciler never named the orphan: ${err.trim().slice(0, 200)}`;
+    } finally {
+      for (const n of stranded) {
+        try { fs.rmSync(JSON.parse(fs.readFileSync(path.join(ledgerDir, n), "utf8")).path, { recursive: true, force: true }); } catch {}
+        fs.rmSync(path.join(ledgerDir, n), { force: true });
+      }
+    }
+    return true;
+  });
+
+test("a rebuild that cannot finish leaves no tree and no ledger entry",
+  "the diff applies, the archive does not, and the half-restored tree preserved nothing the answer log did not still hold — while every later reconciler announced it as work someone had to harvest",
+  async () => {
+    const repo = freshRepo("wt-restore-broken");
+    if (!repo) return "git setup failed";
+    const first = await run(null, { args: ["--worktree", repo, "--verify",
+      "printf 'seat-line\\n' >> seed && printf 'scratch\\n' > scratch.txt"] });
+    if (first.code !== EXIT.OK) return `the first seat exited ${first.code}: ${first.err.trim().slice(0, 160)}`;
+    let r1 = null; try { r1 = JSON.parse(first.out); } catch { return "no JSON report from the first seat"; }
+    if (!r1.worktreeUntrackedPath) return "the first seat saved no untracked archive, so there is nothing to corrupt";
+    fs.writeFileSync(r1.worktreeUntrackedPath, "not a gzip stream at all\n");
+    const before = fs.readdirSync(path.join(STATE_DIR, "worktrees"));
+    const { code, err } = await run(null, { args: ["--worktree", repo, "--resume", "last"] });
+    try {
+      if (code !== EXIT.USAGE) return `a rebuild that cannot finish exited ${code}, expected 2`;
+      if (!/could not be unpacked/.test(err)) return `the refusal did not say why: ${err.trim().slice(0, 200)}`;
+      if (worktreesUnder(repo).length) return `the half-restored tree was left behind: ${JSON.stringify(worktreesUnder(repo))}`;
+      const after = fs.readdirSync(path.join(STATE_DIR, "worktrees"));
+      if (after.length > before.length) return `the abandoned rebuild left a ledger entry: ${JSON.stringify(after)}`;
+    } finally {
+      for (const p of [r1?.worktreeDiffPath, r1?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
+test("a PRESERVED tree keeps its ledger entry, so something still names it",
+  "the entry was dropped on every disposition, removed or not: a preserved tree became invisible to the reconciler, the one reader that would ever mention it again",
+  async () => {
+    const repo = freshRepo("wt-preserved-ledger");
+    if (!repo) return "git setup failed";
+    const { code, out } = await run(null, { scenario: "turn-failed", args: ["--worktree", repo] });
+    if (code !== 1) return `expected exit 1, got ${code}`;
+    let r = null; try { r = JSON.parse(out); } catch {}
+    const name = path.basename(r?.worktreePath ?? "");
+    const entry = path.join(STATE_DIR, "worktrees", `${name}.json`);
+    try {
+      if (r?.worktreeRemoved !== false) return "the tree was removed, so the case does not test what it claims";
+      if (!fs.existsSync(entry)) return "the preserved tree's ledger entry was deleted; nothing names it any more";
+      const e = JSON.parse(fs.readFileSync(entry, "utf8"));
+      if (e.path !== r.worktreePath || e.state !== "preserved")
+        return `the entry does not describe the preserved tree: ${JSON.stringify(e)}`;
+    } finally {
+      if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+      fs.rmSync(entry, { force: true });
+    }
+    return true;
+  });
+
 let failed = 0;
 for (const c of CASES) {
   let verdict;
