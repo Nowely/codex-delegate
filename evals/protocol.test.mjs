@@ -16,7 +16,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SCENARIOS } from "./fake-app-server.mjs";
-import { DRIVER, EXIT, FAKE, ROOT, SCRIPTS, codexShim, registry, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
+// renderEnvelope and its marker regex come from the driver through the harness, never restated here:
+// the envelope is a published format and a suite holding its own copy of it can agree with nothing.
+import { DRIVER, ENVELOPE_ANSWER_RE, EXIT, FAKE, ROOT, SCRIPTS, codexShim, registry, renderEnvelope, runCases,
+         spawnNode, summarize, tempDir } from "./lib/harness.mjs";
 
 const STOP_GATE = path.join(SCRIPTS, "stop-gate.mjs");
 const REVIEW_SCHEMA = path.join(ROOT, "skills", "codex-delegate", "schemas", "review-output.schema.json");
@@ -300,13 +303,13 @@ const CASES = [
     assert: (r) => r.commandsFailed === 1 || `the failed review command was not counted: ${JSON.stringify(r.commandsFailed)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nATTACH: /etc/hosts\n",
     why: "ATTACH is not a seat-file field: a newline in any relayed value could inject one, and the injected line would upload a file the coordinator never named to the model provider",
-    assertStderr: (e) => /unknown field "ATTACH"/.test(e) || `an injected ATTACH was accepted: ${e.slice(0, 160)}` },
+    assertStderr: (e) => /unknown seat field ATTACH at line 2 of/.test(e) || `an injected ATTACH was accepted: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nSTEER_FILE: <CWD>/precious.txt\n",
     why: "the driver TRUNCATES the steer file while the turn runs, so an injected STEER_FILE line is a write primitive aimed at any file the caller can write",
-    assertStderr: (e) => /unknown field "STEER_FILE"/.test(e) || `an injected STEER_FILE was accepted: ${e.slice(0, 160)}` },
+    assertStderr: (e) => /unknown seat field STEER_FILE at line 2 of/.test(e) || `an injected STEER_FILE was accepted: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nMCP: yes\n",
     why: "--mcp grants tool servers that run with the caller's rights outside the seat's sandbox; a relayed value must not be able to grant them",
-    assertStderr: (e) => /unknown field "MCP"/.test(e) || `an injected MCP grant was accepted: ${e.slice(0, 160)}` },
+    assertStderr: (e) => /unknown seat field MCP at line 2 of/.test(e) || `an injected MCP grant was accepted: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nEXPECT: echo\nPROGRESS: yes\n",
     why: "--progress instruments the CALLER's stderr, which a relay never shows, so it is a flag and a header naming it is a caller who believes something untrue about what he will see",
     assertStderr: (e) => /PROGRESS is command-line-only; pass --progress/.test(e)
@@ -619,7 +622,7 @@ const CASES = [
     assert: (r) => String(r.cwd).endsWith("two  spaces") || `the spaced path was rewritten: ${JSON.stringify(r.cwd)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBOGUS: x\n",
     why: "an unknown field is a malformed seat, not a field to ignore — a typo must never silently become a different seat",
-    assertStderr: (t) => /unknown field "BOGUS"/.test(t) || `stderr did not name the field: ${t.slice(0, 120)}` },
+    assertStderr: (t) => /unknown seat field BOGUS at line 2 of/.test(t) || `stderr did not name the field: ${t.slice(0, 120)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nSEAT: write /tmp\n",
     why: "a repeated SEAT is a contradiction about rights; last-wins would let an appended line quietly upgrade the seat",
     assertStderr: (t) => /SEAT appears more than once/.test(t) || `stderr did not reject the duplicate: ${t.slice(0, 120)}` },
@@ -712,14 +715,17 @@ const CASES = [
     assertStderr: (e) => /refusing to grant write access/.test(e)
       || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.OK, unsetEnv: ["TMPDIR"],
-    why: "TMPDIR unset is the default in a stock Linux shell, and refusing it made every such seat a usage error over an environment variable the caller never thought about. A private 0700 directory of the run's own is the narrower grant — the seat can start a test runner, and what it gets is one run's scratch space rather than all of /tmp",
+    why: "TMPDIR unset is the default in a stock Linux shell, and refusing it made every such seat a usage error over an environment variable the caller never thought about. A private 0700 directory of the run's own is the narrower grant — the seat can start a test runner, and what it gets is one run's scratch space rather than all of /tmp. It lives under the driver's state, where the run-directory pruner reaches it",
     assert: (r) => {
       const roots = r.sandbox?.writableRoots ?? [];
       if (roots.length !== 1) return `the private temp grant is not exactly one root: ${JSON.stringify(roots)}`;
-      if (!/codex-delegate-tmp-/.test(roots[0])) return `the grant was not a directory of this run's own: ${JSON.stringify(roots[0])}`;
       if (roots[0] === os.tmpdir() || roots[0] === "/tmp") return `the grant is the whole system temp dir: ${JSON.stringify(roots[0])}`;
-      if (r.tmpDir !== null) return `an empty private temp directory was reported as kept: ${JSON.stringify(r.tmpDir)}`;
-      return !fs.existsSync(roots[0]) || `the run's private temp directory outlived it: ${roots[0]}`;
+      if (r.tmpDir === null) return "the run made a private temp directory and the report does not name it";
+      const base = path.join(shimDir, "state-root", "tmp");
+      if (path.dirname(r.tmpDir) !== base) return `the private temp directory is not under <state>/tmp: ${JSON.stringify(r.tmpDir)}`;
+      if (fs.realpathSync(r.tmpDir) !== roots[0]) return `the grant is not the reported directory: ${JSON.stringify({ tmpDir: r.tmpDir, root: roots[0] })}`;
+      if ((fs.statSync(r.tmpDir).mode & 0o777) !== 0o700) return `the private temp directory is not 0700: ${(fs.statSync(r.tmpDir).mode & 0o777).toString(8)}`;
+      return fs.existsSync(r.tmpDir) || `the run's private temp directory was removed at exit: ${r.tmpDir}`;
     } },
   { scenario: "tmp-write",        expect: EXIT.OK, unsetEnv: ["TMPDIR"],
     why: "the private directory is the read seat's ONLY writable root, and --brief tells the seat to leave long output in a file there and give its absolute path. Removing it at exit took that file with it, so the one path the answer named resolved to nothing — measured against the same teardown that removes the per-run home",
@@ -729,7 +735,6 @@ const CASES = [
       if (!fs.existsSync(named)) return `the path the answer names was removed with the run: ${named}`;
       if (r.tmpDir === null) return "a kept private temp directory was not named in the report";
       if (path.dirname(named) !== r.tmpDir) return `the report's tmpDir is not the directory the file is in: ${JSON.stringify({ tmpDir: r.tmpDir, named })}`;
-      fs.rmSync(r.tmpDir, { recursive: true, force: true });
       return true;
     } },
   { scenario: "happy",            expect: EXIT.OK, env: { TMPDIR: explicitTmp },
@@ -932,7 +937,7 @@ const CASES = [
     } },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: 100000\n",
     why: "the token budget is gone entirely — a rudimentary bound nobody could size honestly — so the field it rode is not a knob to re-spell but an unknown one, and a header carrying it must fail loudly rather than run unbounded",
-    assertStderr: (e) => /unknown field "BUDGET_TOKENS"/.test(e)
+    assertStderr: (e) => /unknown seat field BUDGET_TOKENS at line 2 of/.test(e)
       || `BUDGET_TOKENS was still understood: ${e.slice(0, 200)}` },
 
   // --- the bounds and the transport are flags: a seat file naming one is exit 2 ---
@@ -1055,7 +1060,42 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.USAGE, noCwd: true, args: ["--level", "write"],
     why: "the same rule on the command line, where --cwd used to be required at both levels",
     assertStderr: (e) => /--cwd is required at --level write/.test(e)
-      || `--level write ran without a writable root: ${e.slice(0, 200)}` }
+      || `--level write ran without a writable root: ${e.slice(0, 200)}` },
+
+  // --- one file, both halves: the header is the leading FIELD: lines and the rest is the prompt ---
+  { scenario: "echo-input", expect: EXIT.OK, noPrompt: true,
+    seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: count the files\nand say how many\n",
+    why: "the relay writes ONE file and never decides where the prompt begins: everything from the first line that is not a header field is the body, verbatim and label included, which is what a sonnet relay got wrong in both WP8-D live runs when it had to split the two itself",
+    assert: (r) => {
+      const answer = String(r.answer);
+      if (!/TASK: count the files\\nand say how many/.test(answer)) return `the body did not reach the turn verbatim: ${answer.slice(0, 200)}`;
+      return (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT"
+        || `a body line was read as a header field: ${JSON.stringify(r.seatFileFields)}` } },
+  { scenario: "echo-input", expect: EXIT.OK, noPrompt: true,
+    seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: do it\nNETWORK: yes\nMODEL: gpt-5\n",
+    why: "below the body's first line nothing is a header however field-like it looks — otherwise a task that quotes a header, or a relayed value carrying a newline, silently re-declares the seat's rights",
+    assert: (r) => (r.network === false && r.model !== "gpt-5" && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
+      || `a line below TASK: was read as a field: ${JSON.stringify({ net: r.network, model: r.model, fields: r.seatFileFields })}` },
+  { scenario: "happy", expect: EXIT.USAGE, noPrompt: true,
+    seat: "SEAT: read <CWD>\nEXPECT: echo\nNOTE: not a field\nTASK: do it\n",
+    why: "variant 2 of the owner's decision: an ALL-CAPS name that is not a field and not a body label, above the body, is a typo or a flag — and running the seat with that line silently swallowed into the prompt is the failure this refusal replaces",
+    assertStderr: (e) => (/unknown seat field NOTE at line 3 of/.test(e) && /the body starts at the first TASK: line/.test(e))
+      || `the unknown field did not name its line and the way out: ${e.slice(0, 240)}` },
+  { scenario: "resume-active", expect: EXIT.BUSY, relay: true, json: "omit", noPrompt: true,
+    seat: "SEAT: read <CWD>\nRESUME: thr_root\nTASK: continue the thread\n",
+    why: "exit 10 arrives BOTH ways: as the running handle, which carries a collect: line, and as a refusal with no thread at all — a resumed thread whose turn is still open, or a held write lock. A relay whose loop is keyed on the code alone would poll a final answer forever, so the two must be distinguishable by the envelope itself",
+    assertText: (out) => {
+      if (out.split("\n", 1)[0] !== "exitCode: 10") return `the refusal did not open at exit 10: ${JSON.stringify(out.slice(0, 120))}`;
+      if (/^collect: /m.test(out)) return "a refusal with no thread offered a collect: command to repeat";
+      if (!/^--- stderr \(last 20 lines\) ---$/m.test(out)) return `no stderr block: ${JSON.stringify(out.slice(0, 200))}`;
+      if (!/still has a turn running/.test(out)) return `the stderr block does not carry the refusal: ${JSON.stringify(out.slice(0, 200))}`;
+      return /--- answer \(0 bytes\) ---\n?$/.test(out) || `the envelope does not end at a 0-byte answer: ${JSON.stringify(out.slice(-80))}`;
+    } },
+  { scenario: "happy", expect: EXIT.USAGE,
+    seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: the file's own body\n",
+    why: "the file's body and --prompt are two prompts, and no rule says which one ran; the harness passes --prompt to every case that does not opt out, so this is also what proves the body route is the one being measured above",
+    assertStderr: (e) => /carries a body below its header and --prompt was given too/.test(e)
+      || `two prompts were accepted: ${e.slice(0, 200)}` }
 ];
 
 // Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells
@@ -1073,12 +1113,13 @@ let seatSeq = 0;
 function run(c) {
   return new Promise((resolve) => {
     // A seat-file case writes its declaration to disk and passes only --seat-file, exactly as the
-    // codex-seat relay does — the point being that no value ever passes through a shell.
+    // codex-seat relay does — the point being that no value ever passes through a shell. `relay: true`
+    // is the same file through --relay, which is the whole of the relay's command line.
     let seatArgs = [];
     if (c.seat) {
       const f = path.join(shimDir, `seat-${seatSeq++}.txt`);
       fs.writeFileSync(f, c.seat.replaceAll("<CWD>", shimDir).replaceAll("<CWDSP>", spacedDir));
-      seatArgs = ["--seat-file", f];
+      seatArgs = [c.relay ? "--relay" : "--seat-file", f];
     }
     const { child: p, done } = spawnNode(
       // Every case gets a wall clock so a hung fixture cannot stall the suite; `noTimeout` opts out, and
@@ -1564,12 +1605,217 @@ flow("the detach contradictions are refused, and a run directory that cannot be 
     return true;
   });
 
+// --- the relay: one command in, one envelope out, and no decision left to the agent that ran it ---
+//
+// Everything below used to be prose in agents/codex-seat.md — which wait to run, when to repeat it, which
+// keys to copy, how to render a failure. A weaker model followed some of it. These are the cases that
+// replace it, so a rule that regresses fails here rather than in a live seat.
+
+// The shape a coordinator parses: fields above the first `--- answer (N bytes) ---`, answer below it,
+// and nothing else anywhere.
+function parseEnvelope(out) {
+  const m = /^--- answer \((\d+) bytes\) ---\n?/m.exec(out);
+  if (!m) return { error: `no \`--- answer (N bytes) ---\` marker in ${JSON.stringify(out.slice(0, 200))}` };
+  const head = out.slice(0, m.index);
+  const answer = out.slice(m.index + m[0].length);
+  return { head, answer, bytes: Number(m[1]), first: out.split("\n", 1)[0],
+           fields: Object.fromEntries([...head.matchAll(/^([A-Za-z]+): (.*)$/gm)].map((x) => [x[1], x[2]])) };
+}
+
+flow("--relay prints the envelope and exits with the code the run itself decided",
+  "the relay's whole job becomes `run this, copy stdout, return the exit code`. Three codes because these are the three shapes it must never conflate: a success, a gate that said no with an answer beside it, and a sandbox that was too small",
+  async () => {
+    for (const [scenario, expect, seat] of [
+      ["happy", EXIT.OK, "SEAT: read <CWD>\nEXPECT: echo\nTASK: do the work\n"],
+      ["wrong-command", EXIT.NO_COMMANDS, "SEAT: read <CWD>\nEXPECT: vitest\nTASK: run the tests\n"],
+      ["escalated", EXIT.ESCALATED, "SEAT: read <CWD>\nTASK: do the work\n"]]) {
+      const { code, out, err } = await run({ scenario, seat, relay: true, json: "omit", noPrompt: true,
+        env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+      if (code !== expect) return `--relay on ${scenario} exited ${code}, the run decides ${expect}: ${err.trim().slice(-200)}`;
+      const e = parseEnvelope(out);
+      if (e.error) return `${scenario}: ${e.error}`;
+      if (e.first !== `exitCode: ${expect}`) return `${scenario}: the first line is ${JSON.stringify(e.first)}, not \`exitCode: ${expect}\``;
+      if (e.fields.threadId !== "thr_root") return `${scenario}: the envelope names no thread: ${JSON.stringify(e.fields)}`;
+      if (e.fields.turnStatus !== "completed") return `${scenario}: turnStatus is ${JSON.stringify(e.fields.turnStatus)}`;
+      if (Buffer.byteLength(e.answer) !== e.bytes) return `${scenario}: the marker says ${e.bytes} bytes and ${Buffer.byteLength(e.answer)} follow it`;
+      // The JSON report is not thrown away: the envelope names where it is, and it parses.
+      if (!readJson(e.fields.reportPath)) return `${scenario}: reportPath does not name a readable report: ${e.fields.reportPath}`;
+    }
+    return true;
+  });
+
+flow("a seat that outlives the relay's wait comes back as exit 10 with a LITERAL collect command",
+  "the relay repeats one command it was handed; a command needing substitution is a decision, and the wait loop is exactly where a weaker model improvised (measured: a hand-built --wait with the wrong id). So the envelope carries the absolute driver, the thread and the cwd, already quoted",
+  async () => {
+    const state = flowState();
+    const started = await run({ scenario: "stalled-turn", relay: true, json: "omit", noPrompt: true,
+      noTimeout: true, seat: "SEAT: read <CWD>\nTASK: stall for a while\n", args: ["--timeout", "6"],
+      env: { CODEX_DELEGATE_STATE_DIR: state, CODEX_DELEGATE_RELAY_WAIT_S: "1" } });
+    if (started.code !== EXIT.BUSY) return `the relay did not hand back a running envelope: exit ${started.code} ${started.err.trim().slice(-200)}`;
+    const e = parseEnvelope(started.out);
+    if (e.error) return e.error;
+    if (e.first !== "exitCode: 10") return `the first line is ${JSON.stringify(e.first)}`;
+    if (e.fields.turnStatus !== "running") return `the running envelope says turnStatus ${JSON.stringify(e.fields.turnStatus)}`;
+    if (e.bytes !== 0 || e.answer !== "") return `the running envelope carried an answer: ${JSON.stringify(e.answer.slice(0, 80))}`;
+    const collect = /^collect: (.+)$/m.exec(started.out)?.[1];
+    if (!collect) return "the running envelope carries no collect: line";
+    if (!collect.includes(`"${DRIVER}"`)) return `the collect command does not name this driver absolutely and quoted: ${collect}`;
+    if (!collect.includes("--relay-collect thr_root")) return `the collect command does not name the thread: ${collect}`;
+    // Run it VERBATIM, the way the relay does: it must need no substitution of any kind.
+    const collected = spawnSync("sh", ["-c", collect], { encoding: "utf8", timeout: 60000,
+      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "stalled-turn",
+             CODEX_DELEGATE_STATE_DIR: state, CODEX_DELEGATE_RELAY_WAIT_S: "30" } });
+    if (collected.status !== EXIT.TIMEOUT)
+      return `the collect command exited ${collected.status}, the cut run decided ${EXIT.TIMEOUT}: ${String(collected.stderr).trim().slice(-200)}`;
+    const f = parseEnvelope(String(collected.stdout));
+    if (f.error) return `the collected output is not an envelope: ${f.error}`;
+    if (f.first !== `exitCode: ${EXIT.TIMEOUT}`) return `the collected envelope opens ${JSON.stringify(f.first)}`;
+    if (f.fields.turnStatus !== "timedOut") return `the collected envelope says turnStatus ${JSON.stringify(f.fields.turnStatus)}`;
+    return /^cut: kind=wall limit=6 observed=\d+$/m.test(f.head)
+      || `the collected envelope does not name the budget that ended the turn: ${f.head}`;
+  });
+
+flow("a relayed seat that never got a thread is an envelope too, with the stderr tail in its own block",
+  "the relay has no rule for an empty stdout: every exit the driver can take in this mode starts with `exitCode:`, and the failure evidence goes in a `--- stderr` block ABOVE the answer marker — measured, a relay that put a stderr quote below it had the coordinator read it as Codex's answer",
+  async () => {
+    const { code, out } = await run({ scenario: "happy", relay: true, json: "omit", noPrompt: true,
+      seat: "SEAT: read /nonexistent/relay/dir\nTASK: do it\n",
+      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    if (code !== EXIT.USAGE) return `a seat that could not start exited ${code}`;
+    const e = parseEnvelope(out);
+    if (e.error) return e.error;
+    if (e.first !== "exitCode: 2") return `the first line is ${JSON.stringify(e.first)}`;
+    if (!/^--- stderr \(last 20 lines\) ---$/m.test(e.head)) return `no stderr block: ${JSON.stringify(e.head)}`;
+    if (!/--cwd does not exist/.test(e.head)) return `the stderr block does not carry the refusal: ${JSON.stringify(e.head)}`;
+    if (e.bytes !== 0 || e.answer !== "") return `a seat that never ran returned an answer: ${JSON.stringify(e.answer)}`;
+    return fs.existsSync("/nonexistent/relay/dir") ? "the relayed seat created the directory it was refused" : true;
+  });
+
+flow("the envelope carries the FULL answer where --brief clipped the report's",
+  "--brief caps what the REPORT holds inline and writes the whole text to answerPath; an envelope that relayed the capped field would hand the coordinator a clip marker instead of the answer, and the file it forwards to is the seat's own",
+  async () => {
+    const { code, out } = await run({ scenario: "long-answer", relay: true, json: "omit", noPrompt: true,
+      seat: "SEAT: read <CWD>\nBRIEF: yes\nTASK: write at length\n",
+      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    if (code !== EXIT.OK) return `the brief relay exited ${code}`;
+    const e = parseEnvelope(out);
+    if (e.error) return e.error;
+    if (/\[clipped:/.test(e.answer)) return "the envelope relayed the clipped answer, not the full one";
+    if (e.bytes <= 4000) return `the relayed answer is ${e.bytes} bytes, within --brief's own cap — the clip was not undone`;
+    if (Buffer.byteLength(e.answer) !== e.bytes) return `the marker says ${e.bytes} bytes and ${Buffer.byteLength(e.answer)} follow it`;
+    const onDisk = fs.readFileSync(e.fields.answerPath, "utf8");
+    return e.answer === onDisk || `the relayed answer is not the file the envelope names (${e.answer.length} vs ${onDisk.length})`;
+  });
+
+flow("--relay supplies the rights line a coordinator's prompt does not have, and --seat-file still refuses to",
+  "every edit the relay was allowed became an edit it made — it added a SEAT line with a directory, then a gate waiver, then rewrote a header that was already there. So the relay adds nothing and the DEFAULT is here: read level in the current directory, which widens nothing, on the --relay route only. The JSON route keeps `rights must be declared, not defaulted`, and the case for it below stays green",
+  async () => {
+    const here = fs.realpathSync(process.cwd());
+    // A prompt exactly as a coordinator wrote it: no header at all.
+    const bare = await run({ scenario: "happy", relay: true, json: "omit", noPrompt: true,
+      seat: "Count the exit codes in the driver and say how many.\n",
+      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    if (bare.code !== EXIT.OK) return `a header-less relayed prompt exited ${bare.code}: ${bare.err.trim().slice(-200)}`;
+    const e = parseEnvelope(bare.out);
+    if (e.error) return e.error;
+    const r1 = readJson(e.fields.reportPath);
+    if (!r1) return `the envelope names no readable report: ${e.fields.reportPath}`;
+    if (r1.level !== "read" || r1.cwd !== here)
+      return `the default is not read level in the current directory: ${JSON.stringify({ level: r1.level, cwd: r1.cwd })}`;
+    if ((r1.seatFileFields ?? []).includes("SEAT"))
+      return `a SEAT the file never carried was reported as declared: ${JSON.stringify(r1.seatFileFields)}`;
+    // A header that declares something else and still no rights: the fields apply, the default stands.
+    const noSeat = await run({ scenario: "happy", relay: true, json: "omit", noPrompt: true,
+      seat: "EFFORT: high\n\nDo the work and report.\n", env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    if (noSeat.code !== EXIT.OK) return `a SEAT-less header exited ${noSeat.code}: ${noSeat.err.trim().slice(-200)}`;
+    const r2 = readJson(parseEnvelope(noSeat.out).fields.reportPath);
+    if (!r2) return "the second relayed run left no readable report";
+    if (r2.level !== "read" || r2.cwd !== here)
+      return `a SEAT-less header did not default to read in the current directory: ${JSON.stringify({ level: r2.level, cwd: r2.cwd })}`;
+    if (r2.effort !== "high" || (r2.seatFileFields ?? []).join(",") !== "EFFORT")
+      return `the fields beside the missing SEAT were dropped: ${JSON.stringify({ effort: r2.effort, fields: r2.seatFileFields })}`;
+    // The same two files through --seat-file, which declares rights or runs nothing.
+    for (const seat of ["Count the exit codes in the driver and say how many.\n", "EFFORT: high\n\nDo the work and report.\n"]) {
+      const refused = await run({ scenario: "happy", seat, noPrompt: true, json: "omit",
+        env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+      if (refused.code !== EXIT.USAGE || !/no SEAT field/.test(refused.err))
+        return `--seat-file accepted a file with no rights line: exit ${refused.code} ${refused.err.trim().slice(0, 160)}`;
+    }
+    // And a SEAT that IS there but not first is still the injection refusal, on both routes.
+    const late = await run({ scenario: "happy", relay: true, json: "omit", noPrompt: true,
+      seat: "EFFORT: high\nSEAT: read <CWD>\nTASK: do it\n", env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    return (late.code === EXIT.USAGE && /first field must be SEAT, not EFFORT/.test(late.err))
+      || `a SEAT below another field was accepted: exit ${late.code} ${late.err.trim().slice(0, 200)}`;
+  });
+
+flow("--relay and --relay-collect refuse the flags that would change what they print or how they carry the run",
+  "the mode IS the transport and the format: a --json beside it asks for two stdouts, a --detach for two transports, and each would leave the relay copying something its coordinator cannot parse",
+  async () => {
+    for (const args of [["--json"], ["--footer"], ["--detach"], ["--wait", "thr_root"], ["--wait-timeout", "5"]]) {
+      const { code, err } = await run({ scenario: "happy", relay: true, json: "omit", noPrompt: true,
+        seat: "SEAT: read <CWD>\nTASK: do it\n", args, env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+      if (code !== EXIT.USAGE || !/cannot be combined with --relay/.test(err))
+        return `${args[0]} beside --relay was not refused: exit ${code} ${err.trim().slice(0, 200)}`;
+    }
+    const collect = await run({ scenario: "happy", json: "omit", noPrompt: true,
+      args: ["--relay-collect", "thr_root", "--footer"], env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    if (collect.code !== EXIT.USAGE || !/cannot be combined with --relay-collect/.test(collect.err))
+      return `--footer beside --relay-collect was not refused: exit ${collect.code} ${collect.err.trim().slice(0, 200)}`;
+    const both = await run({ scenario: "happy", relay: true, json: "omit", noPrompt: true,
+      seat: "SEAT: read <CWD>\nTASK: do it\n", args: ["--relay-collect", "thr_root"],
+      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    return (both.code === EXIT.USAGE && /--relay and --relay-collect are contradictory/.test(both.err))
+      || `--relay with --relay-collect was not refused: exit ${both.code} ${both.err.trim().slice(0, 200)}`;
+  });
+
+flow("the job record's tokensSpent is what a real run measured, on the root thread",
+  "every other case here writes the record by hand, so nothing pinned the value a run computes — and it is what --jobs and the running handle report, the one number a coordinator sizes a fan-out with. The fixture emits a subagent thread's 9900 after the root's 135, so a dropped thread filter reads 9900 here",
+  async () => {
+    const state = flowState();
+    const { code, err } = await run({ scenario: "happy", env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(-200)}`;
+    const rec = recordOf(state);
+    if (!rec) return "the run wrote no job record";
+    return rec.tokensSpent === 135
+      || `tokensSpent is ${JSON.stringify(rec.tokensSpent)}; the fixture's root-thread total is 135`;
+  });
+
+flow("a private $TMPDIR outlives its run and is reaped on the run-directory bounds",
+  "two measured failures in one rule: removing it at exit took with it the file --brief had told the seat to write, and leaving it in the system temp dir left a directory per SIGKILLed run forever. Under <state>/tmp/<runId> it survives the run and the next run that needs one prunes it — never one whose own run is still alive",
+  async () => {
+    const state = flowState();
+    const first = await run({ scenario: "tmp-write", unsetEnv: ["TMPDIR"], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (first.code !== EXIT.OK) return `the first run exited ${first.code}: ${first.err.trim().slice(-200)}`;
+    const dir = JSON.parse(first.out).tmpDir;
+    if (!dir || path.dirname(dir) !== path.join(state, "tmp")) return `the private $TMPDIR is not under <state>/tmp: ${JSON.stringify(dir)}`;
+    if (!fs.existsSync(dir)) return `the private $TMPDIR was removed at exit: ${dir}`;
+    // A SIGKILLed run's leavings: a directory with no owner record, older than the age bound.
+    const leak = path.join(state, "tmp", "leaked-by-a-sigkill");
+    fs.mkdirSync(leak, { recursive: true });
+    fs.writeFileSync(path.join(leak, "junk.txt"), "x");
+    // And a live one, whose owner record names a process that certainly exists: this one.
+    const live = path.join(state, "tmp", "a-live-seat");
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(path.join(live, "owner.json"), JSON.stringify({ pid: process.pid, identity: null }));
+    const old = (Date.now() - 15 * 86400000) / 1000;
+    for (const d of [leak, live]) fs.utimesSync(d, old, old);
+    const second = await run({ scenario: "happy", unsetEnv: ["TMPDIR"], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (second.code !== EXIT.OK) return `the second run exited ${second.code}: ${second.err.trim().slice(-200)}`;
+    if (fs.existsSync(leak)) return `the directory a SIGKILLed run left behind was not reaped: ${leak}`;
+    if (!fs.existsSync(live)) return `a live seat's scratch directory was reaped under it: ${live}`;
+    return fs.existsSync(dir) || `an earlier run's kept $TMPDIR was reaped inside the bounds: ${dir}`;
+  });
+
 let failed = 0;
+// Every report the table cases produce, rendered through the ONE envelope function — see the flow at the
+// end of the file. Filled by the loop below, which runs before the flows do.
+const rendered = [];
 for (const c of CASES) {
   const label = `${c.scenario}${c.args?.length ? ` ${c.args.join(" ")}` : ""}`;
   const { code, out, err, ms } = await run(c);
   let report = null;
   try { report = JSON.parse(out); } catch {}
+  if (report) rendered.push({ label, report });
   // An exit code alone cannot catch a report that destroys information — two runs with opposite verify
   // results once printed byte-identically at the same code. `assert` returns true, or a reason string.
   // A THROWING assert is a failed case, not a dead suite: unlike lock.test.mjs this loop had no
@@ -1617,6 +1863,26 @@ flow("--ephemeral leaves no thread behind: no job record, no continue-with line,
     if (last.code !== EXIT.USAGE || !/no previous run/.test(last.err))
       return `\`--resume last\` after an ephemeral run exited ${last.code}, expected the usage refusal: ${last.err.trim().slice(0, 160)}`;
     return true;
+  });
+
+flow("every report this suite produced renders as an envelope a coordinator can parse",
+  "the envelope is ONE function over the report object, so the whole matrix of reports above — cut, escalated, schema, worktree, review, brief — is its input set. The two rules a coordinator is given have to hold for every one of them: the first line is the exit code, and everything after the single answer marker is the answer, exactly as many bytes as the marker states",
+  () => {
+    if (rendered.length < 100) return `only ${rendered.length} reports were collected, so this proves little`;
+    const problems = [];
+    for (const { label, report } of rendered) {
+      const text = renderEnvelope(report, { reportPath: "/dev/null" });
+      const first = text.split("\n", 1)[0];
+      if (!/^exitCode: (-?\d+|null)$/.test(first)) { problems.push(`${label}: first line ${JSON.stringify(first)}`); continue; }
+      const markers = [...text.matchAll(new RegExp(ENVELOPE_ANSWER_RE.source, "gm"))];
+      if (markers.length !== 1) { problems.push(`${label}: ${markers.length} answer markers`); continue; }
+      const m = markers[0];
+      const answer = text.slice(m.index + m[0].length + 1);
+      if (Buffer.byteLength(answer) !== Number(m[1]))
+        problems.push(`${label}: the marker says ${m[1]} bytes and ${Buffer.byteLength(answer)} follow it`);
+      if (first !== `exitCode: ${report.exitCode}`) problems.push(`${label}: the envelope's code is not the report's`);
+    }
+    return problems.length === 0 || problems.slice(0, 5).join("; ");
   });
 
 failed += await runCases(FLOWS);

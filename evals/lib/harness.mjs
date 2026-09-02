@@ -16,8 +16,8 @@ import { fileURLToPath } from "node:url";
 // Straight out of the driver, never restated: a suite holding its own copy of EXIT, of the seat-file
 // vocabulary or of the lock's key has a copy that can disagree with the thing it is testing — which is
 // what each of them did. Importing is safe because driver.mjs runs main() only as an entry point.
-export { ATTACH_KINDS, EFFORTS, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, USAGE, VERSION, WEB_SEARCH, lockKey }
-  from "../../skills/codex-delegate/scripts/driver.mjs";
+export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, USAGE, VERSION,
+         WEB_SEARCH, lockKey, renderEnvelope } from "../../skills/codex-delegate/scripts/driver.mjs";
 
 export const EVALS = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const ROOT = path.dirname(EVALS);
