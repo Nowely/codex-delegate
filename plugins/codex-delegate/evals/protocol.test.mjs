@@ -695,7 +695,79 @@ const CASES = [
     args: ["--verify", "exit 3", "--verify-sandboxed"],
     why: "`codex sandbox` passes the command's exit code through — measured live, exit 7 came back as 7 — so a sandboxed verifier's verdict is the verifier's, not the sandbox's",
     assert: (r) => (r.verify?.exitCode === 3 && r.verify?.sandboxed === true && r.verify?.measured === true)
-      || `the sandboxed verifier's exit code was not passed through: ${JSON.stringify(r.verify)}` }
+      || `the sandboxed verifier's exit code was not passed through: ${JSON.stringify(r.verify)}` },
+
+  // --- the wall clock as three rungs: warn, cut, report ---
+  { scenario: "wrap-up",          expect: EXIT.OK, args: ["--timeout", "65"],
+    why: "the only recovery that works. E1 measured that turn/interrupt DISCARDS the in-flight answer, so nothing at the deadline can produce one: the run has to ask for the final answer while the model can still write it, a quarter of the budget out and never less than a minute",
+    assert: (r) => {
+      const a = String(r.answer);
+      const n = Number(/About (\d+) seconds of wall clock remain/.exec(a)?.[1]);
+      if (!Number.isFinite(n)) return `no wrap-up steer reached the turn: ${a.slice(0, 160)}`;
+      if (!(n > 50 && n <= 61)) return `the wrap-up steer named ${n}s left of a 65 s budget with a 60 s reserve`;
+      return /Stop investigating now; write your final answer/.test(a)
+        || `the steer did not ask for the final answer: ${a.slice(0, 200)}`;
+    } },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "and it must not fire where the reserve does not fit: on a 20 s seat a wrap-up steer would land in the first tick, which is an interruption rather than a warning — the rung is armed only when it leaves the model real time to write",
+    assertStderr: (e) => !/wrap-up:/.test(e) || `a short seat was steered anyway: ${e.slice(0, 200)}` },
+  { scenario: "cut-flush",        expect: EXIT.TIMEOUT, args: ["--timeout", "1"],
+    why: "a cut is not a kill: the server is asked to end the turn and given a grace to do it, and an answer that lands inside that grace is the answer the caller gets. Before this the deadline reported and tore the group down in the same tick, so a completion already on the wire was thrown away",
+    assert: (r) => {
+      if (r.cut?.kind !== "wall") return `the report did not name the budget that cut it: ${JSON.stringify(r.cut)}`;
+      if (r.cut.completedInGrace !== true) return `the turn closed inside the grace and the report says otherwise: ${JSON.stringify(r.cut)}`;
+      if (!/flushed at the interrupt/.test(String(r.answer))) return `the flushed answer was discarded: ${JSON.stringify(String(r.answer).slice(0, 80))}`;
+      return (r.turnStatus === "timedOut" && r.cut.limit === 1) || `a cut turn must still report the budget it was cut on: ${JSON.stringify({ t: r.turnStatus, cut: r.cut })}`;
+    } },
+  { scenario: "cut-partial",      expect: EXIT.TIMEOUT, args: ["--timeout", "1"],
+    why: "the MEASURED server (E1): the interrupt flushes nothing and the in-flight message is discarded, so the accumulated deltas are the only copy of what the model had written. It is never the answer — unfinished text the model did not deliver, in its own field — and the messages of a turn that answered nothing get a path of their own",
+    assert: (r) => {
+      if (r.cut?.completedInGrace !== false) return `nothing closed the turn, so completedInGrace must be false: ${JSON.stringify(r.cut)}`;
+      if (String(r.answer) !== "") return `an unfinished partial was promoted to the answer: ${JSON.stringify(String(r.answer).slice(0, 80))}`;
+      if (r.answerPartial !== "The answer so far, and this much more")
+        return `the partial was not reassembled from the deltas: ${JSON.stringify(r.answerPartial)}`;
+      // The commentary message was STREAMED and then completed: its deltas must not survive as a partial.
+      if (/looking into it/.test(String(r.answerPartial))) return "a message the server completed came back as a partial";
+      if (!r.answerPartialPath || !fs.existsSync(r.answerPartialPath)) return `the partial was not written: ${r.answerPartialPath}`;
+      if (!r.commentaryPath || !fs.existsSync(r.commentaryPath)) return `a turn with only commentary wrote no commentaryPath: ${r.commentaryPath}`;
+      if (!/looking into it/.test(fs.readFileSync(r.commentaryPath, "utf8"))) return "commentaryPath does not hold the turn's messages";
+      return r.commentaryOnly === true || `commentaryOnly was ${JSON.stringify(r.commentaryOnly)}`;
+    } },
+  { scenario: "cut-partial",      expect: EXIT.TIMEOUT, args: ["--timeout", "1"],
+    why: "exit 3 is a budget the CALLER set, so the report has to say what the caller can do about it; the thread is still there and resuming it is the recovery, with the caveat that a turn still closing refuses with exit 10",
+    assert: (r) => (/--resume thr_root/.test(String(r.hint)) && /RESUME: thr_root/.test(String(r.hint))
+        && /exit 10/.test(String(r.hint)) && /--effort/.test(String(r.hint)) && /split/.test(String(r.hint)))
+      || `the exit-3 hint does not name the way out: ${JSON.stringify(r.hint)}` },
+  { scenario: "no-thread",        expect: EXIT.TIMEOUT, args: ["--timeout", "0.5"],
+    why: "the pre-thread rung is unchanged by the cut: with no thread there is nothing to interrupt and nothing to report, so it aborts with the code and prints no report — the same contract --help publishes",
+    assertStderr: (e) => /timed out after 0.5s/.test(e) || `the pre-thread timeout did not announce itself: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "the schema has carried durationMs on every commandExecution item all along and the driver dropped it, so nothing could say whether a slow seat was slow because of the model or because of the work it ordered",
+    assert: (r) => {
+      const t = r.timing;
+      if (!t || typeof t.wallMs !== "number" || typeof t.setupMs !== "number") return `no timing in the report: ${JSON.stringify(t)}`;
+      if (!(t.wallMs > 0 && t.setupMs >= 0 && t.setupMs <= t.wallMs)) return `timing is not internally consistent: ${JSON.stringify(t)}`;
+      if (t.commandMs !== 1) return `commandMs did not come from the item's own durationMs: ${JSON.stringify(t)}`;
+      return t.modelMs === t.wallMs - t.setupMs - t.commandMs || `modelMs is not the remainder: ${JSON.stringify(t)}`;
+    } },
+  { scenario: "echo-instructions", expect: EXIT.OK,
+    why: "the model has no clock unless it runs `date`, so a wall-clock budget it is never told about is one it cannot plan against — the sentence is the whole of P1 and it costs nothing",
+    assert: (r) => {
+      const n = Number(/You have about (\d+) seconds of wall clock/.exec(String(r.answer))?.[1]);
+      if (!Number.isFinite(n)) return `the budget never reached the seat: ${String(r.answer).slice(0, 200)}`;
+      return (n > 0 && n <= 20) || `the seat was told ${n}s of a 20 s budget`;
+    } },
+  { scenario: "echo-instructions", expect: EXIT.OK, args: ["--resume", "thr_root"],
+    why: "developerInstructions are per-request, not per-thread: a resumed turn that did not carry the budget sentence would be the only turn running blind, and --resume is exactly where a long seat continues",
+    assert: (r) => (/You have about \d+ seconds of wall clock/.test(String(r.answer)) && r.resumedFrom === "thr_root")
+      || `a resumed turn lost the budget sentence: ${JSON.stringify({ a: String(r.answer).slice(0, 160), from: r.resumedFrom })}` },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--effort", "high"],
+    why: "the measured failure shape: a high-effort turn spends minutes thinking before it writes anything, and under a short clock the cut lands before an answer exists. The warning is on stderr at the threadId announcement, while the caller can still stop the run",
+    assertStderr: (e) => /effort high with --timeout 20s is the measured failure shape/.test(e)
+      || `no warning for high effort under a short clock: ${e.slice(0, 300)}` },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--effort", "low"],
+    why: "and it must stay quiet otherwise: a warning printed on every run is a warning nobody reads",
+    assertStderr: (e) => !/measured failure shape/.test(e) || `the effort warning fired for low effort: ${e.slice(0, 200)}` }
 ];
 
 // Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells

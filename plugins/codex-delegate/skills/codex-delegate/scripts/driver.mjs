@@ -164,7 +164,16 @@ Turn
                      the report as answerPath, with or without this flag.
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
-  --timeout SECONDS  default 900, at most 7200
+  --timeout SECONDS  default 900, at most 7200 — the whole budget, anchored at
+                     process start, and spent in three rungs. At T minus a
+                     reserve (a quarter of the budget, at least 60 s and at most
+                     300 s, and only where that fits) the turn is STEERED: "about
+                     N seconds remain, write your final answer now". At T minus a
+                     grace (10 s, at most a quarter of the budget) the turn is
+                     CUT — turn/interrupt, then the grace for the server to close
+                     it. At T the report is written regardless. A cut lands on
+                     exit 3 with cut.kind wall, and the report says whether the
+                     server closed the turn inside the grace
   --resume THREAD    continue a thread; "--resume last" continues the newest run
                      recorded for this --cwd OR, with --worktree, for this
                      repository (registry: ~/.codex-delegate/jobs). The report
@@ -228,7 +237,20 @@ Report
                      config, a stale last-known-good, or nothing) and
                      commandsPipedToPager (commands whose output the seat cut
                      with head/tail/less). verify carries budgetMs, timedOut and
-                     sandboxed beside the exit status
+                     sandboxed beside the exit status.
+                     cut is null on a run that ended on its own and otherwise
+                     names the budget that ended it: {kind, limit, observed,
+                     completedInGrace}. timing splits the wall clock into
+                     {wallMs, setupMs, commandMs, modelMs}, commandMs being the
+                     server's own per-command durations, so modelMs is what is
+                     left for the model itself.
+                     answerPartial is what the model had written when the turn
+                     was cut, reassembled from the answer stream because the
+                     server discards the in-flight message on an interrupt; it is
+                     UNFINISHED text the model never delivered, is never promoted
+                     to answer, and is written beside it as answerPartialPath.
+                     commentaryPath is where a turn that produced no answer at
+                     all had its messages written
   --footer           a human footer instead of the JSON report
   --progress         one line per item start on stderr (run/edit/search), so a
                      long seat can be watched live without tailing the rollout
@@ -262,7 +284,10 @@ Exit codes. Raised the moment they happen, before any turn could run:
      --timeout); like an argument-error 2 it then prints no report
 
 Decided after the turn, first match wins, in this order:
-  3 timed out ... 2 the server refused the request ... 1 turn did not complete
+  3 cut on a declared budget (today: the wall clock; cut.kind says which), and
+    the report holds the answer or the partial the turn had reached, plus a hint
+    naming --resume <threadId>
+  ... 2 the server refused the request ... 1 turn did not complete
   ... 7 wanted input ... 6 escalated ... 12 verify unmeasurable
   ... 9 verify failed ... 5 no commands ... 8 no answer
   ... 13 the answer failed --output-schema ... 11 a command or a file change
@@ -2015,6 +2040,17 @@ let outputAttempts = 0;     // turns STARTED under --output-schema; at most one 
 let requestFn = null;       // main()'s request closure, hoisted so the corrective turn can reach it
 let lastTurnParams = null;  // the original turn/start params, so a transient retry replays them exactly
 const transientRetries = [];  // {cause, delayMs} per retry taken, for the report
+// The turn is being ended on a declared budget rather than on its own: {reason, kind, limit, observed,
+// completedInGrace}. Set once; the root turn/completed handler and the grace timer both read it.
+let pendingCut = null;
+let cutGraceTimer = null;
+let setupDoneMs = null;     // when setup() returned, so the report can separate setup from model time
+// The in-flight agentMessage text, keyed by item id. Measured (E1): turn/interrupt DISCARDS the
+// server's in-progress message — no item/completed, nothing in the rollout — so the deltas are the only
+// copy of a cut answer. The delta notification carries no phase, so an accumulator is by definition
+// unphased until its item/completed arrives and deletes it.
+const answerDeltas = new Map();
+const PARTIAL_MAX_CHARS = 256 * 1024, PARTIAL_MAX_ITEMS = 64;
 // Every turn id OUR turn/start calls returned. Evidence attribution checks membership here rather than
 // equality with the latest id: a first-turn item that raced past its own turn/completed used to be
 // replayed under the corrective turn's id and dropped, contradicting "the first turn's evidence stays
@@ -2185,9 +2221,22 @@ function handleMessage(msg, bytes = 0) {
     // WRAPPER the server ran (`/bin/zsh -c '<script>'` in every live turn), not the command the model
     // wrote. Kept as bare strings — one entry means one command, several mean a pipeline.
     if (it?.type === "commandExecution")
+      // durationMs is the server's own measurement of how long the command took; the report subtracts it
+      // from the wall clock to say how much of the run was the MODEL rather than the work it ordered.
       commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status,
+                      durationMs: typeof it.durationMs === "number" ? it.durationMs : null,
                       actions: (Array.isArray(it.commandActions) ? it.commandActions : []).map((a) => String(a?.command ?? "")) });
-    if (it?.type === "agentMessage" && it.text) messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
+    if (it?.type === "agentMessage") {
+      // The accumulator goes with the message it belonged to: a partial may only ever describe a message
+      // the server never finished, and a long turn must not carry every message it already delivered.
+      if (it.id !== undefined) answerDeltas.delete(String(it.id));
+      if (it.text) {
+        messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
+        // Written the moment it arrives rather than at finish(): a SIGKILL after the answer exists must
+        // not take it with the process. classifyEvidence rewrites the file with the final choice.
+        if ((it.phase ?? null) === null || it.phase === "final_answer") persistAnswer(it.text);
+      }
+    }
     // The summary is the same artefact a Claude subagent's transcript exposes as its thinking; bounded,
     // because reasoning can be long and the report is not the place for a novel.
     if (it?.type === "reasoning") {
@@ -2226,6 +2275,15 @@ function handleMessage(msg, bytes = 0) {
                            move: ch.kind?.move_path ?? null, status: it.status });
     }
   }
+  // Opted INTO, alone among the delta streams, and only because of what a cut costs: the accumulated
+  // text is the only copy of an answer the server discards when the turn is interrupted.
+  if (msg.method === "item/agentMessage/delta" && isRoot(p)) {
+    const id = String(p?.itemId ?? "");
+    const prev = answerDeltas.get(id);
+    if (prev !== undefined || answerDeltas.size < PARTIAL_MAX_ITEMS)
+      answerDeltas.set(id, `${prev ?? ""}${String(p?.delta ?? "")}`.slice(0, PARTIAL_MAX_CHARS));
+  }
+
   // Best-effort accounting: what this seat cost, straight from the server. Only the root thread's
   // usage counts — a subagent thread's tokens are its own. `total` is THREAD-cumulative: on --resume
   // it includes every earlier invocation's turns; `last` is the most recent turn alone.
@@ -2244,6 +2302,14 @@ function handleMessage(msg, bytes = 0) {
     // contextWindowExceeded -> the handoff was too large, split it; unauthorized -> stop;
     // sandboxError -> the rights level was wrong; usageLimitExceeded -> a quota, not a blip.
     turnError = p?.turn?.error ?? null;
+    // A cut is a decision already taken. The completion that lands inside the grace ENDS the run: a
+    // transient retry or a corrective turn here would start new work on a budget that is already spent.
+    if (pendingCut) {
+      pendingCut.completedInGrace = true;
+      if (cutGraceTimer) clearTimeout(cutGraceTimer);
+      finish(pendingCut.reason);
+      return;
+    }
     // The comment above always KNEW which causes are transient; nothing acted on it, so a provider
     // blip failed the whole delegation. ONE bounded retry, and only while the turn produced NOTHING
     // observable, because replaying the prompt after visible work risks doing that work twice. "Nothing
@@ -2491,7 +2557,10 @@ function findRollout(threadId) {
 // Written beside nothing in particular, on purpose: the rollout under ~/.codex/sessions is the server's
 // record of the turn, and this is the driver's record of what it handed back. Failing to write one is not
 // worth failing a finished turn over, so a write error costs the path and nothing else.
-function persistAnswer(text) {
+// `suffix` names the artefact rather than the run: "" is the answer, ".commentary" the messages of a turn
+// that produced no answer, ".partial" the deltas of an answer the interrupt discarded. One writer, so
+// all three share the log's retention and its best-effort contract.
+function persistAnswer(text, suffix = "") {
   if (!text) return null;
   try {
     // Inside the try, and this is the whole point of the function's contract. passwdHome() does not
@@ -2504,7 +2573,7 @@ function persistAnswer(text) {
     // already succeeded, that printed "codex-delegate: cannot resolve your home directory" to stderr and
     // then exited 0 — a refusal and a success in the same run.
     const dir = answersDir();
-    const name = `${rootThreadId ?? `no-thread-${process.pid}`}.md`;
+    const name = `${rootThreadId ?? `no-thread-${process.pid}`}${suffix}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
     pruneAnswers(dir);
@@ -2589,6 +2658,22 @@ function interruptTurn() {
   const turnId = rootTurnId ?? [...ownedTurns].at(-1) ?? null;
   if (!child || !rootThreadId || !requestFn || turnId === null) return;
   try { requestFn("turn/interrupt", { threadId: rootThreadId, turnId }).catch(() => {}); } catch {}
+}
+
+// The one way a run is ended from outside the turn: ask the server to stop, then report as soon as the
+// turn closes or the grace expires, whichever comes first. `kind` names a declared budget for the report
+// (wall now; idle and tokens later); null is a signal, which is not a budget.
+// The grace is for the interrupt RESPONSE and the thread's resumability, NOT for the answer: E1 measured
+// that the in-flight message is discarded server-side, which is why the deltas are accumulated instead.
+// Items that do arrive inside it are still counted — handleMessage runs until finish() settles.
+function cutTurn(reason, kind, { limit = null, observed = null, graceMs = null } = {}) {
+  if (settled || pendingCut) return;
+  const grace = graceMs ?? Math.min(10000, Math.max(50, opts.timeout * 250));
+  pendingCut = { reason, kind, limit, observed, completedInGrace: false };
+  process.stderr.write(`codex-delegate: cutting the turn (${kind ?? reason}); ${grace}ms for the server to close it\n`);
+  interruptTurn();
+  cutGraceTimer = setTimeout(() => finish(reason), grace);
+  cutGraceTimer.unref?.();
 }
 
 // What the model actually ran, out from under the shell the server wrapped it in. Every live
@@ -2677,12 +2762,24 @@ function classifyEvidence() {
   // that path, and the verdict must describe the answer this report actually carries.
   const schemaErrs = opts.outputSchema && fullAnswer ? answerSchemaErrors(fullAnswer) : opts.outputSchema ? ["no answer arrived"] : null;
   const answerPath = persistAnswer(fullAnswer);
+  // What the model had written when the turn was cut. Never promoted to `answer`: it is unfinished text
+  // the model never chose to deliver, and a coordinator that cannot tell the two apart will act on half
+  // a sentence. Newest in-flight message first; a completed one has already deleted its accumulator.
+  const partialText = fullAnswer ? "" : [...answerDeltas.values()].reverse().find((t) => t.trim()) ?? "";
+  const answerPartialPath = persistAnswer(partialText, ".partial");
+  const answerPartial = partialText ? (opts.brief ? clip(partialText, BRIEF_LINES, BRIEF_BYTES, answerPartialPath) : partialText) : null;
   // Capped only when asked. A caller who did not ask for --brief gets exactly what the model said, because
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
   const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
   const commentaryOnly = !final && reviewResult == null && messages.length > 0;
+  // A turn that said things but answered nothing: the rollout at receiptPath holds every message, and
+  // this is the same text one open away. Convenience, not recovery.
+  const commentaryPath = commentaryOnly
+    ? persistAnswer(messages.map((m) => `## ${m.phase ?? "unphased"}\n\n${m.text}`).join("\n\n"), ".commentary")
+    : null;
   return { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
-           fullAnswer, schemaErrs, answerPath, answer, commentaryOnly };
+           fullAnswer, schemaErrs, answerPath, answer, commentaryOnly, commentaryPath,
+           answerPartial, answerPartialPath: answerPartial ? answerPartialPath : null };
 }
 
 // The verifier's own process, at module scope so shutdown(), a signal and the exit handler can all reach
@@ -2882,12 +2979,27 @@ function decideExitCode(ev, verifySkipped) {
 // text becomes a turn/steer message on the live turn — a correction path a native subagent has (the user
 // can just keep typing) and a seat had not. Input only, never rights.
 let steerClaim = null;   // an in-flight claim, removed at shutdown so a killed run leaves no orphan
+// One steer at a time, whatever the trigger: the poll and the wrap-up rung share this guard, so a slow
+// server cannot make two sends overlap on one turn.
+let steerInFlight = false;
+// The one place a turn/steer is sent. Returns false when nothing was sent — there is no live turn to
+// steer, a send is already out, or the turn is being cut, in which case steering it is pointless.
+function steerOnce(text, { onSent = () => {}, onRejected = () => {} } = {}) {
+  const body = String(text ?? "").trim();
+  if (!body || settled || pendingCut || steerInFlight || rootThreadId === null || rootTurnId === null || !requestFn) return false;
+  steerInFlight = true;
+  requestFn("turn/steer", { threadId: rootThreadId, expectedTurnId: rootTurnId,
+    input: [{ type: "text", text: body, text_elements: [] }] })
+    .then(() => { steerInFlight = false; onSent(); })
+    .catch((e) => { steerInFlight = false; onRejected(e); });
+  return true;
+}
+
 function startSteerPoll() {
   if (!opts.steerFile) return;
-  let inFlight = false;
   const timer = setInterval(() => {
     if (settled) { clearInterval(timer); return; }
-    if (inFlight || rootThreadId === null || rootTurnId === null || !requestFn) return;
+    if (steerInFlight || pendingCut || rootThreadId === null || rootTurnId === null || !requestFn) return;
     // CLAIMED by rename, not read-then-truncated. The old drain was a read-modify-write around a live
     // send: text appended between its read and its write was overwritten and never delivered, while the
     // docs promised concurrent appends survive. After the rename the inbox path is free again, so an
@@ -2899,24 +3011,22 @@ function startSteerPoll() {
     const release = () => { try { fs.rmSync(claim, { force: true }); } catch {} if (steerClaim === claim) steerClaim = null; };
     if (!text.trim()) { release(); return; }
     steerClaim = claim;
-    inFlight = true;   // one steer at a time, so a slow server cannot make the poll send it twice
     process.stderr.write(`codex-delegate: steering the turn (${Buffer.byteLength(text)} bytes)\n`);
     // The claim is dropped once the server has taken the message. A rejected steer is echoed to stderr
     // and dropped too: leaving it would resend the same rejected text every second forever, and the
     // coordinator can read the copy back off the log.
-    const drain = () => {
-      release();
-      inFlight = false;
-    };
-    requestFn("turn/steer", { threadId: rootThreadId, expectedTurnId: rootTurnId,
-      input: [{ type: "text", text: text.trim(), text_elements: [] }] })
-      .then(drain)
-      .catch((e) => {
+    const sent = steerOnce(text, {
+      onSent: release,
+      onRejected: (e) => {
         process.stderr.write(`codex-delegate: steer REJECTED (${e.message}); the text was not delivered:\n${text.trim()}\n`);
         // Drained even on rejection: leaving it would resend the same rejected text every second, and
         // the line above is the copy the coordinator can read back.
-        drain();
-      });
+        release();
+      }
+    });
+    // Nothing was sent, so the text is still the coordinator's correction: put it back in the inbox
+    // rather than dropping it on the floor of a claim file nobody will read.
+    if (!sent) { try { fs.renameSync(claim, opts.steerFile); steerClaim = null; } catch { release(); } }
   }, 1000);
   timer.unref?.();
 }
@@ -2959,7 +3069,14 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const receiptPath = receipt?.path ?? null;
   const code = codeOverride ?? decideExitCode(ev, verifySkipped);
   const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
-          fullAnswer, schemaErrs, answerPath, answer, commentaryOnly } = ev;
+          fullAnswer, schemaErrs, answerPath, answer, commentaryOnly, commentaryPath,
+          answerPartial, answerPartialPath } = ev;
+  // Where the wall clock went. commandMs is the server's own per-command measurement, so modelMs is what
+  // is left after the driver's own setup and the work the model ordered — the part a budget must size.
+  const wallMs = Date.now() - startedAtMs;
+  const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
+  const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
+  const timing = { wallMs, setupMs, commandMs, modelMs: setupMs === null ? null : wallMs - setupMs - commandMs };
 
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
@@ -3033,8 +3150,24 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // shape of that run (a recall-only follow-up) has a flag, and the report should name it.
     ...(code === EXIT.NO_COMMANDS && !opts.expectRe
       ? { hint: "if running nothing was the point, re-run with --allow-no-commands" } : {}),
+    // Exit 3 is a budget the CALLER set, so the caller is the one who can change the outcome. Resuming is
+    // named first because the thread is still there; the caveat is real, not hedging — a thread whose turn
+    // is still closing refuses with exit 10.
+    ...(code === EXIT.TIMEOUT && rootThreadId
+      ? { hint: `the turn was cut at its budget; continue it with --resume ${rootThreadId} (RESUME: ${rootThreadId} in a seat file), which may be refused with exit 10 while the turn is still closing — or re-run with a lower --effort, a longer --timeout, or the task split into smaller seats` } : {}),
+    // Which declared budget ended the turn, and whether the server closed it inside the grace. null on a
+    // run that ended on its own, and on a signal: a signal is not a budget.
+    cut: pendingCut?.kind
+      ? { kind: pendingCut.kind, limit: pendingCut.limit, observed: pendingCut.observed,
+          completedInGrace: pendingCut.completedInGrace } : null,
+    timing,
     verify: verifyResult, verifySkipped,
     answerPhase: final?.phase ?? null, commentaryOnly,
+    // The messages of a turn that answered nothing, on disk; null when there was an answer.
+    commentaryPath,
+    // What the model had written when the turn was cut, reassembled from the streamed deltas because the
+    // server discards the in-flight message. Never an answer — say so by keeping it in its own field.
+    answerPartial, answerPartialPath,
     // Always on disk, so `answer` can be capped without losing anything: the coordinator reads the head and
     // opens the file only when the head is not enough. This is the shape a Claude subagent already has —
     // a short return plus a transcript — and the seat had no equivalent.
@@ -3090,7 +3223,8 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
   // Every field the body reads, schemaErrs included: leaving it out made `--footer --output-schema`
   // throw inside an already-settled finish(), where abort() is a no-op — the run hung past its own
   // --timeout and printed no report at all. Verified by reproduction, then by the case below.
-  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final, answer, schemaErrs } = ev;
+  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final, answer,
+          schemaErrs, commentaryPath, answerPartial, answerPartialPath } = ev;
   {
     const L = [answer, ""];
     L.push(`--- verification -----------------------------------------`);
@@ -3113,6 +3247,12 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
       : receiptPath ? `receipt: FOUND BUT UNVERIFIED at ${receiptPath} — ${receipt.why}`
       : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
     if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
+    {
+      const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
+      const wallMs = Date.now() - startedAtMs;
+      const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
+      L.push(`timing: wall=${wallMs}ms setup=${setupMs ?? "?"}ms commands=${commandMs}ms model=${setupMs === null ? "?" : wallMs - setupMs - commandMs}ms`);
+    }
     if (opts.outputSchema) L.push((schemaErrs.length
       ? `output-schema: FAILED after ${outputAttempts} attempt(s) — ${schemaErrs.slice(0, 3).join("; ")}`
       : `output-schema: matched (${outputAttempts} attempt(s))`)
@@ -3185,6 +3325,11 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
     }
     if (unparsedLines) L.push(`${unparsedLines} unparsable line(s) from the server — the pinned schema may be behind \`codex --version\`.`);
     if (interactions.length) L.push(`UNANSWERABLE server requests — no sandbox change fixes these: ${interactions.join(", ")}`);
+    if (commentaryPath) L.push(`the turn produced no answer; its messages are at ${commentaryPath}`);
+    if (answerPartialPath) L.push(`partial answer (unfinished — the model never delivered it) at ${answerPartialPath}`);
+    if (pendingCut?.kind)
+      L.push(`CUT on the ${pendingCut.kind} budget (${pendingCut.observed ?? "?"} of ${pendingCut.limit ?? "?"}); ` +
+        (pendingCut.completedInGrace ? "the server closed the turn inside the grace" : "the server did not close the turn inside the grace"));
     if (turnStatus !== "completed") {
       L.push(`TURN ${String(turnStatus).toUpperCase()} — the answer above is incomplete.`);
       if (turnStatus === "timedOut") L.push("  a timeout is the case most likely to leave a half-written tree; inspect the cwd before reusing it.");
@@ -3208,15 +3353,40 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
 
 async function main() {
   await setup();
+  setupDoneMs = Date.now();
+  // Three rungs on one clock, because a budget the model cannot plan against is a budget it spends on
+  // investigation and then has nothing left to write with. Anchored on the process start, not on this
+  // line: the config probe runs before this timer is armed, and a relative deadline overshot the
+  // caller's wall clock by however long it took.
+  //   T−reserve  ask for the final answer NOW (the only recovery that works: E1 measured that an
+  //              interrupt DISCARDS the in-flight message, so nothing after this rung can produce one)
+  //   T−grace    stop the turn, and give the server the grace to close it
+  //   T          report whatever arrived, if the grace has not already
+  const endAtMs = startedAtMs + opts.timeout * 1000;
+  const reserveMs = Math.min(300000, Math.max(60000, opts.timeout * 250));
+  const graceMs = Math.min(10000, Math.max(50, opts.timeout * 250));
+  const at = (whenMs, fn) => { const t = setTimeout(fn, Math.max(50, whenMs - Date.now())); t.unref?.(); return t; };
+  // Armed only where the reserve actually fits inside what is left: on a short seat there is nothing to
+  // reserve, and a wrap-up steer that fires immediately would be an interruption, not a warning.
+  if (endAtMs - reserveMs > Date.now() + 1000) at(endAtMs - reserveMs, () => {
+    if (settled) return;
+    const left = Math.max(0, Math.round((endAtMs - Date.now()) / 1000));
+    const sent = steerOnce(`About ${left} seconds of wall clock remain. Stop investigating now; write your final answer `
+      + `with what you have and say what you did not get to.`,
+      { onRejected: (e) => process.stderr.write(`codex-delegate: the wrap-up steer was rejected (${e.message})\n`) });
+    // Announced because it changes what the turn does: a coordinator reading stderr should know the seat
+    // was told to stop investigating, and when.
+    if (sent) process.stderr.write(`codex-delegate: wrap-up: about ${left}s of the budget remain; asked the seat for its final answer now\n`);
+  });
   // Once a child exists, a timeout hands back the partial result rather than discarding it; before that
   // there is nothing to report, so abort() also has to unblock a stdin read that may never end.
-  const deadline = setTimeout(() => {
-    if (child && rootThreadId) { interruptTurn(); finish("timedOut"); }
+  at(endAtMs - graceMs, () => {
+    if (child && rootThreadId)
+      cutTurn("timedOut", "wall", { limit: opts.timeout, observed: Math.round((Date.now() - startedAtMs) / 1000), graceMs });
     else abort(EXIT.TIMEOUT, `timed out after ${opts.timeout}s`);
-    // Anchored on the process start, not on this line: the config probe runs before this timer is
-    // armed, and a relative deadline overshot the caller's wall clock by however long it took.
-  }, Math.max(50, startedAtMs + opts.timeout * 1000 - Date.now()));
-  deadline.unref?.();
+  });
+  // The budget is the budget: a server that never answers the interrupt does not get to extend it.
+  at(endAtMs, () => { if (!settled && child && rootThreadId) finish("timedOut"); });
 
   let prompt = opts.prompt;
   if (prompt === undefined && !opts.review) {
@@ -3317,8 +3487,11 @@ async function main() {
       // no reader. The list is taken from ServerNotification in the pinned schema rather than guessed —
       // the command-output streams are the large ones, and are exactly what a test-running delegation
       // produces most of.
+      // item/agentMessage/delta is deliberately NOT here: it is the answer text, and E1 measured that an
+      // interrupted turn's in-flight message is discarded server-side, so the deltas are the only copy a
+      // cut run can hand back. Every other delta stream stays off — a `pnpm test` would otherwise stream
+      // its whole output through the pipe for no reader.
       optOutNotificationMethods: [
-        "item/agentMessage/delta",
         "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
         "item/commandExecution/outputDelta", "command/exec/outputDelta", "process/outputDelta",
         "item/fileChange/outputDelta", "item/plan/delta"
@@ -3336,8 +3509,14 @@ async function main() {
 
   // Standing rules belong on the thread, not in the task prompt: they then govern every turn of a
   // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
+  // What is LEFT of the budget, read here rather than at process start: the probe and the lock come out
+  // of the same clock, and a number the model plans against must not include time already spent.
+  const budgetLeftS = Math.max(1, Math.round((startedAtMs + opts.timeout * 1000 - Date.now()) / 1000));
   const developerInstructions = [
     "You are being driven by a Claude Code coordinator, unattended. Nobody will answer a question.",
+    // Advisory: the model has no clock unless it runs `date`. It costs one sentence and it is the only
+    // thing that makes the wall clock something the turn can plan against rather than be surprised by.
+    `You have about ${budgetLeftS} seconds of wall clock for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`,
     opts.webSearch
       ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
       : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
@@ -3409,6 +3588,10 @@ async function main() {
   // the key to tailing its live rollout under ~/.codex/sessions — a coordinator watching a long seat
   // should not have to wait for the end to learn which run it is.
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
+  // The measured failure shape: a high-effort turn spends minutes thinking before it writes anything, so
+  // a short clock cuts it before the answer exists — and an interrupt hands back no answer at all.
+  if (["high", "xhigh", "max"].includes(String(selectedEffort)) && opts.timeout < 600)
+    process.stderr.write(`codex-delegate: effort ${selectedEffort} with --timeout ${opts.timeout}s is the measured failure shape — the turn is likely to be cut before it writes an answer (exit 3). Raise --timeout above 600 or lower the effort.\n`);
   writeJob({ threadId: rootThreadId, pid: process.pid, cwd, level: opts.level, started: new Date().toISOString(),
     // A worktree seat's cwd is removed when the seat finishes, so the repository it was cut from and the
     // commit it started at are what a later --resume can still name.
@@ -3486,7 +3669,13 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     // on transport (4), which means "codex crashed or the rights were wrong" and did not happen here.
     // Before a thread exists there is nothing to report, and 4 stays.
     process.stderr.write(`codex-delegate: interrupted by ${sig}\n`);
-    if (child && rootThreadId) { interruptTurn(); finish("interrupted"); return; }
+    // A second signal during the grace reports at once: the caller is waiting, and a handler that
+    // silently absorbed it would leave only SIGKILL — which takes the report with it.
+    if (pendingCut) { if (cutGraceTimer) clearTimeout(cutGraceTimer); finish(pendingCut.reason); return; }
+    // One second, not the wall clock's grace: a signal is a caller who wants out, and the harness that
+    // sent it may follow with SIGKILL. The interrupt is fire-and-forget either way — shutdown()'s own
+    // SIGTERM wait is what gives the server time to act on it.
+    if (child && rootThreadId) { cutTurn("interrupted", null, { graceMs: 1000 }); return; }
     abort(EXIT.TRANSPORT, `interrupted by ${sig} before the thread existed`);
     shutdown().then(() => process.exit(EXIT.TRANSPORT));
   });
