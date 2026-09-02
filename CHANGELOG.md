@@ -3,7 +3,34 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
-## Unreleased
+## 0.7.0 — 2026-09-02
+
+Measured against codex-cli 0.150.1 on macOS (Node 24.11; the free suites also on Node 20.10).
+Thirteen commits since 0.6.0: a five-goal review of the plugin (59 confirmed findings, each package
+goal-checked before its commit) and the design for GitHub issue #1.
+
+### Compatibility notes
+
+- `--timeout` defaults to 0: no wall clock. A turn is bounded by `--idle-timeout` (900 s of silence)
+  and `--max-commands` (1000); a caller that declared a clock keeps today's three-rung behaviour.
+- The relay (`codex-seat`) runs every seat detached and repeats `--wait` until the report is final;
+  its header is optional, `BRIEF` is no longer forced on read seats, and a `TIMEOUT` above 560 is no
+  longer refused. Under a plugin install the agent is `codex-delegate:codex-seat`.
+- Exit 11 now also covers a command that reached the client with no verdict; the probe exemption is
+  judged on the command the server parsed, so a no-match `grep` no longer raises it. A verifier whose
+  output overran the old 64 MB buffer used to exit 12; output is streamed now and a loud verifier that
+  exits 0 passes.
+- Report shape: `commands[]` entries carry `actions`; new keys `cut`, `timing`, `budget`,
+  `answerPartial`, `commentaryPath`, `configInherited`, `codexVersion`, `commandsPipedToPager`,
+  `verify.budgetMs/timedOut/sandboxed`, `resumedFrom`, `worktreeBase/worktreeRestored`, `rateLimits`,
+  `turnDiffPath`, `driverVersion`.
+- The lock body and the worktree ledger record a second identity and the app-server's process group;
+  entries written by older drivers stay honoured.
+- `npm test` replaces the six per-suite commands; `evals/lib/harness.mjs` is shared by every suite;
+  the driver exports its constants and runs `main()` only as the entry point.
+- Known issues: Node 18 is declared but not measured locally (CI is the first run); the relay's
+  plugin-install route and the `TASK:` line fix are pinned by the contract suite but not re-measured
+  live since the last body change; Linux is measured only by CI's free suites.
 
 ### Relay
 
