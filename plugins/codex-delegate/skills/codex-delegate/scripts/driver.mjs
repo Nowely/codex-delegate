@@ -178,10 +178,13 @@ Turn
                      with --fork, include history only through TURN (inclusive)
   --compact          with --resume, run thread/compact/start before the turn;
                      use for a long continuation nearing its context window
-  --timeout SECONDS  default 900, at most 7200 — the whole budget, anchored at
-                     process start, and spent in three rungs. At T minus a
-                     reserve (a quarter of the budget, at least 60 s and at most
-                     300 s, and only where that fits) the turn is STEERED: "about
+  --timeout SECONDS  none by default (0): the turn runs as long as the work takes,
+                     bounded by --idle-timeout and --max-commands, like a native
+                     subagent; set one to get the wrap-up steer, the cut and the
+                     hard stop (at most 7200). A declared budget is the whole
+                     budget, anchored at process start, and spent in three rungs.
+                     At T minus a reserve (a quarter of the budget, at least 60 s
+                     and at most 300 s, and only where that fits) it is STEERED: "about
                      N seconds remain, write your final answer now". At T minus a
                      grace (10 s, at most a quarter of the budget) the turn is
                      CUT — turn/interrupt, then the grace for the server to close
@@ -206,15 +209,22 @@ Turn
                      (item starts and completions, answer deltas, token usage),
                      so a long command or a long inference step does not trip it.
                      This, not --timeout, is the hang guard: --timeout is a
-                     budget a healthy turn is allowed to spend
+                     budget a healthy turn is allowed to spend, and it is not set
+                     by default
+  --max-commands N   default 1000, 0 disables — how many commands the turn may
+                     run before it is CUT with cut.kind commands (exit 3, the
+                     report holding the answer so far). The volume cap a native
+                     subagent has as maxTurns, and the bound that catches a loop:
+                     a turn retrying one command forever is neither silent nor
+                     expensive, so neither of the other two budgets ends it
   --detach           start the turn in a process of its own and hand back a
                      HANDLE instead of a report: exit 10, turnStatus running,
                      with threadId, pid, runId and the paths its report and
                      stderr will land at. The run survives this process, its
-                     shell and the session; it is bounded by --timeout (default
-                     7200 here) and --idle-timeout as any other run is. Collect
-                     it later with --wait, list it with --jobs, stop it with
-                     --cancel. Under --detach the run directory
+                     shell and the session; it is bounded by --idle-timeout,
+                     --max-commands and any --timeout exactly as a blocking run
+                     is. Collect it later with --wait, list it with --jobs, stop
+                     it with --cancel. Under --detach the run directory
                      (<state>/runs/<runId>/) IS the transport, so a state
                      directory that cannot be written is a usage error
   --wait-timeout S   how long to wait for the run before handing back the handle:
@@ -231,7 +241,9 @@ Turn
                      handle again, exit 10
   --jobs             print the job registry as a JSON array and exit 0, spawning
                      nothing: threadId, cwd, repo, level, pid, status, exitCode,
-                     startedAt, endedAt, answerPath, reportPath, runId. status is
+                     startedAt, endedAt, answerPath, reportPath, runId, plus the
+                     mid-flight lastEventAt, tokensSpent, commandsSeen and phase
+                     a running seat records as it goes. status is
                      DERIVED at read time from pid liveness, never stored —
                      running, crashed (no report and the pid is gone) or ended.
                      --cwd narrows it to one directory or repository
@@ -291,8 +303,9 @@ Isolation
                      and network restrictions remain the enforceable controls
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
-  min(5 s, max(1 s, --timeout)) and normally ~120 ms. It counts against the one
-  --timeout budget, which is anchored at process start
+  5 s, or min(5 s, max(1 s, --timeout)) where a wall clock was declared, and
+  normally ~120 ms. It counts against that one budget, which is anchored at
+  process start
 
 Report
   --json             machine-readable on stdout — the default; the report also
@@ -357,12 +370,13 @@ Exit codes. Raised the moment they happen, before any turn could run:
      still has a turn open, or the run is still running (the --detach handle,
      or --wait giving up on its budget)
   3  can also fire before the turn (a stalled probe or stdin under a short
-     --timeout); like an argument-error 2 it then prints no report
+     --timeout, or a prompt that never arrives on stdin within the silence
+     budget); like an argument-error 2 it then prints no report
 
 Decided after the turn, first match wins, in this order:
-  3 cut on a declared budget: wall, idle or tokens (cut.kind says which), and
-    the report holds the answer or the partial the turn had reached, plus a hint
-    naming --resume <threadId>
+  3 cut on a declared budget: idle silence, commands, tokens, or the wall clock
+    when one was set (cut.kind says which), and the report holds the answer or
+    the partial the turn had reached, plus a hint naming --resume <threadId>
   ... 2 the server refused the request ... 1 turn did not complete
   ... 7 wanted input ... 6 escalated ... 12 verify unmeasurable
   ... 9 verify failed ... 5 no commands ... 8 no answer
@@ -373,7 +387,7 @@ Decided after the turn, first match wins, in this order:
 
   and 4 once more at the very end, if the report could not reach stdout — a
   closed pipe, or a consumer that never drained it within what was left of
-  --timeout (at least 5 s).
+  --timeout (at least 5 s, and exactly 5 s where no wall clock was set).
 
 So 2 means either, and they are told apart by the report: an argument error
 prints none. Codes decided after the turn can all carry executed work.
@@ -421,7 +435,7 @@ prints none. Codes decided after the turn can all carry executed work.
 const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
                              "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE",
                              "REVIEW", "RESUME", "PROGRESS", "BUDGET_TOKENS", "IDLE_TIMEOUT",
-                             "DETACH", "WAIT_TIMEOUT", "COLLECT"]);
+                             "MAX_COMMANDS", "DETACH", "WAIT_TIMEOUT", "COLLECT"]);
 let seatFileFields = null;   // what the file actually declared, for the report
 function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
@@ -474,6 +488,7 @@ function argvFromSeatFile(file, allowSeatVerify) {
                     MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
                     WRITABLE: "--writable", REVIEW: "--review", RESUME: "--resume",
                     BUDGET_TOKENS: "--budget-tokens", IDLE_TIMEOUT: "--idle-timeout",
+                    MAX_COMMANDS: "--max-commands",
                     WAIT_TIMEOUT: "--wait-timeout", COLLECT: "--wait" };
     out.push(FLAGS[field], value);
   }
@@ -490,7 +505,11 @@ function parseArgs(argv) {
   // way (null means "whatever the config chose"); effort now matches it.
   // JSON is the default report: the only real caller is an agent, and every documented recipe passed
   // --json by hand while forgetting it cost a footer nobody parses. --footer opts back out for a human.
-  const o = { level: "read", timeout: 900, idleTimeout: 900, writable: [], attach: [], mcpServers: [], json: true };
+  // No wall clock by default. A native subagent has none: it runs as long as the work takes and is
+  // stopped by silence or by its coordinator, and every default here is chosen so that a seat launched
+  // with nothing configured behaves that way. --idle-timeout (silence) and --max-commands (volume) are
+  // the two bounds that are always armed; a --timeout is a budget the caller opts INTO.
+  const o = { level: "read", timeout: 0, idleTimeout: 900, maxCommands: 1000, writable: [], attach: [], mcpServers: [], json: true };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -508,7 +527,7 @@ function parseArgs(argv) {
       case "--effort": o.effort = need(++i, a); break;
       case "--model": o.model = need(++i, a); break;
       case "--reasoning-summary": o.reasoningSummary = need(++i, a); break;
-      case "--timeout": o.timeout = Number(need(++i, a)); o.timeoutExplicit = true; break;
+      case "--timeout": o.timeout = Number(need(++i, a)); break;
       case "--detach": o.detach = true; break;
       // Command-line only, and never a seat field: it names where a detached run's transport lives.
       case "--run-dir": o.runDir = need(++i, a); break;
@@ -518,6 +537,7 @@ function parseArgs(argv) {
       case "--cancel": o.cancel = need(++i, a); break;
       case "--budget-tokens": o.budgetTokens = Number(need(++i, a)); break;
       case "--idle-timeout": o.idleTimeout = Number(need(++i, a)); break;
+      case "--max-commands": o.maxCommands = Number(need(++i, a)); break;
       // need(), like every other value-taking flag. It used to be a bare argv[++i], so `--prompt --json`
       // silently made "--json" the entire task. A prompt that genuinely starts with "--" goes on stdin,
       // which is the better shape for a long one anyway.
@@ -556,8 +576,7 @@ function parseArgs(argv) {
   // The child of a detached front re-reads the same seat file, DETACH line and all, so the flag alone
   // cannot stop the recursion: --run-dir is what says "you ARE the detached run" and it wins.
   if (o.runDir) o.detach = false;
-  // A budget for a run nobody is waiting on is the wall clock of a whole session, not of one Bash call.
-  if (!o.timeoutExplicit && (o.detach || o.runDir)) o.timeout = 7200;
+  // --detach has no wall clock of its own: the one 0 default covers every route.
   // Each of these is a whole mode of its own: one starts a run, the others read the registry a run
   // already wrote. Combining them silently would pick one and discard the caller's other intent.
   {
@@ -578,8 +597,13 @@ function parseArgs(argv) {
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
   if (o.reasoningSummary !== undefined && !REASONING_SUMMARIES.has(o.reasoningSummary))
     fail(EXIT.USAGE, `--reasoning-summary must be one of ${[...REASONING_SUMMARIES].join("|")}`);
-  if (!Number.isFinite(o.timeout) || o.timeout <= 0 || o.timeout > 7200)
-    fail(EXIT.USAGE, "--timeout must be a positive number of seconds, at most 7200");
+  // 0 is the documented "no wall clock" and the default, so the floor is 0; the 7200 cap applies only to
+  // a budget the caller actually declared.
+  if (!Number.isFinite(o.timeout) || o.timeout < 0 || o.timeout > 7200)
+    fail(EXIT.USAGE, "--timeout must be a number of seconds, 0 for no wall clock, at most 7200");
+  // 0 is the documented "off", like --idle-timeout's.
+  if (!Number.isInteger(o.maxCommands) || o.maxCommands < 0)
+    fail(EXIT.USAGE, "--max-commands must be a whole number of commands, 0 to disable");
   // Checked here rather than at the first write into it: a run directory that does not exist means the
   // front never made one, and the child would then report into nowhere.
   if (o.runDir !== undefined) o.runDir = resolveDir(o.runDir, "--run-dir");
@@ -998,7 +1022,10 @@ function inheritedConfig() {
     // Bounded well under any caller's budget, and never longer than it: this runs BEFORE the turn deadline
     // is armed, so a 15 s probe made `--timeout 2` take fifteen seconds. Reading a config takes ~120 ms;
     // anything approaching this is broken, not slow.
-    const budget = Math.min(5000, Math.max(1000, (opts?.timeout ?? 900) * 1000));
+    // With no wall clock the probe gets the full 5 s: there is no caller budget to stay under, and the
+    // 1 s floor a `timeout * 1000` of zero would produce is the value that makes a slow-but-healthy
+    // config probe fail on the default run.
+    const budget = opts?.timeout > 0 ? Math.min(5000, Math.max(1000, opts.timeout * 1000)) : 5000;
     // Both buffers are capped: a 96 MiB unterminated write from a broken probe once took driver RSS
     // from 52 to 387 MB. The stderr tail is all the diagnostics ever use, and a reply line that huge
     // is not a config.
@@ -1178,7 +1205,8 @@ async function isolatedHome() {
   let probe = await inheritedConfig();
   // A transient hiccup gets ONE retry before its silence becomes nondeterminism, and only when the wall
   // clock still leaves room for the probe's own budget plus a turn.
-  if (probe.failed && !settled && startedAtMs + (opts?.timeout ?? 900) * 1000 - Date.now() > 6000) {
+  if (probe.failed && !settled
+      && (!(opts?.timeout > 0) || startedAtMs + opts.timeout * 1000 - Date.now() > 6000)) {
     probe = await inheritedConfig();
   }
   // A run that is already ending writes nothing here. The probe it cancelled has no entries, and the
@@ -1673,7 +1701,8 @@ async function detachFront() {
   kid.on("exit", (code, signal) => { kidExit = { code, signal }; });
   kid.on("error", (e) => { kidExit = { code: EXIT.TRANSPORT, signal: null, message: e.message }; });
 
-  const handshakeEnd = Date.now() + Math.min(HANDSHAKE_MS, opts.timeout * 1000);
+  // The front's own wait for the thread announcement, never longer than the run's budget when it has one.
+  const handshakeEnd = Date.now() + (opts.timeout > 0 ? Math.min(HANDSHAKE_MS, opts.timeout * 1000) : HANDSHAKE_MS);
   let launch = null;
   for (;;) {
     launch = readJson(F.launchPath);
@@ -1784,6 +1813,11 @@ function listJobs() {
       status: rec.endedAt ? "ended" : holderAlive(rec) ? "running" : "crashed",
       exitCode: Number.isInteger(rec.exitCode) ? rec.exitCode : null,
       startedAt: rec.started ?? null, endedAt: rec.endedAt ?? null,
+      // The same mid-flight facts the running handle carries, and for the same reason: --jobs is what a
+      // coordinator polls when it did not keep a handle, and "running" alone does not say whether the
+      // seat is working or merely alive.
+      lastEventAt: rec.lastEventAt ?? null, tokensSpent: rec.tokensSpent ?? null,
+      commandsSeen: rec.commandsSeen ?? null, phase: rec.phase ?? null,
       answerPath: rec.answerPath ?? null, reportPath: rec.reportPath ?? null, runId: rec.runId ?? null } });
   }
   rows.sort((a, b) => b.t - a.t);
@@ -1799,11 +1833,15 @@ function cancelJob(id) {
   if (!rec) fail(EXIT.USAGE, `--cancel: no run named ${id} is recorded in ${jobsDir()}`);
   if (rec.endedAt) fail(EXIT.USAGE, `--cancel: run ${id} already ended (exit ${rec.exitCode ?? "?"} at ${rec.endedAt})`);
   if (!holderAlive(rec)) fail(EXIT.USAGE, `--cancel: run ${id} is not running — pid ${rec.pid ?? "?"} is gone and no report was written`);
-  // A pid outlives its process and the OS recycles it. Past the run's own budget the record cannot
-  // vouch for that pid any more, and a SIGTERM aimed at a stranger is worse than a refusal.
+  // A pid outlives its process and the OS recycles it. Past a run's own DECLARED budget the record
+  // cannot vouch for that pid any more, and a SIGTERM aimed at a stranger is worse than a refusal.
+  // A run with no wall clock has no such moment: it may legitimately still be working hours later (the
+  // relay's wait loop alone runs for ~4 h), and an invented cap would make "stopped by you" false
+  // exactly where it matters most. holderAlive() has already matched the recorded process identity,
+  // which is the recycling guard; this clause only adds the age of a budget the caller himself set.
   const startedMs = Date.parse(rec.started ?? "");
-  const budgetMs = ((Number(rec.timeout) > 0 ? Number(rec.timeout) : 7200) + 60) * 1000;
-  if (Number.isFinite(startedMs) && Date.now() - startedMs > budgetMs)
+  const declared = Number(rec.timeout) > 0 ? Number(rec.timeout) : null;
+  if (declared !== null && Number.isFinite(startedMs) && Date.now() - startedMs > (declared + 60) * 1000)
     fail(EXIT.USAGE, `--cancel: the record for ${id} started ${new Date(startedMs).toISOString()}, longer ago than its own budget plus a minute; `
       + `pid ${rec.pid} may belong to another process now, so it is not signalled — check it by hand`);
   try { process.kill(rec.pid, "SIGTERM"); }
@@ -2812,12 +2850,19 @@ function handleMessage(msg, bytes = 0) {
     // commandActions is the server's own parse of the command, and it is load-bearing: `command` is the
     // WRAPPER the server ran (`/bin/zsh -c '<script>'` in every live turn), not the command the model
     // wrote. Kept as bare strings — one entry means one command, several mean a pipeline.
-    if (it?.type === "commandExecution")
+    if (it?.type === "commandExecution") {
       // durationMs is the server's own measurement of how long the command took; the report subtracts it
       // from the wall clock to say how much of the run was the MODEL rather than the work it ordered.
       commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status,
                       durationMs: typeof it.durationMs === "number" ? it.durationMs : null,
                       actions: (Array.isArray(it.commandActions) ? it.commandActions : []).map((a) => String(a?.command ?? "")) });
+      // The volume cap, and the analogue of a native subagent's maxTurns: with no wall clock, a turn that
+      // loops — retrying one command shape forever, or walking a tree that never ends — is bounded by
+      // nothing else, because a loop is not silence and each iteration costs few tokens. Counted on root
+      // commands only, like every other piece of evidence.
+      if (opts.maxCommands && commands.length >= opts.maxCommands)
+        cutTurn("maxCommands", "commands", { limit: opts.maxCommands, observed: commands.length });
+    }
     if (it?.type === "agentMessage") {
       // The accumulator goes with the message it belonged to: a partial may only ever describe a message
       // the server never finished, and a long turn must not carry every message it already delivered.
@@ -2920,7 +2965,8 @@ function handleMessage(msg, bytes = 0) {
         && RETRYABLE[errKind(turnError)] !== undefined
         && commands.length === 0 && fileChanges.length === 0 && messages.length === 0
         && otherItems.length === 0 && subagentThreads.size === 0
-        && startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + 10000) {
+        && (!(opts.timeout > 0)
+            || startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + 10000)) {
       startTransientRetry(errKind(turnError));
       return;
     }
@@ -3287,7 +3333,9 @@ function interruptTurn() {
 // Items that do arrive inside it are still counted — handleMessage runs until finish() settles.
 function cutTurn(reason, kind, { limit = null, observed = null, graceMs = null } = {}) {
   if (settled || pendingCut) return;
-  const grace = graceMs ?? Math.min(10000, Math.max(50, opts.timeout * 250));
+  // A quarter of the wall clock, capped at 10 s — and the whole 10 s when there is no wall clock to take
+  // a quarter of: a 50 ms grace would report before the server could close the turn.
+  const grace = graceMs ?? (opts.timeout > 0 ? Math.min(10000, Math.max(50, opts.timeout * 250)) : 10000);
   pendingCut = { reason, kind, limit, observed, completedInGrace: false };
   process.stderr.write(`codex-delegate: cutting the turn (${kind ?? reason}); ${grace}ms for the server to close it\n`);
   interruptTurn();
@@ -3493,7 +3541,8 @@ async function runVerifier() {
       // whatever it backgrounded.
       // Bounded by what is LEFT of the caller's wall clock, with no floor: the old 1 s minimum let a
       // completion arriving just before the deadline buy the verifier a second past the budget.
-      const remainingMs = startedAtMs + opts.timeout * 1000 - Date.now();
+      // With no wall clock there is nothing left to be short of: the verifier gets its own 300 s cap.
+      const remainingMs = opts.timeout > 0 ? startedAtMs + opts.timeout * 1000 - Date.now() : 300000;
       // The floor is overridable so this branch can be REACHED by a test. Hitting it by timing means
       // landing the turn's completion inside a 100 ms window at the end of the caller's budget, which is
       // a coin flip, and a branch that can only be tested by a coin flip is a branch that stays untested:
@@ -3542,7 +3591,7 @@ function decideExitCode(ev, verifySkipped) {
   // One rung for every declared budget: the caller set it, the driver spent it, and cut.kind says which
   // one ran out. A separate code would have made every relay, gate and doc grow a fourth ladder entry
   // for a fact the report already carries.
-  if (turnStatus === "timedOut" || turnStatus === "budgetExhausted") code = EXIT.TIMEOUT;
+  if (turnStatus === "timedOut" || turnStatus === "budgetExhausted" || turnStatus === "maxCommands") code = EXIT.TIMEOUT;
   // A parameter the SERVER rejected is the caller's to fix, not something to retry, so it must not land on
   // the same rung as "the turn died". The set of reasoning efforts is per-model and only knowable at
   // runtime — measured: `minimal` is in the server's own generic list and is refused by this account's
@@ -3806,6 +3855,8 @@ function writeReport(ev, verifySkipped, codeOverride) {
       ? { hint: `the turn was cut at its budget; continue it with --resume ${rootThreadId} (RESUME: ${rootThreadId} in a seat file), which may be refused with exit 10 while the turn is still closing — ` + (
           pendingCut?.kind === "idle"
             ? "or re-run with a longer --idle-timeout after checking what the last command was waiting on"
+            : pendingCut?.kind === "commands"
+              ? "or split the task or raise --max-commands"
             : `or re-run with a lower --effort, ${pendingCut?.kind === "tokens" ? "a larger --budget-tokens" : "a longer --timeout"}, or the task split into smaller seats`) } : {}),
     // Which declared budget ended the turn, and whether the server closed it inside the grace. null on a
     // run that ended on its own, and on a signal: a signal is not a budget.
@@ -3873,6 +3924,8 @@ function writeReport(ev, verifySkipped, codeOverride) {
   // never less than 5 s: a flat 5 s constant cut a 300 KB report off at the pipe buffer for a consumer
   // that had merely paused — measured, 65536 bytes delivered and exit 4 for a consumer that would have
   // drained it in eight seconds.
+  // With no wall clock the subtraction is negative and the floor is the whole bound, which is the right
+  // answer: a consumer that has not drained five seconds after the report was written is not draining.
   const drainMs = Math.max(5000, startedAtMs + opts.timeout * 1000 - Date.now());
   setTimeout(() => {
     process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; report may be truncated\n`);
@@ -4040,10 +4093,15 @@ async function main() {
   //              interrupt DISCARDS the in-flight message, so nothing after this rung can produce one)
   //   T−grace    stop the turn, and give the server the grace to close it
   //   T          report whatever arrived, if the grace has not already
+  // All three are armed only when a wall clock was declared. Without one the turn is bounded by silence
+  // (--idle-timeout), by volume (--max-commands) and by the coordinator, which is what a native subagent
+  // is bounded by — so there is no deadline to steer towards, nothing to cut at, and nothing to report
+  // early. A rung armed at T = start would fire at once and cut the run this default exists to allow.
   const endAtMs = startedAtMs + opts.timeout * 1000;
   const reserveMs = Math.min(300000, Math.max(60000, opts.timeout * 250));
   const graceMs = Math.min(10000, Math.max(50, opts.timeout * 250));
   const at = (whenMs, fn) => { const t = setTimeout(fn, Math.max(50, whenMs - Date.now())); t.unref?.(); return t; };
+  if (opts.timeout > 0) {
   // Armed only where the reserve actually fits inside what is left: on a short seat there is nothing to
   // reserve, and a wrap-up steer that fires immediately would be an interruption, not a warning.
   if (endAtMs - reserveMs > Date.now() + 1000) at(endAtMs - reserveMs, () => {
@@ -4070,16 +4128,25 @@ async function main() {
     if (child && rootThreadId) finish("timedOut");
     else abort(EXIT.TIMEOUT, `timed out after ${opts.timeout}s`);
   });
+  }
 
   let prompt = opts.prompt;
   if (prompt === undefined && !opts.review) {
     if (process.stdin.isTTY) fail(EXIT.USAGE, "no prompt: pass --prompt or pipe one on stdin");
     process.stdin.setEncoding("utf8");   // raw Buffers split multi-byte chars at chunk boundaries
+    // With no wall clock, nothing else bounds a stdin that never closes — a pipe left open by a caller
+    // that has since died would hold the driver open with no thread, no lock holder to reclaim it and no
+    // report. That is silence before the turn, so the silence budget answers for it; abort() destroys
+    // stdin, which is what unblocks the read below.
+    const stdinGuard = opts.timeout > 0 || !opts.idleTimeout ? null
+      : at(Date.now() + opts.idleTimeout * 1000,
+           () => abort(EXIT.TIMEOUT, `no prompt arrived on stdin within the ${opts.idleTimeout}s silence budget`));
     let s = "";
     for await (const c of process.stdin) {
       s += c;
       if (Buffer.byteLength(s) > MAX_PROMPT_BYTES) fail(EXIT.USAGE, `prompt exceeds ${MAX_PROMPT_BYTES} bytes`);
     }
+    if (stdinGuard) clearTimeout(stdinGuard);
     prompt = s;
   }
   if (settled) throw new Bail();   // aborted while reading stdin; the exit code is already set
@@ -4236,7 +4303,8 @@ async function main() {
   // Standing rules belong on the thread, not in the task prompt: they then govern every turn of a
   // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
   // What is LEFT of the budget, read here rather than at process start: the probe and the lock come out
-  // of the same clock, and a number the model plans against must not include time already spent.
+  // of the same clock, and a number the model plans against must not include time already spent. Read
+  // only by the branch below that has a budget to report.
   const budgetLeftS = Math.max(1, Math.round((startedAtMs + opts.timeout * 1000 - Date.now()) / 1000));
   const developerInstructions = [
     "You are being driven by a Claude Code coordinator, unattended. Nobody will answer a question.",
@@ -4244,9 +4312,16 @@ async function main() {
     // thing that makes the wall clock something the turn can plan against rather than be surprised by.
     // Withheld under --review, where the server builds the reviewer's whole prompt and this driver's
     // budgets are not the reviewer's to plan against.
-    ...(opts.review ? [] : [`You have about ${budgetLeftS} seconds of wall clock`
-      + `${opts.budgetTokens ? `, and about ${opts.budgetTokens} tokens,` : ""}`
-      + ` for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`]),
+    // Without a wall clock the sentence has to say so: told "you have about N seconds" when nothing is
+    // counting, the model plans against a deadline that does not exist and rushes work it had time for.
+    ...(opts.review ? [] : [opts.timeout > 0
+      ? `You have about ${budgetLeftS} seconds of wall clock`
+        + `${opts.budgetTokens ? `, and about ${opts.budgetTokens} tokens,` : ""}`
+        + ` for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`
+      : `There is no wall-clock limit on this turn`
+        + `${opts.budgetTokens ? `, though you have about ${opts.budgetTokens} tokens` : ""}`
+        + `; it is cut only ${opts.idleTimeout ? `after ${opts.idleTimeout} seconds of silence or ` : ""}by the coordinator. `
+        + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`]),
     opts.webSearch
       ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
       : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
@@ -4327,7 +4402,9 @@ async function main() {
   process.stderr.write(`codex-delegate: threadId=${rootThreadId} (live rollout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-${rootThreadId}.jsonl)\n`);
   // The measured failure shape: a high-effort turn spends minutes thinking before it writes anything, so
   // a short clock cuts it before the answer exists — and an interrupt hands back no answer at all.
-  if (["high", "xhigh", "max"].includes(String(selectedEffort)) && opts.timeout < 600)
+  // Silent without a wall clock: the failure shape IS a short clock, and warning about one that was
+  // never set would fire on every default run.
+  if (["high", "xhigh", "max"].includes(String(selectedEffort)) && opts.timeout > 0 && opts.timeout < 600)
     process.stderr.write(`codex-delegate: effort ${selectedEffort} with --timeout ${opts.timeout}s is the measured failure shape — the turn is likely to be cut before it writes an answer (exit 3). Raise --timeout above 600 or lower the effort.\n`);
   const detachedRun = opts.runDir ? runFiles(opts.runDir) : null;
   const startedAt = new Date().toISOString();
