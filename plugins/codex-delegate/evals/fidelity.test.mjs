@@ -10,12 +10,14 @@
 // were live-server behaviours the fixture did not model, both shipped under a fully green suite.
 //
 // So this suite asks a different question: for the same request, does the fixture reply like the real
-// thing? It only ever performs the initialize/thread/start handshake — no turn is started and no model is
-// called — which makes it cheap enough to run on every change to either side.
+// thing? It only ever performs the initialize / account-read / thread-start handshake — no turn is
+// started and no model is called — which makes it cheap enough to run on every change to either side.
 //
 // It writes into a private CODEX_HOME, not the caller's: a bare thread/start is enough to make the server
 // record a trusted-project entry, so the earlier claim that this suite wrote nothing was wrong by 195
-// entries. Nothing of the caller's is read or modified, and every case still costs one handshake.
+// entries. The one thing of the caller's it borrows is ~/.codex/auth.json, linked in exactly as the
+// driver links it, because the account snapshot the driver now reads has no answer without it. Nothing
+// of the caller's is modified, and every case still costs one handshake.
 //
 // It SKIPS rather than fails only when `codex` is absent, because a missing binary is not a fidelity
 // defect. Every other spawn or handshake failure is protocol drift. A skip is reported loudly so it
@@ -47,7 +49,7 @@ function handshake(bin, args, request, { timeoutMs = 60000, env = process.env } 
         ? { unavailable: e.message }
         : { failure: { kind: "spawn failure", detail: e.message } });
     }
-    let err = "", settled = false, started = false, lines;
+    let err = "", settled = false, started = false, lines, thread, limits;
     let bell;
     child.stderr.on("data", (d) => { err += d; });
     child.stdin.on("error", () => {});
@@ -81,11 +83,22 @@ function handshake(bin, args, request, { timeoutMs = 60000, env = process.env } 
       if (m.id === 1) {
         if (m.error) { done({ failure: { kind: "JSON-RPC error", detail: `initialize returned ${JSON.stringify(m.error)}` } }); return; }
         send({ jsonrpc: "2.0", method: "initialized", params: request.initializedParams });
+        // Sent in the driver's own order and with its own params: it reads the account snapshot once,
+        // before any thread exists, and refuses the run when the primary window is at 100%. Both replies
+        // are collected before this resolves, so a server that answers one and not the other is a
+        // timeout here rather than a silently half-compared case.
+        send({ jsonrpc: "2.0", id: 3, method: "account/rateLimits/read", params: null });
         send({ jsonrpc: "2.0", id: 2, method: request.threadMethod, params: request.threadParams });
       }
-      if (m.id === 2) done(m.error
-        ? { failure: { kind: "JSON-RPC error", detail: `thread/start returned ${JSON.stringify(m.error)}` } }
-        : { result: m.result });
+      if (m.id === 3) {
+        if (m.error) { done({ failure: { kind: "JSON-RPC error", detail: `account/rateLimits/read returned ${JSON.stringify(m.error)}` } }); return; }
+        limits = m.result ?? null;
+      }
+      if (m.id === 2) {
+        if (m.error) { done({ failure: { kind: "JSON-RPC error", detail: `thread/start returned ${JSON.stringify(m.error)}` } }); return; }
+        thread = m.result;
+      }
+      if (thread !== undefined && limits !== undefined) done({ result: thread, limits });
     });
     send({ jsonrpc: "2.0", id: 1, method: "initialize", params: request.initializeParams });
   });
@@ -96,9 +109,14 @@ function handshake(bin, args, request, { timeoutMs = 60000, env = process.env } 
 // canonicalises :tmpdir roots, but echoes configured write roots and subtracts cwd by exact spelling.
 // Canonicalising that field here erased the distinction this suite is meant to pin.
 const idShape = (id) => typeof id === "string" && id.length ? "<non-empty string>" : (id ?? null);
-function shapeOf(r) {
+function shapeOf(r, limits) {
   const sb = r?.sandbox ?? {};
   return {
+    // The only field the driver reads out of account/rateLimits/read (driver.mjs:4202). Its VALUE is the
+    // account's real usage and changes between runs, so the TYPE is what is compared: a fixture that
+    // omits `primary`, or reports usedPercent as a string, leaves the driver's >=100 refusal permanently
+    // unarmed while every other field still agrees.
+    rateLimitPrimaryUsedPercent: typeof limits?.rateLimits?.primary?.usedPercent,
     threadId: idShape(r?.thread?.id),
     cwd: r?.cwd ?? null,
     model: r?.model ?? null,
@@ -190,6 +208,27 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     }, origins: {} } });
     return;
   }
+  // Also before any thread exists: the driver reads the account snapshot once and refuses to start when
+  // the primary window is at 100% (driver.mjs:4200). Answered with the MINIMAL shape that
+  // schema-0.150.1/v2/GetAccountRateLimitsResponse.json accepts — only rateLimits is required, and
+  // RateLimitSnapshot requires nothing — so this reply can never gate the capture, and the field the
+  // driver actually reads is compared against the live server in the differential below, not here.
+  if (m.method === "account/rateLimits/read") {
+    send({ jsonrpc: "2.0", id: m.id, result: { rateLimits: {} } });
+    return;
+  }
+  // The capture always passes --effort, and the driver validates it against the catalogue before it
+  // starts anything. One model advertising exactly that effort is enough; the fields are the ones
+  // ModelListResponse.json marks required on a Model, so a driver that starts reading another is not
+  // silently handed undefined.
+  if (m.method === "model/list") {
+    send({ jsonrpc: "2.0", id: m.id, result: { data: [{
+      id: "fake-model", model: "fake-model", displayName: "Fake Model", description: "capture model",
+      hidden: false, isDefault: true, defaultReasoningEffort: "high",
+      supportedReasoningEfforts: [{ reasoningEffort: "high", description: "high" }],
+    }], nextCursor: null } });
+    return;
+  }
   if (m.method === "thread/start" || m.method === "thread/resume") {
     const captured = {
       spawnArgs: process.argv.slice(2), spawnCwd: process.cwd(), codexHome: process.env.CODEX_HOME,
@@ -214,6 +253,17 @@ function captureDriver(spec) {
   const callerCodex = path.join(passwdHome, ".codex");
   fs.mkdirSync(callerCodex);
   fs.writeFileSync(path.join(callerCodex, "config.toml"), CALLER_CONFIG, { mode: 0o600 });
+  // The isolated home borrows the caller's credentials by symlink (driver.mjs:1136), and the fake passwd
+  // home built here had none — so every replayed server ran UNAUTHENTICATED. That was invisible for as
+  // long as the handshake stopped at thread/start, which needs no account; the first request that does
+  // need one is answered
+  //   {"code":-32600,"message":"codex account authentication required to read rate limits"}
+  // and every case goes red at once. Linked, never copied: no credential is written into a temp directory
+  // and a token refresh still lands in the real home. When the caller has no auth.json the link is simply
+  // absent and the live case reports that error rather than passing on an unauthenticated server.
+  const callerAuth = path.join(os.userInfo().homedir, ".codex", "auth.json");
+  if (fs.existsSync(callerAuth))
+    { try { fs.symlinkSync(callerAuth, path.join(callerCodex, "auth.json")); } catch {} }
 
   const driverArgs = [DRIVER, "--level", spec.level, "--cwd", spec.cwd,
     "--effort", "high", "--ephemeral", "--prompt", "fidelity probe"];
@@ -615,7 +665,7 @@ async function main() {
       continue;
     }
 
-    const L = shapeOf(live.result), F = shapeOf(fake.result);
+    const L = shapeOf(live.result, live.limits), F = shapeOf(fake.result, fake.limits);
     const diffs = new Set(Object.keys(L).filter((k) => JSON.stringify(L[k]) !== JSON.stringify(F[k])));
     // Required on the live response and operationally load-bearing. If both sides ever omit it together,
     // equality alone is not enough: that shared mistake must still make the suite red.

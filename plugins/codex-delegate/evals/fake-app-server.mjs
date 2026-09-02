@@ -89,6 +89,10 @@ export const SCENARIOS = {
   "review-instructions": { review: "uncommitted" },
   "schema-good": { outputSchema: true }, "schema-retry": { outputSchema: true },
   "schema-never": { outputSchema: true }, "schema-retry-refused": { outputSchema: true },
+  fork: { fork: "thr_parent", forkThrough: "turn_parent" },
+  "model-unknown": { effort: "minimal" }, "rate-limited": {},
+  compact: { resume: "thr_root", compact: true }, "turn-diff": {},
+  "reasoning-summary": { reasoningSummary: "detailed" },
   "late-completion": { outputSchema: true, timeout: 0.4 },
   "stalled-turn": { timeout: 0.5 },
 };
@@ -136,6 +140,12 @@ if (isMain && process.env.FAKE_RPC_LOG) {
 const CFG = Object.fromEntries(process.argv.slice(2)
   .filter((a, i, all) => all[i - 1] === "-c" && a.includes("="))
   .map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
+if (isMain && process.env.FAKE_MCP_CONFIG_LOG && process.env.CODEX_HOME) {
+  try {
+    const body = fs.readFileSync(`${process.env.CODEX_HOME}/config.toml`, "utf8");
+    if (body.includes("[mcp_servers.")) fs.writeFileSync(process.env.FAKE_MCP_CONFIG_LOG, body);
+  } catch {}
+}
 // Must match READ_PROFILE in scripts/driver.mjs. The driver refuses to run when the server reports any
 // other profile, so a fixture that names a different one silently turns every case into a transport error.
 const READ_PROFILE = "codex_delegate_read";
@@ -398,13 +408,39 @@ function onLine(line) {
       // What --mcp asks the probe to carry across; one carriable server, one that is not.
       ...(process.env.FAKE_MCP ? { mcp_servers: {
         docs: { command: "docs-server", args: ["--port", "0"], env: { TOKEN: "t" } },
+        search: { command: "search-server", args: ["--stdio"] },
         exotic: { command: "x", nested: { deep: true } },
       } } : {}),
     }, origins: {} }));
     return;
   }
 
-  if (m.method === "thread/start" || m.method === "thread/resume") {
+  if (m.method === "account/rateLimits/read") {
+    // An older server, or a managed device: the method is REJECTED rather than answered. A run whose
+    // thread has not started must survive that without a snapshot instead of aborting.
+    if (process.env.FAKE_RATELIMITS_ERROR) {
+      w({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "Method not found" } });
+      return;
+    }
+    w(reply(m.id, { rateLimits: {
+      primary: { usedPercent: SCENARIO === "rate-limited" ? 100 : 25,
+                 windowDurationMins: 300, resetsAt: 1780003600 }
+    }, rateLimitsByLimitId: null, rateLimitResetCredits: null }));
+    return;
+  }
+
+  if (m.method === "model/list") {
+    const efforts = ["none", "low", "medium", "high", "xhigh", "max", "ultra"];
+    w(reply(m.id, { data: [{
+      id: "fake-model", model: "fake-model", displayName: "Fake Model",
+      description: "Fixture model", hidden: false, isDefault: true,
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort }))
+    }], nextCursor: null }));
+    return;
+  }
+
+  if (m.method === "thread/start" || m.method === "thread/resume" || m.method === "thread/fork") {
     // Never answered: the deadline then fires with a child but no thread, the one rung of the wall clock
     // that has nothing to report and must abort instead.
     if (SCENARIO === "no-thread") return;
@@ -512,6 +548,11 @@ function onLine(line) {
     return;
   }
 
+  if (m.method === "thread/compact/start") {
+    w(reply(m.id, {}));
+    return;
+  }
+
   // A review whose own git commands fail and which produces NO review payload: the flag alone must
   // not waive a genuine failure.
   if (m.method === "review/start" && SCENARIO === "review-broken") {
@@ -598,6 +639,26 @@ function onLine(line) {
             total: { inputTokens: 9000, cachedInputTokens: 0, outputTokens: 900, reasoningOutputTokens: 0, totalTokens: 9900 },
             modelContextWindow: 272000 } }),
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
+      case "fork":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify(requestedThread)), done(TURN, THREAD));
+        break;
+
+      case "compact":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "compacted, then answered"), done(TURN, THREAD));
+        break;
+
+      case "turn-diff":
+        w(R, cmd(TURN, THREAD),
+          note("turn/diff/updated", { threadId: THREAD, turnId: TURN, diff: "first diff\n" }),
+          note("turn/diff/updated", { threadId: THREAD, turnId: TURN, diff: "last diff\n" }),
+          msg(TURN, THREAD, "diff saved"), done(TURN, THREAD));
+        break;
+
+      case "reasoning-summary":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify({ summary: m.params?.summary ?? null })),
+          done(TURN, THREAD));
         break;
 
       // --output-schema: a valid object on the first try.

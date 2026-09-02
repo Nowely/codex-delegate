@@ -48,6 +48,7 @@ const EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "m
 // default: a search makes the turn depend on what the index says today, and most delegations here are
 // about this repository, not about the world.
 const WEB_SEARCH = new Set(["cached", "indexed", "live"]);
+const REASONING_SUMMARIES = new Set(["auto", "concise", "detailed"]);
 // --brief is about the coordinator's context, not the seat's thoroughness: the full answer is always
 // written to disk, so capping what comes back inline costs nothing but a second read when it matters.
 const BRIEF_LINES = 20;
@@ -166,6 +167,17 @@ Turn
                      the report as answerPath, with or without this flag.
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
+  --reasoning-summary auto|concise|detailed
+                     request that density for the per-turn reasoning summary;
+                     omitted leaves the model or config default unchanged
+  --fork THREAD      branch a new thread from THREAD before running the turn.
+                     The fork receives the same cwd, model, sandbox, approval
+                     policy and developer instructions as a fresh thread;
+                     excludes --resume and --worktree
+  --fork-through TURN
+                     with --fork, include history only through TURN (inclusive)
+  --compact          with --resume, run thread/compact/start before the turn;
+                     use for a long continuation nearing its context window
   --timeout SECONDS  default 900, at most 7200 — the whole budget, anchored at
                      process start, and spent in three rungs. At T minus a
                      reserve (a quarter of the budget, at least 60 s and at most
@@ -273,6 +285,10 @@ Isolation
                      seat gets your MCP tools without your plugins, skills and
                      trust records, at the cost of the shared home's warm caches.
                      The servers run with your rights, as under --host-home
+  --mcp-server NAME  with --mcp, copy only this named server; repeatable and
+                     command-line-only. An unknown name is a usage error.
+                     This filters MCP servers, not built-in tools: filesystem
+                     and network restrictions remain the enforceable controls
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
   min(5 s, max(1 s, --timeout)) and normally ~120 ms. It counts against the one
@@ -307,7 +323,9 @@ Report
                      UNFINISHED text the model never delivered, is never promoted
                      to answer, and is written beside it as answerPartialPath.
                      commentaryPath is where a turn that produced no answer at
-                     all had its messages written
+                     all had its messages written. rateLimits is the setup-time
+                     account snapshot; turnDiffPath is the last streamed turn
+                     diff at ~/.codex-delegate/answers/<threadId>.diff
   --footer           a human footer instead of the JSON report
   --progress         one line per item start on stderr (run/edit/search), so a
                      long seat can be watched live without tailing the rollout
@@ -472,7 +490,7 @@ function parseArgs(argv) {
   // way (null means "whatever the config chose"); effort now matches it.
   // JSON is the default report: the only real caller is an agent, and every documented recipe passed
   // --json by hand while forgetting it cost a footer nobody parses. --footer opts back out for a human.
-  const o = { level: "read", timeout: 900, idleTimeout: 900, writable: [], attach: [], json: true };
+  const o = { level: "read", timeout: 900, idleTimeout: 900, writable: [], attach: [], mcpServers: [], json: true };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -489,6 +507,7 @@ function parseArgs(argv) {
       case "--worktree": o.worktree = need(++i, a); break;
       case "--effort": o.effort = need(++i, a); break;
       case "--model": o.model = need(++i, a); break;
+      case "--reasoning-summary": o.reasoningSummary = need(++i, a); break;
       case "--timeout": o.timeout = Number(need(++i, a)); o.timeoutExplicit = true; break;
       case "--detach": o.detach = true; break;
       // Command-line only, and never a seat field: it names where a detached run's transport lives.
@@ -509,6 +528,9 @@ function parseArgs(argv) {
       case "--steer-file": o.steerFile = need(++i, a); break;
       case "--commit": o.commit = true; break;
       case "--resume": o.resume = need(++i, a); break;
+      case "--fork": o.fork = need(++i, a); break;
+      case "--fork-through": o.forkThrough = need(++i, a); break;
+      case "--compact": o.compact = true; break;
       case "--ephemeral": o.ephemeral = true; break;
       case "--allow-no-commands": o.allowNoCommands = true; break;
       case "--expect-command": o.expect = need(++i, a); break;
@@ -522,6 +544,8 @@ function parseArgs(argv) {
       case "--progress": o.progress = true; break;
       case "--host-home": o.hostHome = true; break;
       case "--mcp": o.mcp = true; break;
+      // Command-line only: like --mcp itself, a seat file must not be able to grant an external tool.
+      case "--mcp-server": o.mcpServers.push(need(++i, a)); break;
       case "--json": o.json = true; break;   // the default; kept so existing recipes stay valid
       case "--footer": o.json = false; break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
@@ -552,6 +576,8 @@ function parseArgs(argv) {
     fail(EXIT.USAGE, `--web-search must be one of ${[...WEB_SEARCH].join("|")}`);
   if (o.effort !== undefined && !EFFORTS.has(o.effort))
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
+  if (o.reasoningSummary !== undefined && !REASONING_SUMMARIES.has(o.reasoningSummary))
+    fail(EXIT.USAGE, `--reasoning-summary must be one of ${[...REASONING_SUMMARIES].join("|")}`);
   if (!Number.isFinite(o.timeout) || o.timeout <= 0 || o.timeout > 7200)
     fail(EXIT.USAGE, "--timeout must be a positive number of seconds, at most 7200");
   // Checked here rather than at the first write into it: a run directory that does not exist means the
@@ -613,6 +639,12 @@ function parseArgs(argv) {
   // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
   // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
   if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
+  if (o.fork && o.resume) fail(EXIT.USAGE, "--fork and --resume are contradictory: one branches a new thread and the other continues the existing thread");
+  if (o.fork && o.worktree) fail(EXIT.USAGE, "--fork and --worktree are contradictory: a fork keeps the declared cwd and cannot create a detached worktree");
+  if (o.forkThrough && !o.fork) fail(EXIT.USAGE, "--fork-through requires --fork");
+  if (o.compact && !o.resume) fail(EXIT.USAGE, "--compact requires --resume");
+  if (o.mcpServers.length && !o.mcp) fail(EXIT.USAGE, "--mcp-server requires --mcp");
+  if (o.mcpServers.length && o.hostHome) fail(EXIT.USAGE, "--mcp-server cannot filter --host-home; use --mcp without --host-home");
   if (o.worktree && o.levelExplicit && o.level === "read") fail(EXIT.USAGE, "--worktree requires --level write");
   if (o.worktree) o.level = "write";
   // The three registry modes read records that already name their own directory, so a --cwd would be a
@@ -1163,6 +1195,14 @@ async function isolatedHome() {
     return home;
   }
   configInherited = { source: probe.failed ? "none" : "probe", keys: probe.entries.map(([k]) => k) };
+  let carriedMcp = mcpFromProbe;
+  if (opts.mcpServers.length && mcpFromProbe) {
+    const wanted = [...new Set(opts.mcpServers)];
+    const missing = wanted.filter((name) => !Object.hasOwn(mcpFromProbe, name));
+    if (missing.length)
+      fail(EXIT.USAGE, `--mcp-server: unknown server${missing.length === 1 ? "" : "s"} ${missing.map((name) => JSON.stringify(name)).join(", ")}; configured servers: ${Object.keys(mcpFromProbe).sort().join(", ") || "none"}`);
+    carriedMcp = Object.fromEntries(wanted.map((name) => [name, mcpFromProbe[name]]));
+  }
   // Random, not the pid. Two runs in different PID namespaces over one mounted home share a pid, and then
   // both write the same temp name — measured as a partial read and an ENOENT from the loser's rename.
   // "wx" on top of that: it fails rather than following a symlink someone left at the predictable name,
@@ -1170,7 +1210,7 @@ async function isolatedHome() {
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
     const body = probe.entries.map(([k, v]) => `${k} = ${v}\n`).join("")
-      + (opts.mcp && mcpFromProbe ? `${tomlMcpServers(mcpFromProbe).join("\n")}\n` : "");
+      + (opts.mcp && carriedMcp ? `${tomlMcpServers(carriedMcp).join("\n")}\n` : "");
     fs.writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
@@ -2485,6 +2525,8 @@ let selectedEffort = null;  // likewise: with no --effort this is whatever confi
 let effectiveSandbox = null;   // the sandbox the SERVER applied, not the one we asked for
 let verifyResult = null;    // the caller-run check, the one piece of evidence the model cannot author
 let tokenUsage = null;      // the latest thread/tokenUsage/updated payload: what this seat cost
+let rateLimits = null;      // the account snapshot read once before any thread is started
+let turnDiffPath = null;    // where the last turn/diff/updated payload was persisted, or null when it could not be written
 // The token budget, counted for THIS invocation only. `total` is thread-cumulative, so a resumed
 // thread's earlier turns are subtracted once, at the first event.
 let budgetBaseline = null;  // null until the first usage event decides it
@@ -2687,7 +2729,7 @@ function handleMessage(msg, bytes = 0) {
     // line of one stdout chunk in a single synchronous burst, so notifications sharing a chunk with this
     // response would otherwise be handled while the id is still null — and the filters would let a
     // foreign thread's events through.
-    if (msg.result && (p.method === "thread/start" || p.method === "thread/resume")) {
+    if (msg.result && (p.method === "thread/start" || p.method === "thread/resume" || p.method === "thread/fork")) {
       rootThreadId = msg.result.thread?.id ?? null;
       selectedModel = msg.result.model ?? null;
       selectedEffort = msg.result.reasoningEffort ?? null;
@@ -2722,7 +2764,8 @@ function handleMessage(msg, bytes = 0) {
   if (msg.method && onRootThread(p)) touchIdle();
 
   // Turn-scoped notifications that arrive before the turn id is known are held, not judged.
-  const turnScoped = msg.method === "item/completed" || msg.method === "turn/completed";
+  const turnScoped = msg.method === "item/completed" || msg.method === "turn/completed"
+    || msg.method === "turn/diff/updated";
   if (turnScoped && rootTurnId === null) {
     earlyBytes += bytes;
     if (early.length >= EARLY_MAX_ITEMS || earlyBytes > EARLY_MAX_BYTES)
@@ -2832,6 +2875,8 @@ function handleMessage(msg, bytes = 0) {
     if (prev !== undefined || answerDeltas.size < PARTIAL_MAX_ITEMS)
       answerDeltas.set(id, `${prev ?? ""}${String(p?.delta ?? "")}`.slice(0, PARTIAL_MAX_CHARS));
   }
+
+  if (msg.method === "turn/diff/updated" && isRoot(p)) persistTurnDiff(p);
 
   // Best-effort accounting: what this seat cost, straight from the server. Only the root thread's
   // usage counts — a subagent thread's tokens are its own. `total` is THREAD-cumulative: on --resume
@@ -3015,7 +3060,8 @@ function startCorrectiveTurn(errs) {
       `Your final answer did not match the required JSON schema. Errors:\n- ${errs.slice(0, 8).join("\n- ")}\n` +
       "Reply again with ONE corrected JSON object and nothing else — no prose before or after, no code fence.",
       text_elements: [] }],
-    model: opts.model ?? null, effort: null, outputSchema: opts.outputSchema
+    model: opts.model ?? null, effort: null, summary: opts.reasoningSummary ?? null,
+    outputSchema: opts.outputSchema
   }).catch((e) => {
     // The FIRST turn completed and its evidence is all in memory; aborting here threw the whole report
     // away and exited 4 for a turn/start refusal. Finish instead: the report carries the first answer,
@@ -3132,6 +3178,18 @@ function persistAnswer(text, suffix = "") {
     pruneAnswers(dir);
     return path.join(dir, name);
   } catch { return null; }
+}
+
+function persistTurnDiff(payload) {
+  if (typeof payload?.diff !== "string" || !rootThreadId) return;
+  try {
+    const dir = answersDir();
+    const target = path.join(dir, `${rootThreadId}.diff`);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(target, payload.diff, { mode: 0o600 });
+    pruneAnswers(dir);
+    turnDiffPath = target;
+  } catch { turnDiffPath = null; }
 }
 
 // Bounded retention for the answer log, which used to grow without bound. Fourteen days and four
@@ -3675,6 +3733,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // on stderr only, which a relay shows on failure — so a report could not be told apart from a run
     // that started a fresh thread, and `last` is exactly where the wrong thread is picked silently.
     resumedFrom: opts.resume ?? null,
+    forkedFrom: opts.fork ?? null, forkedThrough: opts.forkThrough ?? null,
     // Which Codex installation answered, and which VERSION of it: the userAgent the initialize response
     // carries was read and dropped, so version drift was named only after a method came back -32601.
     // null means the server sent a userAgent this driver could not read a version out of.
@@ -3688,7 +3747,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     effort: opts.effort ?? null, reasoningEffort: selectedEffort,
     model: selectedModel, turnStatus, turnError, threadId: rootThreadId,
     // What the seat cost, straight from the server's own accounting; null when no usage event arrived.
-    tokenUsage,
+    tokenUsage, rateLimits, turnDiffPath,
     ...(opts.outputSchema ? { outputAttempts, outputSchemaOk: schemaErrs.length === 0,
         schemaErrors: schemaErrs.length ? schemaErrs.slice(0, 12) : null,
         // What the driver's shallow validator could NOT re-verify; the server still enforced these
@@ -3845,12 +3904,15 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
         ? `INHERITED FROM AN EARLIER RUN (${configInherited.keys.join(", ") || "no keys"}) — the probe failed this time`
         : "NOTHING INHERITED — this turn ran on the account defaults, not on your config.toml"}`);
     if (opts.resume) L.push(`resumed thread ${opts.resume}`);
+    if (opts.fork) L.push(`forked from thread ${opts.fork}${opts.forkThrough ? ` through turn ${opts.forkThrough}` : ""}`);
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
     if (rootThreadId) L.push(receipt?.verified
       ? `receipt: ${receiptPath}  (originator=${receipt.originator ?? "?"} provider=${receipt.modelProvider ?? "?"})`
       : receiptPath ? `receipt: FOUND BUT UNVERIFIED at ${receiptPath} — ${receipt.why}`
       : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
     if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
+    if (rateLimits?.primary) L.push(`rate limit: ${rateLimits.primary.usedPercent ?? "?"}% of the primary window used`);
+    if (turnDiffPath) L.push(`turn diff: ${turnDiffPath}`);
     if (opts.budgetTokens) L.push(budgetSpent === null
       ? `budget: ${opts.budgetTokens} tokens declared, NOTHING COUNTED — the server sent no usage event`
       : `budget: ${budgetSpent} of ${opts.budgetTokens} tokens spent this invocation` +
@@ -4133,6 +4195,44 @@ async function main() {
   if (codexVersion && codexVersion !== PINNED_CODEX)
     process.stderr.write(`codex-delegate: this codex is ${codexVersion}; the plugin's protocol facts and pinned schemas were measured against ${PINNED_CODEX}. Behaviour that contradicts the docs starts here.\n`);
 
+  // An older server, or a managed device, answers this method with a JSON-RPC error. That is a missing
+  // snapshot, not a reason to abort a run that has not started its thread yet: the report then carries
+  // rateLimits null and the seat runs.
+  let limits = null;
+  try { limits = await request("account/rateLimits/read", null); }
+  catch (e) { process.stderr.write(`codex-delegate: account/rateLimits/read unavailable (${e.message}); continuing without a snapshot\n`); }
+  rateLimits = limits?.rateLimits ?? null;
+  const primaryUsed = rateLimits?.primary?.usedPercent;
+  if (rateLimits && typeof primaryUsed === "number" && primaryUsed >= 100)
+    fail(EXIT.USAGE, `the account's primary Codex rate-limit window is at ${primaryUsed}%; no thread was started`);
+
+  if (opts.model !== undefined || opts.effort !== undefined) {
+    const models = [], cursors = new Set();
+    let cursor = null;
+    for (;;) {
+      const page = await request("model/list", { cursor, limit: null, includeHidden: true });
+      if (!Array.isArray(page?.data)) fail(EXIT.TRANSPORT, "model/list returned no model catalogue");
+      models.push(...page.data);
+      if (page.nextCursor == null) break;
+      if (typeof page.nextCursor !== "string" || cursors.has(page.nextCursor) || cursors.size >= 99)
+        fail(EXIT.TRANSPORT, "model/list pagination did not terminate with a valid cursor");
+      cursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    const chosen = opts.model === undefined ? null
+      : models.find((m) => m?.model === opts.model || m?.id === opts.model) ?? null;
+    if (opts.model !== undefined && !chosen)
+      fail(EXIT.USAGE, `--model ${JSON.stringify(opts.model)} is not in model/list; available models: ${models.map((m) => m?.model).filter(Boolean).join(", ") || "none"}`);
+    if (opts.effort !== undefined) {
+      const candidates = chosen ? [chosen] : models;
+      const supported = (m) => (m?.supportedReasoningEfforts ?? []).map((e) => e?.reasoningEffort).filter(Boolean);
+      if (!candidates.some((m) => supported(m).includes(opts.effort))) {
+        const allowed = [...new Set(candidates.flatMap(supported))].sort();
+        fail(EXIT.USAGE, `--effort ${JSON.stringify(opts.effort)} is not advertised by ${opts.model ? `model ${opts.model}` : "any model in model/list"}; supported efforts: ${allowed.join("|") || "none"}`);
+      }
+    }
+  }
+
   // Standing rules belong on the thread, not in the task prompt: they then govern every turn of a
   // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
   // What is LEFT of the budget, read here rather than at process start: the probe and the lock come out
@@ -4176,6 +4276,7 @@ async function main() {
   // because an unapplied profile must never pass as if it had applied.
   const sandboxParam = sandbox === null ? {} : { sandbox };
   const resuming = Boolean(opts.resume);
+  const forking = Boolean(opts.fork);
   // WHO may approve is as load-bearing as what the sandbox permits, and it is a separate axis. With
   // approvalsReviewer "auto_review" the server hands approvals to its own subagent, so they never reach
   // this driver: escalations stay empty, the refusal policy is silently disarmed, and a sandbox escape can
@@ -4183,12 +4284,17 @@ async function main() {
   // "auto_review", so no amount of checking type/roots/network can tell them apart. `approvals_reviewer`
   // is a real config key and a menu item in the interactive TUI, so this is one toggle away by accident.
   const approvalsReviewer = "user";
+  const threadBase = { cwd, model: opts.model ?? null, approvalPolicy: "on-request", approvalsReviewer,
+    ...sandboxParam, developerInstructions };
   const threadReq = resuming
-    ? ["thread/resume", { threadId: opts.resume, cwd, model: opts.model ?? null, approvalPolicy: "on-request", approvalsReviewer, ...sandboxParam, developerInstructions }]
+    ? ["thread/resume", { threadId: opts.resume, ...threadBase }]
+    : forking
+      ? ["thread/fork", { threadId: opts.fork, lastTurnId: opts.forkThrough ?? null,
+          ...threadBase, ephemeral: Boolean(opts.ephemeral) }]
     // Resumable by default. Whether a thread is worth continuing is only knowable after reading the
     // answer, and an ephemeral thread cannot be continued — so opting IN was a trap: you learned you
     // needed the flag exactly when it was too late to pass it.
-    : ["thread/start", { cwd, model: opts.model ?? null, approvalPolicy: "on-request", approvalsReviewer, ...sandboxParam, developerInstructions,
+    : ["thread/start", { ...threadBase,
         serviceName: "claude-code-codex-delegate", ephemeral: Boolean(opts.ephemeral) }];
   const thread = await request(threadReq[0], threadReq[1]);
   // Asked for above, asserted here, at BOTH levels — write level's writable-root boundary is escapable the
@@ -4213,6 +4319,7 @@ async function main() {
   const st = thread.thread?.status?.type ?? null;
   if (resuming && st === "active") fail(EXIT.BUSY, `thread ${opts.resume} still has a turn running; wait for it to finish`);
   if (resuming && st && st !== "idle") fail(EXIT.TRANSPORT, `thread ${opts.resume} is ${st} and cannot be resumed`);
+  if (opts.compact) await request("thread/compact/start", { threadId: rootThreadId });
 
   // Announced BEFORE the turn, not in the report: a delegation runs for minutes, and the thread id is
   // the key to tailing its live rollout under ~/.codex/sessions — a coordinator watching a long seat
@@ -4267,7 +4374,7 @@ async function main() {
     // A seat asked about "the first screenshot" should be looking at the same arrangement its
     // coordinator saw.
     input: [...(opts.attachments ?? []), { type: "text", text: prompt, text_elements: [] }],
-    model: opts.model ?? null, effort: null,
+    model: opts.model ?? null, effort: null, summary: opts.reasoningSummary ?? null,
     ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
   };
   await request("turn/start", lastTurnParams);
