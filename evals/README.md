@@ -21,19 +21,40 @@ decorrelated when it was not.
 
 ## The runnable suites
 
-All six suites are runnable and should stay green:
+All seven are runnable and should stay green. One command runs them all, cheapest first, stopping at the
+first red suite and printing one summary line:
 
 ```bash
-node evals/protocol.test.mjs        # every case in CASES, against evals/fake-app-server.mjs
-node evals/lock.test.mjs            # the cwd lock, which the protocol suite cannot reach
+npm test                # = node evals/run-all.mjs
+```
+
+Individually, when one of them is the thing being worked on:
+
+```bash
+node evals/package.test.mjs         # what ships, and the version it says it is
+node evals/agent-contract.test.mjs  # the shipped relay agent against the driver
 node evals/attach-pasted.test.mjs   # handing a seat the images the user pasted
 node evals/conformance.test.mjs     # the fixture against the pinned schemas
-node evals/agent-contract.test.mjs  # the shipped relay agent against the driver
+node evals/protocol.test.mjs        # every case in CASES, against evals/fake-app-server.mjs
+node evals/lock.test.mjs            # the cwd lock, which the protocol suite cannot reach
 node evals/fidelity.test.mjs        # does the FIXTURE answer like the real server? needs codex, skips without
 ```
 
 The counts are deliberately not written down here — the last one was wrong twice in two days. The `CASES`
-arrays are the inventory.
+arrays are the inventory, and each suite states its own count in its last line.
+
+`evals/lib/harness.mjs` holds what every suite needs a copy of otherwise — the temp directories, the
+`codex` shim, one spawn helper, the case registrar and the pass/fail loop — and re-exports the driver's
+own `EXIT`, `SEAT_FIELDS`, `LADDER` and `lockKey` rather than letting a suite restate them.
+`driver.mjs` runs `main()` only when it IS the entry point, which is what makes importing it safe.
+
+`.github/workflows/ci.yml` runs the six free suites — package, agent-contract, attach-pasted,
+conformance, protocol, lock — on {ubuntu, macOS} × Node {18, 24}. It installs nothing and calls no model.
+
+`fidelity.test.mjs` is the exception and runs LOCALLY, before a release: it needs the real `codex` and an
+authenticated home, and its opt-in live-turn case spends a real turn. Absent the binary it exits 0,
+which makes "portable behaviour passed" and "fidelity was verified" the same code — so the local
+pre-release run passes `--require-live` (or sets `REQUIRE_LIVE_CODEX=1`) and the skip becomes a failure.
 
 `fidelity.test.mjs` asks a different question from the fixture-driven suites, and it exists because of
 a failure they structurally cannot see. They drive the driver against the fixture, which proves the driver
@@ -193,7 +214,7 @@ under this harness they measure the harness.
 ## What no pass has attacked
 
 The coverage ledger — the honest ceiling on any "adversarially reviewed" claim, moved here from the
-0.1.0 changelog because it is a living list, not history. **As of 0.4.0:**
+0.1.0 changelog because it is a living list, not history. **As of 0.6.0:**
 
 `evals/fake-app-server.mjs` is still the oracle for every protocol and lock assertion, and only
 `fidelity` checks it against the real server — a wrong model there makes every suite agree wrongly
@@ -207,11 +228,16 @@ Struck by being attacked: the verify-exit-126 branch (covered), the `budget-exha
 lock-release ordering (covered as a differential), the seat file's rights-injection surface (covered),
 `$TMPDIR` as a writable root (covered), the worktree destination (covered).
 
-Still untouched: resume, `--ephemeral`, and the stdout drain path. The protocol and lock suites' own
-assertions were used as mutation detectors but never questioned. Nobody has installed this on a clean machine other
-than in a redirected `HOME` under an audit. The `--host-home` path, Linux, and the managed-profile
-(`managedWebSearchModes`) path are unmeasured. Strike items from this list by attacking them, not by
-shipping features near them.
+Struck since: resume (the protocol suite pins resume-busy, resumed-thread attribution and a resumed
+seat's budget; the lock suite pins `--resume last`), the stdout drain path (a closed pipe and a paused
+one, both during a large report), `--ephemeral` (no job record, no continue-with line, nothing for
+`--resume last`), `--host-home` (a TERM-ignoring descendant swept, the lock released, the report written,
+under a temporary home), and Linux — unmeasured until CI, now a matrix leg on every push.
+
+Still untouched: the managed-profile (`managedWebSearchModes`) path, which needs a real MDM plist. Nobody
+has installed this on a clean machine other than in a redirected `HOME` under an audit. The protocol and
+lock suites' own assertions were used as mutation detectors but never questioned. Strike items from this
+list by attacking them, not by shipping features near them.
 
 ## Keeping them honest
 

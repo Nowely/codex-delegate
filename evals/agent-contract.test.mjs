@@ -12,25 +12,18 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { DRIVER, ROOT, SEAT_FIELDS, registry, runCases, summarize } from "./lib/harness.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(HERE, "..");
 const AGENT = path.join(ROOT, "agents", "codex-seat.md");
-const DRIVER = path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs");
 
 const agent = fs.readFileSync(AGENT, "utf8");
 const driver = fs.readFileSync(DRIVER, "utf8");
 
-const CASES = [];
-const test = (name, why, fn) => CASES.push({ name, why, fn });
+const { cases: CASES, test } = registry();
 
-// The driver's own vocabulary, read out of the source rather than restated here — a copy in this file
-// would be a third place to drift.
-const seatFields = (() => {
-  const m = driver.match(/const SEAT_FIELDS = new Set\(\[([\s\S]*?)\]\)/);
-  return m ? [...m[1].matchAll(/"([A-Z_]+)"/g)].map((x) => x[1]) : [];
-})();
+// The driver's own vocabulary, imported rather than scraped out of the source: the regex that used to
+// read it would have gone quiet on any reformatting and taken every case below with it.
+const seatFields = [...SEAT_FIELDS];
 // What the agent's header block documents: the FIELD: lines of its own field list.
 const documented = [...agent.matchAll(/^ {4}([A-Z_]+):/gm)].map((m) => m[1]);
 
@@ -347,12 +340,4 @@ test("the description keeps model, effort and schema out of the Agent tool's opt
     return problems.length === 0 || problems.join("; ");
   });
 
-let failed = 0;
-for (const c of CASES) {
-  let verdict;
-  try { verdict = c.fn(); } catch (e) { verdict = `threw: ${e.message}`; }
-  if (verdict === true) console.log(`ok    ${c.name}`);
-  else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
-}
-console.log(failed ? `\n${failed}/${CASES.length} failed` : `\nall ${CASES.length} passed`);
-process.exit(failed ? 1 : 0);
+process.exit(summarize(await runCases(CASES), CASES.length));

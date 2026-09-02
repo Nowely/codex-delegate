@@ -11,15 +11,12 @@
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { SCRIPTS, registry, runCases, summarize, tempDir } from "./lib/harness.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FRONT = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "attach-pasted.mjs");
+const FRONT = path.join(SCRIPTS, "attach-pasted.mjs");
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "codex-attach-test-"));
-process.on("exit", () => { try { fs.rmSync(work, { recursive: true, force: true }); } catch {} });
+const work = tempDir("codex-attach-test-");
 
 // A real 1x1 PNG and a real 2x1 PNG, so the magic-byte check and the dimension reader see genuine
 // files rather than a string that happens to be base64.
@@ -57,8 +54,7 @@ function transcript(name, lines) {
 }
 
 // A driver shim: records argv, exits with whatever RC says.
-const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-attach-shim-"));
-process.on("exit", () => { try { fs.rmSync(shimDir, { recursive: true, force: true }); } catch {} });
+const shimDir = tempDir("codex-attach-shim-");
 const argvLog = path.join(shimDir, "argv.json");
 const driverShim = path.join(shimDir, "driver.mjs");
 // It records the argv AND the bytes of each attachment while they still exist: the front-end removes
@@ -88,8 +84,7 @@ function run(args, env = {}) {
   return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "", argv: seen?.argv ?? null, files: seen?.files ?? null };
 }
 
-const CASES = [];
-const test = (name, why, fn) => CASES.push({ name, why, fn });
+const { cases: CASES, test } = registry();
 
 test("every image of the latest human turn is forwarded, in paste order",
   "the main agent receives all N blocks in order; forwarding one of three is strictly below what the coordinator itself saw",
@@ -233,12 +228,4 @@ test("--list writes nothing and names the turns a human can recognise",
     return /two pictures here/.test(r.out) || `the turn's text is not shown: ${r.out.trim().slice(0, 160)}`;
   });
 
-let failed = 0;
-for (const c of CASES) {
-  let verdict;
-  try { verdict = c.fn(); } catch (e) { verdict = `threw: ${e.message}`; }
-  if (verdict === true) console.log(`ok    ${c.name}`);
-  else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
-}
-console.log(failed ? `\n${failed}/${CASES.length} failed` : `\nall ${CASES.length} passed`);
-process.exit(failed ? 1 : 0);
+process.exit(summarize(await runCases(CASES), CASES.length));

@@ -38,6 +38,9 @@ const READ_PROFILE = "codex_delegate_read";
 
 const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? null; } };
 
+// A release job needs "the binary was absent" to be a failure, not a silent 0.
+const REQUIRE_LIVE = process.argv.includes("--require-live") || process.env.REQUIRE_LIVE_CODEX === "1";
+
 // Replay the request captured from the driver against whichever server is named. `args` already ends in
 // app-server: appending it here would make this test almost-the-driver rather than the driver.
 function handshake(bin, args, request, { timeoutMs = 60000, env = process.env } = {}) {
@@ -315,10 +318,11 @@ function captureDriver(spec) {
       // A differential compares two REPLIES to one request, so anything wrong with the REQUEST is
       // invisible: the capture replays it to both servers and both agree on the same wrong thing.
       // Measured — mutating web_search to `live`, dropping --strict-config, flipping experimentalApi or
-      // ephemeral each left all nine agreeing, because no response field carries their effect. So those
+      // ephemeral each left every case agreeing, because no response field carries their effect. So those
       // four are asserted here by value — a small explicit list, not a second copy of the driver's argv.
-      // A child pointed at a different TMPDIR is invisible HERE too, but is not unpinned: it reddens 48
-      // of 59 protocol cases and one lock case. The earlier version of this comment claimed otherwise.
+      // A child pointed at a different TMPDIR is invisible HERE too, but is not unpinned: it reddens most
+      // of the protocol suite and one lock case (48 of the 59 cases that existed when that was measured;
+      // counts in comments go stale, so read the suite's own summary line for today's).
       const sent = (key) => {
         const i = captured.spawnArgs.findIndex((a, n) => captured.spawnArgs[n - 1] === "-c" && a.startsWith(`${key}=`));
         return i < 0 ? null : captured.spawnArgs[i].slice(key.length + 1);
@@ -337,9 +341,9 @@ function captureDriver(spec) {
       let isolated;
       try { isolated = fs.readFileSync(path.join(expectedHome, "config.toml"), "utf8"); }
       catch (e) { finish(reject, new Error(`cannot read driver's isolated config: ${e.message}`)); return; }
-      // A byte compare, so ADDING an inherited scalar reddens all nine cases at once. That is intended —
+      // A byte compare, so ADDING an inherited scalar reddens every case at once. That is intended —
       // what the driver carries across the isolation boundary is a decision, not an implementation detail —
-      // but the message has to say what changed, or the next person sees nine failures naming nothing.
+      // but the message has to say what changed, or the next person sees a red suite naming nothing.
       if (isolated !== ISOLATED_CONFIG)
         { finish(reject, new Error(`driver isolated config drifted\n  expected: ${JSON.stringify(ISOLATED_CONFIG)}\n  got:      ${JSON.stringify(isolated)}`)); return; }
       finish(resolve, {
@@ -416,7 +420,7 @@ const CASES = [
     } },
 
   // The rewrite replaced this case's exact duplicate with two alias spellings, which tests a different
-  // rule and left the plain one uncovered: deleting the fixture's dedup kept all nine agreeing. Both
+  // rule and left the plain one uncovered: deleting the fixture's dedup kept every case agreeing. Both
   // spellings of the question are needed.
   { name: "write level, the same root named twice, spelled identically",
     why: "the server collapses an exact duplicate before reporting writableRoots",
@@ -686,6 +690,14 @@ async function main() {
     : (console.log("\nlive turn: NOT RUN — set CODEX_DELEGATE_LIVE_TURN=1 to spend one turn on the real server"), 0);
   // An ENOENT skip is not a pass, but it is not a defect either: exit 0 so CI without codex stays usable.
   // Every case that reached a process must agree for the suite to exit 0.
+  //
+  // --require-live (or REQUIRE_LIVE_CODEX=1) turns the skip into a failure. Without it a release job
+  // cannot tell "portable behaviour passed" from "fidelity was verified" — both exit 0 — which is exactly
+  // the confusion a release must not ship on.
+  if (skipped && REQUIRE_LIVE) {
+    console.log(`\nFAIL  --require-live: ${skipped} case(s) skipped because the codex binary is absent; fidelity was NOT verified`);
+    return 1;
+  }
   return failed || liveFailed ? 1 : 0;
 }
 
