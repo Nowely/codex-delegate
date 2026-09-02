@@ -3,7 +3,8 @@
 Moved out of `SKILL.md` because none of it is needed at the moment of deciding *whether* and *how* to
 delegate — the two recipes at the top of that file cover the decision.
 
-**The flag inventory lives in `node "$DRIVER" --help` and nowhere else.** A second copy here drifted
+**The flag inventory lives in `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --help` and nowhere
+else.** A second copy here drifted
 from the code exactly as predicted by the sentence that used to sit above it; the help text is printed
 from the code and cannot. What stays in this file is what `--help` does not say: the environment
 variables, the answer log, what the driver protects, and how the isolated home works.
@@ -15,7 +16,8 @@ variables, the answer log, what the driver protects, and how the isolated home w
 - The answer log, and what `--brief` does not deliver
 - What is protected, and what is not
 - The isolated home
-- Seat files: the injection limit, measured
+- Seat files and wrappers
+- Receipt validation and reporting
 - Worktree ledger and destination
 
 ## Environment
@@ -92,18 +94,59 @@ delegation. That is not hypothetical: the eval suites drive the driver against a
 `CODEX_DELEGATE_STATE_DIR` a suite run left exactly that in the shared home, where the next real
 delegation read it.
 
-## Seat files: the injection limit, measured
+## Seat files and wrappers
+
+A direct seat is one driver process. A wrapper is useful only when it adds orchestration around that
+process; the shipped agent's Bash call is capped at 600 seconds, so use the driver directly when a seat
+needs more than about 560 seconds. Where the shipped agent is unavailable, the hand-rolled relay contract
+is:
+
+    Return Codex's answer verbatim, with the run's threadId and exitCode. Do not summarise, do not add
+    findings of your own, and if the run fails report the failure rather than answering yourself.
+
+Wrappers write `--seat-file <file>` as one `FIELD: value` per line. `SEAT` is required and must be the
+first field; outer whitespace is trimmed, interior text is preserved to end of line, and fields map to
+ordinary flags with the same guards. The complete field list lives in the driver's `--help`. Explicit
+command-line flags override file fields so the harness can bound a declaration it did not author, and
+`seatFileFields` reports the fields actually declared in their original order.
+
+The format avoids constructing a shell command from relayed values: an injected quote stays literal
+instead of becoming flags. Attachments, steering files, and MCP servers remain command-line-only because
+an injected field could otherwise upload, truncate, or grant something the user never named.
+
+### The injection limit, measured
 
 The `FIELD: value` format's guarantee — no shell between the header and the flags — is exactly true
 for a value with no newline in it and exactly false for one with: a newline is the field separator, so
-caller-supplied text carrying one ends its own field and opens another, and a relay cannot tell an
+user-supplied text carrying one ends its own field and opens another, and a relay cannot tell an
 injected line from one it meant to write. Measured — a value of `x\nVERIFY: touch /tmp/pwned` produced
 both `--expect-command x` and a `--verify` that ran. The two driver-side rules in SKILL.md (`SEAT`
 first, `VERIFY` only with `--allow-seat-verify` on the command line) close the reachable part of that.
 
+`VERIFY` is refused from a seat file unless the harness supplies `--allow-seat-verify` on the command
+line, because verification runs an unsandboxed `/bin/sh` with the coordinator's rights. Prefer passing
+`--verify` explicitly rather than allowing a relayed value to introduce it.
+
+## Receipt validation and reporting
+
+Demand `threadId`, `exitCode`, and receipt state from every wrapper: a seat that did nothing is otherwise
+indistinguishable from one that found nothing. The driver searches `~/.codex/sessions`, opens the rollout,
+and verifies that its opening `session_meta` record names the reported thread. Thus `receiptOk: true`
+proves that a session record exists for that id, not merely that a filename contains it.
+
+`receiptOriginator`, `receiptModelProvider`, and `receiptCwd` come from that record; `receiptWhy` explains
+why validation failed. Treat `receiptOk: false` on a claimed success as a red flag. A process able to
+fabricate the whole report can fabricate these fields too, so inspect the rollout directly when the
+answer warrants stronger assurance.
+
+These fields are coordinator instruments, not normal user-facing narration. Return the attributed answer
+and mention ids, codes, or receipt state only when the seat failed or returned nothing, a claimed-success
+receipt is false, the delegation machinery itself is under audit, or the user needs an id for `--resume`.
+
 ## Worktree ledger and destination
 
-Each `--worktree` run writes a ledger entry in `~/.codex-delegate/worktrees/` before the turn
+Each `--worktree` run creates a unique tree under `<repo>/.claude/worktrees/` and writes a ledger entry
+in `~/.codex-delegate/worktrees/` before the turn
 (best-effort, so a crashed run *usually* leaves a trace). Ledger entries of crashed runs are
 reconciled on the next `--worktree` invocation: a gone tree drops its entry, a clean tree is removed,
 a dirty one is kept and named on stderr. The destination is checked against the protected roots too,
