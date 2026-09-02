@@ -3,6 +3,50 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased — 0.8.0
+
+Measured against codex-cli 0.150.1. This simplification round removes coordinator decisions that had
+defaults and moves relay transport into the driver.
+
+### Compatibility notes
+
+- Removed the token budget, its steering and cut mode, and the report's `budget` key. The native limits
+  remain 900 seconds of thread silence and 1,000 commands, with no wall clock unless the caller sets one.
+- Reduced the seat-file vocabulary from 23 fields to 15. Bounds and transport are command-line-only;
+  naming a removed field is exit 2 with the flag to use.
+- Made read-level `--cwd` optional. An unset `TMPDIR` no longer exits 2: the driver creates a private
+  0700 `<state>/tmp/<runId>`, grants exactly that, reports it as `tmpDir`, and prunes it with run state.
+- Seat-file header names are case-sensitive upper-case names at column 0. A blank, comment, or other
+  non-field line ends the header; `TASK:`, `CHECK:`, and `RETURN:` always open the body. Files are capped
+  at 512 KB, and a review declaration cannot also carry a body.
+- Removed the `npx skills` install route: it shipped the skill without the `codex-seat` relay agent.
+  Install the plugin, or clone and symlink.
+- Replaced the relay's three return shapes with one envelope, rendered by the driver: `exitCode` first,
+  `--- answer (N bytes) ---` last. `exitCode: null` is the relay's own shape only when the driver could
+  not start or could not run to completion.
+- Made seven header fields exit 2 in a seat file: `TIMEOUT`, `IDLE_TIMEOUT`, `MAX_COMMANDS`, `DETACH`,
+  `WAIT_TIMEOUT`, `COLLECT`, `PROGRESS`. The flags themselves stay.
+
+### Relay
+
+- Added `--relay <file>` and `--relay-collect <threadId>`. The driver launches one detached seat, waits,
+  and renders one text envelope under the run's own exit code; a running envelope includes the complete
+  collection command to repeat.
+- A wrapper now writes ONE file containing header plus prompt, then chooses `--relay` for the envelope or
+  `--seat-file` for JSON. Through `--relay`, a file without `SEAT` defaults to a read seat in the current
+  directory; `--seat-file` still requires `SEAT`.
+- Reduced the shipped agent to three mechanical steps: write the prompt verbatim, invoke `--relay`, and
+  return its output verbatim. It repeats the driver's collection command at most 24 times and has one
+  failure envelope.
+
+### Documentation and evidence
+
+- Reduced `SKILL.md` to the relay route, composition, rights, result reading, worktree lifecycle, prompt
+  shape, and surviving traps; conditional operation remains in focused references.
+- Re-measured the final relay body: sonnet passed the header-less, refused-write, and repeated-collection
+  cases 3/3. Haiku relayed envelopes and collection commands but still added fields to header-less prompts,
+  so the relay remains pinned to sonnet.
+
 ## 0.7.0 — 2026-09-02
 
 Measured against codex-cli 0.150.1 on macOS (Node 24.11; the free suites also on Node 20.10).
