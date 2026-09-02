@@ -880,11 +880,15 @@ test("--steer-file reaches the running turn as turn/steer",
     await new Promise((r) => setTimeout(r, 150));
     fs.writeFileSync(steer, "focus on the lock path only\n");
     const steered = await waitFor(() => { try { return /turn\/steer/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }, 8000);
-    const drained = await waitFor(() => { try { return fs.readFileSync(steer, "utf8") === ""; } catch { return false; } }, 3000);
+    // Claimed, not emptied: the inbox is renamed aside, so "drained" is an absent file or an empty one.
+    const drained = await waitFor(() => { try { return !fs.existsSync(steer) || fs.readFileSync(steer, "utf8") === ""; } catch { return false; } }, 3000);
     p.kill("SIGTERM");
     await done;
     if (!steered) return "the steer never reached the server";
     if (!drained) return "the steer file was not drained after sending";
+    // The claim is the driver's own scratch file, not something to leave in the caller's directory.
+    const leftovers = fs.readdirSync(d).filter((f) => f.startsWith("steer.txt.") && f.endsWith(".claimed"));
+    if (leftovers.length) return `the run left claimed steer files behind: ${leftovers.join(", ")}`;
     return true;
   });
 
@@ -1052,6 +1056,205 @@ test("a second --seat-file is a usage error, not a silently ignored one",
     const code = await new Promise((res) => p.on("close", res));
     if (code !== EXIT.USAGE) return `expected exit 2, got ${code}`;
     return /more than once/.test(err) || `stderr did not name the duplicate: ${err.trim().slice(0, 140)}`;
+  });
+
+// Mirrors processIdentity() in the driver, the way lockFor mirrors its hash: the second factor a lock
+// records is the holder's process start time, and a test that computed it differently would pass by
+// agreeing with itself.
+const selfIdentity = () => {
+  try {
+    const stat = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8");
+    const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    if (after[19]) return `starttime:${after[19]}`;
+  } catch { /* not Linux */ }
+  // Same pinning as the driver: `ps` renders lstart through strftime, so an unpinned TZ or locale makes
+  // one process yield different identities in different shells.
+  const r = spawnSync("ps", ["-o", "lstart=", "-p", String(process.pid)],
+    { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+  const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
+  return t ? `lstart:${t}` : null;
+};
+
+test("a lock whose pid was recycled by an unrelated live process is not honoured",
+  "kill(pid,0) cannot tell the holder from whoever later inherited its number, and lock files outlive reboots and SIGKILLs — so once the pid is reused every write seat on that cwd exits 10 until a human deletes the file",
+  async () => {
+    const d = freshDir("recycled-pid");
+    fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+    // pid 1 is alive and root-owned, so kill(1,0) raises EPERM and counts as alive; the identity beside
+    // it is one launchd cannot have.
+    fs.writeFileSync(lockFor(d), JSON.stringify({ pid: 1, identity: "lstart:Thu Jan  1 00:00:00 1970",
+                                                 cwd: fs.realpathSync(d), started: "old" }));
+    const { code, err } = await run(d);
+    fs.rmSync(lockFor(d), { force: true });
+    return code === EXIT.OK
+      ? true
+      : `a recycled pid still wedged the directory: exit ${code} (${err.trim().split("\n").pop()?.slice(0, 120)})`;
+  });
+
+test("a live holder whose recorded identity still matches is honoured",
+  "the second factor must not become a licence to steal every lock: a genuine holder's start time matches, and the directory really is in use",
+  async () => {
+    const d = freshDir("identity-match");
+    fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(lockFor(d), JSON.stringify({ pid: process.pid, identity: selfIdentity(),
+                                                  cwd: fs.realpathSync(d), started: "now" }));
+    const { code } = await run(d);
+    fs.rmSync(lockFor(d), { force: true });
+    return code === EXIT.BUSY ? true : `a live holder with a matching identity was not honoured: got ${code}`;
+  });
+
+test("a lock recorded under one timezone is still held when read under another",
+  "`ps -o lstart=` renders the start time through strftime in the CALLER's timezone and locale, so an unpinned identity makes one live process look like two: a lock written by a run under TZ=Asia/Tokyo read as stale under the default TZ, and a second writer walked into a directory already held",
+  async () => {
+    const d = freshDir("identity-tz");
+    // A real holder, so the identity in the lock is the DRIVER's own rendering, not one this suite wrote.
+    const holder = spawnRun(d, { scenario: "stalled-turn", shim: shimDir, env: { TZ: "Asia/Tokyo" } });
+    if (!await waitFor(() => fs.existsSync(lockFor(d)))) { holder.p.kill("SIGKILL"); return "the holder never took the lock"; }
+    const { code, err } = await run(d, { env: { TZ: "UTC" } });
+    holder.p.kill("SIGKILL");
+    await holder.done;
+    fs.rmSync(lockFor(d), { force: true });
+    return code === EXIT.BUSY
+      ? true
+      : `a live holder was declared stale across timezones: exit ${code} (${err.trim().split("\n").pop()?.slice(0, 120)})`;
+  });
+
+test("a reclaimed stale lock leaves no marker or temp file behind",
+  "the marker and the two temp files are this driver's scratch in a SHARED directory: a marker left behind reads to the next run as a peer mid-reclaim, and the reclaim is then skipped on a directory nobody holds",
+  async () => {
+    const d = freshDir("reclaim-residue");
+    fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+    const p = lockFor(d);
+    fs.writeFileSync(p, JSON.stringify({ pid: 2147483646, cwd: fs.realpathSync(d), started: "old" }));
+    const { code } = await run(d);
+    const base = path.basename(p);
+    const residue = fs.readdirSync(LOCK_DIR).filter((f) => f.startsWith(base) && f !== base);
+    if (residue.length) return `the reclaim left ${residue.join(", ")} behind`;
+    return code === EXIT.OK ? true : `expected the stale lock to be reclaimed, got ${code}`;
+  });
+
+test("concurrent first runs against a fresh state directory do not race on the shared home's links",
+  "isolatedHome() read the link and then created it, so two seats starting on an empty state dir both saw ENOENT and the loser exited 2 with EEXIST on a link the winner had just made correctly — measured at 6 of 60 concurrent read seats",
+  async () => {
+    const d = freshDir("home-race");
+    // 64 first-runs, because the window is small: reverting the fix produced 2 failures in 36, so a
+    // narrower fan-out could stay green against the very bug this case exists to catch.
+    const rounds = 4, width = 16, bad = [];
+    for (let r = 0; r < rounds; r++) {
+      // Fresh every round: the race exists only on the FIRST run against a state directory.
+      const state = path.join(STATE_DIR, `home-race-${r}`);
+      const seats = Array.from({ length: width }, () => new Promise((res) => {
+        const p = spawn(process.execPath,
+          [DRIVER, "--level", "read", "--cwd", d, "--timeout", "30", "--json",
+           "--prompt", "irrelevant, the server is scripted"],
+          { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "happy",
+                   CODEX_DELEGATE_STATE_DIR: state },
+            stdio: ["ignore", "ignore", "pipe"] });
+        let err = "";
+        p.stderr.on("data", (x) => { err += x; });
+        p.on("close", (code) => res({ code, err }));
+      }));
+      for (const { code, err } of await Promise.all(seats))
+        if (code !== EXIT.OK) bad.push(`exit ${code}: ${err.trim().split("\n").pop()?.slice(0, 110)}`);
+    }
+    return bad.length
+      ? `${bad.length} of ${rounds * width} concurrent first runs failed — ${[...new Set(bad)].slice(0, 3).join(" | ")}`
+      : true;
+  });
+
+test("a cancelled config probe does not empty the shared home's config",
+  "probeCancel resolved as a SUCCESSFUL probe with no entries, so a run interrupted while probing atomically replaced the shared config.toml with an empty file — which every later run then kept as its last known good, on the account defaults",
+  async () => {
+    const d = freshDir("probe-cancel");
+    const state = path.join(STATE_DIR, "probe-cancel-state");
+    const cfg = path.join(state, "home", "config.toml");
+    fs.mkdirSync(path.dirname(cfg), { recursive: true, mode: 0o700 });
+    const seeded = 'model = "seeded-model"\nmodel_reasoning_effort = "high"\n';
+    fs.writeFileSync(cfg, seeded);
+    const p = spawn(process.execPath,
+      [DRIVER, "--level", "read", "--cwd", d, "--timeout", "30", "--json", "--prompt", "scripted"],
+      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "happy",
+               FAKE_CONFIG_HANG: "1", CODEX_DELEGATE_STATE_DIR: state },
+        stdio: ["ignore", "ignore", "pipe"] });
+    // Inside the probe's own 5 s bell, and long enough after the spawn that the probe has started.
+    await new Promise((r) => setTimeout(r, 700));
+    p.kill("SIGINT");
+    await new Promise((res) => p.on("close", res));
+    const after = fs.existsSync(cfg) ? fs.readFileSync(cfg, "utf8") : "(removed)";
+    return after === seeded ? true : `the cancelled probe rewrote the shared config: ${JSON.stringify(after.slice(0, 90))}`;
+  });
+
+test("a signal during --verify kills the verifier's process group and still reports",
+  "as a spawnSync the verifier deferred every signal for up to its whole budget: measured, two SIGINTs were ignored and `--verify 'sleep 20'` ran to completion, exit 0, twenty-one seconds after the first",
+  async () => {
+    const d = freshDir("verify-signal");
+    const pidFile = path.join(d, "verify.pid");
+    const t0 = Date.now();
+    const { p, done } = spawnRun(d, { scenario: "happy", shim: shimDir,
+      // The backgrounded sleep is the point: killing only the verifier's shell leaves it behind, and
+      // only a GROUP kill reaches it.
+      args: ["--verify", `sleep 30 & echo $! > ${pidFile}; wait`] });
+    if (!await waitFor(() => { try { return fs.readFileSync(pidFile, "utf8").trim().length > 0; } catch { return false; } }, 20000))
+      { p.kill("SIGKILL"); return "the verifier never started"; }
+    p.kill("SIGINT");
+    const { code, out } = await done;
+    const ms = Date.now() - t0;
+    const vpid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    let alive = true;
+    try { process.kill(vpid, 0); } catch { alive = false; }
+    if (alive) { try { process.kill(vpid, "SIGKILL"); } catch {} return "the verifier's backgrounded child outlived the run"; }
+    if (ms > 20000) return `the signal was deferred for ${ms}ms — the verifier ran to completion`;
+    let report = null;
+    try { report = JSON.parse(out); } catch {}
+    if (!report) return `the interrupted verifier left no report at all (exit ${code})`;
+    return report.verify?.measured === false
+      ? true
+      : `a killed verifier was reported as measured: ${JSON.stringify(report.verify)}`;
+  });
+
+test("--verify-sandboxed runs the verifier through `codex sandbox` under the read profile",
+  "an opt-in sandbox that silently ran the verifier with the caller's own rights would be worse than none: the invocation has to carry the profile, both of its -c definitions and the cwd, and hand the verifier's own exit code back",
+  async () => {
+    const d = freshDir("verify-sandbox");
+    const rpcLog = path.join(d, "sandbox.log");
+    const { code, out } = await run(d, { args: ["--verify", "exit 5", "--verify-sandboxed"],
+      env: { FAKE_SANDBOX: "1", FAKE_RPC_LOG: rpcLog } });
+    const log = fs.existsSync(rpcLog) ? fs.readFileSync(rpcLog, "utf8") : "";
+    const line = log.split("\n").find((l) => l.startsWith("sandbox:")) ?? "";
+    if (!line) return "the verifier did not go through `codex sandbox`";
+    for (const needle of ["-P codex_delegate_read", `-C ${fs.realpathSync(d)}`,
+                          'permissions.codex_delegate_read.extends=":read-only"',
+                          'permissions.codex_delegate_read.filesystem={":tmpdir"="write"}'])
+      if (!line.includes(needle)) return `the sandbox invocation lacks ${needle}: ${line}`;
+    let report = null;
+    try { report = JSON.parse(out); } catch {}
+    if (report?.verify?.exitCode !== 5 || report?.verify?.sandboxed !== true)
+      return `the sandboxed verifier's exit code was not passed through: ${JSON.stringify(report?.verify)}`;
+    return code === EXIT.VERIFY_FAILED ? true : `expected exit 9 for a failing verifier, got ${code}`;
+  });
+
+test("a correction appended while a steer is in flight is not overwritten",
+  "the drain was a read-modify-write around a live send: text appended between its read and its write was lost, while the docs promised concurrent appends survive. Claiming the file by rename frees the inbox the moment the text is taken",
+  async () => {
+    const d = freshDir("steer-window");
+    const steer = path.join(d, "steer.txt");
+    const rpcLog = path.join(d, "rpc.log");
+    const { p, done, stderrSoFar } = spawnRun(d, { shim: shimDir, args: ["--steer-file", steer],
+      // A slow acceptance IS the window: without it the send and the drain are indistinguishable.
+      env: { FAKE_RPC_LOG: rpcLog, FAKE_STEER_DELAY_MS: "1500" } });
+    const logHas = (re) => { try { return re.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } };
+    if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); return "the run never announced a thread"; }
+    if (!await waitFor(() => logHas(/turn\/start/))) { p.kill("SIGKILL"); return "the turn never started"; }
+    fs.writeFileSync(steer, "first correction\n");
+    if (!await waitFor(() => logHas(/turn\/steer:first correction/), 8000)) { p.kill("SIGKILL"); return "the first steer never reached the server"; }
+    // The server has not accepted it yet, so this is exactly the window the old drain wrote over.
+    const stillInInbox = fs.existsSync(steer) && fs.readFileSync(steer, "utf8").includes("first correction");
+    fs.appendFileSync(steer, "second correction\n");
+    const second = await waitFor(() => logHas(/turn\/steer:second correction/), 12000);
+    p.kill("SIGTERM");
+    await done;
+    if (stillInInbox) return "the delivered text was still in the inbox while its send was in flight";
+    return second ? true : "a correction appended during the send never arrived";
   });
 
 let failed = 0;

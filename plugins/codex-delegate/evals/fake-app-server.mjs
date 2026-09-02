@@ -9,7 +9,7 @@
 // to, returning the raw lines to emit — deliberately as ONE write where the point is that the client
 // cannot rely on chunk boundaries.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
@@ -38,6 +38,19 @@ export const SCENARIOS = {
   "probe-negative": {}, "probe-error": {}, "probe-compound": {}, "probe-multiline": {},
   "probe-piped": {}, "probe-quoted": {}, "hidden-failure": {}, "slow-turn": {}, "spawn-survivor": {}, "long-answer": {},
   "rich-items": {}, progress: {}, "echo-input": {}, "null-phase": {},
+  // The app-server process DIES mid-turn, after the thread and one command exist.
+  "server-crash": {},
+  // Two unbounded growth paths in the main transport: notifications with no turn/start response to
+  // attribute them to, and a line that never ends.
+  "early-flood": {}, "unterminated-line": {},
+  // A single-action parse over a MULTI-LINE script: the server's own parse, taken at face value, would
+  // read "probe, then the real work" as a probe answering no.
+  "probe-laundered": {},
+  // The thread's developerInstructions, handed back as the answer: the only way a case can read what
+  // the driver told the seat to do.
+  "echo-instructions": {},
+  // The last message arrives WITHOUT its trailing newline and the stream then ends.
+  "no-trailing-newline": {},
   "write-root-widened": {}, "write-full-access": {},
   // Decided at thread/start, so the turn/start switch never sees them.
   "profile-missing": {}, "profile-wrong": {}, "profile-effect-dropped": {}, "profile-widened": {},
@@ -60,6 +73,26 @@ if (!Object.hasOwn(SCENARIOS, SCENARIO)) {
 // Importable as well as runnable: the suites read SCENARIOS and sampleItems() out of this module, and
 // an import must not attach a reader to the importer's stdin.
 const isMain = canon(process.argv[1] ?? "") === canon(fileURLToPath(import.meta.url));
+
+// `codex sandbox` is a different entry point of the same binary, and --verify-sandboxed shells out to
+// it. Without FAKE_SANDBOX the stand-in refuses it exactly as an installation that does not carry the
+// subcommand does, which is the case the driver turns into a usage error. With it, the command after
+// `--` is executed and its exit code passed through — measured live, that is what the real one does —
+// so the argv the driver builds and the passthrough are both observable.
+if (isMain && process.argv[2] === "sandbox") {
+  if (!process.env.FAKE_SANDBOX) {
+    process.stderr.write("error: unrecognized subcommand 'sandbox'\n");
+    process.exit(2);
+  }
+  if (process.argv.includes("--help")) process.exit(0);
+  const at = process.argv.indexOf("--");
+  if (process.env.FAKE_RPC_LOG) {
+    try { fs.appendFileSync(process.env.FAKE_RPC_LOG, `sandbox:${process.argv.slice(3, at).join(" ")}\n`); } catch {}
+  }
+  const argv = process.argv.slice(at + 1);
+  const r = spawnSync(argv[0], argv.slice(1), { stdio: "inherit" });
+  process.exit(r.status ?? 1);
+}
 
 // The -c config this server was spawned with, one `cfg:<key>` line each — the only way a suite can see
 // a per-run grant that rides the spawn args (--mcp) rather than any file.
@@ -105,6 +138,14 @@ const w = (...objs) => {
   }
   process.stdout.write(line);
 };
+// The same message written WITHOUT its trailing newline, followed by EOF: what a server that dies mid
+// flush leaves behind, and a line a client must still frame. Logged like any other emission so the
+// conformance suite validates it too.
+const wEndMidLine = (obj) => {
+  if (EMIT_LOG) { try { fs.appendFileSync(EMIT_LOG, `${JSON.stringify(obj)}\n`); } catch {} }
+  process.stdout.write(JSON.stringify(obj));
+  process.stdout.end();
+};
 const reply = (id, result) => ({ jsonrpc: "2.0", id, result });
 const note = (method, params) => ({ jsonrpc: "2.0", method, params });
 
@@ -143,11 +184,15 @@ const actionsFor = (command) => command.split("|").map((s) => s.trim()).map((par
   const args = part.split(/\s+/).slice(1).filter((a) => !a.startsWith("-"));
   return { type: "search", command: part, query: args[0] ?? null, path: args[1] ?? null };
 });
-const cmd = (turnId, threadId, { exitCode = 0, status = "completed", command = "echo hi" } = {}) =>
+// `actions` is derived from the command like everything else here, and overridable for the one case that
+// needs the server's parse to DISAGREE with the script it parsed — a server whose parse is optimistic is
+// the threat the driver's single-action exemption has to survive.
+const cmd = (turnId, threadId, { exitCode = 0, status = "completed", command = "echo hi",
+                                 actions = actionsFor(command) } = {}) =>
   note("item/completed", {
     threadId, turnId, completedAtMs: now(),
     item: { id: `item_${seq}`, type: "commandExecution", command: wrap(command), exitCode, status,
-            cwd: "/tmp", commandActions: actionsFor(command), aggregatedOutput: null,
+            cwd: "/tmp", commandActions: actions, aggregatedOutput: null,
             processId: String(50000 + seq), durationMs: 1,
             source: "unifiedExecStartup", pluginId: null, scriptPath: null }
   });
@@ -207,7 +252,11 @@ function onLine(line) {
   // Every request method, appended as it arrives: the only way a suite can assert that the driver SENT
   // something whose effect is otherwise invisible (turn/interrupt on a run being torn down).
   if (process.env.FAKE_RPC_LOG && m.method) {
-    try { fs.appendFileSync(process.env.FAKE_RPC_LOG, `${m.method}\n`); } catch {}
+    // The steer TEXT rides along: for a channel whose failure mode is losing one correction, which ones
+    // arrived and in what order is the whole question.
+    const detail = m.method === "turn/steer"
+      ? `:${String(m.params?.input?.[0]?.text ?? "").replace(/\s+/g, " ").slice(0, 200)}` : "";
+    try { fs.appendFileSync(process.env.FAKE_RPC_LOG, `${m.method}${detail}\n`); } catch {}
   }
   if (m.method) answering = m.method;
   if (!m.method) {
@@ -224,10 +273,28 @@ function onLine(line) {
     return;
   }
 
-  if (m.method === "initialize") { w(reply(m.id, { userAgent: "fake", codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" })); return; }
+  // The shape measured live, derived from the clientInfo the driver sent:
+  // `Claude Code/0.150.1 (Mac OS 26.6.2; arm64) unknown (codex-delegate; 2.0)`. The server's own version
+  // is the token after the first slash, which is the only part the driver reads; FAKE_CODEX_VERSION
+  // drives the drift warning. `userAgent: "fake"` carried no version at all, so the field could be read
+  // wrongly — or not at all — with every case green.
+  if (m.method === "initialize") {
+    const ci = m.params?.clientInfo ?? {};
+    w(reply(m.id, {
+      userAgent: `${ci.name ?? "unknown"}/${process.env.FAKE_CODEX_VERSION ?? "0.150.1"} (Mac OS 26.6.2; arm64) unknown (${ci.title ?? "unknown"}; ${ci.version ?? "0"})`,
+      codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" }));
+    return;
+  }
   if (m.method === "initialized") return;
   if (m.method === "turn/interrupt") { w(reply(m.id, {})); return; }
-  if (m.method === "turn/steer") { w(reply(m.id, {})); return; }
+  if (m.method === "turn/steer") {
+    // The reply can be slow, and the window between sending a steer and having it accepted is where a
+    // concurrently appended correction used to be overwritten.
+    const delay = Number(process.env.FAKE_STEER_DELAY_MS ?? 0);
+    if (delay > 0) setTimeout(() => w(reply(m.id, {})), delay);
+    else w(reply(m.id, {}));
+    return;
+  }
 
   // The driver asks the real server what the caller's config resolves to, instead of parsing their TOML —
   // so the fixture has to answer it too. It did not, and every case then sat out the driver's probe
@@ -244,6 +311,9 @@ function onLine(line) {
       w({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "config store unavailable" } });
       return;
     }
+    // A probe that never answers: the driver waits out its own bell, and a signal arriving in that
+    // window is the case where a cancelled probe used to empty the shared home's config.toml.
+    if (process.env.FAKE_CONFIG_HANG) return;
     const unquote = (v) => (v ?? "").replace(/^"|"$/g, "");
     w(reply(m.id, { config: {
       model: unquote(CFG["model"]) || "fake-model",
@@ -409,10 +479,12 @@ function onLine(line) {
       pendingApproval = { id, method, expected, threadId: m.params.threadId, turnId: TURN };
       w(R, { jsonrpc: "2.0", id, method, params });
     };
-    // The live server opens every turn by echoing the input back as a userMessage item. Skipped only
-    // where the turn/start itself is refused below: there would be no turn for the item to belong to.
-    if (!(SCENARIO === "turn-start-error" || (SCENARIO === "schema-retry-refused" && turnStarts === 2)))
-      w(userMsg(thisTurn, m.params?.threadId ?? THREAD, prompt));
+    // The live server opens every turn by echoing the input back as a userMessage item — AFTER the
+    // turn/start response, never before it. Emitted after the switch for that reason. Skipped only where
+    // the turn/start itself is refused below: there would be no turn for the item to belong to.
+    // no-trailing-newline ends the stream inside its own case, so it emits the echo there instead.
+    const echoesInput = !(SCENARIO === "turn-start-error" || SCENARIO === "no-trailing-newline"
+      || (SCENARIO === "schema-retry-refused" && turnStarts === 2));
     switch (SCENARIO) {
       // Everything the driver should accept — including the token-usage notification a live server
       // streams, so the report's accounting is pinned by the ordinary case.
@@ -667,8 +739,11 @@ function onLine(line) {
       case "escalated-subagent":
         w(R, { jsonrpc: "2.0", id: 9201, method: "item/commandExecution/requestApproval",
                params: { threadId: OTHER_THREAD, turnId: TURN, itemId: "item_s", startedAtMs: now(), command: "rm -rf /" } });
+        // The declined item completes on the SUBAGENT's thread, where the command was going to run —
+        // live it is never root evidence, and putting it on the root thread made the fixture agree with
+        // a driver that counted another thread's blocked command as its own.
         setTimeout(() => w(cmd(TURN, THREAD),
-          cmd(TURN, THREAD, { command: "rm -rf /", exitCode: null, status: "declined" }),
+          cmd(TURN, OTHER_THREAD, { command: "rm -rf /", exitCode: null, status: "declined" }),
           msg(TURN, THREAD, "done"), done(TURN, THREAD)), 30);
         break;
 
@@ -814,6 +889,55 @@ function onLine(line) {
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify(m.params?.input ?? [])), done(TURN, THREAD));
         break;
 
+      // The server DIES mid-turn, after the thread, a command and an answer exist. Everything collected
+      // so far is exactly what a crash must not throw away.
+      case "server-crash":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "partial answer before the crash"));
+        setTimeout(() => process.kill(process.pid, "SIGKILL"), 40);
+        break;
+
+      // Turn-scoped notifications with no turn/start response to attribute them to: the driver holds
+      // these, and held them without a bound.
+      case "early-flood": {
+        const flood = [];
+        for (let i = 0; i < 1200; i++) flood.push(cmd(TURN, THREAD, { command: `echo flood ${i}` }));
+        w(...flood);
+        w(R, msg(TURN, THREAD, "never reached"), done(TURN, THREAD));
+        break;
+      }
+
+      // A line that never ends. readline buffers it whole; the bound is what keeps one broken write from
+      // costing the driver its memory.
+      case "unterminated-line":
+        w(R);
+        for (let i = 0; i < 34; i++) process.stdout.write("x".repeat(1024 * 1024));
+        break;
+
+      // The server parses a MULTI-LINE script into exactly one tidy action. Taking that at face value
+      // reads the failed suite on line two as the probe on line one answering "no".
+      case "probe-laundered":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "grep -q needle src/main.mjs\npnpm test", exitCode: 1, status: "failed",
+                              actions: [{ type: "search", command: "grep -q needle src/main.mjs",
+                                          query: "needle", path: "src/main.mjs" }] }),
+          msg(TURN, THREAD, "all tests pass"), done(TURN, THREAD));
+        break;
+
+      // The standing rules the driver put on the thread, handed back as the answer.
+      case "echo-instructions":
+        w(R, cmd(TURN, THREAD),
+          msg(TURN, THREAD, String(requestedThread?.developerInstructions ?? "no developerInstructions")),
+          done(TURN, THREAD));
+        break;
+
+      // The turn's completion loses its trailing newline and the stream ends there. readline flushed
+      // such a line; hand-rolled framing must too, or the turn never completes.
+      case "no-trailing-newline":
+        w(R, userMsg(thisTurn, m.params?.threadId ?? THREAD, prompt), cmd(TURN, THREAD),
+          msg(TURN, THREAD, "the answer"));
+        wEndMidLine(done(TURN, THREAD));
+        break;
+
       // An answer with no phase at all, which the schema permits.
       case "null-phase":
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "unphased but real", null), done(TURN, THREAD));
@@ -822,6 +946,7 @@ function onLine(line) {
       default:
         w(R, done(TURN, THREAD));
     }
+    if (echoesInput) w(userMsg(thisTurn, m.params?.threadId ?? THREAD, prompt));
     return;
   }
 }
