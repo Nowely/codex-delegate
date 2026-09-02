@@ -15,11 +15,55 @@ import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
 const canon = (p) => { try { return fs.realpathSync(p); } catch { return p ?? ""; } };
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 
 const SCENARIO = process.env.FAKE_SCENARIO ?? "happy";
+
+// Every scenario this fixture implements, and how the driver has to be invoked to reach it. It is an
+// INVENTORY rather than a regex over this file's `case` labels, because eleven of them are dispatched
+// before the turn/start switch is ever reached — the sandbox-assert cases decided at thread/start, the
+// resume case, both review emitters — and a discovery that reads `case` labels validated none of those.
+// That is how an invented review payload stayed green in the conformance suite.
+// Consulted by BOTH dispatch paths: a scenario name absent from here reaches neither, because the run
+// stops below.
+export const SCENARIOS = {
+  happy: {}, "stale-turn": {}, "early-completion": {}, "foreign-thread": {}, "command-failed": {},
+  "needs-user": {}, elicitation: {}, escalated: {}, "escalated-file-change": {},
+  "escalated-apply-patch": {}, "escalated-exec-command": {}, "escalated-permissions": {},
+  "escalated-subagent": {}, "turn-failed": {}, "transient-then-ok": {}, "transient-after-tool": {},
+  "transient-always": {}, "wrong-command": {}, "no-answer": {}, "late-item": {},
+  "double-completion": {}, "completion-foreign-thread": {}, "turn-start-error": {},
+  "unknown-response-id": {}, "early-request": {}, "mcp-null-turn": {}, "no-ids-request": {},
+  "blank-answer": {}, "failed-null-exit": {}, "blocked-command": {}, "file-changes": {},
+  "probe-negative": {}, "probe-error": {}, "probe-compound": {}, "probe-multiline": {},
+  "probe-piped": {}, "probe-quoted": {}, "hidden-failure": {}, "slow-turn": {}, "spawn-survivor": {}, "long-answer": {},
+  "rich-items": {}, progress: {}, "echo-input": {}, "null-phase": {},
+  "write-root-widened": {}, "write-full-access": {},
+  // Decided at thread/start, so the turn/start switch never sees them.
+  "profile-missing": {}, "profile-wrong": {}, "profile-effect-dropped": {}, "profile-widened": {},
+  "profile-networked": {}, "write-networked": {}, "workspace-elsewhere": {}, "policy-clamped": {},
+  "reviewer-auto": {},
+  // Each needs a flag before its interesting messages are emitted at all.
+  "resume-active": { resume: "thr_root" },
+  "review-inline": { review: "uncommitted" },
+  "review-broken": { review: "branch:nonexistent" },
+  "schema-good": { outputSchema: true }, "schema-retry": { outputSchema: true },
+  "schema-never": { outputSchema: true }, "schema-retry-refused": { outputSchema: true },
+  "late-completion": { outputSchema: true, timeout: 0.4 },
+  "stalled-turn": { timeout: 0.5 },
+};
+if (!Object.hasOwn(SCENARIOS, SCENARIO)) {
+  process.stderr.write(`fake-app-server: ${JSON.stringify(SCENARIO)} is not in SCENARIOS; an uninventoried name would answer as the default scenario and measure nothing\n`);
+  process.exit(2);
+}
+
+// Importable as well as runnable: the suites read SCENARIOS and sampleItems() out of this module, and
+// an import must not attach a reader to the importer's stdin.
+const isMain = canon(process.argv[1] ?? "") === canon(fileURLToPath(import.meta.url));
+
 // The -c config this server was spawned with, one `cfg:<key>` line each — the only way a suite can see
 // a per-run grant that rides the spawn args (--mcp) rather than any file.
-if (process.env.FAKE_RPC_LOG) {
+if (isMain && process.env.FAKE_RPC_LOG) {
   try {
     fs.appendFileSync(process.env.FAKE_RPC_LOG,
       process.argv.slice(2)
@@ -72,19 +116,80 @@ const now = () => 1780000000000 + (seq += 1);
 const thread = (id) => ({
   id, sessionId: id, cliVersion: "0.150.1", createdAt: 1780000000, updatedAt: 1780000000,
   cwd: "/tmp", ephemeral: false, modelProvider: "openai", preview: "", projectId: null,
-  source: "vscode", status: { type: SCENARIO === "resume-active" ? "active" : "idle" }, turns: []
+  // ActiveThreadStatus REQUIRES activeFlags; only IdleThreadStatus is the bare {type}. The invented
+  // shape survived because the resume scenario was never schema-validated.
+  source: "vscode", turns: [],
+  status: SCENARIO === "resume-active" ? { type: "active", activeFlags: [] } : { type: "idle" }
 });
 
+// The server reports the WRAPPER it ran, never the command the model wrote, and carries the model's own
+// text in commandActions. Measured on codex 0.150.1: `/bin/zsh -c true`, `/bin/zsh -c 'grep -q zzz
+// /dev/null'`, `/bin/zsh -lc "git status --short && ..."`. A fixture emitting bare commands made the
+// driver's probe exemption look alive while it matched nothing a real turn ever ran.
+// All three forms are measured shapes: a bare word takes no quotes, a script carrying a double quote is
+// wrapped in double quotes with the inner ones escaped (and arrives under -lc), anything else is
+// single-quoted. The middle form is the one no hand strip can undo, which is why commandActions is not
+// a convenience.
+const wrap = (command) =>
+  /^[\w./=-]+$/.test(command) ? `/bin/zsh -c ${command}`
+  : command.includes('"') ? `/bin/zsh -lc "${command.replaceAll('"', '\\"')}"`
+  : `/bin/zsh -c '${command}'`;
+// The server's best-effort parse. Only the PIPE split is modelled, because that is the one the schema
+// itself names ("a single shell command may be composed of many commands piped together") — measured,
+// a `&&` compound comes back as ONE action carrying the whole line. A grep is reported as a `search`
+// action, everything else as `unknown`; the query and path VALUES are shape, not fidelity.
+const actionsFor = (command) => command.split("|").map((s) => s.trim()).map((part) => {
+  if (!/^(?:grep|rg|egrep|fgrep)\b/.test(part)) return { type: "unknown", command: part };
+  const args = part.split(/\s+/).slice(1).filter((a) => !a.startsWith("-"));
+  return { type: "search", command: part, query: args[0] ?? null, path: args[1] ?? null };
+});
 const cmd = (turnId, threadId, { exitCode = 0, status = "completed", command = "echo hi" } = {}) =>
   note("item/completed", {
     threadId, turnId, completedAtMs: now(),
-    item: { id: `item_${seq}`, type: "commandExecution", command, exitCode, status,
-            cwd: "/tmp", commandActions: [], aggregatedOutput: "", processId: null, durationMs: 1 }
+    item: { id: `item_${seq}`, type: "commandExecution", command: wrap(command), exitCode, status,
+            cwd: "/tmp", commandActions: actionsFor(command), aggregatedOutput: null,
+            processId: String(50000 + seq), durationMs: 1,
+            source: "unifiedExecStartup", pluginId: null, scriptPath: null }
   });
 
 const msg = (turnId, threadId, text, phase = "final_answer") =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
-    item: { id: `item_${seq}`, type: "agentMessage", text, phase } });
+    item: { id: `item_${seq}`, type: "agentMessage", text, phase, delivery: null, memoryCitation: null } });
+
+// The caller's own prompt, echoed back as an item at the top of every turn — a review turn included,
+// where the server echoes the prompt IT built. Every live report listed this under otherItemCounts
+// while no fixture scenario emitted one.
+const userMsg = (turnId, threadId, text) =>
+  note("item/completed", { threadId, turnId, completedAtMs: now(),
+    item: { id: `item_${seq}`, type: "userMessage", clientId: null,
+            content: [{ type: "text", text, text_elements: [] }] } });
+
+// Both review items carry a STRING: enteredReviewMode the target ("current changes"), exitedReviewMode
+// the review itself. Measured live, and what the pinned schema has always said — the object this
+// fixture used to invent kept a dead branch in the driver alive instead.
+const reviewItem = (turnId, threadId, type, review) =>
+  note("item/completed", { threadId, turnId, completedAtMs: now(),
+    item: { id: `item_${seq}`, type, review } });
+
+const fileChangeItem = (turnId, threadId, { status = "completed", changes = [] } = {}) =>
+  note("item/completed", { threadId, turnId, completedAtMs: now(),
+    item: { id: `item_${seq}`, type: "fileChange", status, changes } });
+
+const reasoningItem = (turnId, threadId, summary) =>
+  note("item/completed", { threadId, turnId, completedAtMs: now(),
+    item: { id: `item_${seq}`, type: "reasoning", summary, content: [] } });
+
+// One item of every type this fixture builds, from the same helpers the scenarios use, so a live
+// differential can diff KEY SETS against the real server without driving a scenario per type.
+export const sampleItems = () => [
+  cmd(TURN, THREAD),
+  msg(TURN, THREAD, "sample"),
+  userMsg(TURN, THREAD, "sample"),
+  reasoningItem(TURN, THREAD, ["sample"]),
+  fileChangeItem(TURN, THREAD, { changes: [{ path: "/tmp/sample", kind: { type: "add" }, diff: "+x" }] }),
+  reviewItem(TURN, THREAD, "enteredReviewMode", "current changes"),
+  reviewItem(TURN, THREAD, "exitedReviewMode", "the review"),
+].map((n) => n.params.item);
 
 // Matches TurnCompletedNotification exactly: threadId and turn, and NO top-level turnId. A fixture that
 // invents a field the server does not send makes the driver pass here and fail in production.
@@ -96,7 +201,7 @@ let pendingApproval = null;
 let turnStarts = 0;
 const TURN2 = "turn_root_retry";
 
-readline.createInterface({ input: process.stdin }).on("line", (line) => {
+function onLine(line) {
   let m;
   try { m = JSON.parse(line); } catch { return; }
   // Every request method, appended as it arrives: the only way a suite can assert that the driver SENT
@@ -270,12 +375,17 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     const R = reply(m.id, { reviewThreadId: m.params?.threadId ?? THREAD,
       turn: { id: TURN, status: "inProgress", items: [], error: null } });
     w(R,
-      // A failing probe of the reviewer's own — measured live, real reviews run failing greps as
-      // their working method, and that must not turn the run into exit 11.
+      // The order a live review arrives in: the mode is entered, the reviewer works, the review comes
+      // back as the exit payload. The echoed userMessage is the prompt the SERVER built, not ours.
+      reviewItem(TURN, THREAD, "enteredReviewMode", "current changes"),
+      userMsg(TURN, THREAD, "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings."),
+      // A failing probe of the reviewer's own, and a failure that is NOT a probe — measured live, real
+      // reviews run both as their working method, and neither may turn the run into exit 11 once a
+      // review has actually arrived.
       cmd(TURN, THREAD, { command: "grep -n clamp src/util.mjs", exitCode: 1, status: "failed" }),
-      note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
-        item: { id: "item_rv", type: "exitedReviewMode",
-                review: { overallCorrectness: "needs-work", findings: [{ title: "off-by-one in clamp", body: "the loop stops early" }] } } }),
+      cmd(TURN, THREAD, { command: "cat src/util.mjs.orig", exitCode: 1, status: "failed" }),
+      reviewItem(TURN, THREAD, "exitedReviewMode",
+        "Needs work: off-by-one in clamp — the loop stops early."),
       done(TURN, THREAD));
     return;
   }
@@ -299,6 +409,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       pendingApproval = { id, method, expected, threadId: m.params.threadId, turnId: TURN };
       w(R, { jsonrpc: "2.0", id, method, params });
     };
+    // The live server opens every turn by echoing the input back as a userMessage item. Skipped only
+    // where the turn/start itself is refused below: there would be no turn for the item to belong to.
+    if (!(SCENARIO === "turn-start-error" || (SCENARIO === "schema-retry-refused" && turnStarts === 2)))
+      w(userMsg(thisTurn, m.params?.threadId ?? THREAD, prompt));
     switch (SCENARIO) {
       // Everything the driver should accept — including the token-usage notification a live server
       // streams, so the report's accounting is pinned by the ordinary case.
@@ -407,7 +521,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       case "escalated":
         w(R, { jsonrpc: "2.0", id: 9002, method: "item/commandExecution/requestApproval",
                params: { threadId: THREAD, turnId: TURN, itemId: "item_a", startedAtMs: now(), command: "rm -rf /" } });
-        setTimeout(() => w(msg(TURN, THREAD, "could not proceed"), done(TURN, THREAD)), 30);
+        // What a refusal leaves behind, measured live: the item completes DECLINED, carrying no exit
+        // code at all. The second is probe-shaped on purpose — a declined command is never a probe
+        // answering "no", whatever its text says, and nothing exercised that clause.
+        setTimeout(() => w(cmd(TURN, THREAD, { command: "rm -rf /", exitCode: null, status: "declined" }),
+          cmd(TURN, THREAD, { command: "grep -q root /etc/master.passwd", exitCode: 1, status: "declined" }),
+          msg(TURN, THREAD, "could not proceed"), done(TURN, THREAD)), 30);
         break;
 
       // Each approval method has its own response schema. These requests derive their ids, cwd, command
@@ -548,23 +667,30 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       case "escalated-subagent":
         w(R, { jsonrpc: "2.0", id: 9201, method: "item/commandExecution/requestApproval",
                params: { threadId: OTHER_THREAD, turnId: TURN, itemId: "item_s", startedAtMs: now(), command: "rm -rf /" } });
-        setTimeout(() => w(cmd(TURN, THREAD), msg(TURN, THREAD, "done"), done(TURN, THREAD)), 30);
+        setTimeout(() => w(cmd(TURN, THREAD),
+          cmd(TURN, THREAD, { command: "rm -rf /", exitCode: null, status: "declined" }),
+          msg(TURN, THREAD, "done"), done(TURN, THREAD)), 30);
         break;
 
       // A turn that WROTE files: one applied, one that failed to apply. Neither reached the report or the
       // exit ladder before — a write-level run said nothing about what it had written.
       case "file-changes":
         w(R, cmd(TURN, THREAD),
-          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
-            item: { id: "item_f1", type: "fileChange", status: "completed",
-                    changes: [{ path: "/tmp/wrote.txt", kind: { type: "add" }, diff: "+hello" }] } }),
-          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
-            item: { id: "item_f2", type: "fileChange", status: "failed",
-                    changes: [{ path: "/tmp/nope.txt", kind: { type: "update", move_path: null }, diff: "+x" }] } }),
-          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
-            item: { id: "item_f3", type: "fileChange", status: "completed",
-                    changes: [{ path: "/tmp/old.txt", kind: { type: "update", move_path: "/tmp/new.txt" }, diff: "rename" }] } }),
+          fileChangeItem(TURN, THREAD, { changes: [{ path: "/tmp/wrote.txt", kind: { type: "add" }, diff: "+hello" }] }),
+          fileChangeItem(TURN, THREAD, { status: "failed",
+            changes: [{ path: "/tmp/nope.txt", kind: { type: "update", move_path: null }, diff: "+x" }] }),
+          fileChangeItem(TURN, THREAD, {
+            changes: [{ path: "/tmp/old.txt", kind: { type: "update", move_path: "/tmp/new.txt" }, diff: "rename" }] }),
           msg(TURN, THREAD, "Wrote both files."), done(TURN, THREAD));
+        break;
+
+      // A command item that reached the client with NO verdict: no exit code, and neither failed nor
+      // declined, which is what an interrupted command looks like. The footer has always printed it as
+      // NEVER RAN while the ladder ignored it, so one success beside it reported ok: true.
+      case "blocked-command":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: null, status: "inProgress" }),
+          msg(TURN, THREAD, "All tests pass."), done(TURN, THREAD));
         break;
 
       // A research turn: one real success plus probes that answered "no" — a no-match grep, a false
@@ -588,6 +714,23 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       case "probe-compound":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
           cmd(TURN, THREAD, { command: "grep -q x file && ./run-tests.sh", exitCode: 1, status: "failed" }),
+          msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
+      // A probe whose own argument is quoted. The server wraps it in double quotes and escapes the
+      // inner ones, so the bare command is recoverable ONLY from commandActions — measured live:
+      // `/bin/zsh -lc "... rg -n \"clamp\\(\" ..."`.
+      case "probe-quoted":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: 'grep -q "missing symbol" src/main.mjs', exitCode: 1, status: "failed" }),
+          msg(TURN, THREAD, "no such symbol anywhere"), done(TURN, THREAD));
+        break;
+
+      // A probe piped into another command: the server parses it into TWO actions, and the exit 1 the
+      // client sees is the LAST command's, not the probe's.
+      case "probe-piped":
+        w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
+          cmd(TURN, THREAD, { command: "grep -n TODO src/main.mjs | tail -n 3", exitCode: 1, status: "failed" }),
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
@@ -647,13 +790,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         w(R,
           note("thread/started", { thread: { ...thread("thr_child"), id: "thr_child", parentThreadId: THREAD } }),
           cmd(TURN, THREAD),
-          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
-            item: { id: "item_r1", type: "reasoning", summary: ["Weighed A against B", "chose A"], content: [] } }),
+          reasoningItem(TURN, THREAD, ["Weighed A against B", "chose A"]),
           note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
             item: { id: "item_w1", type: "webSearch", query: "node atomics", results: [] } }),
-          note("item/completed", { threadId: "thr_child", turnId: "turn_child", completedAtMs: now(),
-            item: { id: "item_c1", type: "commandExecution", command: "grep x", exitCode: 0, status: "completed",
-                    cwd: "/tmp", commandActions: [], aggregatedOutput: "", processId: null, durationMs: 1 } }),
+          cmd("turn_child", "thr_child", { command: "grep x src/main.mjs" }),
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
@@ -661,8 +801,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       case "progress":
         w(R,
           note("item/started", { threadId: THREAD, turnId: TURN, startedAtMs: now(),
-            item: { id: "item_p1", type: "commandExecution", command: "echo hi", status: "inProgress",
-                    cwd: "/tmp", commandActions: [], aggregatedOutput: "", exitCode: null, processId: null, durationMs: 0 } }),
+            item: { id: "item_p1", type: "commandExecution", command: wrap("echo hi"), status: "inProgress",
+                    cwd: "/tmp", commandActions: actionsFor("echo hi"), aggregatedOutput: null,
+                    exitCode: null, processId: "50999", durationMs: 0,
+                    source: "unifiedExecStartup", pluginId: null, scriptPath: null } }),
           cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
@@ -682,4 +824,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     }
     return;
   }
-});
+}
+
+// Runnable and importable: only a direct run attaches a reader to stdin.
+if (isMain) readline.createInterface({ input: process.stdin }).on("line", onLine);
