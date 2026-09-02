@@ -23,10 +23,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         node: ["18", "24"]
-    env:
-      # $TMPDIR is the whole grant at --level read, and a stock Linux shell does not set it: without this
-      # every read-level case is a usage error before anything is spawned.
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,5 +45,10 @@ jobs:
       # says so, and exits 0. It stays a LOCAL pre-release step — it needs an authenticated home and its
       # live-turn case spends real money — and `--require-live` is the flag for that local gate.
       - name: Suites
+        # $TMPDIR is the whole grant at --level read, and a stock Linux shell does not set it: without it
+        # every read-level case is a usage error before anything is spawned. The runner context is only
+        # available at step level, which is why this sits here and not on the job.
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: npm test
 
