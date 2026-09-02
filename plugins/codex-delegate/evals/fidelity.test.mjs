@@ -21,12 +21,13 @@
 // defect. Every other spawn or handshake failure is protocol drift. A skip is reported loudly so it
 // cannot be mistaken for a pass.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
+import { sampleItems } from "./fake-app-server.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.join(HERE, "fake-app-server.mjs");
@@ -394,6 +395,191 @@ const CASES = [
       mutate: (r) => misspellConfig(r, `permissions.${READ_PROFILE}.filesystem`, `permissions.${READ_PROFILE}.filesysten`) }) },
 ];
 
+// ---------------------------------------------------------------- the live turn
+//
+// Everything above compares two answers to ONE handshake and stops before the first turn — so every
+// fact the driver reads out of a turn had the fixture as its only oracle, and three live turns found
+// three divergences at once: every command arrives wrapped in a shell the fixture did not emit, the
+// review payload is a string where the fixture invented an object, and the caller's own prompt comes
+// back as an item type the fixture never sent. This case spends ONE cheap turn on the real server and
+// checks what the handshake cannot: the shape of the items, the classification the driver derives from
+// them, and the receipt.
+//
+// Gated because it costs a model call and about a minute: CODEX_DELEGATE_LIVE_TURN=1.
+const LIVE_PROBE_FILE = "/etc/codex-delegate-live-probe";
+const LIVE_PROMPT =
+  "Run exactly these three shell commands, one at a time, and report each exit code: "
+  + `(1) true  (2) false  (3) grep -q zzz /dev/null. Then attempt to create the file ${LIVE_PROBE_FILE} `
+  + "with a single line of text, which will be refused; do not retry it. Reply with one short paragraph.";
+
+function findCodex() {
+  const override = process.env.CODEX_DELEGATE_CODEX;
+  if (override) return path.isAbsolute(override) ? override : null;
+  for (const d of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!d) continue;
+    const p = path.join(d, "codex");
+    try { if (fs.statSync(p).isFile()) { fs.accessSync(p, fs.constants.X_OK); return p; } } catch {}
+  }
+  return null;
+}
+
+// The report carries counts, not the items they were derived from, so the server's stream is teed to a
+// log through a shim the driver spawns as its `codex`. The shim passes every argument and every byte
+// of stdin through untouched; the only thing it adds is a copy of stdout.
+function teeShim(dir, codexBin, log) {
+  const p = path.join(dir, "codex-tee.cjs");
+  fs.writeFileSync(p, `#!/usr/bin/env node
+"use strict";
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const log = fs.createWriteStream(${JSON.stringify(log)}, { flags: "a" });
+const c = spawn(${JSON.stringify(codexBin)}, process.argv.slice(2), { stdio: ["inherit", "pipe", "inherit"] });
+c.stdout.on("data", (d) => { log.write(d); process.stdout.write(d); });
+c.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
+`, { mode: 0o700 });
+  return p;
+}
+
+function runDriver(args, env, timeoutMs) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [DRIVER, ...args], { stdio: ["ignore", "pipe", "pipe"], env });
+    let out = "", err = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    const bell = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, timeoutMs);
+    child.on("close", (code) => { clearTimeout(bell); resolve({ code, out, err }); });
+  });
+}
+
+const completedItems = (log) => {
+  const items = [];
+  let raw = "";
+  try { raw = fs.readFileSync(log, "utf8"); } catch { return items; }
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let m; try { m = JSON.parse(line); } catch { continue; }
+    if (m.method === "item/completed" && m.params?.item) items.push(m.params.item);
+  }
+  return items;
+};
+const keysByType = (items) => {
+  const k = {};
+  for (const i of items) (k[i.type] ??= new Set(), Object.keys(i).forEach((key) => k[i.type].add(key)));
+  return k;
+};
+
+// The reason this case exists at all: a fixture whose items carry different FIELDS from the server's
+// is a fixture that can make any driver change look right. Types the fixture does not model are named
+// rather than failed — it is not obliged to emit every item type the server has — but a type it does
+// model must match key for key.
+function diffItemKeys(liveItems) {
+  const live = keysByType(liveItems), fake = keysByType(sampleItems());
+  const problems = [], notes = [];
+  for (const [type, keys] of Object.entries(live)) {
+    if (!fake[type]) { notes.push(`${type}: no fixture helper builds this item type`); continue; }
+    const missing = [...keys].filter((k) => !fake[type].has(k));
+    const invented = [...fake[type]].filter((k) => !keys.has(k));
+    if (missing.length) problems.push(`${type}: the fixture omits ${missing.join(", ")}`);
+    if (invented.length) problems.push(`${type}: the fixture invents ${invented.join(", ")}`);
+  }
+  return { problems, notes };
+}
+
+async function liveTurns() {
+  const codexBin = findCodex();
+  if (!codexBin) {
+    console.log("\nSKIP  live turn: codex binary absent");
+    return 0;
+  }
+  let failed = 0;
+  const report = (name, why) => { failed++; console.log(`FAIL  ${name}\n      ${why}`); };
+
+  // --- one read-level turn: three commands with three different verdicts, then a refused write ---
+  {
+    const dir = freshDir("live-turn");
+    const log = path.join(dir, "stream.jsonl");
+    const state = freshDir("live-state");
+    const shim = teeShim(dir, codexBin, log);
+    const { code, out, err } = await runDriver(
+      ["--level", "read", "--cwd", dir, "--effort", "low", "--timeout", "300", "--json", "--prompt", LIVE_PROMPT],
+      { ...process.env, CODEX_DELEGATE_CODEX: shim, CODEX_DELEGATE_STATE_DIR: state }, 330000);
+    let r = null;
+    try { r = JSON.parse(out); } catch {}
+    if (!r) report("live turn", `the driver produced no JSON report (exit ${code}): ${err.trim().slice(-300)}`);
+    else {
+      const items = completedItems(log);
+      const cmds = r.commands ?? [];
+      const declined = [...cmds, ...(r.fileChangesFailed ?? [])].filter((x) => x.status === "declined");
+      const shape = JSON.stringify({ exit: code, ok: r.commandsSucceeded, failed: r.commandsFailed,
+        probes: r.commandsProbeNegative, blocked: r.commandsBlocked, esc: r.escalations?.length,
+        declined: declined.length, receipt: r.receiptOk, cmds: cmds.map((c) => c.command) });
+      // Every live command is a wrapper — the fact the probe exemption was blind to for as long as it
+      // existed, and the one the fixture now reproduces. The flag varies between runs (-c and -lc have
+      // both been measured on the same binary), so the shape is matched, not the spelling.
+      if (!cmds.length || !cmds.every((c) => /^\S*(?:sh|bash|zsh|dash|ksh)\s+-[A-Za-z]+\s/.test(c.command)))
+        report("live turn: commands arrive wrapped in a shell", shape);
+      // The headline: `false` and the no-match grep both exit 1, and only one of them is a failure.
+      // Counts rather than exact totals, because the model decides how many commands to spend.
+      else if (!(r.commandsSucceeded >= 1 && r.commandsFailed >= 1 && r.commandsProbeNegative === 1))
+        report("live turn: true succeeds, false fails, a no-match grep is a probe answering no", shape);
+      // The write outside the sandbox is a probe of the SANDBOX, and its route is the model's choice:
+      // three live runs took three — the patch tool (an approval this driver declines, exit 6), the
+      // shell (denied by the sandbox, a failed command), and not attempting it at all. So the file's
+      // absence is the assertion, and the route is reported rather than demanded. The exit code is
+      // still pinned: `false` fails on every run, which is the command-failed rung unless a refused
+      // approval outranks it.
+      else if (fs.existsSync(LIVE_PROBE_FILE))
+        report("live turn: nothing was written outside the sandbox", `${LIVE_PROBE_FILE} exists`);
+      else if (!(code === 11 || code === 6))
+        report("live turn: a failed command is exit 11, a refused approval exit 6 — never 0", shape);
+      else if (r.receiptOk !== true)
+        report("live turn: the rollout receipt names this thread", `${shape} why=${JSON.stringify(r.receiptWhy)}`);
+      else console.log(`ok    live turn ${shape}`);
+      console.log(`      the out-of-sandbox write: ${declined.length ? "declined item + escalation"
+        : r.commandsFailed >= 2 ? "denied by the sandbox, reported as a failed command"
+        : "not attempted by the model on this run"}`);
+      const { problems, notes } = diffItemKeys(items);
+      for (const n of notes) console.log(`      note: ${n}`);
+      for (const p of problems) report("live turn: item key sets", p);
+      console.log(`      live item types: ${[...new Set(items.map((i) => i.type))].join(", ")}`);
+    }
+  }
+
+  // --- one review turn: the payload is a STRING, and it is the answer ---
+  {
+    const repo = freshDir("live-review");
+    const log = path.join(repo, "stream.jsonl");
+    const state = freshDir("live-review-state");
+    const git = (...a) => spawnSync("git", ["-C", repo, ...a], { encoding: "utf8" });
+    fs.writeFileSync(path.join(repo, "util.mjs"), "export function clamp(x){\n  return x;\n}\n");
+    git("init", "-q", ".");
+    git("add", "-A");
+    git("-c", "user.email=evals@example.invalid", "-c", "user.name=evals", "commit", "-qm", "base");
+    fs.writeFileSync(path.join(repo, "util.mjs"), "export function clamp(x, lo, hi){\n  if (x < lo) return lo;\n  if (x > hi) return hi\n  return x;\n}\n");
+    const shim = teeShim(repo, codexBin, log);
+    const { code, out, err } = await runDriver(
+      ["--level", "read", "--cwd", repo, "--effort", "low", "--timeout", "300", "--json", "--review", "uncommitted"],
+      { ...process.env, CODEX_DELEGATE_CODEX: shim, CODEX_DELEGATE_STATE_DIR: state }, 330000);
+    let r = null;
+    try { r = JSON.parse(out); } catch {}
+    if (!r) report("live review", `the driver produced no JSON report (exit ${code}): ${err.trim().slice(-300)}`);
+    else {
+      const answer = String(r.answer ?? "");
+      const shape = JSON.stringify({ exit: code, other: r.otherItemCounts, answer: answer.slice(0, 80) });
+      if (code !== 0) report("live review: a review that arrived is exit 0", shape);
+      else if (!answer.trim() || /^[[{]/.test(answer.trim()))
+        report("live review: the payload is a string, not an object the driver stringifies", shape);
+      else if (r.otherItemCounts?.exitedReviewMode !== 1)
+        report("live review: the review arrives as the exitedReviewMode item", shape);
+      else console.log(`ok    live review (exit ${code}, ${answer.length}-byte string review)`);
+      const { problems, notes } = diffItemKeys(completedItems(log));
+      for (const n of notes) console.log(`      note: ${n}`);
+      for (const p of problems) report("live review: item key sets", p);
+    }
+  }
+  return failed;
+}
+
 async function main() {
   let failed = 0, skipped = 0;
   for (const c of CASES) {
@@ -444,9 +630,13 @@ async function main() {
   console.log(!ran ? `\n${skipped} skipped (codex binary absent); no live comparisons ran`
     : skipped ? `\n${skipped} skipped (codex binary absent), ${failed ? `${failed}/${ran} failed or diverged` : `all ${ran} cases that ran agree`}`
     : failed ? `\n${failed}/${CASES.length} failed or diverged` : `\nall ${CASES.length} agree`);
+  // The handshake cases are cheap enough to run on every change; the live turn is not, so it is opt-in
+  // and its absence is announced rather than assumed.
+  const liveFailed = process.env.CODEX_DELEGATE_LIVE_TURN === "1" ? await liveTurns()
+    : (console.log("\nlive turn: NOT RUN — set CODEX_DELEGATE_LIVE_TURN=1 to spend one turn on the real server"), 0);
   // An ENOENT skip is not a pass, but it is not a defect either: exit 0 so CI without codex stays usable.
   // Every case that reached a process must agree for the suite to exit 0.
-  return failed ? 1 : 0;
+  return failed || liveFailed ? 1 : 0;
 }
 
 let exitCode = 1;

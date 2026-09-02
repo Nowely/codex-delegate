@@ -119,7 +119,10 @@ Turn
   --review T         run the server's native reviewer instead of a prompt:
                      T = uncommitted | branch:<ref> | commit:<sha>. The review
                      is the answer; implies --allow-no-commands and excludes
-                     --prompt, --resume and the answer-shape flags
+                     --prompt, --resume and the answer-shape flags.
+                     uncommitted also excludes --worktree: a fresh worktree is
+                     detached at HEAD and holds no uncommitted changes, so that
+                     pair reviews an empty diff and reports success
   --web-search cached|indexed|live
                      off by default: a search makes the turn depend on what the
                      index says today
@@ -213,7 +216,10 @@ Decided after the turn, first match wins, in this order:
   3 timed out ... 2 the server refused the request ... 1 turn did not complete
   ... 7 wanted input ... 6 escalated ... 12 verify unmeasurable
   ... 9 verify failed ... 5 no commands ... 8 no answer
-  ... 13 the answer failed --output-schema ... 11 a command or a file change failed
+  ... 13 the answer failed --output-schema ... 11 a command or a file change
+  failed, or a command reached the client with no verdict at all (no exit code,
+  neither failed nor declined) — its outcome is unknown, and exit 0 claims it is
+  not
 
   and 4 once more at the very end, if the report could not reach stdout.
 
@@ -411,6 +417,13 @@ function parseArgs(argv) {
     // attachment on a review run was decoded, written and never sent, with nothing said. Refuse the
     // combination rather than perform a silent drop.
     if (o.attach.length) fail(EXIT.USAGE, "--review runs the server's own reviewer, which takes no input items; an --attach beside it would be dropped silently");
+    // A --worktree is created detached at HEAD, so it has no uncommitted changes BY CONSTRUCTION.
+    // Measured: with ` M f` in the main tree, `--worktree . --review uncommitted` exited 0 answering
+    // "The working tree contains no staged, unstaged, or untracked changes to review." — a review that
+    // examined nothing, reported as a clean bill of health. branch:/commit: reviews name a ref and are
+    // meaningful in a fresh tree, so only this target is refused.
+    if (o.worktree && o.review === "uncommitted")
+      fail(EXIT.USAGE, "--review uncommitted and --worktree are contradictory: a fresh worktree is created detached at HEAD and has no uncommitted changes, so the reviewer would examine an empty diff and report success; review the tree that holds the changes with --cwd, or review a ref with --review branch:<ref>");
     // The reviewer works through the protocol, not the shell, so a turn with no commands is its
     // ordinary success.
     o.allowNoCommands = true;
@@ -1819,7 +1832,12 @@ function handleMessage(msg) {
 
   if (msg.method === "item/completed" && isRoot(p)) {
     const it = p.item;
-    if (it?.type === "commandExecution") commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status });
+    // commandActions is the server's own parse of the command, and it is load-bearing: `command` is the
+    // WRAPPER the server ran (`/bin/zsh -c '<script>'` in every live turn), not the command the model
+    // wrote. Kept as bare strings — one entry means one command, several mean a pipeline.
+    if (it?.type === "commandExecution")
+      commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status,
+                      actions: (Array.isArray(it.commandActions) ? it.commandActions : []).map((a) => String(a?.command ?? "")) });
     if (it?.type === "agentMessage" && it.text) messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
     // The summary is the same artefact a Claude subagent's transcript exposes as its thinking; bounded,
     // because reasoning can be long and the report is not the place for a novel.
@@ -1832,7 +1850,10 @@ function handleMessage(msg) {
     // Everything else — mcpToolCall, webSearch, plan, collabAgentToolCall, whatever a later server
     // adds — is counted by type: the report used to drop these on the floor, so a turn that mostly
     // searched or called tools looked idle.
-    if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning"].includes(it.type)) {
+    // userMessage is excluded because it is the caller's OWN prompt, echoed back at the top of every
+    // turn: as activity it made every live report list `userMessage x1`, and as observable work it
+    // would have disarmed the transient-retry guard on a turn that had done nothing.
+    if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning", "userMessage"].includes(it.type)) {
       otherItemCounts[it.type] = (otherItemCounts[it.type] ?? 0) + 1;
       if (otherItems.length < 50) {
         const detail = String(it.query ?? it.tool ?? it.server ?? "").slice(0, 120);
@@ -2221,6 +2242,24 @@ function interruptTurn() {
   try { requestFn("turn/interrupt", { threadId: rootThreadId, turnId }).catch(() => {}); } catch {}
 }
 
+// What the model actually ran, out from under the shell the server wrapped it in. Every live
+// commandExecution arrives as `<shell> -c '<script>'` — measured: `/bin/zsh -c true`,
+// `/bin/zsh -c 'grep -q zzz /dev/null'`, `/bin/zsh -lc "git status --short && ..."` — with the script
+// also parsed into commandActions.
+// EXACTLY ONE action is the server saying this line is one command, and its text is authoritative: it
+// survives quoting no hand strip can undo (measured: `-lc "... rg -n \"clamp\\(\" ..."`). Several
+// actions mean a pipeline, and then the whole script — pipe and all — is what has to be judged, which
+// is what the wrapper text carries.
+const SHELL_WRAP_RE = /^\s*(?:\S*\/)?(?:sh|bash|zsh|dash|ksh)(?:\s+-[A-Za-z]+)+\s+([\s\S]+)$/;
+function bareCommand(c) {
+  const actions = c.actions ?? [];
+  if (actions.length === 1) return actions[0];
+  const m = SHELL_WRAP_RE.exec(String(c.command));
+  if (!m) return String(c.command);
+  const arg = m[1].trim();
+  return /^'[^']*'$/.test(arg) || /^"[^"]*"$/.test(arg) ? arg.slice(1, -1) : arg;
+}
+
 // The evidence, classified once: what ran, what failed, what the answer is. Reads the event streams
 // and opts; its one side effect is the answer-log write persistAnswer always had.
 function classifyEvidence() {
@@ -2242,8 +2281,13 @@ function classifyEvidence() {
   // The excluded set carries \n and \r for a reason: codex routinely sends multi-line `bash -lc`
   // scripts, and without them "grep -q needle file\npnpm test" matched as a plain probe — laundering a
   // failed test suite into "the probe answered no" and exiting 0 under an answer claiming success.
+  // Matched against the BARE command, never against `command`: the live server reports the wrapper it
+  // ran, so this pattern — anchored at ^ — matched nothing a real turn ever executed and the exemption
+  // was dead from the day it shipped. Measured on codex 0.150.1: `/bin/zsh -c 'grep -q zzz /dev/null'`
+  // exit 1, commandsProbeNegative 0, exit 11 for a read seat whose only failure was a grep finding
+  // nothing.
   const PROBE_RE = /^\s*(?:grep|rg|egrep|fgrep|test|\[|diff|cmp|git\s+(?:diff|grep))(?:\s[^|&;`$\n\r]*)?$/;
-  const probeNegative = (c) => c.status !== "declined" && c.exitCode === 1 && PROBE_RE.test(String(c.command));
+  const probeNegative = (c) => c.status !== "declined" && c.exitCode === 1 && PROBE_RE.test(bareCommand(c));
   const probeNegatives = commands.filter(probeNegative);
   // A command that ran and FAILED belongs to neither set, so it was printed nowhere — while the footer
   // told the reader to check the list. A suite that ran and failed under a final answer claiming it
@@ -2262,9 +2306,9 @@ function classifyEvidence() {
   // to the last non-blank unphased message only when nothing was phased at all.
   const final = currentFinalMsg();
   // Under --review the deliverable is the review payload, not an agentMessage; a message still wins
-  // when the server sends one.
-  const fullAnswer = final?.text
-    ?? (reviewResult != null ? (typeof reviewResult === "string" ? reviewResult : JSON.stringify(reviewResult, null, 2)) : "");
+  // when the server sends one. ExitedReviewModeThreadItem.review is a STRING in the pinned schema and
+  // in every live review measured; the object branch that used to sit here served only the fixture.
+  const fullAnswer = final?.text ?? (reviewResult != null ? String(reviewResult) : "");
   // Recomputed here rather than trusted from the retry path: a timeout or failed turn never reached
   // that path, and the verdict must describe the answer this report actually carries.
   const schemaErrs = opts.outputSchema && fullAnswer ? answerSchemaErrors(fullAnswer) : opts.outputSchema ? ["no answer arrived"] : null;
@@ -2344,7 +2388,7 @@ function runVerifier() {
 // The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
 // sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
 function decideExitCode(ev, verifySkipped) {
-  const { expected, failedCmds, failedPatches, answer, schemaErrs } = ev;
+  const { expected, failedCmds, failedPatches, blocked, answer, schemaErrs } = ev;
   const verifyPassed = verifyResult?.ok === true;
   const verifyFailed = verifyResult != null && !verifyPassed;
   let code = EXIT.OK;
@@ -2393,7 +2437,12 @@ function decideExitCode(ev, verifySkipped) {
   // failing greps, and exited 11 with a perfectly good review in hand. The counts stay in the report.
   // The waiver is keyed on a review having ARRIVED, not on the flag: `--review branch:nonexistent`
   // fails its git commands and produces no payload, and waiving on the flag alone let that exit 0.
-  else if ((failedCmds.length || failedPatches.length) && !verifyPassed
+  // `blocked` is on this rung too. A command item that reached the client with no verdict — no numeric
+  // exit code, and neither failed nor declined — is a command whose outcome nobody knows; the footer
+  // has always printed it as NEVER RAN while the ladder ignored it entirely, so one success beside one
+  // unresolved command reported ok: true. It is not evidence of failure, but it is the absence of the
+  // evidence exit 0 claims to have.
+  else if ((failedCmds.length || failedPatches.length || blocked.length) && !verifyPassed
            && !(opts.review && reviewResult != null)) code = EXIT.COMMAND_FAILED;
   return code;
 }
