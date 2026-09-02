@@ -57,6 +57,17 @@ export const SCENARIOS = {
   "profile-networked": {}, "write-networked": {}, "workspace-elsewhere": {}, "policy-clamped": {},
   "reviewer-auto": {},
   // Each needs a flag before its interesting messages are emitted at all.
+  // The three rungs of the wall clock, each needing a budget the fixture cannot guess from the scenario
+  // name alone — so the inventory carries it, as it already does for the stalled cases.
+  //   wrap-up      the steer at T-reserve is the ONLY recovery (E1), so the reserve must fit: 65 s puts
+  //                it 5 s in, which is the shortest budget the 60 s reserve floor allows.
+  //   cut-flush    a server that DOES flush the in-flight answer when the turn is interrupted.
+  //   cut-partial  the measured server, which does not: the deltas are the only copy.
+  "wrap-up": { timeout: 65 }, "cut-flush": { timeout: 1 }, "cut-partial": { timeout: 1 },
+  // The answer arrives and the turn never ends: the window a SIGKILL used to empty.
+  "answer-then-stall": { timeout: 1 },
+  // thread/start is never answered, so the deadline fires with no thread to report.
+  "no-thread": { timeout: 0.5 },
   "resume-active": { resume: "thr_root" },
   "review-inline": { review: "uncommitted" },
   "review-broken": { review: "branch:nonexistent" },
@@ -197,9 +208,17 @@ const cmd = (turnId, threadId, { exitCode = 0, status = "completed", command = "
             source: "unifiedExecStartup", pluginId: null, scriptPath: null }
   });
 
-const msg = (turnId, threadId, text, phase = "final_answer") =>
+// `id` is given only where a scenario streams the message first: a delta names the item it belongs to,
+// so the completion that supersedes those deltas has to carry the same id.
+const msg = (turnId, threadId, text, phase = "final_answer", id = null) =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
-    item: { id: `item_${seq}`, type: "agentMessage", text, phase, delivery: null, memoryCitation: null } });
+    item: { id: id ?? `item_${seq}`, type: "agentMessage", text, phase, delivery: null, memoryCitation: null } });
+
+// One chunk of an answer as it is generated. AgentMessageDeltaNotification carries no phase — an
+// in-flight message is unphased until its item/completed says otherwise — and that is the whole
+// difficulty the driver's partial-answer capture has to live with.
+const agentDelta = (turnId, threadId, itemId, delta) =>
+  note("item/agentMessage/delta", { threadId, turnId, itemId, delta });
 
 // The caller's own prompt, echoed back as an item at the top of every turn — a review turn included,
 // where the server echoes the prompt IT built. Every live report listed this under otherItemCounts
@@ -286,13 +305,30 @@ function onLine(line) {
     return;
   }
   if (m.method === "initialized") return;
-  if (m.method === "turn/interrupt") { w(reply(m.id, {})); return; }
+  if (m.method === "turn/interrupt") {
+    w(reply(m.id, {}));
+    // A server that DOES flush the in-flight message when the turn is interrupted, and closes the turn
+    // inside the driver's grace. Measured on 0.150.1 the live server does NOT (E1) — cut-partial is that
+    // shape — but the driver has to be right for both, and only the flush produces completedInGrace.
+    if (SCENARIO === "cut-flush")
+      w(msg(TURN, THREAD, "flushed at the interrupt"), done(TURN, THREAD, "interrupted"));
+    return;
+  }
   if (m.method === "turn/steer") {
     // The reply can be slow, and the window between sending a steer and having it accepted is where a
     // concurrently appended correction used to be overwritten.
     const delay = Number(process.env.FAKE_STEER_DELAY_MS ?? 0);
-    if (delay > 0) setTimeout(() => w(reply(m.id, {})), delay);
-    else w(reply(m.id, {}));
+    const answer = () => {
+      // TurnSteerResponse REQUIRES turnId. The bare {} this used to send was never validated: no
+      // conformance scenario sent a steer until the wrap-up rung did.
+      w(reply(m.id, { turnId: m.params?.expectedTurnId ?? TURN }));
+      // The wrap-up rung: the steer TEXT is the only thing under test, so it comes straight back as the
+      // answer — and answering ends the turn, which is what the rung is asking the model to do.
+      if (SCENARIO === "wrap-up")
+        w(cmd(TURN, THREAD), msg(TURN, THREAD, String(m.params?.input?.[0]?.text ?? "")), done(TURN, THREAD));
+    };
+    if (delay > 0) setTimeout(answer, delay);
+    else answer();
     return;
   }
 
@@ -330,6 +366,9 @@ function onLine(line) {
   }
 
   if (m.method === "thread/start" || m.method === "thread/resume") {
+    // Never answered: the deadline then fires with a child but no thread, the one rung of the wall clock
+    // that has nothing to report and must abort instead.
+    if (SCENARIO === "no-thread") return;
     requestedThread = m.params;
     // EVERY field below is derived from what the driver actually SENT — its -c config (CFG) and its
     // thread/start params — never from a literal. A literal here is a fixture that agrees with itself: it
@@ -551,7 +590,29 @@ function onLine(line) {
 
       // The turn/start response is enough to establish the turn, but no terminal notification follows.
       case "stalled-turn":
+      // The turn stalls until the driver cuts it; the interrupt handler above decides what the cut finds.
+      case "cut-flush":
+      // Nothing until the wrap-up steer arrives; the steer handler above answers it.
+      case "wrap-up":
         w(R);
+        break;
+
+      // The E1 shape: the answer is STREAMING when the cut lands and the server discards it, so the
+      // deltas are the only copy. The commentary message is streamed too and then COMPLETED, so a
+      // partial can never be text the server already delivered.
+      case "cut-partial":
+        w(R,
+          agentDelta(TURN, THREAD, "item_c1", "looking "),
+          agentDelta(TURN, THREAD, "item_c1", "into it"),
+          msg(TURN, THREAD, "looking into it", "commentary", "item_c1"),
+          agentDelta(TURN, THREAD, "item_a1", "The answer so far"),
+          agentDelta(TURN, THREAD, "item_a1", ", and this much more"));
+        break;
+
+      // The answer arrives and the turn then never ends: the window in which a SIGKILL used to take the
+      // answer with it, because nothing wrote it down until the report was built.
+      case "answer-then-stall":
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "the answer, persisted before the kill"));
         break;
 
       // A command from an EARLIER turn on our own thread, plus that turn's answer. Nothing belonging to

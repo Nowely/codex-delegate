@@ -1233,6 +1233,28 @@ test("--verify-sandboxed runs the verifier through `codex sandbox` under the rea
     return code === EXIT.VERIFY_FAILED ? true : `expected exit 9 for a failing verifier, got ${code}`;
   });
 
+test("the answer reaches the answer log before the turn ends, so a SIGKILL cannot take it with it",
+  "persistAnswer ran only inside finish(), so a run killed after the model had already answered handed back nothing at all: the one artefact the coordinator needed sat in the memory of a process that no longer exists. A SIGKILL is the shape a harness, an OOM killer or a laptop lid produces",
+  async () => {
+    const d = freshDir("eager-answer");
+    const answerFile = path.join(STATE_DIR, "answers", "thr_root.md");
+    // Every happy case in this suite writes the same path (one fixture thread id), so the file must be
+    // gone before the run or its mere existence proves nothing.
+    fs.rmSync(answerFile, { force: true });
+    // The turn stalls with the answer already delivered; --timeout 60 keeps the deadline far away, so
+    // the only thing that can have written the file is the item's own arrival.
+    const { p, done } = spawnRun(d, { scenario: "answer-then-stall", shim: shimDir, args: ["--timeout", "60"] });
+    const landed = await waitFor(() => fs.existsSync(answerFile), 15000);
+    p.kill("SIGKILL");
+    const { code } = await done;
+    if (!landed) return "the answer never reached the answer log while the run was still alive";
+    let text = "";
+    try { text = fs.readFileSync(answerFile, "utf8"); } catch (e) { return `the answer log is unreadable after the kill: ${e.message}`; }
+    if (!text.includes("persisted before the kill")) return `the answer log does not hold the answer: ${JSON.stringify(text.slice(0, 80))}`;
+    // A SIGKILL leaves no report by construction; the point is that the answer outlived the process.
+    return code === 0 ? "the run exited cleanly, so the kill never happened" : true;
+  });
+
 test("a correction appended while a steer is in flight is not overwritten",
   "the drain was a read-modify-write around a live send: text appended between its read and its write was lost, while the docs promised concurrent appends survive. Claiming the file by rename frees the inbox the moment the text is taken",
   async () => {
