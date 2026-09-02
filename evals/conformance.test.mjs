@@ -50,11 +50,15 @@ const RESPONSE_SCHEMAS = {
   "initialize": load("v1/InitializeResponse.json"),
   "thread/start": load("v2/ThreadStartResponse.json"),
   "thread/resume": load("v2/ThreadResumeResponse.json"),
+  "thread/fork": load("v2/ThreadForkResponse.json"),
+  "thread/compact/start": load("v2/ThreadCompactStartResponse.json"),
   "turn/start": load("v2/TurnStartResponse.json"),
   "review/start": load("v2/ReviewStartResponse.json"),
   "config/read": load("v2/ConfigReadResponse.json"),
   "turn/interrupt": load("v2/TurnInterruptResponse.json"),
   "turn/steer": load("v2/TurnSteerResponse.json"),
+  "model/list": load("v2/ModelListResponse.json"),
+  "account/rateLimits/read": load("v2/GetAccountRateLimitsResponse.json"),
 };
 
 const unchecked = new Set();
@@ -145,6 +149,11 @@ function argsFor(scenario) {
   return [
     ...(s.review ? ["--review", s.review] : ["--prompt", "conformance"]),
     ...(s.resume ? ["--resume", s.resume] : []),
+    ...(s.fork ? ["--fork", s.fork] : []),
+    ...(s.forkThrough ? ["--fork-through", s.forkThrough] : []),
+    ...(s.effort ? ["--effort", s.effort] : []),
+    ...(s.compact ? ["--compact"] : []),
+    ...(s.reasoningSummary ? ["--reasoning-summary", s.reasoningSummary] : []),
     ...(s.outputSchema ? ["--output-schema", schemaFile] : []),
     "--timeout", String(s.timeout ?? 20),
   ];
