@@ -15,27 +15,17 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { SCENARIOS } from "./fake-app-server.mjs";
+import { DRIVER, EXIT, FAKE, ROOT, SCRIPTS, codexShim, registry, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DRIVER = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "driver.mjs");
-const STOP_GATE = path.join(HERE, "..", "skills", "codex-delegate", "scripts", "stop-gate.mjs");
-const FAKE = path.join(HERE, "fake-app-server.mjs");
-const REVIEW_SCHEMA = path.join(HERE, "..", "skills", "codex-delegate", "schemas", "review-output.schema.json");
+const STOP_GATE = path.join(SCRIPTS, "stop-gate.mjs");
+const REVIEW_SCHEMA = path.join(ROOT, "skills", "codex-delegate", "schemas", "review-output.schema.json");
 
-// The driver spawns `codex` from PATH, so the shim has to be called exactly that.
-const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-delegate-test-"));
-// Removed on EXIT, not only at the happy end of the file: a crashed run used to leave the whole shim
-// tree behind (14 had accumulated before anyone counted).
-process.on("exit", () => { try { fs.rmSync(shimDir, { recursive: true, force: true }); } catch {} });
+const shimDir = tempDir("codex-delegate-test-");
 // Unique per run: a fixed name in the shared $TMPDIR is the cross-run collision the relay eval fixed
 // elsewhere with a random suffix.
 const survivorPidName = `verify-survivor-${crypto.randomBytes(4).toString("hex")}.pid`;
-fs.writeFileSync(path.join(shimDir, "codex"),
-  `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
-
-const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
+codexShim(shimDir);
 
 // A schema file for the --output-schema cases, and a non-executable file for the verify-126 branch.
 // STRICT, because that is the only kind the provider accepts and the fixture must not be laxer than the
@@ -395,6 +385,24 @@ const CASES = [
   { scenario: "probe-compound",   expect: EXIT.COMMAND_FAILED,
     why: "a compound command starting with a probe keeps failure semantics: its exit 1 may belong to the other command" },
   { scenario: "hidden-failure",  expect: EXIT.COMMAND_FAILED,     why: "a failed command is a failed run, whatever the answer claims; one incidental success must not mask it" },
+  { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--allow-failed-commands"],
+    why: "a read-only analysis seat whose environment probe is expected to fail (no repository, no toolchain, a deliberately broken build) had no way to say so: every such seat exited 11 with a perfectly good answer, and the only waiver was a --verify the seat did not need",
+    assert: (r) => (r.commandsFailed === 1 && r.ok === true)
+      || `the waived failure left the report: ${JSON.stringify({ failed: r.commandsFailed, ok: r.ok })}` },
+  { scenario: "hidden-failure",  expect: EXIT.NO_COMMANDS,
+    args: ["--allow-failed-commands", "--expect-command", "zzz_never"],
+    why: "the waiver is for the failed-command rung and nothing else; asking for proof and then accepting its absence is the failure --expect-command exists to prevent",
+    assert: (r) => r.commandsMatchingExpectation === 0
+      || `the expectation was not measured: ${JSON.stringify(r.commandsMatchingExpectation)}` },
+  { scenario: "hidden-failure",  expect: EXIT.VERIFY_FAILED,
+    args: ["--allow-failed-commands", "--verify", "false"],
+    why: "the same: a check the caller ran and that said no outranks every waiver, because it measured the end state instead of inferring it",
+    assert: (r) => r.verify?.ok === false || `the failed check was not reported: ${JSON.stringify(r.verify)}` },
+  { scenario: "hidden-failure",  expect: EXIT.OK,
+    seat: "SEAT: read <CWD>\nALLOW_FAILED_COMMANDS: yes\n",
+    why: "the relay writes fields, never a command line, so a flag it cannot express is a flag the plugin ships and cannot use",
+    assert: (r) => ((r.seatFileFields ?? []).includes("ALLOW_FAILED_COMMANDS") && r.commandsFailed === 1)
+      || `the seat file's waiver did not reach the run: ${JSON.stringify({ fields: r.seatFileFields, failed: r.commandsFailed })}` },
   { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--verify", "true"],
     why: "only the caller's own check can overrule a failed command" },
   { scenario: "happy",           expect: EXIT.VERIFY_FAILED,      args: ["--verify", "false"],
@@ -1063,7 +1071,7 @@ function run(c) {
       fs.writeFileSync(f, c.seat.replaceAll("<CWD>", shimDir).replaceAll("<CWDSP>", spacedDir));
       seatArgs = ["--seat-file", f];
     }
-    const p = spawn(process.execPath,
+    const { child: p, done } = spawnNode(
       // Every case gets a wall clock so a hung fixture cannot stall the suite; `noTimeout` opts out, and
       // that is the only way to measure the DEFAULT — which is now no wall clock at all.
       [DRIVER, ...(c.seat ? seatArgs : ["--level", "read", "--cwd", shimDir]),
@@ -1073,31 +1081,15 @@ function run(c) {
       // A state directory of this suite's own: every case used to write locks, an isolated Codex home and
       // the answer log into the caller's real ~/.codex-delegate, so a suite run concurrent with a real
       // delegation overwrote that delegation's inherited config with this fixture's values.
-      { env: (() => {
-          const e = { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
-                      CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
-                      ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) };
-          // `undefined` in a spawn env is stringified, so a variable the case wants UNSET has to be
-          // deleted outright — and "unset" is the whole point of the TMPDIR case.
-          for (const k of c.unsetEnv ?? []) delete e[k];
-          return e;
-        })(),
-        stdio: ["ignore", "pipe", "pipe"] });
-    let out = "", err = "";
-    p.stdout.on("data", (d) => { out += d; });
-    p.stderr.on("data", (d) => { err += d; });
+      { env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
+               CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
+               ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
+        unsetEnv: c.unsetEnv ?? [], killAfterMs: 30000 });
     // A consumer that stops reading, and one that merely pauses: the report write is the only place the
     // driver touches a pipe it does not own, and both shapes used to end the run wrongly.
     if (c.closeStdout) { try { p.stdout.destroy(); } catch {} }
     if (c.pauseStdout) { p.stdout.pause(); setTimeout(() => p.stdout.resume(), c.pauseStdout); }
-    // A bounded case, because a HANG is worse than a failure: an undeclared variable in the driver once
-    // threw inside an event handler and the suite stalled forever instead of reporting anything. The
-    // scripted server answers in milliseconds, so anything near this bound is a defect, not slowness.
-    const bell = setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, 30000);
-    // How long the run took, for the rungs whose whole content is WHEN they fire: a case that only
-    // reads the report cannot tell a deadline honoured from one shortened by a grace.
-    const startedAt = Date.now();
-    p.on("close", (code) => { clearTimeout(bell); resolve({ code, out, err, ms: Date.now() - startedAt }); });
+    done.then(resolve);
   });
 }
 
@@ -1106,8 +1098,7 @@ function run(c) {
 // One run of the driver cannot express any of this, so these are procedural rather than table cases.
 // Each gets a state directory of its own: every fixture run reports the SAME thread id, so a shared
 // registry would let one flow read another's record.
-const FLOWS = [];
-const flow = (name, why, fn) => FLOWS.push({ name, why, fn });
+const { cases: FLOWS, test: flow } = registry();
 let flowSeq = 0;
 const flowState = () => {
   const d = path.join(shimDir, `flow-state-${flowSeq++}`);
@@ -1596,15 +1587,30 @@ for (const c of CASES) {
   }
 }
 
-for (const c of FLOWS) {
-  let verdict;
-  try { verdict = await c.fn(); }
-  catch (e) { verdict = `threw: ${e.message}`; }
-  if (verdict === true) console.log(`ok    ${c.name}`);
-  else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
-}
+flow("--ephemeral leaves no thread behind: no job record, no continue-with line, nothing for `--resume last`",
+  "the coverage ledger listed --ephemeral as untouched and the only cases it had were argument errors, so nothing measured what the flag DOES — writeJob() and the footer's continue-with line are where a leak would show, and `--resume last` is what a coordinator would pick up afterwards",
+  async () => {
+    const state = flowState();
+    const eph = await run({ scenario: "happy", args: ["--ephemeral"], json: false,
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (eph.code !== EXIT.OK) return `the ephemeral run exited ${eph.code}: ${eph.err.trim().slice(0, 160)}`;
+    if (recordOf(state)) return "an ephemeral run wrote a job record, so --jobs, --wait and `--resume last` can still reach the thread";
+    if (/--resume/.test(eph.out)) return `the footer offered to continue an ephemeral thread: ${eph.out.trim().slice(-160)}`;
+    // A control in a state directory of its own: without it "no record" is equally consistent with a
+    // registry that stopped being written at all, and the case would pass on a broken driver.
+    const control = flowState();
+    const keep = await run({ scenario: "happy", json: false, env: { CODEX_DELEGATE_STATE_DIR: control } });
+    if (keep.code !== EXIT.OK) return `the control run exited ${keep.code}: ${keep.err.trim().slice(0, 160)}`;
+    if (!recordOf(control)) return "the control run wrote no job record either, so this case cannot tell the flag from a dead registry";
+    if (!/continue with --resume thr_root/.test(keep.out)) return `the control footer did not offer --resume: ${keep.out.trim().slice(-160)}`;
+    const last = await run({ scenario: "happy", args: ["--resume", "last"],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (last.code !== EXIT.USAGE || !/no previous run/.test(last.err))
+      return `\`--resume last\` after an ephemeral run exited ${last.code}, expected the usage refusal: ${last.err.trim().slice(0, 160)}`;
+    return true;
+  });
+
+failed += await runCases(FLOWS);
 
 fs.rmSync(shimDir, { recursive: true, force: true });
-const total = CASES.length + FLOWS.length;
-console.log(failed ? `\n${failed}/${total} failed` : `\nall ${total} passed`);
-process.exit(failed ? 1 : 0);
+process.exit(summarize(failed, CASES.length + FLOWS.length));

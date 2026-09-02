@@ -25,7 +25,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
 const LEVELS = new Set(["read", "write"]);
@@ -35,6 +35,11 @@ const READ_PROFILE = "codex_delegate_read";
 // a difference is not an error (this driver is normally forward-compatible) but it is the first thing to
 // know when something behaves unlike the docs, and it was being thrown away.
 const PINNED_CODEX = "0.150.1";
+// This plugin's own version, printed by --help and carried in every report as driverVersion. It must
+// agree with .claude-plugin/plugin.json, with SKILL.md's metadata.version and with the newest v* tag;
+// evals/package.test.mjs is what makes that a fact rather than a habit. A saved report could not say
+// which driver produced it.
+const VERSION = "0.6.0";
 let codexVersion = null;   // what the server reported this run, parsed out of InitializeResponse.userAgent
 // The full ladder the model catalogue advertises (`codex debug models` -> supported_reasoning_levels),
 // not a subset: rejecting `max` as a usage error while the user's own config.toml asked for it is the
@@ -58,6 +63,27 @@ const MAX_PROMPT_BYTES = 512 * 1024;
 // has to come out of what is left of it rather than out of a private allowance.
 const startedAtMs = Date.now();
 
+// One initialize for both handshakes — the config probe and the turn used to send different clientInfo
+// and a literal version "2.0" that named nothing. `name` is what the server records as the rollout's
+// originator, so it stays "Claude Code"; `title` and `version` say which client this actually is, and
+// come back in the response's userAgent.
+const initializeParams = () => ({
+  clientInfo: { name: "Claude Code", title: "codex-delegate", version: VERSION },
+  capabilities: {
+    experimentalApi: false, requestAttestation: false,
+    // Every one of these is parsed and dropped: the driver reads item/completed and turn/completed and
+    // nothing else. Left empty, a `pnpm test` streams its whole output through the pipe line by line for
+    // no reader. The list is taken from ServerNotification in the pinned schema rather than guessed.
+    // item/agentMessage/delta is deliberately NOT here: it is the answer text, and an interrupted turn's
+    // in-flight message is discarded server-side, so the deltas are the only copy a cut run can hand back.
+    optOutNotificationMethods: [
+      "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
+      "item/commandExecution/outputDelta", "command/exec/outputDelta", "process/outputDelta",
+      "item/fileChange/outputDelta", "item/plan/delta"
+    ]
+  }
+});
+
 function fail(code, msg) {
   process.stderr.write(`codex-delegate: ${msg}\n`);
   process.exitCode = code;
@@ -70,11 +96,99 @@ function fail(code, msg) {
 }
 class Bail extends Error {}
 
+// The seat-file vocabulary. Above --help rather than beside its parser because --help interpolates it:
+// MAX_COMMANDS was accepted here and absent from the hand-typed list for a release.
+const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
+                             "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "ALLOW_FAILED_COMMANDS", "BRIEF", "COMMIT",
+                             "WRITABLE", "REVIEW", "RESUME", "PROGRESS", "BUDGET_TOKENS", "IDLE_TIMEOUT",
+                             "MAX_COMMANDS", "DETACH", "WAIT_TIMEOUT", "COLLECT"]);
+// The extensions the server takes, and which item kind each becomes.
+const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
+                       webp: "localImage", bmp: "localImage",
+                       wav: "localAudio", mp3: "localAudio", m4a: "localAudio", ogg: "localAudio", flac: "localAudio" };
+const attachExts = (kind) => Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === kind);
+// Everything CODEX_DELEGATE_STATE_DIR moves. pasted/ is attach-pasted.mjs's, which reads the same
+// variable; a --help listing a subset sent a harness looking for state the driver had moved.
+const STATE_SUBDIRS = [
+  ["locks/", "per-directory write locks"],
+  ["answers/", "answers, partials, turn diffs"],
+  ["home/", "the isolated Codex home"],
+  ["homes/", "one private home per --mcp run"],
+  ["jobs/", "--jobs, --wait, `--resume last`"],
+  ["runs/", "a --detach run's transport"],
+  ["worktrees/", "the --worktree ledger"],
+  ["pasted/", "attach-pasted.mjs's staged images"],
+];
+
+// The post-turn exit ladder, first match wins. decideExitCode() walks it and --help renders it, so a rung
+// cannot exist in one and not the other. `help: null` shares the line above.
+const LADDER = [
+  { code: EXIT.TIMEOUT,
+    help: "cut on a declared budget — idle silence, commands, tokens, or the wall\n      clock when one was set (cut.kind says which); the report holds the answer\n      or the partial the turn reached, plus a hint naming --resume <threadId>",
+    when: () => turnStatus === "timedOut" || turnStatus === "budgetExhausted" || turnStatus === "maxCommands" },
+  // A parameter the SERVER rejected is the caller's to fix, not a transport failure to retry: the set of
+  // reasoning efforts is per-model and knowable only at runtime, and the cause line carries the server's
+  // own list verbatim.
+  { code: EXIT.USAGE, help: "the server refused the request",
+    when: () => turnStatus !== "completed" && invalidRequest(turnError) },
+  { code: EXIT.TURN_NOT_COMPLETED, help: "the turn did not complete",
+    when: () => turnStatus !== "completed" },
+  // Not an escalation: no sandbox change answers a question that needed a human.
+  { code: EXIT.INTERACTION, help: "the turn wanted input no sandbox change can supply",
+    when: () => interactions.length > 0 },
+  // Above NO_COMMANDS: a refused approval explains the missing command, and "nothing ran" would hide why.
+  { code: EXIT.ESCALATED, help: "an approval was refused: the sandbox was sized too small",
+    when: () => escalations.length > 0 },
+  // Above every proxy below it, and distinct from "the check said no": a declared check that was not
+  // measured leaves verifyResult null, which both verify rungs test for, so the ladder would fall
+  // through to the weaker gates and a run with an unrun --verify could reach 0.
+  { code: EXIT.VERIFY_UNMEASURABLE, help: "--verify was declared and could not be measured",
+    when: (c) => c.verifySkipped === "budget-exhausted" },
+  { code: EXIT.VERIFY_UNMEASURABLE, help: null,
+    when: () => verifyResult != null && !verifyResult.measured },
+  { code: EXIT.VERIFY_FAILED, help: "--verify ran and failed",
+    when: (c) => c.verifyFailed },
+  // --allow-no-commands waives the floor and must not waive a declared --expect-command; a passing
+  // --verify does not waive it either, since the end state can be right while the work drifted.
+  { code: EXIT.NO_COMMANDS,
+    help: "no command ran (--allow-no-commands waives this, --expect-command does\n      not)",
+    when: (c) => c.expected.length === 0 && (opts.expectRe || !opts.allowNoCommands) },
+  { code: EXIT.NO_ANSWER, help: "the turn produced no answer",
+    when: (c) => !c.answer },
+  // Above COMMAND_FAILED: an unusable answer is the more actionable complaint, and 11 stays in the report.
+  { code: EXIT.SCHEMA, help: "the answer failed --output-schema",
+    when: (c) => Boolean(opts.outputSchema) && c.schemaErrs.length > 0 },
+  // Waived by a PASSING --verify — iterative work normally contains failed commands — and by a review that
+  // ARRIVED, never by --review alone: `--review branch:nonexistent` fails its git commands, produces no
+  // payload, and must not exit 0.
+  { code: EXIT.COMMAND_FAILED,
+    help: "a command or a file change failed, or a command reached the client with\n      no verdict at all (no exit code, neither failed nor declined) — its\n      outcome is unknown, and exit 0 claims it is not\n      (--allow-failed-commands waives this rung, and only this rung)",
+    when: (c) => (c.failedCmds.length || c.failedPatches.length || c.blocked.length) && !c.verifyPassed
+                 && !opts.allowFailedCommands && !(opts.review && reviewResult != null) },
+];
+const ladderHelp = () => LADDER.filter((r) => r.help)
+  .map((r) => `  ${String(r.code).padStart(2)}  ${r.help}`).join("\n");
+const stateSubdirHelp = () => STATE_SUBDIRS
+  .map(([d, what]) => `                                  ${d.padEnd(11)}${what}`).join("\n");
+// Wraps a joined list to the help's right margin, so a name added to a table reflows instead of running
+// off the line or being quietly left out of a hand-typed copy.
+function wrapJoined(items, sep, indent, width = 79) {
+  const out = [];
+  let line = "";
+  for (const it of items) {
+    const next = line ? `${line}${sep}${it}` : it;
+    if (line && indent + next.length > width) { out.push(line + sep.trimEnd()); line = it; }
+    else line = next;
+  }
+  if (line) out.push(line);
+  return out.join(`\n${" ".repeat(indent)}`);
+}
+
 // ---------------------------------------------------------------- arguments
 
-const USAGE = `codex-delegate — run one Codex turn with rights declared per call.
+const USAGE = `codex-delegate ${VERSION} — run one Codex turn with rights declared per call.
 
-  node driver.mjs [--level read|write] --cwd DIR [options] --prompt TEXT
+  node driver.mjs [--level ${[...LEVELS].join("|")}] --cwd DIR [options] --prompt TEXT
   node driver.mjs --cwd DIR < task.txt
 
 Rights
@@ -111,14 +225,12 @@ Rights
   rollout receipts and this driver's own state
 
   --seat-file F      read the seat's declaration from F — one "FIELD: value" per
-                     line (SEAT/EFFORT/TIMEOUT/BUDGET_TOKENS/IDLE_TIMEOUT/EXPECT/
-                     VERIFY/NETWORK/MODEL/WEB_SEARCH/OUTPUT_SCHEMA/WRITABLE/
-                     COMMIT/BRIEF/PROGRESS/REVIEW/RESUME/ALLOW_NO_COMMANDS/
-                     DETACH/WAIT_TIMEOUT/COLLECT),
-                     values taken literally to end of line. --attach, --steer-file and --mcp are NOT among
-                     them: an injected line would upload a file nobody named,
-                     consume and rename away a file nobody named, or grant tool
-                     servers nobody granted. Pass those on the command line
+                     line, each value taken literally to end of line:
+                     ${wrapJoined([...SEAT_FIELDS], "/", 21)}
+                     --attach, --steer-file and --mcp are NOT among them: an
+                     injected line would upload a file nobody named, consume and
+                     rename away a file nobody named, or grant tool servers
+                     nobody granted. Pass those on the command line.
                      SEAT is required and must come FIRST. For a wrapper: write
                      the values, do not build a command line out of them.
                      Explicit flags override the file. A NEWLINE inside a value
@@ -131,8 +243,8 @@ Rights
 
 Turn
   --prompt TEXT      the task; omit to read it from stdin
-  --attach FILE      attach a local image (png/jpg/jpeg/gif/webp/bmp) or audio
-                     file (wav/mp3/m4a/ogg/flac) to the prompt; repeatable
+  --attach FILE      attach a local image (${attachExts("localImage").join("/")}) or audio
+                     file (${attachExts("localAudio").join("/")}) to the prompt; repeatable
   --steer-file F     poll F once a second during the turn: new text is CLAIMED by
                      renaming F aside, then sent to the RUNNING turn as a steer
                      message — the way to correct a long seat without killing it.
@@ -146,7 +258,7 @@ Turn
                      uncommitted also excludes --worktree: a fresh worktree is
                      detached at HEAD and holds no uncommitted changes, so that
                      pair reviews an empty diff and reports success
-  --web-search cached|indexed|live
+  --web-search ${[...WEB_SEARCH].join("|")}
                      off by default: a search makes the turn depend on what the
                      index says today
   --answer-json      demand one bare JSON object as the answer; the report then
@@ -167,7 +279,7 @@ Turn
                      the report as answerPath, with or without this flag.
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
-  --reasoning-summary auto|concise|detailed
+  --reasoning-summary ${[...REASONING_SUMMARIES].join("|")}
                      request that density for the per-turn reasoning summary;
                      omitted leaves the model or config default unchanged
   --fork THREAD      branch a new thread from THREAD before running the turn.
@@ -282,6 +394,13 @@ Gate — what counts as the turn having done the work
                      test runners) will fail under it. Usage error where this
                      codex has no \`sandbox\` subcommand
   --allow-no-commands   accept a turn that ran nothing
+  --allow-failed-commands  accept a turn in which a command, a patch or an
+                     unresolved command failed — the rung below --verify, for a
+                     read-only seat whose environment probe is expected to fail
+                     (no repository, no toolchain, a deliberately broken build).
+                     It waives THAT RUNG ONLY: an --expect-command that never
+                     matched is still exit 5, and a --verify that ran and failed
+                     is still exit 9. The counts stay in the report either way
 
 Isolation
   by default the turn runs against a CODEX_HOME private to this driver — one
@@ -350,10 +469,10 @@ Report
   -h, --help         this text
 
 Environment
-  CODEX_DELEGATE_STATE_DIR      where the locks, the answer log, the isolated
-                                Codex home and the worktree ledger live; must be
+  CODEX_DELEGATE_STATE_DIR      where everything this driver owns lives; must be
                                 absolute. For test harnesses: two runs under
                                 different values do NOT exclude each other
+${stateSubdirHelp()}
   CODEX_DELEGATE_SESSIONS_DIR   where to look for the rollout receipt
   CODEX_DELEGATE_CODEX          absolute path to the codex executable; without
                                 it the driver searches PATH, then
@@ -374,16 +493,7 @@ Exit codes. Raised the moment they happen, before any turn could run:
      budget); like an argument-error 2 it then prints no report
 
 Decided after the turn, first match wins, in this order:
-  3 cut on a declared budget: idle silence, commands, tokens, or the wall clock
-    when one was set (cut.kind says which), and the report holds the answer or
-    the partial the turn had reached, plus a hint naming --resume <threadId>
-  ... 2 the server refused the request ... 1 turn did not complete
-  ... 7 wanted input ... 6 escalated ... 12 verify unmeasurable
-  ... 9 verify failed ... 5 no commands ... 8 no answer
-  ... 13 the answer failed --output-schema ... 11 a command or a file change
-  failed, or a command reached the client with no verdict at all (no exit code,
-  neither failed nor declined) — its outcome is unknown, and exit 0 claims it is
-  not
+${ladderHelp()}
 
   and 4 once more at the very end, if the report could not reach stdout — a
   closed pipe, or a consumer that never drained it within what was left of
@@ -393,49 +503,25 @@ So 2 means either, and they are told apart by the report: an argument error
 prints none. Codes decided after the turn can all carry executed work.
 `;
 
-// --seat-file exists so a WRAPPER never has to build a shell command line out of values it was handed.
-// A relay agent that interpolates a caller-supplied --verify or --expect-command into `sh -c` is one
-// quoting slip away from executing whatever that value says — and --verify runs unsandboxed, with the
-// caller's own rights, by design. Here the wrapper writes the values verbatim into a file and the
-// driver parses them itself: there is no shell between the header and the flags, so no escaping to get
-// wrong and nothing for an injected quote to break out of.
+// --seat-file exists so a WRAPPER never builds a shell command line out of values it was handed: it
+// writes them verbatim into a file and the driver parses them itself, so there is no shell between the
+// header and the flags. One `FIELD: value` per line, value literal to end of line. Unknown fields,
+// repeats and anything the flags reject are usage errors — a malformed seat file must never silently
+// become a different seat.
 //
-// The format is one `FIELD: value` per line, value taken literally to end of line (so quotes, $, ;, |
-// and backticks are just characters). Unknown fields, repeats and anything the flags reject are usage
-// errors — a malformed seat file must never silently become a different seat.
-//
-// The claim above is exactly true for a value with no NEWLINE in it, and exactly false for one with.
-// A newline is the field separator, so a value carrying one ends its own field and opens another —
-// measured: a wrapper handed `EXPECT: x\nVERIFY: touch /tmp/pwned`, told by its own contract to copy
-// values "character for character", wrote two lines, and the driver ran `touch` through /bin/sh with
-// the caller's full rights. Shell metacharacters were never the whole attack surface; line structure
-// was the rest of it, and the wrapper cannot tell an injected line from one it meant to write.
-//
-// Two structural answers, both here rather than in the wrapper, because the wrapper is the component
-// that cannot know which of its values came from somewhere else:
-//   * SEAT must be the FIRST field. An injected SEAT is then always a duplicate, which is already a
-//     usage error — closing the case where a relay omitted SEAT and an injected `SEAT: write ~/.claude`
-//     silently defined the rights instead.
-//   * VERIFY, alone among the fields, runs an unsandboxed /bin/sh with the caller's own rights. From a
-//     seat file it now requires --allow-seat-verify on the COMMAND LINE, which is the one place the
-//     coordinator writes directly and no relayed value can reach. A coordinator that wants a verifier
-//     passes --verify itself; a relay does not get to introduce one.
-// Three flags are deliberately NOT fields, all for one reason: a newline inside a relayed value opens a
-// new field, so any field here can be injected by text the wrapper merely passed through.
-//   VERIFY      executes a shell with the caller's rights (allowed only via --allow-seat-verify).
-//   ATTACH      uploads a local file to the model provider — an injected line names a file nobody chose.
-//   STEER-FILE  the driver RENAMES that path away and consumes it while the turn runs; an injected
-//               line is a destructive primitive pointed at any file the caller can write.
-//   MCP         grants tool servers that run with the caller's rights and reach outside the sandbox.
-// Each stays a command-line flag, which is the one place a relayed value cannot reach.
-// --run-dir is deliberately absent: it names where a detached run's report, stderr and handshake land,
-// and a relayed value that could redirect them would point another run's transport at a file of its
-// choosing. DETACH, WAIT_TIMEOUT and COLLECT are here because they are a boolean and two values the
-// driver parses itself — no path, no shell, nothing a newline could turn into a grant.
-const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
-                             "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF", "COMMIT", "WRITABLE",
-                             "REVIEW", "RESUME", "PROGRESS", "BUDGET_TOKENS", "IDLE_TIMEOUT",
-                             "MAX_COMMANDS", "DETACH", "WAIT_TIMEOUT", "COLLECT"]);
+// That holds for a value with no NEWLINE in it and fails for one with: a newline IS the field separator,
+// so a relayed value carrying one ends its own field and opens another, and the wrapper cannot tell an
+// injected line from one it meant to write. Two structural answers, both here rather than in the
+// wrapper, which is the component that cannot know which of its values came from somewhere else:
+//   * SEAT must be the FIRST field, so an injected SEAT is always a duplicate and already a usage error.
+//   * VERIFY runs an unsandboxed /bin/sh with the caller's own rights, so from a seat file it needs
+//     --allow-seat-verify on the COMMAND LINE — the one place no relayed value can reach.
+// Four flags are deliberately NOT fields, each because an injected line would be a grant nobody made:
+// ATTACH uploads a local file, STEER-FILE renames a path away and consumes it while the turn runs, MCP
+// grants tool servers that reach outside the sandbox, and --run-dir would point another run's transport
+// at a file of its choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a shell. DETACH, WAIT_TIMEOUT and COLLECT are fields because
+// they are a boolean and two values the driver parses itself — no path, no shell, nothing a newline
+// could turn into a grant.
 let seatFileFields = null;   // what the file actually declared, for the report
 function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
@@ -472,7 +558,8 @@ function argvFromSeatFile(file, allowSeatVerify) {
       else fail(EXIT.USAGE, `--seat-file: SEAT must be read | worktree <repo> | write <dir>, got ${JSON.stringify(value)}`);
       continue;
     }
-    const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands", BRIEF: "--brief",
+    const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands",
+                    ALLOW_FAILED_COMMANDS: "--allow-failed-commands", BRIEF: "--brief",
                     COMMIT: "--commit", PROGRESS: "--progress", DETACH: "--detach" };
     if (BOOLS[field]) {
       // A negative is the natural shape for a templated header, and refusing it failed the whole seat
@@ -553,6 +640,7 @@ function parseArgs(argv) {
       case "--compact": o.compact = true; break;
       case "--ephemeral": o.ephemeral = true; break;
       case "--allow-no-commands": o.allowNoCommands = true; break;
+      case "--allow-failed-commands": o.allowFailedCommands = true; break;
       case "--expect-command": o.expect = need(++i, a); break;
       case "--verify": o.verify = need(++i, a); break;
       case "--verify-sandboxed": o.verifySandboxed = true; break;
@@ -622,15 +710,12 @@ function parseArgs(argv) {
   // --attach maps a local file into the turn's input as the protocol's own item kind — the parity a
   // native subagent has when a screenshot is pasted into its prompt. Checked here so a typo costs
   // nothing: the server would otherwise refuse it mid-turn, after the delegation was already paid for.
-  const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
-                         webp: "localImage", bmp: "localImage",
-                         wav: "localAudio", mp3: "localAudio", m4a: "localAudio", ogg: "localAudio", flac: "localAudio" };
   o.attachments = o.attach.map((p) => {
-    let real;
-    try { real = fs.realpathSync(path.resolve(p)); } catch { return fail(EXIT.USAGE, `--attach: ${p} does not exist`); }
+    const real = canonPath(p);
+    if (real === null) return fail(EXIT.USAGE, `--attach: ${p} does not exist`);
     if (!fs.statSync(real).isFile()) fail(EXIT.USAGE, `--attach: ${real} is not a regular file`);
     const kind = ATTACH_KINDS[(real.split(".").pop() ?? "").toLowerCase()];
-    if (!kind) fail(EXIT.USAGE, `--attach: unsupported file type for ${real}; images (${Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === "localImage").join("/")}) and audio (${Object.keys(ATTACH_KINDS).filter((k) => ATTACH_KINDS[k] === "localAudio").join("/")})`);
+    if (!kind) fail(EXIT.USAGE, `--attach: unsupported file type for ${real}; images (${attachExts("localImage").join("/")}) and audio (${attachExts("localAudio").join("/")})`);
     return { type: kind, path: real };
   });
 
@@ -757,8 +842,8 @@ function parseArgs(argv) {
 }
 
 function resolveDir(p, what) {
-  let real;
-  try { real = fs.realpathSync(path.resolve(p)); } catch { fail(EXIT.USAGE, `${what} does not exist: ${p}`); }
+  const real = canonPath(p);
+  if (real === null) fail(EXIT.USAGE, `${what} does not exist: ${p}`);
   if (!fs.statSync(real).isDirectory()) fail(EXIT.USAGE, `${what} is not a directory: ${real}`);
   return real;
 }
@@ -782,7 +867,9 @@ function checkRoot(dir) {
   // write level exited 0 and the turn got the whole home directory. os.userInfo().homedir reads passwd and
   // ignores the environment; a deliberate HOME is still honoured by walking it too, so setting HOME can
   // only ever ADD a refusal, never remove one.
-  const canon = (a) => { try { return fs.realpathSync(path.resolve(a)); } catch { return path.resolve(a); } };
+  // A path that cannot be resolved is still compared, by its resolved spelling: refusing to check is not
+  // an option here, and canonPath's null would silently skip the guard.
+  const canon = (a) => canonPath(a) ?? path.resolve(a);
   const hit = (p, why) => {
     let st = null;
     try { st = fs.statSync(p); } catch {}
@@ -802,18 +889,14 @@ function checkRoot(dir) {
   // only politeness toward someone who moved HOME on purpose.
   const envHome = process.env.HOME;
   if (envHome && path.isAbsolute(envHome)) hit(canon(envHome), `the directory $HOME points at (${envHome})`);
-  // The receipt story and the driver's own state must never become writable roots: ~/.codex holds the
-  // rollouts a seat is verified by (a writable ~/.codex/sessions makes the "unforgeable" receipt
-  // forgeable), and ~/.codex-delegate holds the locks, the answer log and the isolated home. Refusing
-  // only ~ itself left every one of them grantable — recorded as a known issue until now.
-  // Compared by IDENTITY, like every other guard in this function: the first version of this block was
-  // a string-prefix compare three lines under the comment explaining why string compares are bypassable
-  // here — and it was, by a case-variant spelling on a case-insensitive volume (~/.CODEX is the same
-  // inode as ~/.codex and realpath preserves the case it was given). Walking the TARGET's ancestors
-  // against the protected inode gives the "inside" semantics a single stat cannot.
-  // The state directory is listed by its RESOLVED path, not by the name `.codex-delegate`, so the
-  // guarantee follows $CODEX_DELEGATE_STATE_DIR wherever it points. Redirecting the driver's own state
-  // and thereby making it writable would hand back exactly what this guard exists to withhold.
+  // The receipt story and the driver's own state must never become writable roots: a writable
+  // ~/.codex/sessions makes the "unforgeable" receipt forgeable, and ~/.codex-delegate holds the locks,
+  // the answer log and the isolated home.
+  // Compared by IDENTITY, like every other guard here — a string-prefix compare is bypassed by a
+  // case-variant spelling on a case-insensitive volume — and by walking the TARGET's ancestors against
+  // the protected inode, which is the "inside" semantics a single stat cannot give.
+  // The state directory is listed by its RESOLVED path, so the guarantee follows
+  // $CODEX_DELEGATE_STATE_DIR wherever it points rather than following the name `.codex-delegate`.
   const home = canon(passwdHome("the home-directory guard"));
   const protectedRoots = [
     [path.join(home, ".codex"), "~/.codex"],
@@ -836,36 +919,28 @@ function checkRoot(dir) {
   return dir;
 }
 
-// A write-capable run owns its cwd for the duration. Two concurrent runs in one directory edit, test and
-// clean up over each other, and each can validate the other's half-finished state. Documentation asking
-// callers to use unique directories is advice; this is enforcement.
+// The anchor for everything this driver owns, and the reason mutual exclusion holds: a write-capable run
+// owns its cwd for the duration, and two runs that resolve the state root differently take two locks and
+// both proceed.
 //
-// The lock does NOT live in the directory it protects. At --level write with --commit, a turn running
-// `git add -A` stages and commits it, and releaseLock then leaves the worktree dirty with a deleted file.
-// $TMPDIR is no home for it either, for two measured reasons: it is a mutable env var, so two runs on one
-// cwd under different TMPDIRs take two different locks and both proceed — mutual exclusion silently lost —
-// and the --level read profile grants Codex write access to exactly that directory.
-// os.homedir() falls back to the passwd entry when HOME is unset, and no rights level can write there.
-// os.userInfo() rather than os.homedir(), which PREFERS $HOME: two runs on one cwd under different HOME
-// values took two different locks and both proceeded — measured, with the lock files sitting in two homes.
-// With HOME="" it is worse: os.homedir() returns "", LOCK_DIR becomes RELATIVE, and the lock is created
-// inside the invocation directory — exactly the `git add -A` hazard the comment above exists to avoid.
-// Resolved LAZILY, and never at module scope. os.homedir() never consulted passwd; os.userInfo() always
-// does and THROWS for a uid with no passwd entry — a container run with --user 1000000, an OpenShift
-// random uid. At module top level that ran before parseArgs and outside main()'s try, so it produced a raw
-// V8 stack trace and exit 1 — which on the published ladder means "the turn did not complete", telling a
-// coordinator the turn ran when codex was never spawned.
+// So the anchor is the PASSWD entry, not $HOME and not the protected directory itself. Inside the
+// directory, `git add -A --commit` stages the lock. Under $TMPDIR, that is a mutable variable AND the one
+// place --level read may write. Through os.homedir(), which prefers $HOME, two HOME values are two homes,
+// and HOME="" makes the path RELATIVE to the invocation directory. os.userInfo() reads passwd and ignores
+// the environment.
+//
+// Resolved LAZILY, never at module scope: os.userInfo() THROWS for a uid with no passwd entry (a
+// container with --user 1000000, an OpenShift random uid), and at module top level that ran before
+// parseArgs and outside main()'s try — a V8 stack trace and exit 1, which on the published ladder means
+// "the turn did not complete" for a turn that was never started.
 function passwdHome(what) {
   try { return os.userInfo().homedir; }
   catch (e) { fail(EXIT.USAGE, `cannot resolve your home directory from the passwd database, which ${what} needs (${e.code ?? e.message}); this happens for a uid with no passwd entry`); }
 }
 
-// Everything this driver owns — locks, the answer log, the isolated Codex home, the worktree ledger,
-// the job registry — lives under one base, and $CODEX_DELEGATE_STATE_DIR moves it. The seam exists so
-// TESTS cannot reach production state (a suite run once left the fixture's `model = "fake-model"` in
-// the shared home; the story is in references/incidents.md). The price: two runs under different
-// values do not exclude each other — set it per test harness, never per user, absolute paths only so
-// it cannot resolve against a caller's cwd.
+// One base for everything in STATE_SUBDIRS, moved by $CODEX_DELEGATE_STATE_DIR so a test harness cannot
+// reach production state. The price: two runs under different values do not exclude each other — per
+// harness, never per user. Absolute only, so it cannot resolve against a caller's cwd.
 function stateDir(what) {
   const override = process.env.CODEX_DELEGATE_STATE_DIR;
   if (override) {
@@ -875,28 +950,32 @@ function stateDir(what) {
   }
   return path.join(passwdHome(what), ".codex-delegate");
 }
+// The best-effort form: the same root, or null where it cannot be resolved. stateDir() reports that
+// through fail(), which prints a refusal, sets the exit code and marks the run settled — right for a run
+// that cannot start, wrong inside a side write on a turn that has already succeeded, where it printed a
+// refusal and exited 0 in the same run.
+function stateDirOrNull() {
+  const override = process.env.CODEX_DELEGATE_STATE_DIR;
+  if (override) return path.isAbsolute(override) ? override : null;
+  try { return path.join(os.userInfo().homedir, ".codex-delegate"); } catch { return null; }
+}
 const lockDir = () => path.join(stateDir("the cwd lock"), "locks");
 
-// Codex reads its plugins, skills, memories and project-trust records out of CODEX_HOME, so delegating
-// into the caller's own home makes every turn a function of whatever they happen to have installed —
-// measured badly enough (95 of 157 delegations opened ~/.codex/plugins/cache before the task) that the
-// private home exists; the story is in references/incidents.md. It also stops each run appending a
-// trusted-project record to the caller's config.toml.
+// Codex reads its plugins, skills, memories and project-trust records out of CODEX_HOME, so a turn run
+// in the caller's own home is a function of whatever they happen to have installed, and each run appends
+// a trusted-project record to their config.toml. Hence the private home (references/incidents.md).
 //
-// Two things are linked back rather than isolated: auth.json, so a token refresh lands in the real
-// file, and sessions, so the rollout receipt lands where the published verification recipe looks — a
-// caller who cannot find the rollout cannot tell a real seat from a wrapper that fabricated success.
+// Two things are linked back rather than isolated: auth.json, so a token refresh lands in the real file,
+// and sessions, so the rollout receipt lands where the published verification recipe looks — a caller who
+// cannot find the rollout cannot tell a real seat from a wrapper that fabricated success.
 //
-// Anchored on passwd like the lock: $HOME is mutable, and two HOME values must not mean two homes.
 // Isolating the ENVIRONMENT must not isolate the ACCOUNT: the four INHERITED keys choose which model
-// answers and how it is spoken to, and omitting them silently downgraded a caller whose config asked
-// for `max`. Everything that pulls in outside behaviour — plugins, skills, mcp_servers, projects — is
-// what isolation is for and stays behind.
+// answers and how it is spoken to. Everything that pulls in outside behaviour — plugins, skills,
+// mcp_servers, projects — is what isolation is for and stays behind. The values are ASKED of the server
+// (config/read), never parsed out of the TOML.
 //
-// The values are ASKED of the server (config/read), never parsed out of the TOML: a hand parser
-// produced four distinct defects in one day (references/incidents.md) before it was deleted.
-// JSON.stringify escapes C0 controls but emits DEL (U+007F) and the C1 range raw, and a TOML basic
-// string forbids them — codex then rejects the whole file; hence the escape below.
+// JSON.stringify escapes C0 controls but emits DEL (U+007F) and the C1 range raw, and a TOML basic string
+// forbids them — codex then rejects the whole file; hence the escape below.
 const tomlString = (v) => JSON.stringify(v).replace(/[\u007f-\u009f]/g,
   (c) => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`);
 
@@ -927,12 +1006,9 @@ let mcpFromProbe = null;   // the caller's mcp_servers table, captured by the pr
 // Serialise the probe's mcp_servers object into TOML for a PRIVATE per-run home's config.toml.
 //
 // Neither obvious home works. The SHARED isolated config leaks a per-invocation grant into concurrent
-// runs that never asked for it (found by a live codex review). `-c` spawn args fix that and introduce
-// something worse: an MCP server's `env` table routinely holds tokens, and argv is world-readable —
-// `ps` on macOS, /proc/<pid>/cmdline on Linux — so a read seat in an unrelated repository could have
-// read a write seat's GitHub token (found by the review seat that followed). A per-run home keeps the
-// grant per-run AND keeps the secrets in a 0600 file, which is where the caller's own config keeps
-// them. The cost is the shared home's warm caches, paid only by runs that ask for --mcp.
+// runs that never asked for it. `-c` spawn args keep the grant per-run and put an MCP server's `env`
+// table — routinely tokens — into world-readable argv (`ps`, /proc/<pid>/cmdline). A per-run home is
+// per-run AND keeps the secrets in a 0600 file, at the cost of the shared home's warm caches.
 //
 // Only shapes the driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string
 // arrays, and a string-valued env table; a server using anything richer, or a name that is not a bare
@@ -1063,7 +1139,7 @@ function inheritedConfig() {
       }
     });
     for (const msg of [
-      { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "codex-delegate", title: "codex-delegate", version: "2.0" } } },
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: initializeParams() },
       { jsonrpc: "2.0", method: "initialized" },
       { jsonrpc: "2.0", id: 2, method: "config/read", params: {} },
     ]) { try { child.stdin.write(`${JSON.stringify(msg)}\n`); } catch {} }
@@ -1381,17 +1457,21 @@ function reclaimStale(p, dir) {
   return true;
 }
 
+// The lock's NAME is the directory's identity, not its spelling: realpath normalises symlinks but not
+// letter case, so on a case-insensitive volume `--cwd .../Worktree` and `--cwd .../worktree` were one
+// directory with two hashes and the second run walked straight in. Takes the stat, so a caller that has
+// already stat'd (and reported its own error) does not race a second one. Exported: the lock suite has to
+// compute this key to plant and inspect locks, and a copy of it there is a copy that can disagree.
+const lockKey = (st) => `${crypto.createHash("sha256").update(`${st.dev}:${st.ino}`).digest("hex")}.lock`;
+
 let lockPath = null;
 function acquireLock(dir) {
-  // Keyed on the directory's IDENTITY, not on how it was spelled. realpath normalises symlinks but not
-  // letter case, so on a case-insensitive volume `--cwd .../Worktree` and `--cwd .../worktree` are one
-  // directory with two hashes — measured, and the second run walked straight in. dev:ino covers case,
-  // renames and every other aliasing at once. The body still records the path, for the human who finds it.
   let st;
   try { st = fs.statSync(dir); }
   catch (e) { fail(EXIT.USAGE, `cannot stat --cwd ${dir}: ${e.message}`); }
   const LOCK_DIR = lockDir();
-  const p = path.join(LOCK_DIR, `${crypto.createHash("sha256").update(`${st.dev}:${st.ino}`).digest("hex")}.lock`);
+  // The name is a hash, so the body has to record which directory it locks.
+  const p = path.join(LOCK_DIR, lockKey(st));
   try { fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 }); }
   catch (e) { fail(EXIT.USAGE, `cannot create the lock directory ${LOCK_DIR}: ${e.message}`); }
   // The file name is a hash, so the contents have to say what it locks — for the message below and for a
@@ -1436,19 +1516,14 @@ function acquireLock(dir) {
       if (holderGroupAlive(held)) fail(EXIT.BUSY,
         `${dir} is still being written by the codex process group ${held?.appServerPgid} of codex-delegate pid ${holder}, ` +
         `which is itself gone; wait for it, or kill -TERM -${held?.appServerPgid} and delete ${p}`);
-      // Reclaiming a stale lock is where mutual exclusion actually broke, and neither an unlink nor a
-      // rename fixes it: both act on the PATH, not on the file that was inspected. A peer that judged the
-      // STALE lock dead arrives late and removes the FRESH, live lock that has since replaced it, then
-      // takes the directory. Measured by logging the acquire/release interval of every process in an
-      // eight-way fan-out over a planted stale lock: the old unconditional unlink produced 6 violations
-      // and up to THREE simultaneous holders; serialising the reclaim gives 0 and a maximum of 1.
+      // Reclaiming a stale lock is where mutual exclusion actually breaks, and neither an unlink nor a
+      // rename closes it: both act on the PATH, not on the file that was inspected, so a peer that judged
+      // the STALE lock dead removes the FRESH one that has since replaced it and takes the directory.
+      // The reclaim is therefore serialised by its own short-lived lock and the liveness question is
+      // asked again UNDER it, so what is deleted is only what has just been re-confirmed dead.
       //
       // (Counting how many runs exited 0 does not measure this and will mislead you: runs that acquire in
       // sequence all succeed, correctly. Only overlapping hold intervals are evidence.)
-      //
-      // The reclaim is serialised by its own short-lived lock, and the liveness question is asked again
-      // UNDER it. Only one process can be deleting the lock at a time, and it deletes only what it has
-      // just re-confirmed to be dead — so a lock created in the meantime is seen as live and survives.
       if (!reclaimStale(p, dir)) { sleepSync(LOCK_RETRY_MS); continue; }
     }
   }
@@ -1500,11 +1575,10 @@ function git(dir, args, extra = {}) {
 // by force. A ledger entry under ~/.codex-delegate/worktrees/ is written before the turn so a crashed
 // run leaves a machine-readable trace instead of an anonymous directory.
 let worktreeInfo = null;
-// os.userInfo() directly rather than passwdHome() inside stateDir: this is called from persistAnswer,
-// a best-effort side write on a turn that has already succeeded, where fail()'s refusal-and-exit is the
-// wrong shape. stateDir() only calls passwdHome when the override is absent, and persistAnswer wraps
-// the whole thing in a try/catch, so a missing passwd entry costs the path and nothing else.
 const answersDir = () => path.join(stateDir("the answer log"), "answers");
+// The answer log is written from paths that must not refuse: null means "no answer log", never an exit
+// code and a refusal on a turn that has already succeeded.
+const answersDirOrNull = () => { const root = stateDirOrNull(); return root === null ? null : path.join(root, "answers"); };
 
 // One JSON record per run, keyed by threadId, under ~/.codex-delegate/jobs/ — the registry that lets a
 // coordinator list what ran and resume the newest thread without having kept the id itself
@@ -1988,7 +2062,9 @@ function createWorktree(repo, prior = null) {
   catch (e) { fail(EXIT.USAGE, `cannot create ${parent}: ${e.message}`); }
   // And again on what was actually created, so a link swapped in during the mkdir is still caught
   // before git writes a single object.
-  checkRoot(fs.realpathSync(parent));
+  const created = canonPath(parent);
+  if (created === null) fail(EXIT.TRANSPORT, `cannot resolve ${parent} after creating it`);
+  checkRoot(created);
   const owner = { pid: process.pid, identity: processIdentity(process.pid), started: new Date().toISOString() };
   // Written before the add, and it names a path that does not exist yet: the reconciler drops an entry
   // whose tree is absent, so the only thing an interrupted add can leave is a tree the ledger already
@@ -2203,11 +2279,10 @@ function worktreeLastResort() {
 }
 
 // The read level's whole safety argument is "$TMPDIR is writable and nothing else is", so that is what
-// gets checked — the EFFECT the server reports, not the NAME of the profile that was supposed to produce
-// it. Checking the name is not enough, measured: misspell a field inside permissions.<id> and the grant
-// silently vanishes (sandbox flips to {"type":"readOnly"}, writableRoots disappears) while
-// activePermissionProfile still reads back the correct id. --strict-config does not catch that typo
-// either, so a name-only assert passes while the thing it guards is gone.
+// gets checked — the EFFECT the server reports, not the NAME of the profile meant to produce it. A
+// misspelt field inside permissions.<id> makes the grant vanish (sandbox flips to readOnly,
+// writableRoots disappears) while activePermissionProfile still reads back the correct id, and
+// --strict-config does not catch it either.
 //
 // Paths are canonicalised on BOTH sides rather than string-compared: the server resolves intermediate
 // symlinks (/var/... -> /private/var/...) but leaves a symlinked FINAL component alone, so no single
@@ -2353,16 +2428,11 @@ async function setup() {
   // After the cwd exists, because "last" means the last seat HERE.
   if (opts.resume === "last") { opts.resume = resolveResumeLast(cwd); refuseLiveResume(opts.resume); }
 
-  // $TMPDIR IS the read level's writable root — that is the whole of the level's grant — so it needs the
-  // same guard every other writable root gets, and it did not have it. checkRoot was applied to --cwd,
-  // --writable and the --commit git dir; TMPDIR reached the sandbox unexamined. Measured:
-  // `TMPDIR=~/.codex/x --level read` exited 0 with the server reporting
-  // writableRoots: ["/Users/ruliny/.codex/x"] — write access inside the directory that holds the rollout
-  // receipts, from the level whose headline promise is that it writes nothing of yours. The comment on
-  // checkRoot says a writable ~/.codex/sessions makes the "unforgeable" receipt forgeable; this was the
-  // door to it. Refused here rather than in assertReadSandbox so it costs no turn.
-  // Unset is the whole grant missing, not a formatting quirk, and it is knowable before anything is
-  // spawned — so it costs a usage error here rather than a thread and exit 4 in assertReadSandbox.
+  // $TMPDIR IS the read level's writable root, so it takes the same checkRoot guard every other writable
+  // root takes: without it `TMPDIR=~/.codex/x --level read` grants write access inside the directory
+  // holding the rollout receipts, from the level whose promise is that it writes nothing of yours.
+  // Both checks are here rather than in assertReadSandbox: an unset or protected TMPDIR is knowable
+  // before anything is spawned, so it costs a usage error rather than a thread and exit 4.
   if (opts.level === "read" && !process.env.TMPDIR)
     fail(EXIT.USAGE, "--level read grants exactly $TMPDIR, and TMPDIR is unset — the seat would get no writable directory and could not start a test runner; export TMPDIR (e.g. TMPDIR=/tmp) and retry");
   if (opts.level === "read" && process.env.TMPDIR) {
@@ -2482,10 +2552,9 @@ const groupAlive = () => { if (!child) return false; try { process.kill(-child.p
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Ends every child this driver started and WAITS for them, bounded: group SIGTERM, up to 2 s for the
-// group to disappear, then SIGKILL and up to 1 s more. The predecessor of this function armed the same
-// SIGKILL on an unref'd timer and then process.exit() discarded it, so a TERM-ignoring test server
-// survived every normal completion and every timeout. The timers here are ref'd on purpose — an exiting
-// driver must stay alive until the group is gone or the bound expires.
+// group to disappear, then SIGKILL and up to 1 s more. The timers are ref'd on purpose — an exiting
+// driver must stay alive until the group is gone or the bound expires, and a SIGKILL armed on an
+// unref'd timer is discarded by process.exit(), which leaves a TERM-ignoring test server behind.
 //
 // The lock is released only AFTER that wait, so a next writer cannot enter the directory while this
 // run's descendants are still dying in it. Idempotent: every caller shares one promise, and a repeat
@@ -2567,9 +2636,12 @@ let rateLimits = null;      // the account snapshot read once before any thread 
 let turnDiffPath = null;    // where the last turn/diff/updated payload was persisted, or null when it could not be written
 // The token budget, counted for THIS invocation only. `total` is thread-cumulative, so a resumed
 // thread's earlier turns are subtracted once, at the first event.
-let budgetBaseline = null;  // null until the first usage event decides it
-let budgetSpent = null;     // null means no usage event ever arrived, which is not the same as 0
-let softSteerAt = null;     // the spend at which the 80% steer went out; null means it never did
+// This invocation's token spend, in one object because the three move together and are read together —
+// by the cut, by the 80% steer, by the mid-flight job record and by the report's `budget` field.
+// baseline: null until the first usage event decides it, so a resumed thread's earlier turns are
+// subtracted rather than charged. spent: null means no usage event ever arrived, which is not 0.
+// softSteerAt: the spend at which the 80% steer went out; null means it never did.
+const spend = { baseline: null, spent: null, softSteerAt: null };
 let outputAttempts = 0;     // turns STARTED under --output-schema; at most one corrective retry
 let requestFn = null;       // main()'s request closure, hoisted so the corrective turn can reach it
 let lastTurnParams = null;  // the original turn/start params, so a transient retry replays them exactly
@@ -2643,7 +2715,7 @@ function touchIdle() {
 function noteProgress() {
   if (settled || !rootThreadId || Date.now() - midflightAtMs < MIDFLIGHT_EVERY_MS) return;
   midflightAtMs = Date.now();
-  writeJob({ lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: budgetSpent,
+  writeJob({ lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: spend.spent,
              commandsSeen: commands.length, phase: lastPhase });
 }
 
@@ -2654,7 +2726,7 @@ function noteProgress() {
 function checkBudget(ownTurn) {
   const total = tokenUsage?.total?.totalTokens;
   if (typeof total !== "number") return;
-  if (budgetBaseline === null) {
+  if (spend.baseline === null) {
     const last = tokenUsage?.last?.totalTokens;
     // Measured live on 0.150.1: thread/resume emits ONE usage event between its response and the new
     // turn, carrying the PREVIOUS turn's id and the thread's whole prior total — which is the baseline
@@ -2663,26 +2735,26 @@ function checkBudget(ownTurn) {
     // call that event reports (E2), so it recovers everything before that one call. Measured, taking
     // the pre-turn event as an in-turn one overcharged a resumed seat by one prior API call: baseline
     // 13509 where the thread had spent 27048, and a 27296-token turn reported as 40835.
-    budgetBaseline = !ownTurn ? total
+    spend.baseline = !ownTurn ? total
       : opts.resume ? Math.max(0, total - (typeof last === "number" ? last : 0)) : 0;
   }
-  budgetSpent = Math.max(0, total - budgetBaseline);
+  spend.spent = Math.max(0, total - spend.baseline);
   if (!opts.budgetTokens || settled || pendingCut) return;
   // Hard first: a jump that crosses both thresholds at once is a cut, not a warning followed by a cut —
   // steering a turn we are about to interrupt only spends more of a budget that is already gone.
-  if (budgetSpent >= opts.budgetTokens) {
-    cutTurn("budgetExhausted", "tokens", { limit: opts.budgetTokens, observed: budgetSpent });
+  if (spend.spent >= opts.budgetTokens) {
+    cutTurn("budgetExhausted", "tokens", { limit: opts.budgetTokens, observed: spend.spent });
     return;
   }
-  if (softSteerAt === null && budgetSpent >= opts.budgetTokens * 0.8) {
-    const sent = autoSteer(`BUDGET: you have used 80% (${budgetSpent} of ${opts.budgetTokens} tokens). `
+  if (spend.softSteerAt === null && spend.spent >= opts.budgetTokens * 0.8) {
+    const sent = autoSteer(`BUDGET: you have used 80% (${spend.spent} of ${opts.budgetTokens} tokens). `
       + "Stop investigating now; write your final answer with what you have and say what you did not get to.",
       { onRejected: (e) => process.stderr.write(`codex-delegate: the budget steer was rejected (${e.message})\n`) });
     // Recorded only when it actually went out, so an unsteerable turn tries again on the next event
     // rather than reporting a warning the model never received.
     if (sent) {
-      softSteerAt = budgetSpent;
-      process.stderr.write(`codex-delegate: budget: ${budgetSpent} of ${opts.budgetTokens} tokens spent; asked the seat for its final answer now\n`);
+      spend.softSteerAt = spend.spent;
+      process.stderr.write(`codex-delegate: budget: ${spend.spent} of ${opts.budgetTokens} tokens spent; asked the seat for its final answer now\n`);
     }
   }
 }
@@ -3145,11 +3217,9 @@ function parseAnswerJson(text) {
 // Those three values are surfaced too: a coordinator checking a seat wants to see `"Claude Code"` and
 // `"openai"`, not to be told that a path was found.
 //
-// $CODEX_DELEGATE_SESSIONS_DIR moves the search root, and exists so this can be TESTED. Before it there
-// was no positive case at all — the one receipt case asserted receiptOk:false, and replacing the whole
-// function with `return null` left every suite green, which is a strange state for the field the README
-// calls proof the turn really ran. It weakens nothing: a process that can set this variable is already
-// the process that writes the report, and could fabricate every field in it.
+// $CODEX_DELEGATE_SESSIONS_DIR moves the search root, and exists so this can be TESTED positively. It
+// weakens nothing: a process that can set it is already the process that writes the report, and could
+// fabricate every field in it.
 const RECEIPT_HEAD_BYTES = 64 * 1024;
 function findRollout(threadId) {
   if (!threadId) return null;
@@ -3208,16 +3278,10 @@ function findRollout(threadId) {
 function persistAnswer(text, suffix = "") {
   if (!text) return null;
   try {
-    // Inside the try, and this is the whole point of the function's contract. passwdHome() does not
-    // return an error, it calls fail(), which sets the exit code and throws — so with this line outside,
-    // a uid with no passwd entry turned "the answer log could not be written" into an exception raised
-    // while building the report of a turn that had already succeeded. Measured: the process stayed alive
-    // through four of its own timeout periods rather than exiting.
-    // os.userInfo() directly, NOT passwdHome(): that helper reports a missing passwd entry through fail(),
-    // which prints a refusal and sets the exit code. Inside a best-effort side write on a turn that had
-    // already succeeded, that printed "codex-delegate: cannot resolve your home directory" to stderr and
-    // then exited 0 — a refusal and a success in the same run.
-    const dir = answersDir();
+    // Everything below is inside the try, and the directory is resolved best-effort: this runs while the
+    // report of a turn that already succeeded is being built, where a refusal-and-exit is the wrong shape.
+    const dir = answersDirOrNull();
+    if (dir === null) return null;
     const name = `${rootThreadId ?? `no-thread-${process.pid}`}${suffix}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
@@ -3229,7 +3293,8 @@ function persistAnswer(text, suffix = "") {
 function persistTurnDiff(payload) {
   if (typeof payload?.diff !== "string" || !rootThreadId) return;
   try {
-    const dir = answersDir();
+    const dir = answersDirOrNull();
+    if (dir === null) { turnDiffPath = null; return; }
     const target = path.join(dir, `${rootThreadId}.diff`);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(target, payload.diff, { mode: 0o600 });
@@ -3377,19 +3442,15 @@ function classifyEvidence() {
   const verdictFailed = (c) => c.status === "failed" || c.status === "declined";
   const blocked = commands.filter((c) => !verdictFailed(c) && typeof c.exitCode !== "number");
   // A probe whose exit code answers a QUESTION is not a failed command: grep/rg exit 1 for "no match",
-  // test/[ for "false", diff/cmp for "the files differ" — each reserves 2 for real trouble. Counting
-  // them as failures made a routine research seat exit 11 for a grep that found nothing — measured,
-  // 7 of 26 read seats in one audit session. Exit 1 EXACTLY, and only a PLAIN probe command: a pipe,
-  // a compound or a substitution keeps failure semantics, because its exit 1 may be someone else's.
-  // `declined` is an approval refusal whatever the code says, and never a probe answer.
-  // The excluded set carries \n and \r for a reason: codex routinely sends multi-line `bash -lc`
-  // scripts, and without them "grep -q needle file\npnpm test" matched as a plain probe — laundering a
-  // failed test suite into "the probe answered no" and exiting 0 under an answer claiming success.
-  // Matched against the BARE command, never against `command`: the live server reports the wrapper it
-  // ran, so this pattern — anchored at ^ — matched nothing a real turn ever executed and the exemption
-  // was dead from the day it shipped. Measured on codex 0.150.1: `/bin/zsh -c 'grep -q zzz /dev/null'`
-  // exit 1, commandsProbeNegative 0, exit 11 for a read seat whose only failure was a grep finding
-  // nothing.
+  // test/[ for "false", diff/cmp for "the files differ" — each reserves 2 for real trouble. Exit 1
+  // EXACTLY, and only a PLAIN probe command: a pipe, a compound or a substitution keeps failure
+  // semantics, because its exit 1 may be someone else's. `declined` is an approval refusal whatever the
+  // code says, and never a probe answer.
+  // \n and \r are excluded for the same reason: codex routinely sends multi-line `bash -lc` scripts, and
+  // without them "grep -q needle file\npnpm test" reads as a plain probe, laundering a failed suite into
+  // "the probe answered no".
+  // Matched against the BARE command, never against `command`: the live server reports the wrapper it ran
+  // (`/bin/zsh -c '...'`), so an ^-anchored pattern over that matches nothing a real turn executes.
   const PROBE_RE = /^\s*(?:grep|rg|egrep|fgrep|test|\[|diff|cmp|git\s+(?:diff|grep))(?:\s[^|&;`$\n\r]*)?$/;
   const probeNegative = (c) => c.status !== "declined" && c.exitCode === 1 && PROBE_RE.test(bareCommand(c));
   const probeNegatives = commands.filter(probeNegative);
@@ -3520,11 +3581,10 @@ function runVerifyProcess(budgetMs) {
   });
 }
 
-// --verify runs on its OWN schedule, not as a reward for having passed the weaker gates. It used to be
-// gated on the ladder already reading 0, which inverted the evidence: --expect-command greps command
-// strings the MODEL wrote and is defeated by `true # vitest`, while --verify is a command the CALLER
-// runs afterwards and cannot be authored by the model. The weak check was cancelling the strong one, and
-// the report said `verify: null` — so a proven-broken end state and a proven-good one printed alike.
+// --verify runs on its OWN schedule, not as a reward for having passed the weaker gates: --expect-command
+// greps command strings the MODEL wrote and is defeated by `true # vitest`, while --verify is a command
+// the CALLER runs afterwards and cannot be authored by the model. Gating the strong check on the weak
+// ones passing leaves `verify: null`, printing a proven-broken end state and a proven-good one alike.
 //
 // Skipped on a timeout only, and for a reason: the deadline fires while Codex is still alive and
 // possibly mid-write, so the check would read a torn tree. verifySkipped (the return value) records
@@ -3584,66 +3644,10 @@ async function runVerifier() {
 // The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
 // sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
 function decideExitCode(ev, verifySkipped) {
-  const { expected, failedCmds, failedPatches, blocked, answer, schemaErrs } = ev;
   const verifyPassed = verifyResult?.ok === true;
-  const verifyFailed = verifyResult != null && !verifyPassed;
-  let code = EXIT.OK;
-  // One rung for every declared budget: the caller set it, the driver spent it, and cut.kind says which
-  // one ran out. A separate code would have made every relay, gate and doc grow a fourth ladder entry
-  // for a fact the report already carries.
-  if (turnStatus === "timedOut" || turnStatus === "budgetExhausted" || turnStatus === "maxCommands") code = EXIT.TIMEOUT;
-  // A parameter the SERVER rejected is the caller's to fix, not something to retry, so it must not land on
-  // the same rung as "the turn died". The set of reasoning efforts is per-model and only knowable at
-  // runtime — measured: `minimal` is in the server's own generic list and is refused by this account's
-  // model, which answered `unsupported_value ... Supported values are: none, low, medium, high, xhigh,
-  // max`. As exit 1 that reads as "retry"; as exit 2 it reads as "you passed something this model does not
-  // take", and the cause line carries the server's list verbatim.
-  else if (turnStatus !== "completed" && invalidRequest(turnError)) code = EXIT.USAGE;
-  else if (turnStatus !== "completed") code = EXIT.TURN_NOT_COMPLETED;
-  // An unattended interaction the driver could not answer means the turn proceeded without something it
-  // asked for. That is never a success, and it is not an escalation either — no sandbox change fixes it.
-  else if (interactions.length) code = EXIT.INTERACTION;
-  // Escalations before NO_COMMANDS: a refused approval explains the missing command, and reporting
-  // "nothing ran" would hide the reason.
-  else if (escalations.length) code = EXIT.ESCALATED;
-  // Above the proxies below it: this one measured the end state directly instead of inferring it.
-  // "The check said no" and "the check could not be run" are different instructions to the caller — redo
-  // the work, versus fix the verifier — so they get different codes. Reporting the second as 9 told the
-  // caller to discard work the run never measured, while the text beside it said the opposite.
-  // A verifier the deadline left no room for is the same fact as one that could not be executed: it was
-  // DECLARED and it was not measured. It used to leave verifyResult null, which both verify rungs test
-  // for, so the ladder fell through to the weaker gates and a run with an unrun check could reach 0 —
-  // the exact "report says success, the work is unverified" shape --verify exists to prevent.
-  else if (verifySkipped === "budget-exhausted") code = EXIT.VERIFY_UNMEASURABLE;
-  else if (verifyResult && !verifyResult.measured) code = EXIT.VERIFY_UNMEASURABLE;
-  else if (verifyFailed) code = EXIT.VERIFY_FAILED;
-  // --allow-no-commands waives the "at least one command" floor. It must NOT waive an expectation the
-  // caller declared: asking for proof and then accepting its absence is the exact failure this gate exists
-  // to prevent. A passing --verify does not waive it either — the end state can be right while the work
-  // drifted, e.g. a stale dist/ satisfying `test -f dist/index.js` for a build that never ran.
-  else if (expected.length === 0 && (opts.expectRe || !opts.allowNoCommands)) code = EXIT.NO_COMMANDS;
-  else if (!answer) code = EXIT.NO_ANSWER;
-  // The caller asked for a shape and spent a corrective turn not getting it. Above COMMAND_FAILED:
-  // an unusable answer is the more actionable complaint, and 11 is still visible in the report.
-  else if (opts.outputSchema && schemaErrs.length) code = EXIT.SCHEMA;
-  // A command that ran and failed is a failure of the work, whatever the answer claims — one incidental
-  // success (a skill-file read) must not mask it. A PASSING --verify overrules it, because iterative work
-  // normally contains failed commands: the first test run fails, the model fixes it, the second passes.
-  // The waiver is on the check's RESULT; keying it on the flag's presence let a check that never executed
-  // wave a real failure through.
-  // Under --review the deliverable is the review, and the reviewer's own failed probes are its working
-  // method, not a failure of the work — measured live: a real review ran 26 commands, several of them
-  // failing greps, and exited 11 with a perfectly good review in hand. The counts stay in the report.
-  // The waiver is keyed on a review having ARRIVED, not on the flag: `--review branch:nonexistent`
-  // fails its git commands and produces no payload, and waiving on the flag alone let that exit 0.
-  // `blocked` is on this rung too. A command item that reached the client with no verdict — no numeric
-  // exit code, and neither failed nor declined — is a command whose outcome nobody knows; the footer
-  // has always printed it as NEVER RAN while the ladder ignored it entirely, so one success beside one
-  // unresolved command reported ok: true. It is not evidence of failure, but it is the absence of the
-  // evidence exit 0 claims to have.
-  else if ((failedCmds.length || failedPatches.length || blocked.length) && !verifyPassed
-           && !(opts.review && reviewResult != null)) code = EXIT.COMMAND_FAILED;
-  return code;
+  const ctx = { ...ev, verifySkipped, verifyPassed, verifyFailed: verifyResult != null && !verifyPassed };
+  for (const rung of LADDER) if (rung.when(ctx)) return rung.code;
+  return EXIT.OK;
 }
 
 // The steer channel: a file the coordinator appends to, polled once a second while the turn runs. New
@@ -3717,7 +3721,7 @@ function finish(reason, codeOverride = null) {
   if (reason) turnStatus = reason;
   // A budget nothing was ever counted against did not bound this run, and a report that quietly said
   // null would leave the caller believing it had. Once, here, because finish() runs once.
-  if (opts.budgetTokens && budgetSpent === null)
+  if (opts.budgetTokens && spend.spent === null)
     process.stderr.write(`codex-delegate: --budget-tokens ${opts.budgetTokens} was set but the server sent no token-usage event, so nothing was counted against it; the wall clock was the only bound\n`);
 
   const ev = classifyEvidence();
@@ -3786,7 +3790,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // Which Codex installation answered, and which VERSION of it: the userAgent the initialize response
     // carries was read and dropped, so version drift was named only after a method came back -32601.
     // null means the server sent a userAgent this driver could not read a version out of.
-    codexHome, codexVersion, codexVersionPinned: PINNED_CODEX,
+    driverVersion: VERSION, codexHome, codexVersion, codexVersionPinned: PINNED_CODEX,
     // Where the seat's model and effort came from: a fresh probe, a stale last-known-good, or nothing at
     // all. Through the relay those three were indistinguishable, and only the first is healthy.
     // null under --host-home, where the caller's own config.toml IS the config.
@@ -3866,7 +3870,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // The token budget as it was actually spent. spentTokens is null when the server sent no usage
     // event at all — "nothing was counted", which is not the same fact as "nothing was spent".
     budget: opts.budgetTokens
-      ? { tokens: opts.budgetTokens, spentTokens: budgetSpent, softSteerAt }
+      ? { tokens: opts.budgetTokens, spentTokens: spend.spent, softSteerAt: spend.softSteerAt }
       : { tokens: null, spentTokens: null, softSteerAt: null },
     timing,
     verify: verifyResult, verifySkipped,
@@ -3896,7 +3900,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
   closingFields = { turnStatus, answerPath,
     // The last mid-flight snapshot, on the record for good: the rate limit means a run shorter than
     // half a minute would otherwise end with none of it, which is exactly the run a poller misses.
-    lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: budgetSpent,
+    lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: spend.spent,
     commandsSeen: commands.length, phase: lastPhase,
     // Only a successful harvest updates the rebuild pointers: on a preserved tree the work is still in
     // the tree, and overwriting them with null would throw away the last state that CAN be rebuilt. The
@@ -3966,10 +3970,10 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
     if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
     if (rateLimits?.primary) L.push(`rate limit: ${rateLimits.primary.usedPercent ?? "?"}% of the primary window used`);
     if (turnDiffPath) L.push(`turn diff: ${turnDiffPath}`);
-    if (opts.budgetTokens) L.push(budgetSpent === null
+    if (opts.budgetTokens) L.push(spend.spent === null
       ? `budget: ${opts.budgetTokens} tokens declared, NOTHING COUNTED — the server sent no usage event`
-      : `budget: ${budgetSpent} of ${opts.budgetTokens} tokens spent this invocation` +
-        (softSteerAt === null ? "" : `, steered at ${softSteerAt}`));
+      : `budget: ${spend.spent} of ${opts.budgetTokens} tokens spent this invocation` +
+        (spend.softSteerAt === null ? "" : `, steered at ${spend.softSteerAt}`));
     {
       const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
       const wallMs = Date.now() - startedAtMs;
@@ -4086,9 +4090,9 @@ async function main() {
   await setup();
   setupDoneMs = Date.now();
   // Three rungs on one clock, because a budget the model cannot plan against is a budget it spends on
-  // investigation and then has nothing left to write with. Anchored on the process start, not on this
-  // line: the config probe runs before this timer is armed, and a relative deadline overshot the
-  // caller's wall clock by however long it took.
+  // investigation and then has nothing left to write with. Anchored on the PROCESS start, not on this
+  // line: the config probe runs before this timer is armed, and a relative deadline overshoots the
+  // caller's whole budget by however long that took.
   //   T−reserve  ask for the final answer NOW (the only recovery that works: E1 measured that an
   //              interrupt DISCARDS the in-flight message, so nothing after this rung can produce one)
   //   T−grace    stop the turn, and give the server the grace to close it
@@ -4233,26 +4237,7 @@ async function main() {
   };
   requestFn = request;
 
-  const init = await request("initialize", {
-    clientInfo: { title: "codex-delegate", name: "Claude Code", version: "2.0" },
-    capabilities: {
-      experimentalApi: false, requestAttestation: false,
-      // Every one of these is parsed and dropped: the driver reads item/completed and turn/completed and
-      // nothing else. Left empty, a `pnpm test` streams its whole output through the pipe line by line for
-      // no reader. The list is taken from ServerNotification in the pinned schema rather than guessed —
-      // the command-output streams are the large ones, and are exactly what a test-running delegation
-      // produces most of.
-      // item/agentMessage/delta is deliberately NOT here: it is the answer text, and E1 measured that an
-      // interrupted turn's in-flight message is discarded server-side, so the deltas are the only copy a
-      // cut run can hand back. Every other delta stream stays off — a `pnpm test` would otherwise stream
-      // its whole output through the pipe for no reader.
-      optOutNotificationMethods: [
-        "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
-        "item/commandExecution/outputDelta", "command/exec/outputDelta", "process/outputDelta",
-        "item/fileChange/outputDelta", "item/plan/delta"
-      ]
-    }
-  });
+  const init = await request("initialize", initializeParams());
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} })}\n`);
 
   // Measured live: `Claude Code/0.150.1 (Mac OS 26.6.2; arm64) unknown (codex-delegate; 2.0)` — the
@@ -4470,71 +4455,84 @@ function stdoutFailed(e) {
   closeJobRecord(EXIT.TRANSPORT);
   shutdown().then(() => process.exit(EXIT.TRANSPORT));
 }
-process.stdout.on("error", stdoutFailed);
 
-// Installing a handler removes Node's default terminate-on-signal, so the handler must always end the
-// process. Without the settled branch a run that has already reported ignores every signal it handles,
-// and only SIGKILL reclaims it.
-//
-// SIGHUP is in the list, and its absence was a hole rather than an omission: it is what a closing
-// terminal and a dying parent shell send, which is the ordinary end of a backgrounded delegation.
-// Measured without it — driver exit 129, a TERM-ignoring descendant reparented to pid 1, the cwd lock
-// left behind, and a zero-byte report: every guarantee this driver makes about teardown, lost to the
-// one signal nobody sends on purpose.
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-  process.on(sig, () => {
-    // A repeat signal while teardown is already running escalates the group straight to SIGKILL. The
-    // old path called process.exit() here, which discarded the pending escalation — the second Ctrl-C
-    // was precisely how a TERM-ignoring descendant got left behind.
-    if (shutdownDone) { killGroup("SIGKILL"); return; }
-    if (settled) {
-      if (flushing) return;   // the report is mid-write; let it finish or hit its own timer
-      // A verifier is the one thing that can still be RUNNING after the turn settled. Kill its group and
-      // let finish() report what the turn did with the check marked unmeasured, rather than exiting on
-      // the spot and throwing away a report the run has already earned. A second signal falls through.
-      if (verifyChild) {
-        process.stderr.write(`codex-delegate: ${sig} during --verify; killing the verifier's process group\n`);
-        killVerifier();
+// Nothing below this line runs on import. The suites read EXIT, LADDER, SEAT_FIELDS and lockKey out of
+// this module instead of copying them, and an import that installed signal handlers, an exit hook and a
+// turn would take the importing process with it. `node driver.mjs` from any cwd and the --detach child
+// (process.execPath plus this path) both match; a symlinked entry matches through its realpath, because
+// ESM resolution reports the resolved URL while argv[1] keeps the link.
+const RUN_AS_MAIN = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  if (import.meta.url === pathToFileURL(entry).href) return true;
+  try { return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href; } catch { return false; }
+})();
+export { ATTACH_KINDS, EFFORTS, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, USAGE, VERSION, WEB_SEARCH, lockKey };
+
+if (RUN_AS_MAIN) {
+  process.stdout.on("error", stdoutFailed);
+
+  // Installing a handler removes Node's default terminate-on-signal, so the handler must always end the
+  // process. Without the settled branch a run that has already reported ignores every signal it handles,
+  // and only SIGKILL reclaims it.
+  //
+  // SIGHUP is in the list, and its absence was a hole rather than an omission: it is what a closing
+  // terminal and a dying parent shell send, which is the ordinary end of a backgrounded delegation.
+  // Measured without it — driver exit 129, a TERM-ignoring descendant reparented to pid 1, the cwd lock
+  // left behind, and a zero-byte report: every guarantee this driver makes about teardown, lost to the
+  // one signal nobody sends on purpose.
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.on(sig, () => {
+      // A repeat signal while teardown is already running escalates the group straight to SIGKILL. The
+      // old path called process.exit() here, which discarded the pending escalation — the second Ctrl-C
+      // was precisely how a TERM-ignoring descendant got left behind.
+      if (shutdownDone) { killGroup("SIGKILL"); return; }
+      if (settled) {
+        if (flushing) return;   // the report is mid-write; let it finish or hit its own timer
+        // A verifier is the one thing that can still be RUNNING after the turn settled. Kill its group and
+        // let finish() report what the turn did with the check marked unmeasured, rather than exiting on
+        // the spot and throwing away a report the run has already earned. A second signal falls through.
+        if (verifyChild) {
+          process.stderr.write(`codex-delegate: ${sig} during --verify; killing the verifier's process group\n`);
+          killVerifier();
+          return;
+        }
+        shutdown().then(() => process.exit(process.exitCode ?? EXIT.TRANSPORT));
         return;
       }
-      shutdown().then(() => process.exit(process.exitCode ?? EXIT.TRANSPORT));
-      return;
-    }
-    // A turn that has already produced evidence is REPORTED, not discarded. abort() writes no report at
-    // all, so a cancelled delegation used to hand back zero bytes of stdout while its commands, files
-    // and answer sat in memory — measured: six seats stopped mid-run, six empty reports, the whole
-    // product of each thrown away. This is the same choice --timeout already makes one line below in
-    // main(), and it lands on the published rung for "the turn did not complete" (exit 1) rather than
-    // on transport (4), which means "codex crashed or the rights were wrong" and did not happen here.
-    // Before a thread exists there is nothing to report, and 4 stays.
-    // A detached FRONT holds no turn and no lock: what it has is a handle to a run that is still going,
-    // and a harness killing it (the Bash tool SIGTERMs the group at an explicit timeout — measured) must
-    // still get that handle rather than a transport failure about a run that is perfectly healthy.
-    if (detachHandle) return emitHandle(detachHandle, `interrupted by ${sig}; the detached run is unaffected`);
-    process.stderr.write(`codex-delegate: interrupted by ${sig}\n`);
-    // A second signal during the grace reports at once: the caller is waiting, and a handler that
-    // silently absorbed it would leave only SIGKILL — which takes the report with it.
-    if (pendingCut) { if (cutGraceTimer) clearTimeout(cutGraceTimer); finish(pendingCut.reason); return; }
-    // One second, not the wall clock's grace: a signal is a caller who wants out, and the harness that
-    // sent it may follow with SIGKILL. The interrupt is fire-and-forget either way — shutdown()'s own
-    // SIGTERM wait is what gives the server time to act on it.
-    if (child && rootThreadId) { cutTurn("interrupted", null, { graceMs: 1000 }); return; }
-    abort(EXIT.TRANSPORT, `interrupted by ${sig} before the thread existed`);
-    shutdown().then(() => process.exit(EXIT.TRANSPORT));
+      // A turn that has already produced evidence is REPORTED, not discarded: abort() writes no report at
+      // all, and the commands, files and answer are already in memory. Same choice --timeout makes below,
+      // and it lands on the published rung for "the turn did not complete" (exit 1) rather than on
+      // transport (4), which means "codex crashed or the rights were wrong". Before a thread exists there
+      // is nothing to report, and 4 stays.
+      // A detached FRONT holds no turn and no lock, only a handle to a run that is still going: a harness
+      // killing it (the Bash tool SIGTERMs the group at its own timeout) must still get that handle.
+      if (detachHandle) return emitHandle(detachHandle, `interrupted by ${sig}; the detached run is unaffected`);
+      process.stderr.write(`codex-delegate: interrupted by ${sig}\n`);
+      // A second signal during the grace reports at once: the caller is waiting, and a handler that
+      // silently absorbed it would leave only SIGKILL — which takes the report with it.
+      if (pendingCut) { if (cutGraceTimer) clearTimeout(cutGraceTimer); finish(pendingCut.reason); return; }
+      // One second, not the wall clock's grace: a signal is a caller who wants out, and the harness that
+      // sent it may follow with SIGKILL. The interrupt is fire-and-forget either way — shutdown()'s own
+      // SIGTERM wait is what gives the server time to act on it.
+      if (child && rootThreadId) { cutTurn("interrupted", null, { graceMs: 1000 }); return; }
+      abort(EXIT.TRANSPORT, `interrupted by ${sig} before the thread existed`);
+      shutdown().then(() => process.exit(EXIT.TRANSPORT));
+    });
+  }
+
+  // The synchronous last resort for exits that bypassed shutdown() — a crash, a code path that called
+  // process.exit directly. After a clean teardown every one of these is a no-op.
+  process.on("exit", () => {
+    if (child) killGroup("SIGKILL");
+    killVerifier();
+    if (probeChild) { try { process.kill(-probeChild.pid, "SIGKILL"); } catch {} }
+    releaseLock();
+    worktreeLastResort();
+  });
+
+  main().catch((e) => {
+    if (e instanceof Bail) { shutdown(); return; }
+    abort(EXIT.TRANSPORT, e.message);
   });
 }
-
-// The synchronous last resort for exits that bypassed shutdown() — a crash, a code path that called
-// process.exit directly. After a clean teardown every one of these is a no-op.
-process.on("exit", () => {
-  if (child) killGroup("SIGKILL");
-  killVerifier();
-  if (probeChild) { try { process.kill(-probeChild.pid, "SIGKILL"); } catch {} }
-  releaseLock();
-  worktreeLastResort();
-});
-
-main().catch((e) => {
-  if (e instanceof Bail) { shutdown(); return; }
-  abort(EXIT.TRANSPORT, e.message);
-});
