@@ -48,10 +48,20 @@ test("every field the agent documents is accepted by the driver",
     return bogus.length === 0 || `documented but rejected by the driver: ${bogus.join(", ")}`;
   });
 
-test("the four command-line-only flags are refused as fields, and the agent says so",
-  "a newline in a relayed value opens a new field, so anything accepted here can be injected: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, MCP grants tool servers",
+test("the command-line-only flags are refused as fields, and the agent says so",
+  "a newline in a relayed value opens a new field, so anything accepted here can be injected: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, MCP grants tool servers. The seven bounds and transport knobs beside them are refused for the other reason — each has a default a seat needs no header to size",
   () => {
     const problems = [];
+    // Named by the driver's own map, so a knob quietly promoted back to a field fails here rather than in
+    // a live seat: the message the refusal prints is what tells a relay to use the flag instead.
+    const cliOnly = [...driver.matchAll(/const CLI_ONLY_FIELDS = \{([\s\S]*?)\};/g)]
+      .flatMap((m) => [...m[1].matchAll(/([A-Z_]+): "(--[a-z-]+)"/g)].map((x) => [x[1], x[2]]));
+    if (cliOnly.length !== 7) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 7`);
+    for (const [f, flag] of cliOnly) {
+      if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
+      if (documented.includes(f)) problems.push(`${f} is back in the agent's header table`);
+      if (!driver.includes(`"${flag}"`)) problems.push(`${f} was removed as a field and ${flag} went with it`);
+    }
     // VERIFY is special: it IS a driver field, but reachable only with --allow-seat-verify on the
     // command line, which this relay never passes — so the agent must name it as refused.
     if (!/allow-seat-verify/.test(agent)) problems.push("the agent does not mention --allow-seat-verify");
@@ -149,22 +159,22 @@ test("the driver call echoes an absolute report path for the Read tool",
     return problems.length === 0 || problems.join("; ");
   });
 
-test("TIMEOUT is the SEAT's clock, WAIT_TIMEOUT is one wait's, and neither is written by default",
-  "560 used to be a cap on the seat itself, because the Bash tool ended the call and the seat with it. The seat is detached now, and the driver has no wall clock unless one is asked for: a relay that writes a TIMEOUT nobody declared reintroduces exactly the bound the default exists to remove",
+test("the three bounds are the DRIVER's: no header can set one, and the defaults arm what a subagent has",
+  "560 used to be a cap on the seat itself, because the Bash tool ended the call and the seat with it. The driver now has no wall clock unless one is asked for, and silence and volume are always armed — so a header able to set any of the three puts back in every relayed seat exactly the sizing these defaults remove",
   () => {
     const problems = [];
-    if (!/TIMEOUT: <seconds> \[omit -> no wall clock/.test(agent)) problems.push("the header table no longer says an omitted TIMEOUT means no wall clock");
+    for (const f of ["TIMEOUT", "IDLE_TIMEOUT", "MAX_COMMANDS"]) {
+      if (seatFields.includes(f)) problems.push(`${f} is a seat-file field again`);
+      if (documented.includes(f)) problems.push(`${f} is back in the agent's header table`);
+      if (!new RegExp(`\`${f}\``).test(agent)) problems.push(`${f} is not named as a bad header`);
+    }
     if (/[Aa]bove 560 is a BAD\s*HEADER/.test(flat)) problems.push("the removed 'a TIMEOUT above 560 is a bad header' rule is back");
     if (/backgrounds the driver/.test(flat)) problems.push("the agent still says the Bash tool BACKGROUNDS the driver at its cap; measured, an explicit timeout KILLS it");
-    if (!/WAIT_TIMEOUT: <secs>\s+\[the relay writes 560/.test(agent)) problems.push("WAIT_TIMEOUT is not documented as one wait's own budget");
-    // The relay writes TIMEOUT only when the header carried it, and no sentence tells a coordinator to
-    // pick a number for it: sizing a wall clock is the configuration this default removes.
-    if (!/Write every other field ONLY if the header carried it, `TIMEOUT:` included/.test(flat))
-      problems.push("step 1 no longer says TIMEOUT is written only when the header carried it");
     if (/(size|choose|pick|set) (a |an |the )?(longer |larger )?TIMEOUT/i.test(flat))
       problems.push("a sentence still tells the coordinator to size TIMEOUT");
-    // And the driver's own default is the same fact: no wall clock on any route.
-    if (!/o = \{ level: "read", timeout: 0,/.test(driver)) problems.push("the driver's --timeout no longer defaults to 0");
+    // And the driver's own defaults are the same fact, on every route.
+    if (!/o = \{ level: "read", timeout: 0, idleTimeout: 900, maxCommands: 1000,/.test(driver))
+      problems.push("the driver's own defaults are no longer no-clock / 900 s silence / 1000 commands");
     if (/o\.timeout = 7200/.test(driver)) problems.push("a route still defaults --timeout to 7200");
     return problems.length === 0 || problems.join("; ");
   });
@@ -195,30 +205,39 @@ test("the relay body stays a page of rules",
     return n <= 160 || `the relay body is ${n} lines, over the 160-line ceiling`;
   });
 
-test("the relay always writes DETACH: yes and WAIT_TIMEOUT: 560, verbatim",
-  "a seat that is not detached dies with the Bash call that started it — measured: the tool SIGTERMs the process group at an explicit timeout — so the two lines are the whole of the transport, and a relay that writes them only sometimes loses exactly the long seats they exist for",
+test("the transport is the DRIVER's: DETACH and WAIT_TIMEOUT are refused as fields",
+  "how a run is carried is not a right the header declares, and a relay writing a transport its coordinator never asked about chooses one for every seat; the flags stay for the caller who is running the driver himself",
   () => {
     const problems = [];
-    if (!/^ +DETACH: yes$/m.test(agent)) problems.push("the literal `DETACH: yes` line the relay always writes is gone");
-    if (!/^ +WAIT_TIMEOUT: 560$/m.test(agent)) problems.push("the literal `WAIT_TIMEOUT: 560` line is gone");
-    if (!/ALWAYS add/.test(agent)) problems.push("step 1 no longer says the two lines are added unconditionally");
-    for (const f of ["DETACH", "WAIT_TIMEOUT"])
-      if (!seatFields.includes(f)) problems.push(`${f} is not a seat-file field the driver accepts`);
-    if (!/590000 ms, whatever TIMEOUT says/.test(agent)) problems.push("step 3 no longer pins the Bash timeout independently of the seat's own clock");
+    for (const f of ["DETACH", "WAIT_TIMEOUT"]) {
+      if (seatFields.includes(f)) problems.push(`${f} is a seat-file field again`);
+      if (documented.includes(f)) problems.push(`${f} is back in the agent's header table`);
+      if (new RegExp(`^ +${f}: `, "m").test(agent)) problems.push(`the relay still writes a literal ${f} line`);
+      if (!new RegExp(`\`${f}\``).test(agent)) problems.push(`${f} is not named as a bad header`);
+    }
+    // The flags themselves stay: the refusal is about the seat file, not about the capability.
+    for (const flag of ["--detach", "--wait-timeout"])
+      if (!driver.includes(`"${flag}"`)) problems.push(`the driver lost ${flag}`);
+    if (!/590000 ms: the tool timeout bounds this call; a seat that outlives it\s+is interrupted with the call/.test(agent))
+      problems.push("step 3 no longer says a seat that outlives the Bash call is interrupted with it");
     return problems.length === 0 || problems.join("; ");
   });
 
-test("COLLECT is the way back to a seat that came back still running",
-  "the running shape names a threadId and nothing else can act on it: without COLLECT the coordinator holds an address it cannot use, and the seat's answer is written to a file nobody reads",
+test("collecting a run is --wait, not a COLLECT field",
+  "the running shape names a threadId and something has to act on it; a FIELD that acts on it is a whole mode of the driver reachable from a relayed value, and the value it takes is the address of somebody else's run",
   () => {
     const problems = [];
-    if (!seatFields.includes("COLLECT")) problems.push("COLLECT is not a seat-file field the driver accepts");
-    if (!/COLLECT: <threadId>/.test(agent)) problems.push("COLLECT is not documented in the header table");
-    // The driver's own mapping, read out of the source: COLLECT must reach --wait or the collection
-    // never happens.
-    if (!/COLLECT: "--wait"/.test(driver)) problems.push("the driver no longer maps COLLECT to --wait");
+    if (seatFields.includes("COLLECT")) problems.push("COLLECT is a seat-file field again");
+    if (documented.includes("COLLECT")) problems.push("COLLECT is back in the agent's header table");
+    if (/COLLECT: <threadId>/.test(agent)) problems.push("the agent still documents a COLLECT: <threadId> header");
+    if (!/`COLLECT`/.test(agent)) problems.push("COLLECT is not named as a bad header");
+    // The capability stays on the command line, where no relayed value reaches.
     if (!/--wait ID/.test(driver)) problems.push("the driver's usage no longer documents --wait");
-    if (!/body must be EMPTY/.test(agent)) problems.push("the agent does not require an empty body beside COLLECT");
+    // The seat-file expansion map itself, not the refusal table beside it: COLLECT appears in both, and
+    // only one of them turns a relayed value into a mode of the driver.
+    const flagsMap = /const FLAGS = \{([\s\S]*?)\};/.exec(driver)?.[1] ?? "";
+    if (!flagsMap) problems.push("the driver's seat-file FLAGS map could not be read, so this case proves nothing");
+    if (/COLLECT/.test(flagsMap)) problems.push("the driver's seat-file FLAGS map still expands COLLECT");
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -231,7 +250,7 @@ test("a seat that outlived the wait comes back as the running shape, not as a fa
     const problems = [];
     for (const k of ["threadId", "pid", "jobPath", "reportPath"])
       if (!new RegExp(`\\b${k}\\b`).test(block)) problems.push(`the running shape does not name ${k}`);
-    if (!/seat still running: collect with COLLECT: <threadId>/.test(block))
+    if (!/seat still running: collect it with `--wait <threadId>`/.test(block))
       problems.push("the running shape does not tell the coordinator how to collect it");
     if (!/--- answer \(0 bytes\) ---/.test(block)) problems.push("the running shape has no 0-byte answer marker");
     if (!/three shapes/.test(agent)) problems.push("the agent still promises only two return shapes");
@@ -256,9 +275,9 @@ test("the success envelope names every coordinator-critical report key",
     const critical = ["exitCode", "turnStatus", "turnError", "threadId", "receiptOk", "receiptPath",
                       "commandsSucceeded", "filesTouched", "verify", "answerPath", "answerTruncated",
                       "outputSchemaOk", "schemaErrors", "schemaKeywordsUnchecked",
-                      // Everything a cut seat hands back instead of an answer, and what the budget cost:
-                      // without these, exit 3 through this relay is indistinguishable from silence.
-                      "cut", "timing", "budget", "commentaryPath", "answerPartialPath", "resumedFrom",
+                      // Everything a cut seat hands back instead of an answer: without these, exit 3
+                      // through this relay is indistinguishable from silence.
+                      "cut", "timing", "commentaryPath", "answerPartialPath", "resumedFrom",
                       "worktreePath", "worktreeRepo", "worktreeBase", "worktreeRestored",
                       "worktreeDiffPath", "worktreeUntrackedPath", "worktreeCommitsRef",
                       "worktreeIgnoredDropped", "worktreeFleet", "worktreePreserved", "worktreeRemoveCommand"];

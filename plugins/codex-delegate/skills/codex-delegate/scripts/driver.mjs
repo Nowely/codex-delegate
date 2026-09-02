@@ -98,10 +98,15 @@ class Bail extends Error {}
 
 // The seat-file vocabulary. Above --help rather than beside its parser because --help interpolates it:
 // MAX_COMMANDS was accepted here and absent from the hand-typed list for a release.
-const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
+const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
                              "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "ALLOW_FAILED_COMMANDS", "BRIEF", "COMMIT",
-                             "WRITABLE", "REVIEW", "RESUME", "PROGRESS", "BUDGET_TOKENS", "IDLE_TIMEOUT",
-                             "MAX_COMMANDS", "DETACH", "WAIT_TIMEOUT", "COLLECT"]);
+                             "WRITABLE", "REVIEW", "RESUME"]);
+// Accepted on the command line and refused as fields: each bounds or transports the run rather than
+// declaring its rights, and each has a default a seat launched with nothing configured can live with.
+// A header able to set one is a knob every relayed seat would have to size.
+const CLI_ONLY_FIELDS = { TIMEOUT: "--timeout", IDLE_TIMEOUT: "--idle-timeout", MAX_COMMANDS: "--max-commands",
+                          DETACH: "--detach", WAIT_TIMEOUT: "--wait-timeout", COLLECT: "--wait",
+                          PROGRESS: "--progress" };
 // The extensions the server takes, and which item kind each becomes.
 const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
                        webp: "localImage", bmp: "localImage",
@@ -124,8 +129,8 @@ const STATE_SUBDIRS = [
 // cannot exist in one and not the other. `help: null` shares the line above.
 const LADDER = [
   { code: EXIT.TIMEOUT,
-    help: "cut on a declared budget — idle silence, commands, tokens, or the wall\n      clock when one was set (cut.kind says which); the report holds the answer\n      or the partial the turn reached, plus a hint naming --resume <threadId>",
-    when: () => turnStatus === "timedOut" || turnStatus === "budgetExhausted" || turnStatus === "maxCommands" },
+    help: "cut on a declared budget — idle silence, commands, or the wall clock\n      when one was set (cut.kind says which); the report holds the answer or\n      the partial the turn reached, plus a hint naming --resume <threadId>",
+    when: () => turnStatus === "timedOut" || turnStatus === "maxCommands" },
   // A parameter the SERVER rejected is the caller's to fix, not a transport failure to retry: the set of
   // reasoning efforts is per-model and knowable only at runtime, and the cause line carries the server's
   // own list verbatim.
@@ -194,9 +199,13 @@ const USAGE = `codex-delegate ${VERSION} — run one Codex turn with rights decl
 Rights
   --level read       the default: read anything, write only $TMPDIR; no lock is
                      taken, so read seats run in parallel over one directory.
-                     $TMPDIR IS the grant, so an unset TMPDIR is a usage error
-                     here, refused before anything is spawned (export TMPDIR=/tmp
-                     — a stock Linux shell does not set it)
+                     $TMPDIR IS the grant. An explicit one is honoured and takes
+                     the same protected-root guard every writable root takes; an
+                     unset one — the default in a stock Linux shell — is not an
+                     error: the driver makes a private 0700 directory of this
+                     run's own under the system temp dir, exports it for the turn
+                     and the verifier, and removes it at exit. The grant is then
+                     narrower than /tmp rather than absent
   --level write      workspace-write over --cwd; takes a per-directory lock
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
                      there at write level, and dispose of it afterwards. The tree
@@ -230,7 +239,11 @@ Rights
                      --attach, --steer-file and --mcp are NOT among them: an
                      injected line would upload a file nobody named, consume and
                      rename away a file nobody named, or grant tool servers
-                     nobody granted. Pass those on the command line.
+                     nobody granted. Pass those on the command line. Neither
+                     are the bounds and the transport — flags whose defaults
+                     are chosen so a seat needs no header to size them, and
+                     naming one in a seat file is exit 2:
+                     ${wrapJoined(Object.keys(CLI_ONLY_FIELDS), "/", 21)}
                      SEAT is required and must come FIRST. For a wrapper: write
                      the values, do not build a command line out of them.
                      Explicit flags override the file. A NEWLINE inside a value
@@ -303,18 +316,6 @@ Turn
                      it. At T the report is written regardless. A cut lands on
                      exit 3 with cut.kind wall, and the report says whether the
                      server closed the turn inside the grace
-  --budget-tokens N  no default — a token budget for THIS invocation, counted off
-                     the server's own thread/tokenUsage/updated events. Spend is
-                     invocation-local: on --resume the thread's earlier turns are
-                     subtracted at the first event, so a resumed seat gets the
-                     whole budget again. At 80% the turn is STEERED once to write
-                     its final answer now; at 100% it is CUT exactly as the wall
-                     clock cuts it — exit 3, turnStatus budgetExhausted,
-                     cut.kind tokens. The granularity is one API call (one event
-                     per command, one for the final message), so the overshoot at
-                     the cut is the cost of that call. A server that sends no
-                     usage event at all warns on stderr and leaves
-                     budget.spentTokens null; the clock is then the only bound
   --idle-timeout S   default 900, 0 disables — how long the thread may say
                      NOTHING before the turn is cut with cut.kind idle. Every
                      notification and server request on the thread resets it
@@ -442,10 +443,7 @@ Report
                      sandboxed beside the exit status.
                      cut is null on a run that ended on its own and otherwise
                      names the budget that ended it: {kind, limit, observed,
-                     completedInGrace}. budget is {tokens, spentTokens,
-                     softSteerAt} — what --budget-tokens declared, what this
-                     invocation spent, and the spend at which the 80% steer went
-                     out (null when it never did). timing splits the wall clock into
+                     completedInGrace}. timing splits the wall clock into
                      {wallMs, setupMs, commandMs, modelMs}, commandMs being the
                      server's own per-command durations, so modelMs is what is
                      left for the model itself.
@@ -519,9 +517,9 @@ prints none. Codes decided after the turn can all carry executed work.
 // Four flags are deliberately NOT fields, each because an injected line would be a grant nobody made:
 // ATTACH uploads a local file, STEER-FILE renames a path away and consumes it while the turn runs, MCP
 // grants tool servers that reach outside the sandbox, and --run-dir would point another run's transport
-// at a file of its choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a shell. DETACH, WAIT_TIMEOUT and COLLECT are fields because
-// they are a boolean and two values the driver parses itself — no path, no shell, nothing a newline
-// could turn into a grant.
+// at a file of its choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a
+// shell. CLI_ONLY_FIELDS above are refused for a different reason: they are bounds and transport, not
+// rights, and the driver's own defaults are what let a seat run with nothing configured.
 let seatFileFields = null;   // what the file actually declared, for the report
 function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
@@ -535,6 +533,8 @@ function argvFromSeatFile(file, allowSeatVerify) {
     if (at < 0) fail(EXIT.USAGE, `--seat-file: line is not FIELD: value — ${JSON.stringify(line.slice(0, 60))}`);
     const field = line.slice(0, at).trim().toUpperCase();
     const value = line.slice(at + 1).trim();
+    if (Object.hasOwn(CLI_ONLY_FIELDS, field))
+      fail(EXIT.USAGE, `--seat-file: ${field} is command-line-only; pass ${CLI_ONLY_FIELDS[field]} instead. It bounds or transports the run rather than declaring its rights, and its default is chosen so a seat needs none`);
     if (!SEAT_FIELDS.has(field)) fail(EXIT.USAGE, `--seat-file: unknown field ${JSON.stringify(field)}; allowed: ${[...SEAT_FIELDS].join(", ")}`);
     if (seen.size === 0 && field !== "SEAT")
       fail(EXIT.USAGE, `--seat-file: the first field must be SEAT, not ${field} — a seat file that does not open with its rights declaration lets a later line supply them`);
@@ -560,7 +560,7 @@ function argvFromSeatFile(file, allowSeatVerify) {
     }
     const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands",
                     ALLOW_FAILED_COMMANDS: "--allow-failed-commands", BRIEF: "--brief",
-                    COMMIT: "--commit", PROGRESS: "--progress", DETACH: "--detach" };
+                    COMMIT: "--commit" };
     if (BOOLS[field]) {
       // A negative is the natural shape for a templated header, and refusing it failed the whole seat
       // before any work: a relay copying `NETWORK: no` out of its own contract exited 2. It means the
@@ -571,12 +571,9 @@ function argvFromSeatFile(file, allowSeatVerify) {
       continue;
     }
     if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
-    const FLAGS = { EFFORT: "--effort", TIMEOUT: "--timeout", EXPECT: "--expect-command", VERIFY: "--verify",
+    const FLAGS = { EFFORT: "--effort", EXPECT: "--expect-command", VERIFY: "--verify",
                     MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
-                    WRITABLE: "--writable", REVIEW: "--review", RESUME: "--resume",
-                    BUDGET_TOKENS: "--budget-tokens", IDLE_TIMEOUT: "--idle-timeout",
-                    MAX_COMMANDS: "--max-commands",
-                    WAIT_TIMEOUT: "--wait-timeout", COLLECT: "--wait" };
+                    WRITABLE: "--writable", REVIEW: "--review", RESUME: "--resume" };
     out.push(FLAGS[field], value);
   }
   if (!seen.has("SEAT")) fail(EXIT.USAGE, "--seat-file: no SEAT field; the seat's rights must be declared, not defaulted");
@@ -622,7 +619,6 @@ function parseArgs(argv) {
       case "--wait-timeout": o.waitTimeout = Number(need(++i, a)); break;
       case "--jobs": o.jobs = true; break;
       case "--cancel": o.cancel = need(++i, a); break;
-      case "--budget-tokens": o.budgetTokens = Number(need(++i, a)); break;
       case "--idle-timeout": o.idleTimeout = Number(need(++i, a)); break;
       case "--max-commands": o.maxCommands = Number(need(++i, a)); break;
       // need(), like every other value-taking flag. It used to be a bare argv[++i], so `--prompt --json`
@@ -661,8 +657,8 @@ function parseArgs(argv) {
       default: fail(EXIT.USAGE, `unknown argument: ${a}`);
     }
   }
-  // The child of a detached front re-reads the same seat file, DETACH line and all, so the flag alone
-  // cannot stop the recursion: --run-dir is what says "you ARE the detached run" and it wins.
+  // --run-dir says "you ARE the detached run", so it wins over any --detach that still reached this
+  // argv: without the precedence a run that re-parses its own command line forks another front.
   if (o.runDir) o.detach = false;
   // --detach has no wall clock of its own: the one 0 default covers every route.
   // Each of these is a whole mode of its own: one starts a run, the others read the registry a run
@@ -695,10 +691,6 @@ function parseArgs(argv) {
   // Checked here rather than at the first write into it: a run directory that does not exist means the
   // front never made one, and the child would then report into nowhere.
   if (o.runDir !== undefined) o.runDir = resolveDir(o.runDir, "--run-dir");
-  // A whole number of tokens, because that is what the server counts in; a fraction or a zero budget is
-  // a caller who meant something else, and defaulting it would hide the mistake behind a cut turn.
-  if (o.budgetTokens !== undefined && (!Number.isInteger(o.budgetTokens) || o.budgetTokens <= 0))
-    fail(EXIT.USAGE, "--budget-tokens must be a positive whole number of tokens");
   // 0 is the documented "off", so the floor is 0 rather than a positive number.
   if (!Number.isFinite(o.idleTimeout) || o.idleTimeout < 0)
     fail(EXIT.USAGE, "--idle-timeout must be a number of seconds, 0 to disable");
@@ -758,8 +750,12 @@ function parseArgs(argv) {
   if (o.worktree) o.level = "write";
   // The three registry modes read records that already name their own directory, so a --cwd would be a
   // filter at most: --jobs takes it as one, --wait and --cancel take the threadId as the whole address.
-  if (!o.cwd && !o.worktree && !o.jobs && o.wait === undefined && o.cancel === undefined)
-    fail(EXIT.USAGE, "--cwd is required");
+  // --cwd is a GRANT at write level and must be named there. At read level it only says which tree to
+  // read, and the current directory is what a native subagent reads when nobody says otherwise.
+  if (!o.cwd && !o.worktree && !o.jobs && o.wait === undefined && o.cancel === undefined) {
+    if (o.level !== "read") fail(EXIT.USAGE, "--cwd is required at --level write: the writable root is a grant, and a defaulted grant is one nobody made");
+    o.cwd = canonPath(process.cwd()) ?? process.cwd();
+  }
   if (o.commit && o.level !== "write") fail(EXIT.USAGE, "--commit requires --level write");
   if (o.ephemeral && o.resume) fail(EXIT.USAGE, "--ephemeral and --resume are contradictory");
   // An ephemeral run writes no job record, and the record is what --wait, --jobs and --cancel act on:
@@ -1181,6 +1177,21 @@ function managedWebSearchModes() {
 }
 
 let perRunHome = null;   // removed at shutdown; only --mcp creates one
+// A $TMPDIR of this run's own, made only when the caller exported none; removed at shutdown like the
+// per-run home. mkdtemp(3) creates it 0700, so no other user can read what the seat writes there.
+let privateTmp = null;
+function privateTmpDir() {
+  try { privateTmp = fs.mkdtempSync(path.join(os.tmpdir(), "codex-delegate-tmp-")); }
+  catch (e) { fail(EXIT.USAGE, `TMPDIR is unset and no private temp directory could be created under ${os.tmpdir()} (${e.message}); export TMPDIR and retry`); }
+  return privateTmp;
+}
+// The private $TMPDIR is the read seat's ONLY writable root, and --brief tells the seat to leave long
+// output in a file there: removing a directory that holds files takes with it the paths the answer names.
+// So it is kept when the seat wrote anything, and the report says where. null means nothing to keep.
+const keptTmpDir = () => {
+  if (!privateTmp) return null;
+  try { return fs.readdirSync(privateTmp).length ? privateTmp : null; } catch { return null; }
+};
 // Where the seat's model/effort actually came from. Through the relay a run on account defaults was
 // indistinguishable from a healthy one: the probe's failure was on stderr only, and a stale
 // last-known-good config said nothing at all.
@@ -2333,12 +2344,12 @@ function assertReadSandbox(thread) {
   // because read never grants it. A `network` table in the user's own permissions profile turns it back
   // on, and the server says so right here in the object this guard already holds.
   if (sb.networkAccess === true) refuse("the sandbox has network access, which --level read never grants");
-  // TMPDIR unset is a real degraded state, not a formatting quirk: the server then grants nothing and
-  // read-level tests cannot run. Test the variable separately from resolving it — path.resolve("") is the
+  // setup() guarantees a TMPDIR at this level — the caller's or a private one — so an empty variable here
+  // is a driver bug, not a caller's. Tested separately from resolving it: path.resolve("") is the
   // process's own cwd, so folding the two together produced a refusal that named the caller's repository
   // as the expected writable root.
   const tmp = process.env.TMPDIR;
-  if (!tmp) refuse("TMPDIR is unset, so the server grants no temp directory at all; export TMPDIR and retry");
+  if (!tmp) refuse("TMPDIR is unset, so the server grants no temp directory at all");
   const want = canonPath(tmp);
   if (!want) refuse(`TMPDIR is set to ${JSON.stringify(tmp)}, which does not resolve to a real directory`);
   const got = (sb.writableRoots ?? []).map(canonPath);
@@ -2428,13 +2439,15 @@ async function setup() {
   // After the cwd exists, because "last" means the last seat HERE.
   if (opts.resume === "last") { opts.resume = resolveResumeLast(cwd); refuseLiveResume(opts.resume); }
 
+  // $TMPDIR IS the read level's whole grant; a private directory of the run's own is narrower than /tmp.
+  // Set on process.env because the codex spawn and `codex sandbox :tmpdir` read it.
+  if (!process.env.TMPDIR && (opts.level === "read" || opts.verifySandboxed))
+    process.env.TMPDIR = privateTmpDir();
   // $TMPDIR IS the read level's writable root, so it takes the same checkRoot guard every other writable
   // root takes: without it `TMPDIR=~/.codex/x --level read` grants write access inside the directory
   // holding the rollout receipts, from the level whose promise is that it writes nothing of yours.
-  // Both checks are here rather than in assertReadSandbox: an unset or protected TMPDIR is knowable
-  // before anything is spawned, so it costs a usage error rather than a thread and exit 4.
-  if (opts.level === "read" && !process.env.TMPDIR)
-    fail(EXIT.USAGE, "--level read grants exactly $TMPDIR, and TMPDIR is unset — the seat would get no writable directory and could not start a test runner; export TMPDIR (e.g. TMPDIR=/tmp) and retry");
+  // Here rather than in assertReadSandbox: a protected TMPDIR is knowable before anything is spawned, so
+  // it costs a usage error rather than a thread and exit 4.
   if (opts.level === "read" && process.env.TMPDIR) {
     const t = canonPath(process.env.TMPDIR);
     if (t) checkRoot(t);
@@ -2585,6 +2598,9 @@ function shutdown() {
     // A --mcp run's private home holds the caller's MCP secrets in a 0600 file; it exists for this run
     // only, so it goes with the run rather than accumulating under the state dir.
     if (perRunHome) { try { fs.rmSync(perRunHome, { recursive: true, force: true }); } catch {} perRunHome = null; }
+    // The private $TMPDIR exists for this run only; a caller's own TMPDIR is never touched. rmdir, not
+    // rm -r: ENOTEMPTY is the keep, so a seat's own files outlive the run that was told to write them.
+    if (privateTmp) { try { fs.rmdirSync(privateTmp); } catch {} privateTmp = null; }
   })();
   return shutdownDone;
 }
@@ -2632,16 +2648,12 @@ let selectedEffort = null;  // likewise: with no --effort this is whatever confi
 let effectiveSandbox = null;   // the sandbox the SERVER applied, not the one we asked for
 let verifyResult = null;    // the caller-run check, the one piece of evidence the model cannot author
 let tokenUsage = null;      // the latest thread/tokenUsage/updated payload: what this seat cost
+// What the registry reports while a run a coordinator cannot see is working. The server's own total for
+// the root thread, which is thread-cumulative: on --resume it counts the earlier turns too. null means no
+// usage event ever arrived, which is a different fact from 0.
+const tokensSoFar = () => tokenUsage?.total?.totalTokens ?? null;
 let rateLimits = null;      // the account snapshot read once before any thread is started
 let turnDiffPath = null;    // where the last turn/diff/updated payload was persisted, or null when it could not be written
-// The token budget, counted for THIS invocation only. `total` is thread-cumulative, so a resumed
-// thread's earlier turns are subtracted once, at the first event.
-// This invocation's token spend, in one object because the three move together and are read together —
-// by the cut, by the 80% steer, by the mid-flight job record and by the report's `budget` field.
-// baseline: null until the first usage event decides it, so a resumed thread's earlier turns are
-// subtracted rather than charged. spent: null means no usage event ever arrived, which is not 0.
-// softSteerAt: the spend at which the 80% steer went out; null means it never did.
-const spend = { baseline: null, spent: null, softSteerAt: null };
 let outputAttempts = 0;     // turns STARTED under --output-schema; at most one corrective retry
 let requestFn = null;       // main()'s request closure, hoisted so the corrective turn can reach it
 let lastTurnParams = null;  // the original turn/start params, so a transient retry replays them exactly
@@ -2715,48 +2727,8 @@ function touchIdle() {
 function noteProgress() {
   if (settled || !rootThreadId || Date.now() - midflightAtMs < MIDFLIGHT_EVERY_MS) return;
   midflightAtMs = Date.now();
-  writeJob({ lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: spend.spent,
+  writeJob({ lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: tokensSoFar(),
              commandsSeen: commands.length, phase: lastPhase });
-}
-
-// The token budget, spent in two rungs like the wall clock: a steer while the model can still act on
-// it, then a cut. Called on every root-thread usage event, which E2 measured as one per API call — so
-// the budget is checked once per command and once for the final message, and the overshoot at the cut
-// is the cost of the call that crossed it.
-function checkBudget(ownTurn) {
-  const total = tokenUsage?.total?.totalTokens;
-  if (typeof total !== "number") return;
-  if (spend.baseline === null) {
-    const last = tokenUsage?.last?.totalTokens;
-    // Measured live on 0.150.1: thread/resume emits ONE usage event between its response and the new
-    // turn, carrying the PREVIOUS turn's id and the thread's whole prior total — which is the baseline
-    // exactly. thread/start emits none, so on a fresh thread the first event is already ours. The
-    // total − last fallback is for a resumed thread whose pre-turn event never arrives: `last` is the
-    // call that event reports (E2), so it recovers everything before that one call. Measured, taking
-    // the pre-turn event as an in-turn one overcharged a resumed seat by one prior API call: baseline
-    // 13509 where the thread had spent 27048, and a 27296-token turn reported as 40835.
-    spend.baseline = !ownTurn ? total
-      : opts.resume ? Math.max(0, total - (typeof last === "number" ? last : 0)) : 0;
-  }
-  spend.spent = Math.max(0, total - spend.baseline);
-  if (!opts.budgetTokens || settled || pendingCut) return;
-  // Hard first: a jump that crosses both thresholds at once is a cut, not a warning followed by a cut —
-  // steering a turn we are about to interrupt only spends more of a budget that is already gone.
-  if (spend.spent >= opts.budgetTokens) {
-    cutTurn("budgetExhausted", "tokens", { limit: opts.budgetTokens, observed: spend.spent });
-    return;
-  }
-  if (spend.softSteerAt === null && spend.spent >= opts.budgetTokens * 0.8) {
-    const sent = autoSteer(`BUDGET: you have used 80% (${spend.spent} of ${opts.budgetTokens} tokens). `
-      + "Stop investigating now; write your final answer with what you have and say what you did not get to.",
-      { onRejected: (e) => process.stderr.write(`codex-delegate: the budget steer was rejected (${e.message})\n`) });
-    // Recorded only when it actually went out, so an unsteerable turn tries again on the next event
-    // rather than reporting a warning the model never received.
-    if (sent) {
-      spend.softSteerAt = spend.spent;
-      process.stderr.write(`codex-delegate: budget: ${spend.spent} of ${opts.budgetTokens} tokens spent; asked the seat for its final answer now\n`);
-    }
-  }
 }
 
 // Events can share a stdout chunk with the turn/start response and so arrive before rootTurnId is known.
@@ -2998,12 +2970,8 @@ function handleMessage(msg, bytes = 0) {
   // Best-effort accounting: what this seat cost, straight from the server. Only the root thread's
   // usage counts — a subagent thread's tokens are its own. `total` is THREAD-cumulative: on --resume
   // it includes every earlier invocation's turns; `last` is the most recent turn alone.
-  if (msg.method === "thread/tokenUsage/updated" && rootThreadId !== null && (p?.threadId ?? null) === rootThreadId) {
+  if (msg.method === "thread/tokenUsage/updated" && rootThreadId !== null && (p?.threadId ?? null) === rootThreadId)
     tokenUsage = p?.tokenUsage ?? null;
-    // Whether this event describes a turn of OURS decides what it means: an event naming a turn we
-    // never started is the thread's history, not this invocation's spend.
-    checkBudget(ownedTurns.has(turnIdOf(p)));
-  }
 
   // A subagent finishing its own turn, or an earlier turn on our own thread, must not end ours.
   // The settled guard matters here specifically: after a timeout has already reported, a completion
@@ -3392,7 +3360,7 @@ function interruptTurn() {
 
 // The one way a run is ended from outside the turn: ask the server to stop, then report as soon as the
 // turn closes or the grace expires, whichever comes first. `kind` names a declared budget for the report
-// (wall now; idle and tokens later); null is a signal, which is not a budget.
+// (wall, idle or commands); null is a signal, which is not a budget.
 // The grace is for the interrupt RESPONSE and the thread's resumability, NOT for the answer: E1 measured
 // that the in-flight message is discarded server-side, which is why the deltas are accumulated instead.
 // Items that do arrive inside it are still counted — handleMessage runs until finish() settles.
@@ -3670,7 +3638,7 @@ function steerOnce(text, { onSent = () => {}, onRejected = () => {} } = {}) {
   return true;
 }
 
-// The two steers the DRIVER invents — the wrap-up rung and the budget threshold — and the one place
+// The one steer the DRIVER invents — the wrap-up rung — and the one place
 // they are refused: under --review the server runs its own reviewer against its own prompt and returns
 // a fixed shape, so "write your final answer now" names nothing it can act on. A --steer-file
 // correction is the coordinator's own text and is not gated here.
@@ -3719,11 +3687,6 @@ function finish(reason, codeOverride = null) {
   if (settled) return;
   settled = true;
   if (reason) turnStatus = reason;
-  // A budget nothing was ever counted against did not bound this run, and a report that quietly said
-  // null would leave the caller believing it had. Once, here, because finish() runs once.
-  if (opts.budgetTokens && spend.spent === null)
-    process.stderr.write(`codex-delegate: --budget-tokens ${opts.budgetTokens} was set but the server sent no token-usage event, so nothing was counted against it; the wall clock was the only bound\n`);
-
   const ev = classifyEvidence();
   // The verifier is asynchronous, so the report is written in its continuation — and a throw in either
   // half must not simply stop: abort() is a no-op once settled, and a run that took that path hung past
@@ -3774,6 +3737,10 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
   const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
   const timing = { wallMs, setupMs, commandMs, modelMs: setupMs === null ? null : wallMs - setupMs - commandMs };
+  // Said on stderr as well as in the report: a footer run gets no report keys, and the directory is the
+  // only place the answer's own file paths resolve.
+  const tmpDir = keptTmpDir();
+  if (tmpDir) process.stderr.write(`codex-delegate: the seat left files in its private $TMPDIR ${tmpDir}; it is KEPT (remove it when done)\n`);
 
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
@@ -3782,6 +3749,9 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // from being believed. The grant is `sandbox.writableRoots`; assertWriteSandbox now refuses any
     // difference between them, but the field should not have needed that to be unambiguous.
     writableRootsRequested: roots, network: Boolean(opts.network),
+    // The run's own $TMPDIR when one was made AND the seat left something in it, so a path the answer
+    // names can still be opened; null when the caller exported a TMPDIR, or when the seat wrote nothing.
+    tmpDir,
     // Which thread this turn continued, after `last` was resolved. The resolution used to be announced
     // on stderr only, which a relay shows on failure — so a report could not be told apart from a run
     // that started a fresh thread, and `last` is exactly where the wrong thread is picked silently.
@@ -3851,27 +3821,21 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // Exit 3 is a budget the CALLER set, so the caller is the one who can change the outcome. Resuming is
     // named first because the thread is still there; the caveat is real, not hedging — a thread whose turn
     // is still closing refuses with exit 10.
-    // The raise names the budget that actually ran out: telling a token-cut seat to raise --timeout
-    // sends the caller to widen a bound that was never reached. An idle cut is a HANG, not work that
-    // did not fit, so it names neither the effort nor the split — the thing to look at is what the
-    // seat was waiting on.
+    // The raise names the budget that actually ran out. An idle cut is a HANG, not work that did not
+    // fit, so it names neither the effort nor the split — the thing to look at is what the seat was
+    // waiting on.
     ...(code === EXIT.TIMEOUT && rootThreadId
       ? { hint: `the turn was cut at its budget; continue it with --resume ${rootThreadId} (RESUME: ${rootThreadId} in a seat file), which may be refused with exit 10 while the turn is still closing — ` + (
           pendingCut?.kind === "idle"
             ? "or re-run with a longer --idle-timeout after checking what the last command was waiting on"
             : pendingCut?.kind === "commands"
               ? "or split the task or raise --max-commands"
-            : `or re-run with a lower --effort, ${pendingCut?.kind === "tokens" ? "a larger --budget-tokens" : "a longer --timeout"}, or the task split into smaller seats`) } : {}),
+            : "or re-run with a lower --effort, a longer --timeout, or the task split into smaller seats") } : {}),
     // Which declared budget ended the turn, and whether the server closed it inside the grace. null on a
     // run that ended on its own, and on a signal: a signal is not a budget.
     cut: pendingCut?.kind
       ? { kind: pendingCut.kind, limit: pendingCut.limit, observed: pendingCut.observed,
           completedInGrace: pendingCut.completedInGrace } : null,
-    // The token budget as it was actually spent. spentTokens is null when the server sent no usage
-    // event at all — "nothing was counted", which is not the same fact as "nothing was spent".
-    budget: opts.budgetTokens
-      ? { tokens: opts.budgetTokens, spentTokens: spend.spent, softSteerAt: spend.softSteerAt }
-      : { tokens: null, spentTokens: null, softSteerAt: null },
     timing,
     verify: verifyResult, verifySkipped,
     answerPhase: final?.phase ?? null, commentaryOnly,
@@ -3900,7 +3864,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
   closingFields = { turnStatus, answerPath,
     // The last mid-flight snapshot, on the record for good: the rate limit means a run shorter than
     // half a minute would otherwise end with none of it, which is exactly the run a poller misses.
-    lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: spend.spent,
+    lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: tokensSoFar(),
     commandsSeen: commands.length, phase: lastPhase,
     // Only a successful harvest updates the rebuild pointers: on a preserved tree the work is still in
     // the tree, and overwriting them with null would throw away the last state that CAN be rebuilt. The
@@ -3970,10 +3934,6 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
     if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
     if (rateLimits?.primary) L.push(`rate limit: ${rateLimits.primary.usedPercent ?? "?"}% of the primary window used`);
     if (turnDiffPath) L.push(`turn diff: ${turnDiffPath}`);
-    if (opts.budgetTokens) L.push(spend.spent === null
-      ? `budget: ${opts.budgetTokens} tokens declared, NOTHING COUNTED — the server sent no usage event`
-      : `budget: ${spend.spent} of ${opts.budgetTokens} tokens spent this invocation` +
-        (spend.softSteerAt === null ? "" : `, steered at ${spend.softSteerAt}`));
     {
       const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
       const wallMs = Date.now() - startedAtMs;
@@ -4059,7 +4019,7 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
         (pendingCut.completedInGrace ? "the server closed the turn inside the grace" : "the server did not close the turn inside the grace"));
     if (turnStatus !== "completed") {
       L.push(`TURN ${String(turnStatus).toUpperCase()} — the answer above is incomplete.`);
-      if (turnStatus === "timedOut" || turnStatus === "budgetExhausted") L.push("  a cut is the case most likely to leave a half-written tree; inspect the cwd before reusing it.");
+      if (turnStatus === "timedOut") L.push("  a cut is the case most likely to leave a half-written tree; inspect the cwd before reusing it.");
       if (turnError) L.push(`  cause: ${errKind(turnError)} — ${errText(turnError)}`);
       if (stderrBuf.trim()) L.push(`  stderr: ${stderrBuf.trim().split("\n").slice(-3).join(" | ")}` +
         (stderrDropped ? `  [+${stderrDropped} earlier bytes dropped]` : ""));
@@ -4301,10 +4261,8 @@ async function main() {
     // counting, the model plans against a deadline that does not exist and rushes work it had time for.
     ...(opts.review ? [] : [opts.timeout > 0
       ? `You have about ${budgetLeftS} seconds of wall clock`
-        + `${opts.budgetTokens ? `, and about ${opts.budgetTokens} tokens,` : ""}`
         + ` for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`
       : `There is no wall-clock limit on this turn`
-        + `${opts.budgetTokens ? `, though you have about ${opts.budgetTokens} tokens` : ""}`
         + `; it is cut only ${opts.idleTimeout ? `after ${opts.idleTimeout} seconds of silence or ` : ""}by the coordinator. `
         + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`]),
     opts.webSearch
