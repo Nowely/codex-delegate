@@ -229,4 +229,4 @@ behind. Teardown now waits for the child group and escalates before exit.
 GitHub issue #1 (2026-09-02) measured five of seven seats hitting a 540-second relay-era ceiling;
 commands used only 6–16% of the clock and the cut returned zero bytes. The driver gained a wrap-up steer,
 interrupt grace, partial capture, and detached transport. Native defaults now impose no wall clock;
-silence, command, token, and caller-declared clock bounds remain explicit.
+silence, command, and caller-declared clock bounds remain explicit.
