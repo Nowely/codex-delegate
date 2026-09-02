@@ -15,6 +15,11 @@ The prompt has an optional header then a body — one field per line, all option
     TIMEOUT: <seconds> [560 — the Bash tool caps a call at 600 s and does NOT kill at the cap: it
                         backgrounds the driver and returns no EXIT= line. So above 560 is a BAD
                         HEADER: report it and run nothing. The driver's own default is 900]
+    BUDGET_TOKENS: <n>  [omit; a token budget for THIS seat. At 80% the driver steers the turn to
+                        write its answer now, at 100% it cuts it: exit 3, cut.kind tokens. Copy it
+                        verbatim when the header carries one]
+    IDLE_TIMEOUT: <seconds>  [omit -> 900; how long the seat may say NOTHING before the turn is cut
+                        with cut.kind idle. 0 disables it]
     EXPECT: <regex>    [omit]
     NETWORK: yes       [omit; valid only with worktree/write]
     WRITABLE: <dir>    [omit; repeatable, one per line; write levels only]
@@ -63,7 +68,7 @@ driver parses them itself. Pick `<n>` ONCE at random, eight hex characters or mo
    translating only the names. **`SEAT:` goes first, always** — the driver refuses a seat file whose
    rights line is not first, because a later line could then supply one. When `read` names no
    directory, add the current one: `SEAT: read /abs/path`. Then `EFFORT:`, `TIMEOUT:` (560 when the
-   header omits it), `EXPECT:`, `NETWORK:`, `WRITABLE:`, `COMMIT:`, `MODEL:`, `WEB_SEARCH:`,
+   header omits it), `BUDGET_TOKENS:`, `IDLE_TIMEOUT:`, `EXPECT:`, `NETWORK:`, `WRITABLE:`, `COMMIT:`, `MODEL:`, `WEB_SEARCH:`,
    `OUTPUT_SCHEMA:`, `REVIEW:`, `RESUME:`, `PROGRESS:`, `ALLOW_NO_COMMANDS:`, `BRIEF:` — each only if
    the header carried it. Copy every value character for character, quotes, `$`, `;`, backticks and
    all; never make one "safe", the driver takes the line literally.
