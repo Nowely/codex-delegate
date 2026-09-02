@@ -104,6 +104,11 @@ const protectedState = path.join(shimDir, "state");
 const protectedTmp = path.join(protectedState, "tmp");
 fs.mkdirSync(protectedTmp, { recursive: true });
 
+// A state directory used by exactly one case, so "what did the config probe inherit" has a deterministic
+// answer: with the shared state-root a previous case's healthy probe leaves a last-known-good config
+// behind, and the failure case would then report that instead of "nothing".
+const emptyState = path.join(shimDir, "state-empty");
+
 // A directory whose name holds TWO consecutive spaces, for the seat-file literalness case: the SEAT
 // value used to be split on whitespace and rejoined with single spaces, silently rewriting the path.
 const spacedDir = path.join(shimDir, "two  spaces");
@@ -322,10 +327,11 @@ const CASES = [
   { scenario: "write-full-access", expect: EXIT.TRANSPORT, args: ["--level", "write"],
     why: "write level must reject dangerFullAccess before an otherwise healthy turn can run",
     assertStderr: (t) => /sandbox type/.test(t) || `stderr did not name the sandbox type: ${JSON.stringify(t)}` },
-  { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", "yes abcdefghij | head -c 100000000; exit 0"],
-    why: "a verifier that exits 0 but overruns maxBuffer measured nothing — it must not be reported as 'the work is not there'",
-    assert: (r) => r.verify?.measured === false && r.verify?.ok === false
-      || `expected measured:false, got ${JSON.stringify(r.verify)}` },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--verify", "yes abcdefghij | head -c 100000000; exit 0"],
+    why: "a verifier that prints 100 MB and exits 0 has PASSED: under spawnSync it overran maxBuffer and came back status null, so a run whose end state was proven good reported exit 12. Streaming the output with a bounded tail keeps the exit status, which is the only thing the verdict may rest on",
+    assert: (r) => (r.verify?.ok === true && r.verify?.measured === true
+      && String(r.verify?.stdout ?? "").length <= 2000)
+      || `a passing loud verifier was not measured: ${JSON.stringify({ ...r.verify, stdout: String(r.verify?.stdout ?? "").length })}` },
   { scenario: "failed-null-exit", expect: EXIT.COMMAND_FAILED,
     why: "the schema allows a FAILED command with exitCode null; keying the failure set on the code alone let it exit 0 while the footer printed NEVER RAN",
     assert: (r) => r.commandsFailed === 1 || `the failed command was not counted: failed=${r.commandsFailed} blocked=${r.commandsBlocked}` },
@@ -582,7 +588,111 @@ const CASES = [
     env: { CODEX_DELEGATE_STATE_DIR: protectedState, TMPDIR: protectedTmp },
     why: "$TMPDIR IS the read level's grant, and it reached the sandbox unexamined: measured, `TMPDIR=~/.codex/x --level read` exited 0 with the server reporting write access inside the directory that holds the receipts",
     assertStderr: (e) => /refusing to grant write access/.test(e)
-      || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` }
+      || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, unsetEnv: ["TMPDIR"],
+    why: "with TMPDIR unset — the default on a stock Linux shell — the read level grants nothing at all. The refusal lived in assertReadSandbox, AFTER thread/start, so every such seat spent a process and a thread to report exit 4 with a 0-byte report for something knowable before the spawn",
+    assertStderr: (e) => (/TMPDIR is unset/.test(e) && !/read sandbox is not what was asked for/.test(e))
+      || `an unset TMPDIR was not refused before the spawn: ${e.slice(0, 240)}` },
+
+  // --- a server that dies mid-turn still has to hand back what the turn did ---
+  { scenario: "server-crash",     expect: EXIT.TRANSPORT,
+    why: "the child's exit routed straight to abort(), which prints NO report: an OOM-killed app-server discarded the threadId, the commands and a partial answer — the loss the signal and timeout paths exist to prevent",
+    assert: (r) => (r.commandsSucceeded === 1 && r.threadId === "thr_root"
+      && /crashed/.test(JSON.stringify(r.turnError ?? {})) && /partial answer/.test(String(r.answer)))
+      || `the crash discarded the turn's evidence: ${JSON.stringify({ cmds: r.commandsSucceeded, thread: r.threadId, err: r.turnError, answer: String(r.answer).slice(0, 60) })}` },
+
+  // --- the main transport's two unbounded buffers ---
+  { scenario: "early-flood",      expect: EXIT.TRANSPORT,
+    why: "turn-scoped notifications arriving before the turn/start response are HELD, and were held without any bound: a broken server can exhaust the driver's memory with them while the report it is buffering for never arrives",
+    assertStderr: (e) => /before answering turn\/start/.test(e)
+      || `the early buffer was not bounded: ${e.slice(0, 200)}` },
+  { scenario: "unterminated-line", expect: EXIT.TRANSPORT,
+    why: "readline buffers an unterminated line without limit; the setup probe has had a 256 KB cap since one took driver RSS from 52 to 387 MB, and the main stream had none",
+    assertStderr: (e) => /with no newline/.test(e)
+      || `an unterminated line was buffered without a bound: ${e.slice(0, 200)}` },
+
+  { scenario: "no-trailing-newline", expect: EXIT.OK,
+    why: "EOF terminates a line as surely as a newline does, and readline flushed one: with hand-rolled framing and no end handler, a final turn/completed whose newline was lost is dropped and the run reports nothing it saw",
+    assert: (r) => (r.turnStatus === "completed" && r.commandsSucceeded === 1 && /the answer/.test(String(r.answer)))
+      || `a final line without its newline was dropped: ${JSON.stringify({ turn: r.turnStatus, cmds: r.commandsSucceeded, answer: String(r.answer).slice(0, 40) })}` },
+
+  // --- the report has to reach stdout, and a paused reader is not a broken one ---
+  { scenario: "long-answer",      expect: EXIT.TRANSPORT, closeStdout: true,
+    why: "a consumer that stops reading (`| head -c 1`) makes the report write fail EPIPE; with no 'error' listener Node made that an uncaught exception — exit 1 and a stack trace on a driver whose contract says a report that cannot reach stdout is exit 4",
+    assertStderr: (e) => /EPIPE|did not reach the caller/.test(e)
+      || `a closed stdout was not reported as a transport failure: ${e.slice(0, 200)}` },
+  { scenario: "long-answer",      expect: EXIT.OK, pauseStdout: 8000, args: ["--timeout", "40"],
+    why: "the drain wait was a flat 5 s, so a consumer that paused for eight seconds got 65536 bytes and exit 4 for a report it would have drained. The bound is what is LEFT of --timeout, with a 5 s floor",
+    assert: (r) => (typeof r.answer === "string" && r.answer.length > 60000)
+      || `the report was truncated for a consumer that paused: ${String(r.answer ?? "").length} bytes of answer` },
+
+  // --- what the report says about the run's own footing ---
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "the initialize response carries the server's version in userAgent, and the driver dropped it — version drift was named only after a method came back -32601",
+    assert: (r) => (r.codexVersion === "0.150.1" && r.codexVersionPinned === "0.150.1")
+      || `codexVersion was not read out of the userAgent: ${JSON.stringify({ v: r.codexVersion, pinned: r.codexVersionPinned })}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { FAKE_CODEX_VERSION: "9.9.9" },
+    why: "a codex that is not the one the protocol facts were measured against is the first thing to know when behaviour contradicts the docs; it must be said on stderr and in the report, not inferred from a later failure",
+    assert: (r) => r.codexVersion === "9.9.9" || `drift was not reported: ${JSON.stringify(r.codexVersion)}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "a run on account defaults and a healthy run were indistinguishable through the relay: nothing said whether model and effort came from a fresh probe of the caller's config, a stale last-known-good, or nothing at all",
+    assert: (r) => (r.configInherited?.source === "probe" && r.configInherited.keys.includes("model"))
+      || `a healthy probe was not reported as one: ${JSON.stringify(r.configInherited)}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    env: { FAKE_CONFIG_FAIL: "1", CODEX_DELEGATE_STATE_DIR: emptyState },
+    why: "the same field must distinguish the unhealthy case: a probe that failed with no last-known-good to keep means the turn ran on the account defaults",
+    assert: (r) => (r.configInherited?.source === "none" && r.configInherited.keys.length === 0)
+      || `a failed probe was reported as inheritance: ${JSON.stringify(r.configInherited)}` },
+  { scenario: "probe-piped",      expect: EXIT.COMMAND_FAILED,
+    why: "SKILL.md publishes `| tail` as a trap — the seat sees a slice of its own evidence and concludes from it — and no report field named it",
+    assert: (r) => (r.commandsPipedToPager === 1 && /head\/tail\/less/.test(String(r.pipedToPagerHint ?? "")))
+      || `a command ending in a pager was not counted: ${JSON.stringify({ n: r.commandsPipedToPager, hint: r.pipedToPagerHint })}` },
+
+  // --- the server's parse is evidence, not authority ---
+  { scenario: "probe-laundered",  expect: EXIT.COMMAND_FAILED,
+    why: "the probe exemption trusts commandActions absolutely: one tidy action extracted from a MULTI-LINE script let `grep -q needle` stand for `grep -q needle\\npnpm test`, laundering a failed suite into 'the probe answered no' and exiting 0 under an answer claiming the tests pass",
+    assert: (r) => (r.commandsProbeNegative === 0 && r.commandsFailed === 1)
+      || `a multi-line script was read as a probe: ${JSON.stringify({ probe: r.commandsProbeNegative, failed: r.commandsFailed })}` },
+
+  // --- --expect-command is matched against the command, not the shell that ran it ---
+  { scenario: "happy",            expect: EXIT.OK, args: ["--expect-command", "^echo"],
+    why: "the live server reports the WRAPPER (`/bin/zsh -lc '...'`), so an anchored pattern — the natural way to write one — could never match a live command; it must be matched against the command the server parsed as well",
+    assert: (r) => (r.expectationOk === true && r.commandsMatchingExpectation === 1)
+      || `an anchored pattern did not match the parsed command: ${JSON.stringify({ ok: r.expectationOk, n: r.commandsMatchingExpectation })}` },
+
+  // --- the standing rules the driver puts on the thread ---
+  { scenario: "echo-instructions", expect: EXIT.OK, args: ["--brief"],
+    why: "--brief's second sentence is what keeps a capped answer from losing its detail; it must still be sent when it is not contradicted",
+    assert: (r) => /Put anything longer/.test(String(r.answer))
+      || `--brief lost its forwarding instruction: ${String(r.answer).slice(0, 200)}` },
+  { scenario: "echo-instructions", expect: EXIT.OK, args: ["--brief", "--answer-json"],
+    why: "under --answer-json the seat has just been told to answer with ONE JSON object and nothing else; telling it in the same breath to put the rest in a file is a contradiction the seat has to resolve on its own",
+    assert: (r) => (!/Put anything longer/.test(String(r.answer)) && /ONE JSON object/.test(String(r.answer)))
+      || `the contradictory pair was still sent: ${String(r.answer).slice(0, 300)}` },
+
+  // --- the seat file is written by a relay, so it must take the shapes a relay writes ---
+  { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nNETWORK: no\nCOMMIT: false\nBRIEF: 0\n", expect: EXIT.OK,
+    why: "NETWORK/COMMIT/BRIEF accepted only yes|true|1, so a relay copying `NETWORK: no` out of its own header template failed the whole seat with exit 2 before any work — and at read level the flag it was refusing for is itself a usage error",
+    assert: (r) => (r.network === false && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,COMMIT,BRIEF")
+      || `a negated boolean did not read as omission: ${JSON.stringify({ net: r.network, fields: r.seatFileFields })}` },
+
+  // --- --verify: the budget that killed it, and the sandbox that is opt-in ---
+  { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--timeout", "3", "--verify", "sleep 20"],
+    why: "a verifier killed at min(300s, what is left of --timeout) reported `exitCode: null, signal: SIGKILL, error: ETIMEDOUT` without saying that the caller's own clock had killed it",
+    assert: (r) => (r.verify?.timedOut === true && r.verify?.budgetMs > 0 && r.verify?.measured === false)
+      || `the budget that ended the verifier was not reported: ${JSON.stringify(r.verify)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--verify-sandboxed"],
+    why: "--verify-sandboxed sandboxes a verifier; without --verify there is nothing to sandbox, and silently doing nothing is how a caller believes a check ran",
+    assertStderr: (e) => /--verify, which was not given/.test(e) || `the empty flag was accepted: ${e.slice(0, 160)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--verify", "true", "--verify-sandboxed"],
+    why: "where `codex sandbox` does not exist the sandbox cannot be applied, and falling back to running the verifier with the caller's own rights is the one thing the flag exists to prevent",
+    assertStderr: (e) => /--verify-sandboxed needs/.test(e)
+      || `an unavailable sandbox did not stop the run: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.VERIFY_FAILED, env: { FAKE_SANDBOX: "1" },
+    args: ["--verify", "exit 3", "--verify-sandboxed"],
+    why: "`codex sandbox` passes the command's exit code through — measured live, exit 7 came back as 7 — so a sandboxed verifier's verdict is the verifier's, not the sandbox's",
+    assert: (r) => (r.verify?.exitCode === 3 && r.verify?.sandboxed === true && r.verify?.measured === true)
+      || `the sandboxed verifier's exit code was not passed through: ${JSON.stringify(r.verify)}` }
 ];
 
 // Read out of the fixture's own inventory rather than trusted: a scenario name this suite misspells
@@ -614,13 +724,23 @@ function run(c) {
       // A state directory of this suite's own: every case used to write locks, an isolated Codex home and
       // the answer log into the caller's real ~/.codex-delegate, so a suite run concurrent with a real
       // delegation overwrote that delegation's inherited config with this fixture's values.
-      { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
-               CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
-               ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
+      { env: (() => {
+          const e = { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
+                      CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
+                      ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) };
+          // `undefined` in a spawn env is stringified, so a variable the case wants UNSET has to be
+          // deleted outright — and "unset" is the whole point of the TMPDIR case.
+          for (const k of c.unsetEnv ?? []) delete e[k];
+          return e;
+        })(),
         stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
     p.stdout.on("data", (d) => { out += d; });
     p.stderr.on("data", (d) => { err += d; });
+    // A consumer that stops reading, and one that merely pauses: the report write is the only place the
+    // driver touches a pipe it does not own, and both shapes used to end the run wrongly.
+    if (c.closeStdout) { try { p.stdout.destroy(); } catch {} }
+    if (c.pauseStdout) { p.stdout.pause(); setTimeout(() => p.stdout.resume(), c.pauseStdout); }
     // A bounded case, because a HANG is worse than a failure: an undeclared variable in the driver once
     // threw inside an event handler and the suite stalled forever instead of reporting anything. The
     // scripted server answers in milliseconds, so anything near this bound is a defect, not slowness.

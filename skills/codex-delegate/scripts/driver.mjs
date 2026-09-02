@@ -21,7 +21,6 @@
 // --writable / --network instead of trying to approve your way out of it.
 
 import { spawn, spawnSync } from "node:child_process";
-import readline from "node:readline";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -30,6 +29,12 @@ import path from "node:path";
 const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
 const LEVELS = new Set(["read", "write"]);
 const READ_PROFILE = "codex_delegate_read";
+// The codex-cli release every protocol fact here was measured against — the same version the pinned
+// schema-<version>/ directory carries. The server states its own in the initialize response's userAgent;
+// a difference is not an error (this driver is normally forward-compatible) but it is the first thing to
+// know when something behaves unlike the docs, and it was being thrown away.
+const PINNED_CODEX = "0.150.1";
+let codexVersion = null;   // what the server reported this run, parsed out of InitializeResponse.userAgent
 // The full ladder the model catalogue advertises (`codex debug models` -> supported_reasoning_levels),
 // not a subset: rejecting `max` as a usage error while the user's own config.toml asked for it is the
 // driver overruling the caller about the one thing it has no opinion on.
@@ -72,7 +77,10 @@ const USAGE = `codex-delegate — run one Codex turn with rights declared per ca
 
 Rights
   --level read       the default: read anything, write only $TMPDIR; no lock is
-                     taken, so read seats run in parallel over one directory
+                     taken, so read seats run in parallel over one directory.
+                     $TMPDIR IS the grant, so an unset TMPDIR is a usage error
+                     here, refused before anything is spawned (export TMPDIR=/tmp
+                     — a stock Linux shell does not set it)
   --level write      workspace-write over --cwd; takes a per-directory lock
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
                      there at write level, and dispose of it afterwards: once the
@@ -96,8 +104,8 @@ Rights
                      REVIEW/RESUME/ALLOW_NO_COMMANDS), values taken literally to
                      end of line. --attach, --steer-file and --mcp are NOT among
                      them: an injected line would upload a file nobody named,
-                     truncate a file nobody named, or grant tool servers nobody
-                     granted. Pass those on the command line
+                     consume and rename away a file nobody named, or grant tool
+                     servers nobody granted. Pass those on the command line
                      SEAT is required and must come FIRST. For a wrapper: write
                      the values, do not build a command line out of them.
                      Explicit flags override the file. A NEWLINE inside a value
@@ -112,10 +120,12 @@ Turn
   --prompt TEXT      the task; omit to read it from stdin
   --attach FILE      attach a local image (png/jpg/jpeg/gif/webp/bmp) or audio
                      file (wav/mp3/m4a/ogg/flac) to the prompt; repeatable
-  --steer-file F     poll F once a second during the turn: new text is sent to
-                     the RUNNING turn as a steer message and the file is
-                     truncated — the way to correct a long seat without killing
-                     it. Steering is input, never rights
+  --steer-file F     poll F once a second during the turn: new text is CLAIMED by
+                     renaming F aside, then sent to the RUNNING turn as a steer
+                     message — the way to correct a long seat without killing it.
+                     Append to F again and the next tick picks it up; nothing
+                     appended during a send is lost. Steering is input, never
+                     rights
   --review T         run the server's native reviewer instead of a prompt:
                      T = uncommitted | branch:<ref> | commit:<sha>. The review
                      is the answer; implies --allow-no-commands and excludes
@@ -150,8 +160,24 @@ Turn
                      --ephemeral leaves no thread behind
 
 Gate — what counts as the turn having done the work
-  --expect-command RE   a command matching RE must have run
-  --verify CMD          run CMD after the turn; its exit code decides
+  --expect-command RE   a command matching RE must have run. RE is matched against
+                     the command the SERVER parsed as well as the wrapper string
+                     it reports (\`/bin/zsh -lc '...'\`), so \`^pnpm\` works
+  --verify CMD          run CMD after the turn, in the seat's tree; its exit code
+                     decides. CMD is a shell command with YOUR rights, your env
+                     and your network — prefer one that does not execute anything
+                     out of the tree the seat just wrote (\`npm test\` runs the
+                     seat's package.json script). Bounded by what is left of
+                     --timeout, at most 300 s; the report carries verify.budgetMs
+                     and verify.timedOut. Its output is streamed, never buffered
+                     whole: the last 64 KiB is kept in memory and the last 2000
+                     characters of each stream reach the report
+  --verify-sandboxed run --verify through \`codex sandbox\` under the same
+                     read-only profile --level read uses: the tree is readable,
+                     \$TMPDIR is writable, nothing else is, and the exit code is
+                     passed through. A verifier that must WRITE (most build and
+                     test runners) will fail under it. Usage error where this
+                     codex has no \`sandbox\` subcommand
   --allow-no-commands   accept a turn that ran nothing
 
 Isolation
@@ -179,7 +205,14 @@ Report
                      receiptModelProvider and receiptCwd, read out of the
                      rollout's own session_meta record (the file is OPENED, not
                      merely matched by name), and tokenUsage (the server's own
-                     accounting for the root thread; cumulative across --resume)
+                     accounting for the root thread; cumulative across --resume).
+                     Also codexVersion (what the server reported, beside the
+                     version this plugin was measured against), configInherited
+                     (whether model/effort came from a fresh probe of your
+                     config, a stale last-known-good, or nothing) and
+                     commandsPipedToPager (commands whose output the seat cut
+                     with head/tail/less). verify carries budgetMs, timedOut and
+                     sandboxed beside the exit status
   --footer           a human footer instead of the JSON report
   --progress         one line per item start on stderr (run/edit/search), so a
                      long seat can be watched live without tailing the rollout
@@ -221,7 +254,9 @@ Decided after the turn, first match wins, in this order:
   neither failed nor declined) — its outcome is unknown, and exit 0 claims it is
   not
 
-  and 4 once more at the very end, if the report could not reach stdout.
+  and 4 once more at the very end, if the report could not reach stdout — a
+  closed pipe, or a consumer that never drained it within what was left of
+  --timeout (at least 5 s).
 
 So 2 means either, and they are told apart by the report: an argument error
 prints none. Codes decided after the turn can all carry executed work.
@@ -258,8 +293,8 @@ prints none. Codes decided after the turn can all carry executed work.
 // new field, so any field here can be injected by text the wrapper merely passed through.
 //   VERIFY      executes a shell with the caller's rights (allowed only via --allow-seat-verify).
 //   ATTACH      uploads a local file to the model provider — an injected line names a file nobody chose.
-//   STEER-FILE  the driver TRUNCATES that path while the turn runs; an injected line is a write
-//               primitive pointed at any file the caller can write.
+//   STEER-FILE  the driver RENAMES that path away and consumes it while the turn runs; an injected
+//               line is a destructive primitive pointed at any file the caller can write.
 //   MCP         grants tool servers that run with the caller's rights and reach outside the sandbox.
 // Each stays a command-line flag, which is the one place a relayed value cannot reach.
 const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "TIMEOUT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
@@ -304,7 +339,11 @@ function argvFromSeatFile(file, allowSeatVerify) {
     const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands", BRIEF: "--brief",
                     COMMIT: "--commit", PROGRESS: "--progress" };
     if (BOOLS[field]) {
-      if (!/^(yes|true|1)$/i.test(value)) fail(EXIT.USAGE, `--seat-file: ${field} must be yes or omitted, got ${JSON.stringify(value)}`);
+      // A negative is the natural shape for a templated header, and refusing it failed the whole seat
+      // before any work: a relay copying `NETWORK: no` out of its own contract exited 2. It means the
+      // flag is not passed, which is exactly what omitting the line means.
+      if (/^(no|false|0)$/i.test(value)) continue;
+      if (!/^(yes|true|1)$/i.test(value)) fail(EXIT.USAGE, `--seat-file: ${field} must be yes|true|1, no|false|0, or omitted, got ${JSON.stringify(value)}`);
       out.push(BOOLS[field]);
       continue;
     }
@@ -359,6 +398,7 @@ function parseArgs(argv) {
       case "--allow-no-commands": o.allowNoCommands = true; break;
       case "--expect-command": o.expect = need(++i, a); break;
       case "--verify": o.verify = need(++i, a); break;
+      case "--verify-sandboxed": o.verifySandboxed = true; break;
       case "--network": o.network = true; break;
       case "--web-search": o.webSearch = need(++i, a); break;
       case "--answer-json": o.answerJson = true; break;
@@ -438,6 +478,7 @@ function parseArgs(argv) {
   if (!o.cwd && !o.worktree) fail(EXIT.USAGE, "--cwd is required");
   if (o.commit && o.level !== "write") fail(EXIT.USAGE, "--commit requires --level write");
   if (o.ephemeral && o.resume) fail(EXIT.USAGE, "--ephemeral and --resume are contradictory");
+  if (o.verifySandboxed && o.verify === undefined) fail(EXIT.USAGE, "--verify-sandboxed sandboxes --verify, which was not given");
   // Compile it now: an invalid pattern thrown from inside the report handler kills the run long after
   // the work is done, and costs the whole delegation.
   if (o.expect !== undefined) {
@@ -755,7 +796,7 @@ function inheritedConfig() {
     }
     probeChild = child;
     let buf = "", done = false;
-    const finish = (v, why) => {
+    const finish = (v, why, cancelled = false) => {
       if (done) return;
       done = true;
       clearTimeout(bell);
@@ -770,9 +811,12 @@ function inheritedConfig() {
       if (why) process.stderr.write(`codex-delegate: could not read the caller's Codex config (${why}); model and effort fall back to the account default\n`);
       probeChild = null;
       probeCancel = null;
-      resolve({ entries: v, failed: Boolean(why) });
+      // A cancellation is a FAILED asking, not a config with nothing in it: resolving it as success let a
+      // SIGINT mid-probe atomically replace the shared home's config.toml with an empty file, which every
+      // later run then kept as its last known good.
+      resolve({ entries: v, failed: Boolean(why) || cancelled });
     };
-    probeCancel = () => finish([], undefined);
+    probeCancel = () => finish([], undefined, true);
     // Bounded well under any caller's budget, and never longer than it: this runs BEFORE the turn deadline
     // is armed, so a 15 s probe made `--timeout 2` take fifteen seconds. Reading a config takes ~120 ms;
     // anything approaching this is broken, not slow.
@@ -856,6 +900,14 @@ function managedWebSearchModes() {
 }
 
 let perRunHome = null;   // removed at shutdown; only --mcp creates one
+// Where the seat's model/effort actually came from. Through the relay a run on account defaults was
+// indistinguishable from a healthy one: the probe's failure was on stderr only, and a stale
+// last-known-good config said nothing at all.
+let configInherited = null;
+const keysInConfig = (cfg) => {
+  try { return [...fs.readFileSync(cfg, "utf8").matchAll(/^([A-Za-z0-9_]+)\s*=/gm)].map((m) => m[1]); }
+  catch { return []; }
+};
 
 async function isolatedHome() {
   // The isolated home moves with the driver's own state; the REAL ~/.codex it borrows credentials and
@@ -892,10 +944,20 @@ async function isolatedHome() {
         fail(EXIT.USAGE, `${link} exists but is not a symbolic link; move it aside or pass --host-home`);
     }
     if (current === target) continue;
+    // Created under a random name and RENAMED over the link: rename(2) is atomic, while unlink-then-
+    // symlink is a window two fresh seats lose against each other — both read ENOENT, both symlink, and
+    // the loser fails EEXIST on a link the winner has just made correctly. An EEXIST that still gets
+    // through is only a peer having won, so re-read and accept an equal target.
+    const tmpLink = `${link}.${crypto.randomBytes(8).toString("hex")}.tmp`;
     try {
-      if (current !== null) fs.unlinkSync(link);
-      fs.symlinkSync(target, link);
-    } catch (e) { fail(EXIT.USAGE, `cannot link ${link} -> ${target}: ${e.message}`); }
+      fs.symlinkSync(target, tmpLink);
+      fs.renameSync(tmpLink, link);
+    } catch (e) {
+      try { fs.unlinkSync(tmpLink); } catch {}
+      let now = null;
+      try { now = fs.readlinkSync(link); } catch {}
+      if (now !== target) fail(EXIT.USAGE, `cannot link ${link} -> ${target}: ${e.message}`);
+    }
   }
   // Written into the home rather than sent as -c on purpose. The driver's contract is that omitting
   // --effort sends NO override so the config decides, and two protocol cases pin exactly that; carrying the
@@ -906,9 +968,12 @@ async function isolatedHome() {
   let probe = await inheritedConfig();
   // A transient hiccup gets ONE retry before its silence becomes nondeterminism, and only when the wall
   // clock still leaves room for the probe's own budget plus a turn.
-  if (probe.failed && startedAtMs + (opts?.timeout ?? 900) * 1000 - Date.now() > 6000) {
+  if (probe.failed && !settled && startedAtMs + (opts?.timeout ?? 900) * 1000 - Date.now() > 6000) {
     probe = await inheritedConfig();
   }
+  // A run that is already ending writes nothing here. The probe it cancelled has no entries, and the
+  // shared config is not this run's to empty on its way out.
+  if (settled) { configInherited = { source: "none", keys: [] }; return home; }
   // Still failing: keep the LAST KNOWN GOOD config instead of truncating it. Rewriting on failure was
   // the racy half of the shared-home hazard — a failed probe clobbered the config a concurrent healthy
   // run had just written, and both then ran against account defaults. Concurrent HEALTHY runs write the
@@ -916,8 +981,10 @@ async function isolatedHome() {
   // to keep and no peer to race, so it always writes.
   if (probe.failed && !opts.mcp && fs.existsSync(cfg)) {
     process.stderr.write(`codex-delegate: keeping the previously inherited config (last known good) at ${cfg}\n`);
+    configInherited = { source: "last-known-good", keys: keysInConfig(cfg) };
     return home;
   }
+  configInherited = { source: probe.failed ? "none" : "probe", keys: probe.entries.map(([k]) => k) };
   // Random, not the pid. Two runs in different PID namespaces over one mounted home share a pid, and then
   // both write the same temp name — measured as a partial read and an ENOENT from the loser's rename.
   // "wx" on top of that: it fails rather than following a symlink someone left at the predictable name,
@@ -970,12 +1037,43 @@ function inspectLock(p, dir) {
   } finally { fs.closeSync(fd); }
 }
 
+// A pid is not an identity. Lock files outlive reboots and SIGKILLs, so once the OS recycles the pid the
+// lock names a live process that is not the holder — measured: a planted `{"pid":1}` made every write
+// seat on that cwd exit 10 until a human deleted the file. The process START TIME is the cheapest second
+// factor a recycled pid cannot reproduce.
+function processIdentity(pid) {
+  try {
+    // Linux: field 22 of /proc/<pid>/stat is starttime, counted from the first field AFTER the comm,
+    // which is the only field that may itself contain spaces. A clock-tick count, so it needs no pinning.
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    if (after[19]) return `starttime:${after[19]}`;
+  } catch { /* not Linux, or the process is gone */ }
+  // TZ and LC_ALL are pinned because `ps` renders lstart through strftime in the CALLER's timezone and
+  // locale: the same process yields a different string per shell, so a lock written under one TZ read
+  // as stale under another and admitted a second writer to a directory already held.
+  const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)],
+    { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+  const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
+  return t ? `lstart:${t}` : null;
+}
+
 // Is the pid in a lock file a process that still exists? EPERM means it exists and belongs to another
 // user; only ESRCH proves it is gone. An unparsable lock names no pid and cannot be honoured.
 function holderAlive(held) {
   const holder = Number(held?.pid);
   if (!Number.isInteger(holder) || holder <= 0) return false;
-  try { process.kill(holder, 0); return true; } catch (e) { return e.code === "EPERM"; }
+  let alive;
+  try { process.kill(holder, 0); alive = true; } catch (e) { alive = e.code === "EPERM"; }
+  if (!alive) return false;
+  // Only when the lock recorded one. An identity we cannot read back — no `ps`, another user's process
+  // on a Linux without /proc access — proves nothing, so the EPERM-alive semantics stand and the lock is
+  // honoured; a MISMATCH is positive proof that this pid belongs to someone else.
+  if (typeof held?.identity === "string") {
+    const now = processIdentity(holder);
+    if (now !== null && now !== held.identity) return false;
+  }
+  return true;
 }
 
 // Removes the lock at `p` if and only if it is still stale, with at most one process doing so at a time.
@@ -991,7 +1089,9 @@ function holderAlive(held) {
 const RECLAIM_BACKSTOP_MS = 3600000;
 function reclaimStale(p, dir) {
   const rp = `${p}.reclaim`;
-  const tmp = `${p}.${process.pid}.rtmp`;
+  // Random, not the pid, for the reason the config temp is: two runs in different PID namespaces over one
+  // mounted state dir share a pid and would write the same name.
+  const tmp = `${p}.${crypto.randomBytes(8).toString("hex")}.rtmp`;
   try {
     fs.writeFileSync(tmp, String(process.pid));
     try { fs.linkSync(tmp, rp); }
@@ -1011,7 +1111,12 @@ function reclaimStale(p, dir) {
     // a live process since we last looked; deleting it then is exactly the bug this exists to prevent.
     const now = inspectLock(p, dir);
     if (!now.gone && !holderAlive(now.held)) fs.rmSync(p, { force: true });
-  } finally { fs.rmSync(rp, { force: true }); }
+  } finally {
+    // Only OUR marker. The backstop three lines above lets a peer take a marker whose owner looks
+    // abandoned, and an unconditional remove here then deletes the marker that peer is reclaiming under —
+    // reopening the multi-holder window this serialisation exists to close.
+    try { if (fs.readFileSync(rp, "utf8").trim() === String(process.pid)) fs.rmSync(rp, { force: true }); } catch {}
+  }
   return true;
 }
 
@@ -1030,7 +1135,8 @@ function acquireLock(dir) {
   catch (e) { fail(EXIT.USAGE, `cannot create the lock directory ${LOCK_DIR}: ${e.message}`); }
   // The file name is a hash, so the contents have to say what it locks — for the message below and for a
   // human who finds a stale one.
-  const body = JSON.stringify({ pid: process.pid, cwd: dir, started: new Date().toISOString() });
+  const body = JSON.stringify({ pid: process.pid, identity: processIdentity(process.pid), cwd: dir,
+                                started: new Date().toISOString() });
   // Creation is ATOMIC, not merely exclusive. `writeFileSync(..., "wx")` creates the file and then writes
   // it, so there is a window in which the lock exists but is empty — and an empty lock reads as abandoned,
   // which is the one thing a lock must never do. Writing to a private temp file and link(2)-ing it into
@@ -1038,7 +1144,7 @@ function acquireLock(dir) {
   // first. Reverting this alone did NOT reproduce a violation in 19 acquisitions, so it is not the fix for
   // the race below — it is here because the window is real and the cost of losing it is two writers in one
   // repository, not because a measurement forced it.
-  const tmp = `${p}.${process.pid}.tmp`;
+  const tmp = `${p}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt++) {
     let linked = false;
     try {
@@ -1489,9 +1595,23 @@ async function setup() {
   // receipts, from the level whose headline promise is that it writes nothing of yours. The comment on
   // checkRoot says a writable ~/.codex/sessions makes the "unforgeable" receipt forgeable; this was the
   // door to it. Refused here rather than in assertReadSandbox so it costs no turn.
+  // Unset is the whole grant missing, not a formatting quirk, and it is knowable before anything is
+  // spawned — so it costs a usage error here rather than a thread and exit 4 in assertReadSandbox.
+  if (opts.level === "read" && !process.env.TMPDIR)
+    fail(EXIT.USAGE, "--level read grants exactly $TMPDIR, and TMPDIR is unset — the seat would get no writable directory and could not start a test runner; export TMPDIR (e.g. TMPDIR=/tmp) and retry");
   if (opts.level === "read" && process.env.TMPDIR) {
     const t = canonPath(process.env.TMPDIR);
     if (t) checkRoot(t);
+  }
+
+  // Asked here rather than at the deadline: an opt-in sandbox that turns out to be unavailable must not
+  // be discovered after the turn has been paid for, and must never silently fall back to running the
+  // verifier with the caller's own rights.
+  if (opts.verifySandboxed) {
+    const r = spawnSync(codexBin, ["sandbox", "--help"],
+      { encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "pipe"] });
+    if (r.status !== 0)
+      fail(EXIT.USAGE, `--verify-sandboxed needs \`${codexBin} sandbox\`, which this installation does not provide (${r.error ? String(r.error.code ?? r.error.message) : `exit ${r.status}`}); drop the flag to run the verifier unsandboxed, or upgrade codex`);
   }
 
   // Before the lock, deliberately. This asks another codex process what the caller's settings are, and a
@@ -1609,6 +1729,7 @@ function shutdown() {
   if (shutdownDone) return shutdownDone;
   shutdownDone = (async () => {
     if (probeCancel) probeCancel();   // kills the group once and settles the probe's own state
+    killVerifier();                   // the verifier is a child too, and it must never outlive the driver
     if (probeChild) {
       try { process.kill(-probeChild.pid, "SIGKILL"); } catch { try { probeChild.kill("SIGKILL"); } catch {} }
       probeChild = null;
@@ -1623,6 +1744,9 @@ function shutdown() {
       }
     }
     releaseLock();
+    // A claimed steer that never reached the server is the coordinator's text: it is echoed to stderr on
+    // rejection, and its file must not be left beside the inbox for the next run to wonder about.
+    if (steerClaim) { try { fs.rmSync(steerClaim, { force: true }); } catch {} steerClaim = null; }
     // A --mcp run's private home holds the caller's MCP secrets in a 0600 file; it exists for this run
     // only, so it goes with the run rather than accumulating under the state dir.
     if (perRunHome) { try { fs.rmSync(perRunHome, { recursive: true, force: true }); } catch {} perRunHome = null; }
@@ -1698,6 +1822,11 @@ const isRoot = (p) =>
 // Events can share a stdout chunk with the turn/start response and so arrive before rootTurnId is known.
 // Holding them keyed by their own turnId lets the right ones be replayed once the id is established,
 // instead of being either dropped or waved through.
+// Bounded on both axes: a server that holds the turn/start response while streaming notifications
+// accumulates them here with nothing to drain them. Generous, because a legitimate burst is a handful
+// of items sharing one chunk.
+const EARLY_MAX_ITEMS = 1000, EARLY_MAX_BYTES = 8 * 1024 * 1024;
+let earlyBytes = 0;
 const early = [];
 function replayEarly() {
   const held = early.splice(0, early.length);
@@ -1761,7 +1890,7 @@ function handleServerRequest(msg) {
   sendError(`${msg.method} is not supported by codex-delegate`);
 }
 
-function handleMessage(msg) {
+function handleMessage(msg, bytes = 0) {
   if (msg.id !== undefined && !msg.method) {
     const p = pending.get(msg.id);
     if (!p) return;
@@ -1803,7 +1932,13 @@ function handleMessage(msg) {
 
   // Turn-scoped notifications that arrive before the turn id is known are held, not judged.
   const turnScoped = msg.method === "item/completed" || msg.method === "turn/completed";
-  if (turnScoped && rootTurnId === null) { early.push(msg); return; }
+  if (turnScoped && rootTurnId === null) {
+    earlyBytes += bytes;
+    if (early.length >= EARLY_MAX_ITEMS || earlyBytes > EARLY_MAX_BYTES)
+      return abort(EXIT.TRANSPORT, `the server sent ${early.length} turn-scoped notification(s) (${earlyBytes} bytes) before answering turn/start; refusing to buffer more`);
+    early.push(msg);
+    return;
+  }
 
   // Live progress, opt-in: one line per item START, so a coordinator tailing a long seat sees the
   // phase it is in — without re-enabling the delta firehose, which stays opted out. Best-effort: an
@@ -2253,7 +2388,10 @@ function interruptTurn() {
 const SHELL_WRAP_RE = /^\s*(?:\S*\/)?(?:sh|bash|zsh|dash|ksh)(?:\s+-[A-Za-z]+)+\s+([\s\S]+)$/;
 function bareCommand(c) {
   const actions = c.actions ?? [];
-  if (actions.length === 1) return actions[0];
+  // The server's parse is trusted only where it cannot launder anything: a raw command carrying a
+  // NEWLINE is a script, whatever the parse says, and a single tidy action extracted from it would let
+  // "probe on line 1, failed test suite on line 2" be read as a probe answering no.
+  if (actions.length === 1 && !/[\n\r]/.test(String(c.command))) return actions[0];
   const m = SHELL_WRAP_RE.exec(String(c.command));
   if (!m) return String(c.command);
   const arg = m[1].trim();
@@ -2299,7 +2437,19 @@ function classifyEvidence() {
   // Events can only show that SOMETHING succeeded, never that the right thing did — Codex opens most
   // turns by reading its own skill files, and that alone satisfies any generic gate. --expect-command
   // is the caller declaring what the evidence must look like.
-  const expected = opts.expectRe ? ran.filter((c) => opts.expectRe.test(c.command)) : ran;
+  // Matched against the WRAPPER and against the command the server parsed out of it. The live server
+  // reports `/bin/zsh -lc '<script>'`, so an anchored pattern — `^pnpm`, the natural way to write one —
+  // could never match a live command while matching the fixture's bare strings happily. The raw string
+  // stays in the union so existing substring patterns keep working.
+  const matchesExpectation = (c) =>
+    opts.expectRe.test(c.command) || opts.expectRe.test(bareCommand(c)) ||
+    (c.actions ?? []).some((a) => opts.expectRe.test(a));
+  const expected = opts.expectRe ? ran.filter(matchesExpectation) : ran;
+  // A command whose last stage is a pager saw the head of its own output and nothing else, so what the
+  // model read was a slice it chose. SKILL.md publishes this trap; no report field named it.
+  const PAGER_TAIL_RE = /\|\s*(?:head|tail|less|more)\b[^|]*$/;
+  const pipedToPager = commands.filter((c) => (c.status === "completed" || c.status === "failed")
+    && (PAGER_TAIL_RE.test(bareCommand(c)) || PAGER_TAIL_RE.test(String(c.command))));
   // Only a final_answer counts. Falling back to the last message of any phase turns the model's
   // thinking-out-loud into the deliverable, and the run reports success on commentary.
   // The schema permits phase: null, and older servers omit it. Prefer an explicit final_answer; fall back
@@ -2317,31 +2467,100 @@ function classifyEvidence() {
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
   const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
   const commentaryOnly = !final && reviewResult == null && messages.length > 0;
-  return { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, fullAnswer,
-           schemaErrs, answerPath, answer, commentaryOnly };
+  return { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
+           fullAnswer, schemaErrs, answerPath, answer, commentaryOnly };
+}
+
+// The verifier's own process, at module scope so shutdown(), a signal and the exit handler can all reach
+// its GROUP. A synchronous spawn is unreachable by construction, and ignores every signal until it ends.
+let verifyChild = null;
+const killVerifier = () => {
+  if (!verifyChild) return;
+  try { process.kill(-verifyChild.pid, "SIGKILL"); } catch { try { verifyChild.kill("SIGKILL"); } catch {} }
+};
+// The verifier is the caller's command, run in the seat's tree. --verify-sandboxed puts it behind the
+// same read profile the read level uses (`codex sandbox -P <profile> -C <cwd>`): exit codes pass
+// through, the tree is readable, $TMPDIR is writable and nothing else is — measured on codex 0.150.1.
+function verifyArgv() {
+  if (!opts.verifySandboxed) return ["/bin/sh", ["-c", opts.verify]];
+  return [codexBin, ["sandbox",
+    "-c", `permissions.${READ_PROFILE}.extends=":read-only"`,
+    "-c", `permissions.${READ_PROFILE}.filesystem={":tmpdir"="write"}`,
+    "-P", READ_PROFILE, "-C", cwd, "--", "/bin/sh", "-c", opts.verify]];
+}
+// Asynchronous on purpose: a synchronous spawn deferred every signal and the deadline for up to the
+// whole budget, and left its process group behind when the driver was killed. Resolves the same shape
+// spawnSync did, plus `timedOut`.
+function runVerifyProcess(budgetMs) {
+  return new Promise((resolve) => {
+    const [bin, argv] = verifyArgv();
+    let done = false, timedOut = false, status = null, signal = null, error = null;
+    let out = "", err = "";
+    let child2;
+    try {
+      // The caller's environment, untouched, for the plain verifier: it is the caller's own command and
+      // nothing here may reshape what it sees. CODEX_HOME is set only for the sandboxed form, where the
+      // profile must resolve against the same home the turn used.
+      const env = opts.verifySandboxed && codexHome !== null ? { ...process.env, CODEX_HOME: codexHome } : process.env;
+      // detached: its own group, so a verifier that backgrounds a server is swept with it rather than
+      // outliving the run.
+      child2 = spawn(bin, argv, { cwd, stdio: ["ignore", "pipe", "pipe"], detached: true, env });
+    } catch (e) {
+      return resolve({ status: null, signal: null, error: e, stdout: "", stderr: "", timedOut: false });
+    }
+    verifyChild = child2;
+    // A rolling tail, not a cap that fails the run: how much a verifier prints says nothing about the
+    // work, and only the tail is ever reported.
+    const keep = (s, d) => (s + d).slice(-65536);
+    child2.stdout.setEncoding("utf8"); child2.stdout.on("data", (d) => { out = keep(out, d); });
+    child2.stderr.setEncoding("utf8"); child2.stderr.on("data", (d) => { err = keep(err, d); });
+    const settle = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(bell);
+      clearTimeout(grace);
+      killVerifier();     // sweep whatever the verifier backgrounded before the group is forgotten
+      verifyChild = null;
+      resolve({ status, signal, error, stdout: out, stderr: err, timedOut });
+    };
+    let grace = null;
+    // Only when no exit has been observed: the bell can land inside the grace after a real exit, and an
+    // `exitCode: 0` beside `timedOut: true` describes a run that did not happen.
+    const bell = setTimeout(() => {
+      if (status === null && signal === null) { timedOut = true; error = error ?? { code: "ETIMEDOUT" }; }
+      killVerifier();
+    }, budgetMs);
+    child2.on("error", (e) => { error = e; settle(); });
+    child2.on("exit", (code, sig) => {
+      status = code; signal = sig;
+      // The exit status is the answer even when something the verifier backgrounded still holds the
+      // pipes open; the grace is for the output already in flight, not for the verdict.
+      grace = setTimeout(settle, 200);
+      grace.unref?.();
+    });
+    child2.on("close", settle);
+  });
 }
 
 // --verify runs on its OWN schedule, not as a reward for having passed the weaker gates. It used to be
-  // gated on the ladder already reading 0, which inverted the evidence: --expect-command greps command
-  // strings the MODEL wrote and is defeated by `true # vitest`, while --verify is a command the CALLER
-  // runs afterwards and cannot be authored by the model. The weak check was cancelling the strong one, and
-  // the report said `verify: null` — so a proven-broken end state and a proven-good one printed alike.
+// gated on the ladder already reading 0, which inverted the evidence: --expect-command greps command
+// strings the MODEL wrote and is defeated by `true # vitest`, while --verify is a command the CALLER
+// runs afterwards and cannot be authored by the model. The weak check was cancelling the strong one, and
+// the report said `verify: null` — so a proven-broken end state and a proven-good one printed alike.
 //
 // Skipped on a timeout only, and for a reason: the deadline fires while Codex is still alive and
 // possibly mid-write, so the check would read a torn tree. verifySkipped (the return value) records
 // which it was, because "not measured" and "not requested" are different facts about the run.
 // Sets the module-level verifyResult; the ladder and the report read it from there.
-function runVerifier() {
+async function runVerifier() {
   let verifySkipped = opts.verify ? null : "not-requested";
   if (opts.verify) {
     if (turnStatus === "timedOut") verifySkipped = "turn-timed-out";
     else if (turnStatus !== "completed") verifySkipped = `turn-${turnStatus}`;
     else {
       // The budget is the caller's, not a private 300s: a --timeout 5 run must not spend 300s in here.
-      // killSignal matters as much as the timeout — spawnSync's default SIGTERM is ignorable, so a
-      // verifier that traps it ran to completion and was still reported as timed out.
-      // maxBuffer: the default 1MB kills a verifier that prints a lot and reports status null / ENOBUFS,
-      // turning a passing check into a failure.
+      // The deadline kills the GROUP with SIGKILL, which a verifier cannot trap and which reaches
+      // whatever it backgrounded.
       // Bounded by what is LEFT of the caller's wall clock, with no floor: the old 1 s minimum let a
       // completion arriving just before the deadline buy the verifier a second past the budget.
       const remainingMs = startedAtMs + opts.timeout * 1000 - Date.now();
@@ -2354,22 +2573,17 @@ function runVerifier() {
       if (remainingMs < verifyFloorMs) { verifySkipped = "budget-exhausted"; verifyResult = null; }
       else {
       const budgetMs = Math.min(300000, remainingMs);
-      // detached: the verifier gets its own process group, and the group is swept right after — Node's
-      // own timeout kills only the shell, so anything the verifier backgrounded used to outlive the run.
-      const v = spawnSync("/bin/sh", ["-c", opts.verify],
-        { cwd, encoding: "utf8", timeout: budgetMs, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024, detached: true });
-      if (v.pid) { try { process.kill(-v.pid, "SIGKILL"); } catch {} }
+      const v = await runVerifyProcess(budgetMs);
       // "Exited non-zero" and "could not be run at all" are different facts and must not render alike:
       // one means the work is missing, the other means the verifier is broken, and they call for opposite
-      // responses. The classification is on the OBSERVED EXIT STATUS, not on whether spawnSync also
-      // reported an error:
+      // responses. The classification is on the OBSERVED EXIT STATUS, never on whether anything went
+      // wrong around it:
       //   127 / 126  the shell never ran the command — a typo, or a tool missing from the DRIVER's PATH
       //              (a launchd or hook context routinely lacks pnpm). Says nothing about the work.
       //   no status  never observed an exit at all: killed at the deadline, or spawn itself failed.
-      //   status 0   the command DID exit successfully. spawnSync's timeout waits on the stdout pipe as
-      //              well as the process, so a verifier that passes while a background process holds the
-      //              pipe returns status 0 WITH error ETIMEDOUT — that is a pass we are holding proof of,
-      //              and reporting it as unmeasurable throws the proof away.
+      //   status 0   the command DID exit successfully, whatever its output did afterwards — a verifier
+      //              that passes while something it backgrounded still holds the pipe is a pass we are
+      //              holding proof of, and reporting it as unmeasurable throws the proof away.
       const noStatus = v.status === null || v.status === undefined;
       const notRunnable = v.status === 127 || v.status === 126;
       const measured = !noStatus && !notRunnable;
@@ -2377,6 +2591,9 @@ function runVerifier() {
         command: opts.verify, exitCode: v.status, signal: v.signal ?? null,
         ok: measured && v.status === 0, measured,
         error: v.error ? String(v.error.code ?? v.error.message) : null,
+        // Which budget applied, and whether it is what ended the check: `exitCode: null, signal: SIGKILL,
+        // error: ETIMEDOUT` said the verifier died without saying that the caller's own clock killed it.
+        budgetMs, timedOut: v.timedOut === true, sandboxed: Boolean(opts.verifySandboxed),
         stdout: String(v.stdout ?? "").slice(-2000), stderr: String(v.stderr ?? "").slice(-2000)
       };
       }
@@ -2448,32 +2665,33 @@ function decideExitCode(ev, verifySkipped) {
 }
 
 // The steer channel: a file the coordinator appends to, polled once a second while the turn runs. New
-// text becomes a turn/steer message on the live turn and the file is truncated — a correction path a
-// native subagent has (the user can just keep typing) and a seat had not. Input only, never rights.
+// text becomes a turn/steer message on the live turn — a correction path a native subagent has (the user
+// can just keep typing) and a seat had not. Input only, never rights.
+let steerClaim = null;   // an in-flight claim, removed at shutdown so a killed run leaves no orphan
 function startSteerPoll() {
   if (!opts.steerFile) return;
   let inFlight = false;
   const timer = setInterval(() => {
     if (settled) { clearInterval(timer); return; }
     if (inFlight || rootThreadId === null || rootTurnId === null || !requestFn) return;
+    // CLAIMED by rename, not read-then-truncated. The old drain was a read-modify-write around a live
+    // send: text appended between its read and its write was overwritten and never delivered, while the
+    // docs promised concurrent appends survive. After the rename the inbox path is free again, so an
+    // append during the send lands in a fresh file and goes out on the next tick.
+    const claim = `${opts.steerFile}.${crypto.randomBytes(8).toString("hex")}.claimed`;
+    try { fs.renameSync(opts.steerFile, claim); } catch { return; }
     let text = "";
-    try { text = fs.readFileSync(opts.steerFile, "utf8"); } catch { return; }
-    if (!text.trim()) return;
+    try { text = fs.readFileSync(claim, "utf8"); } catch {}
+    const release = () => { try { fs.rmSync(claim, { force: true }); } catch {} if (steerClaim === claim) steerClaim = null; };
+    if (!text.trim()) { release(); return; }
+    steerClaim = claim;
     inFlight = true;   // one steer at a time, so a slow server cannot make the poll send it twice
     process.stderr.write(`codex-delegate: steering the turn (${Buffer.byteLength(text)} bytes)\n`);
-    // The file is drained only AFTER the server takes the message, and anything appended in the
-    // meantime survives (only the consumed prefix is removed). A rejected steer is echoed to stderr
-    // and drained too: leaving it would resend it every second forever, and losing it silently is
-    // what this ordering exists to prevent — the coordinator can read it back off the log.
-    // Only the consumed PREFIX is removed. A writer that replaced the file rather than appending to it
-    // (`>` instead of `>>`, or the write-temp-then-rename a careful concurrent writer uses) leaves
-    // content that is not an extension of what was sent — truncating there would destroy a correction
-    // that had never been delivered, so it is left alone and goes out on the next tick.
+    // The claim is dropped once the server has taken the message. A rejected steer is echoed to stderr
+    // and dropped too: leaving it would resend the same rejected text every second forever, and the
+    // coordinator can read the copy back off the log.
     const drain = () => {
-      try {
-        const now = fs.readFileSync(opts.steerFile, "utf8");
-        if (now.startsWith(text)) fs.writeFileSync(opts.steerFile, now.slice(text.length));
-      } catch {}
+      release();
       inFlight = false;
     };
     requestFn("turn/steer", { threadId: rootThreadId, expectedTurnId: rootTurnId,
@@ -2489,13 +2707,27 @@ function startSteerPoll() {
   timer.unref?.();
 }
 
-function finish(reason) {
+// codeOverride keeps a rung the ladder cannot reach on its own: a server that DIED mid-turn is a
+// transport failure (4) whatever the evidence says, and the evidence still has to be reported.
+function finish(reason, codeOverride = null) {
   if (settled) return;
   settled = true;
   if (reason) turnStatus = reason;
 
   const ev = classifyEvidence();
-  const verifySkipped = runVerifier();
+  // The verifier is asynchronous, so the report is written in its continuation — and a throw in either
+  // half must not simply stop: abort() is a no-op once settled, and a run that took that path hung past
+  // its own --timeout and printed nothing at all.
+  runVerifier()
+    .then((verifySkipped) => writeReport(ev, verifySkipped, codeOverride))
+    .catch((e) => {
+      process.stderr.write(`codex-delegate: the report could not be produced (${e.message})\n`);
+      process.exitCode = EXIT.TRANSPORT;
+      shutdown().then(() => process.exit(EXIT.TRANSPORT));
+    });
+}
+
+function writeReport(ev, verifySkipped, codeOverride) {
   // Quiesce the turn's process group BEFORE harvesting a tree that is about to be removed. A command
   // the turn backgrounded can still be writing; snapshotting around it would archive a half-written
   // file and the removal would then delete the rest. Bounded and synchronous — finish() is — and only
@@ -2511,9 +2743,9 @@ function finish(reason) {
   // so the coordinator does not have to glob for it and does not have to trust a filename.
   const receipt = findRollout(rootThreadId);
   const receiptPath = receipt?.path ?? null;
-  const code = decideExitCode(ev, verifySkipped);
-  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, fullAnswer,
-          schemaErrs, answerPath, answer, commentaryOnly } = ev;
+  const code = codeOverride ?? decideExitCode(ev, verifySkipped);
+  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
+          fullAnswer, schemaErrs, answerPath, answer, commentaryOnly } = ev;
 
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
@@ -2522,9 +2754,14 @@ function finish(reason) {
     // from being believed. The grant is `sandbox.writableRoots`; assertWriteSandbox now refuses any
     // difference between them, but the field should not have needed that to be unambiguous.
     writableRootsRequested: roots, network: Boolean(opts.network),
-    // Which Codex installation answered. Two runs that differ only in this can differ in everything else,
-    // so a report that omits it cannot be compared with another.
-    codexHome,
+    // Which Codex installation answered, and which VERSION of it: the userAgent the initialize response
+    // carries was read and dropped, so version drift was named only after a method came back -32601.
+    // null means the server sent a userAgent this driver could not read a version out of.
+    codexHome, codexVersion, codexVersionPinned: PINNED_CODEX,
+    // Where the seat's model and effort came from: a fresh probe, a stale last-known-good, or nothing at
+    // all. Through the relay those three were indistinguishable, and only the first is healthy.
+    // null under --host-home, where the caller's own config.toml IS the config.
+    configInherited,
     // What was REQUESTED; null means the thread inherited config.toml. reasoningEffort below is what the
     // server actually selected, which is the one worth reading back.
     effort: opts.effort ?? null, reasoningEffort: selectedEffort,
@@ -2540,6 +2777,10 @@ function finish(reason) {
     commandsFailed: failedCmds.length, commandsBlocked: blocked.length,
     // Probes that answered "no" (a no-match grep, a false test) — not failures, not successes.
     commandsProbeNegative: probeNegatives.length,
+    // Commands whose last stage was head/tail/less/more: the seat read a slice of its own evidence.
+    commandsPipedToPager: pipedToPager.length,
+    ...(pipedToPager.length ? { pipedToPagerHint:
+      "a command ending in | head/tail/less/more shows the seat only that slice; re-read the file or re-run without the pager before trusting a conclusion drawn from it" } : {}),
     // For a rename the file that EXISTS afterwards is the destination; report that, not the source.
     filesTouched: fileChanges.filter((f) => f.status === "completed").map((f) => f.move ?? f.path),
     fileChangesFailed: failedPatches,
@@ -2600,13 +2841,23 @@ function finish(reason) {
   // process.exit waits for shutdown() now: exiting on the same tick used to discard the SIGKILL
   // escalation timer, which is how a TERM-ignoring test server outlived every normal completion.
   flushing = true;
-  process.stdout.write(out, () => { flushing = false; shutdown().then(() => process.exit(code)); });
+  // The write callback and the stream's own 'error' event both fire on a broken pipe, and the callback
+  // used to exit with the RUN's code — so a report that never arrived still reported the run's success.
+  process.stdout.write(out, (e) => {
+    flushing = false;
+    if (e || stdoutBroken) return stdoutFailed(e);
+    shutdown().then(() => process.exit(code));
+  });
   // If stdout never drains, the report did not reach the caller — that is a transport failure, not
-  // the success the run would otherwise have been.
+  // the success the run would otherwise have been. The wait is what is LEFT of the caller's own budget,
+  // never less than 5 s: a flat 5 s constant cut a 300 KB report off at the pipe buffer for a consumer
+  // that had merely paused — measured, 65536 bytes delivered and exit 4 for a consumer that would have
+  // drained it in eight seconds.
+  const drainMs = Math.max(5000, startedAtMs + opts.timeout * 1000 - Date.now());
   setTimeout(() => {
-    process.stderr.write("codex-delegate: stdout did not drain; report may be truncated\n");
+    process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; report may be truncated\n`);
     shutdown().then(() => process.exit(EXIT.TRANSPORT));
-  }, 5000).unref?.();
+  }, drainMs).unref?.();
 }
 
 // The human footer: the same facts as the JSON report, arranged for a reader.
@@ -2614,7 +2865,7 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
   // Every field the body reads, schemaErrs included: leaving it out made `--footer --output-schema`
   // throw inside an already-settled finish(), where abort() is a no-op — the run hung past its own
   // --timeout and printed no report at all. Verified by reproduction, then by the case below.
-  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, final, answer, schemaErrs } = ev;
+  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final, answer, schemaErrs } = ev;
   {
     const L = [answer, ""];
     L.push(`--- verification -----------------------------------------`);
@@ -2622,6 +2873,14 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
     // Only the surprising case is worth a line: on the host home the caller's plugins and skills were in
     // the turn, so this run is not comparable with an isolated one.
     if (codexHome === null) L.push("home=host — the caller's plugins and skills were loaded into this turn");
+    if (codexVersion && codexVersion !== PINNED_CODEX)
+      L.push(`codex ${codexVersion} answered; this plugin was measured against ${PINNED_CODEX}`);
+    // Only the surprising case again: a fresh probe is the ordinary one, and the other two mean the
+    // model and effort in this report were not the caller's current config.
+    if (configInherited && configInherited.source !== "probe")
+      L.push(`config: ${configInherited.source === "last-known-good"
+        ? `INHERITED FROM AN EARLIER RUN (${configInherited.keys.join(", ") || "no keys"}) — the probe failed this time`
+        : "NOTHING INHERITED — this turn ran on the account defaults, not on your config.toml"}`);
     if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
     if (rootThreadId) L.push(receipt?.verified
       ? `receipt: ${receiptPath}  (originator=${receipt.originator ?? "?"} provider=${receipt.modelProvider ?? "?"})`
@@ -2653,6 +2912,8 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
       `${failedCmds.length ? `, ${failedCmds.length} FAILED` : ""}` +
       `${probeNegatives.length ? `, ${probeNegatives.length} probe(s) answered no` : ""}` +
       `${blocked.length ? `, ${blocked.length} never ran` : ""}`);
+    if (pipedToPager.length)
+      L.push(`  ${pipedToPager.length} of them ended in a pager (| head/tail/less) — the seat saw only that slice of the output.`);
     for (const c of ran.slice(-8)) L.push(`  exit=${c.exitCode} ${c.command.slice(0, 90)}`);
     for (const c of failedCmds) L.push(`  FAILED exit=${c.exitCode} ${c.command.slice(0, 90)}`);
     for (const c of blocked) L.push(`  NEVER RAN  ${c.command.slice(0, 90)}`);
@@ -2682,6 +2943,7 @@ function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
         : `verify: \`${verifyResult.command}\` COULD NOT BE MEASURED (` +
           (verifyResult.exitCode === 127 ? "command not found on the driver's PATH"
             : verifyResult.exitCode === 126 ? "found but not executable"
+            : verifyResult.timedOut ? `killed at its ${verifyResult.budgetMs}ms budget, which is what was left of --timeout`
             : verifyResult.error ?? "no exit status") +
           `${verifyResult.signal ? `, killed by ${verifyResult.signal}` : ""}) — this says nothing about the work; fix the verifier.`);
     } else if (opts.verify) {
@@ -2762,14 +3024,51 @@ async function main() {
   child.on("exit", (code, signal) => {
     const e = new Error(`codex app-server exited (${signal ? `signal ${signal}` : `code ${code}`})`);
     rejectAllPending(e);
-    if (!settled) abort(EXIT.TRANSPORT, e.message);
+    if (settled) return;
+    // Once a thread exists there is evidence to hand back — threadId, commands, file changes, a partial
+    // answer — and a dead server is no reason to discard it. abort() prints no report, so this does not
+    // use it; the code stays 4, because the transport really did fail.
+    if (rootThreadId) {
+      process.stderr.write(`codex-delegate: ${e.message}\n`);
+      turnError = turnError ?? { codexErrorInfo: "crashed", message: e.message, crashed: signal ?? code };
+      finish("failed", EXIT.TRANSPORT);
+      return;
+    }
+    abort(EXIT.TRANSPORT, e.message);
   });
   child.stdin.on("error", () => {});
 
-  readline.createInterface({ input: child.stdout }).on("line", (line) => {
+  // Newline framing with a bound, in place of readline: readline buffers an unterminated line without
+  // any limit, so one broken write exhausts the driver's memory with nothing to show for it. The cap is
+  // far above a legitimate line — an item carrying a whole test run's aggregatedOutput is megabytes —
+  // and far below "until the OOM killer decides".
+  const MAX_LINE_BYTES = 32 * 1024 * 1024;
+  let frameBuf = "";
+  child.stdout.setEncoding("utf8");   // the decoder, not the reader, owns multi-byte chunk boundaries
+  child.stdout.on("data", (chunk) => {
+    frameBuf += chunk;
+    let at;
+    while ((at = frameBuf.indexOf("\n")) >= 0) {
+      const line = frameBuf.slice(0, at);
+      frameBuf = frameBuf.slice(at + 1);
+      let msg;
+      try { msg = JSON.parse(line); } catch { unparsedLines++; continue; }
+      try { handleMessage(msg, line.length); } catch (e) { abort(EXIT.TRANSPORT, `protocol handling failed: ${e.message}`); }
+    }
+    if (frameBuf.length > MAX_LINE_BYTES) {
+      frameBuf = "";
+      abort(EXIT.TRANSPORT, `the server sent more than ${MAX_LINE_BYTES} bytes with no newline; refusing to buffer more`);
+    }
+  });
+  // EOF terminates a line as surely as a newline does, and readline flushed one: a server whose final
+  // turn/completed lost its trailing newline would otherwise have its completion dropped.
+  child.stdout.on("end", () => {
+    const line = frameBuf;
+    frameBuf = "";
+    if (!line.trim()) return;
     let msg;
-    try { msg = JSON.parse(line); } catch { unparsedLines++; return; }   // readline already reassembles split lines
-    try { handleMessage(msg); } catch (e) { abort(EXIT.TRANSPORT, `protocol handling failed: ${e.message}`); }
+    try { msg = JSON.parse(line); } catch { unparsedLines++; return; }
+    try { handleMessage(msg, line.length); } catch (e) { abort(EXIT.TRANSPORT, `protocol handling failed: ${e.message}`); }
   });
 
   let nextId = 1;
@@ -2780,7 +3079,7 @@ async function main() {
   };
   requestFn = request;
 
-  await request("initialize", {
+  const init = await request("initialize", {
     clientInfo: { title: "codex-delegate", name: "Claude Code", version: "2.0" },
     capabilities: {
       experimentalApi: false, requestAttestation: false,
@@ -2798,6 +3097,13 @@ async function main() {
     }
   });
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} })}\n`);
+
+  // Measured live: `Claude Code/0.150.1 (Mac OS 26.6.2; arm64) unknown (codex-delegate; 2.0)` — the
+  // client's own name, then the SERVER's version. Take the first x.y.z after a slash; a userAgent this
+  // cannot read leaves codexVersion null rather than inventing one.
+  codexVersion = /\/(\d+\.\d+\.\d+[^\s)]*)/.exec(String(init?.userAgent ?? ""))?.[1] ?? null;
+  if (codexVersion && codexVersion !== PINNED_CODEX)
+    process.stderr.write(`codex-delegate: this codex is ${codexVersion}; the plugin's protocol facts and pinned schemas were measured against ${PINNED_CODEX}. Behaviour that contradicts the docs starts here.\n`);
 
   // Standing rules belong on the thread, not in the task prompt: they then govern every turn of a
   // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
@@ -2819,7 +3125,10 @@ async function main() {
     // note — one returned 13 KB of prose straight into the coordinator's context.
     ...(opts.brief
       ? [`Answer in at most ${BRIEF_LINES} lines: the conclusion, then only what changes what the reader does next.`,
-         "Put anything longer — diffs, transcripts, tables, evidence — in a file under $TMPDIR and give its absolute path."]
+         // Withheld under --answer-json, which has just demanded ONE JSON object and nothing else: the
+         // two sentences together tell the seat to answer in JSON and to put the rest beside it.
+         ...(opts.answerJson ? []
+           : ["Put anything longer — diffs, transcripts, tables, evidence — in a file under $TMPDIR and give its absolute path."])]
       : [])
   ].join(" ");
 
@@ -2895,6 +3204,20 @@ async function main() {
   await request("turn/start", lastTurnParams);
 }
 
+// A consumer that stopped reading — `| head -c 1` is the whole recipe — makes the report write fail with
+// EPIPE, and with no 'error' listener Node turns that into an uncaught exception: exit 1 with a stack
+// trace, on a driver whose published contract says a report that cannot reach stdout is exit 4.
+// Measured: a 300 KB answer piped into `head -c 1` exited 1.
+let stdoutBroken = false;
+function stdoutFailed(e) {
+  if (stdoutBroken) return;
+  stdoutBroken = true;
+  flushing = false;
+  process.stderr.write(`codex-delegate: stdout: ${e?.code ?? e?.message ?? "write failed"}; the report did not reach the caller\n`);
+  shutdown().then(() => process.exit(EXIT.TRANSPORT));
+}
+process.stdout.on("error", stdoutFailed);
+
 // Installing a handler removes Node's default terminate-on-signal, so the handler must always end the
 // process. Without the settled branch a run that has already reported ignores every signal it handles,
 // and only SIGKILL reclaims it.
@@ -2912,6 +3235,14 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     if (shutdownDone) { killGroup("SIGKILL"); return; }
     if (settled) {
       if (flushing) return;   // the report is mid-write; let it finish or hit its own timer
+      // A verifier is the one thing that can still be RUNNING after the turn settled. Kill its group and
+      // let finish() report what the turn did with the check marked unmeasured, rather than exiting on
+      // the spot and throwing away a report the run has already earned. A second signal falls through.
+      if (verifyChild) {
+        process.stderr.write(`codex-delegate: ${sig} during --verify; killing the verifier's process group\n`);
+        killVerifier();
+        return;
+      }
       shutdown().then(() => process.exit(process.exitCode ?? EXIT.TRANSPORT));
       return;
     }
@@ -2933,6 +3264,7 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 // process.exit directly. After a clean teardown every one of these is a no-op.
 process.on("exit", () => {
   if (child) killGroup("SIGKILL");
+  killVerifier();
   if (probeChild) { try { process.kill(-probeChild.pid, "SIGKILL"); } catch {} }
   releaseLock();
   worktreeLastResort();
