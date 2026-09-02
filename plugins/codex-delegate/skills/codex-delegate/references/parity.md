@@ -7,6 +7,7 @@ oldest numbers here. Re-check after a codex upgrade.
 
 - Capability table
 - Qualifications
+- Relay transport
 - Fan-out and reporting
 
 ## Capability table
@@ -20,6 +21,7 @@ and one qualification.
 | agent with `isolation: "worktree"` | `--worktree <repo>` | writes from HEAD without implicit network; see `--help` |
 | the same, committing | `--worktree <repo> --commit` | commits persist at `worktreeCommitsRef`; see `--help` |
 | fan-out of many agents | concurrent driver invocations | memory-bound rather than throttled; see [Fan-out and reporting](#fan-out-and-reporting) |
+| one-call wrapped subagent | `--relay <file>` | launches detached, waits, and returns one envelope with the whole answer; see [Relay transport](#relay-transport) |
 | a subagent that outlives the call | `--detach` | returns a handle (exit 10, `turnStatus` running) and the run survives the session; see `--help` |
 | collecting a finished subagent | `--wait <id\|last>` | delivers the run's own report byte for byte under its own exit code; see `--help` |
 | listing / stopping running agents | `--jobs`, `--cancel <id>` | status derived from pid liveness; a cancel lands the full interrupted report; see `--help` |
@@ -38,11 +40,24 @@ and one qualification.
 | per-turn reasoning-summary density | `--reasoning-summary auto\|concise\|detailed` | passed as `turn/start.summary` |
 | structured adversarial review | [adversarial-review.md](adversarial-review.md) plus [`review-output.schema.json`](../schemas/review-output.schema.json) | strict, grounded ship/no-ship result |
 | optional stop-time review | `CODEX_DELEGATE_STOP_GATE=1 node scripts/stop-gate.mjs` | reviews uncommitted work; intentionally not registered as a hook |
-| a permission prompt | none — refused, recorded, exit 6 | deliberate; see Escalations |
+| a permission prompt | none — refused, recorded, exit 6 | widen only the rights settled with the user |
 
-“Escalations” refers to [SKILL.md's escalation and lock rules](../SKILL.md#escalations-and-locks).
+Settle rights through [SKILL.md's rights rules](../SKILL.md#rights).
 
 ## Qualifications
+
+### Relay transport
+
+The shipped wrapper writes the coordinator's whole prompt to one file, runs `driver.mjs --relay <file>`,
+and returns the driver's output verbatim. The driver reads the header and body, starts one detached seat,
+waits up to 560 seconds by default, and renders one envelope. A header-less relay file defaults to a read
+seat in the current directory; `--seat-file` still requires `SEAT`. The wrapper adds neither a rights line
+nor a prompt line.
+
+If the seat is still running, the envelope starts with exit 10 and includes a complete, quoted `collect:`
+command using `--relay-collect`. The wrapper repeats that exact command up to 24 times; a caller can repeat
+it again by hand. The same envelope always ends with the full answer and its byte count. Use `--wait` when
+the JSON report, rather than the relay envelope, is the desired transport.
 
 ### Read and isolated write
 
@@ -128,7 +143,8 @@ concurrent writer its own cwd; read seats take no lock and may share one.
 | native wrapper agents launched together | each reports separately | each run needs wrapper reasoning |
 | Workflow agents | each reports by phase | verification and synthesis are staged |
 | one shell that ends in `wait` | reports after the slowest child | the next step requires all results |
-| `--detach` plus a later `--wait` | no notification; poll `--jobs` or block in `--wait` | workflows, `-p` sessions, the relay, anything past the tool's call cap |
+| `--detach` plus a later `--wait` | no notification; poll `--jobs` or block in `--wait` | workflows, `-p` sessions, or direct-driver work past a call cap |
+| `--relay` plus its printed `--relay-collect` command | one final envelope after repeated bounded waits | the shipped wrapper or another decision-free text relay |
 
 From the main conversation the short-seat route is the blocking driver in a `run_in_background: true`
 Bash call, which has no cap and notifies on completion (measured).

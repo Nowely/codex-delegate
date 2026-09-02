@@ -15,6 +15,7 @@ explains environment, state, wrappers, operational bounds, and lifecycle details
 - The isolated home
 - Seat files and wrappers
 - Bounding or stopping a seat
+- Relay transport
 - Receipt validation and reporting
 - Worktree ledger and destination
 
@@ -22,10 +23,11 @@ explains environment, state, wrappers, operational bounds, and lifecycle details
 
 | variable | effect |
 | --- | --- |
-| `CODEX_DELEGATE_STATE_DIR` | moves everything this driver owns: `locks/`, `answers/` (answers, partials, turn diffs), `home/` (the isolated Codex home), `homes/` (one private home per `--mcp` run), `jobs/` (what `--jobs`, `--wait`, and `--resume last` read), `runs/` (a `--detach` run's transport), `worktrees/` (the ledger), and `pasted/` (images `attach-pasted.mjs` stages). Absolute paths only. Two runs under different values do not exclude each other |
+| `CODEX_DELEGATE_STATE_DIR` | moves everything this driver owns: `locks/`, `answers/` (answers, partials, turn diffs), `home/` (the isolated Codex home), `homes/` (one private home per `--mcp` run), `jobs/` (what `--jobs`, `--wait`, and `--resume last` read), `runs/` (a `--detach` run's transport), `tmp/` (the private `$TMPDIR` of a run whose caller exported none), `worktrees/` (the ledger), and `pasted/` (images `attach-pasted.mjs` stages). Absolute paths only. Two runs under different values do not exclude each other |
 | `CODEX_DELEGATE_SESSIONS_DIR` | where to look for the rollout receipt |
+| `CODEX_DELEGATE_RELAY_WAIT_S` | how long `--relay` and `--relay-collect` wait before handing back the running envelope (default 560, just under a relay's 590 s tool cap); a test and live-check seam |
 | `CODEX_DELEGATE_VERIFY_FLOOR_MS` | verifier-admission floor (default 100 ms) and test seam; see [Bounding or stopping a seat](#bounding-or-stopping-a-seat) |
-| `TMPDIR` | the read level's entire writable grant, so it goes through the same guard as a write root |
+| `TMPDIR` | the read level's entire writable grant, so a caller's own goes through the same guard as a write root. Unset, the driver makes `<state>/tmp/<runId>` (0700) and grants exactly that; it outlives the run, the report names it as `tmpDir`, and it is pruned with the run directories |
 
 ## Observability
 
@@ -58,7 +60,8 @@ Every write-level root — `--cwd`, `--writable`, the git dir `--commit` grants,
 `--worktree` lands in — and the read level's `$TMPDIR` refuse `~/.codex`, `~/.codex-delegate` and the
 resolved `CODEX_DELEGATE_STATE_DIR` (when it was moved elsewhere) and anything inside them, by inode
 identity: the first holds the receipts a seat is verified by, the others this driver's locks and
-answer log. The driver also refuses your home directory itself and every
+answer log. The private `<state>/tmp/<runId>` created by the driver is the narrow exception: its owner
+record binds it to that run. The driver also refuses your home directory itself and every
 ancestor of it, up to `/`.
 
 **Only those are protected.** `~/.ssh`, `~/.aws`, `~/.claude`, `~/Library` and the rest of your home
@@ -94,15 +97,24 @@ shipped agent is unavailable, preserve this relay contract:
     Return Codex's answer verbatim, with the run's threadId and exitCode. Do not summarise, do not add
     findings of your own, and if the run fails report the failure rather than answering yourself.
 
-Wrappers write `--seat-file <file>` as one `FIELD: value` per line. `SEAT` is required and must be the
-first field; outer whitespace is trimmed, interior text is preserved to end of line, and fields map to
-ordinary flags with the same guards. The complete field list lives in the driver's `--help`. Explicit
-command-line flags override file fields so the harness can bound a declaration it did not author, and
-`seatFileFields` reports the fields actually declared in their original order.
+Wrappers write ONE file: a header of `FIELD: value` lines, then the prompt. The file is capped at 512 KB.
+Header names are upper-case, case-sensitive, and start at column 0. The header ends at the first blank,
+comment, or other non-field line, and always at `TASK:`, `CHECK:`, or `RETURN:`; everything from there
+down is the body, verbatim, including that line, even when a later line looks like a field. An unknown
+ALL-CAPS name above the body is exit 2 naming its line. A value is literal to end of line.
+
+With `--seat-file`, `SEAT` is required and must be first. A file with no body leaves the prompt to stdin
+or `--prompt`; providing both is exit 2, as is a body beside `REVIEW`, which builds its own prompt.
+Explicit command-line flags override file fields, and `seatFileFields` reports the declared fields in
+their original order. With `--relay`, a file whose leading header has no `SEAT` becomes a read seat in
+the current directory: the relay writes the prompt verbatim and adds nothing. Pass the file to
+`--seat-file` for JSON or `--relay` for the text envelope. The complete field list is in `--help`.
 
 The format avoids constructing a shell command from relayed values: an injected quote stays literal
-instead of becoming flags. Attachments, steering files, and MCP servers remain command-line-only because
-an injected field could otherwise upload, truncate, or grant something the user never named.
+instead of becoming flags. Attachments, steering files, MCP servers, bounds, and transport remain
+command-line-only because an injected field could otherwise upload, truncate, grant, or reshape a run
+that the user never named. A header naming a command-line-only bound or transport exits 2 and names the
+flag to use.
 
 ### The injection limit
 
@@ -117,28 +129,30 @@ line, because verification runs an unsandboxed `/bin/sh` with the coordinator's 
 ## Bounding or stopping a seat
 
 The native defaults set no wall clock (`--timeout 0`), cut after 900 seconds of thread silence
-(`--idle-timeout 900`), and cut after 1,000 commands (`--max-commands 1000`); no token budget is set.
-Silence is rearmed by every thread item, delta, and usage event. Set any bound deliberately:
+(`--idle-timeout 900`), and cut after 1,000 commands (`--max-commands 1000`). Silence is rearmed by
+every thread item, delta, and usage event. Set any bound deliberately:
 
 - `--timeout S` declares a wall clock. The driver steers for a final answer before the end, interrupts
   with a short grace, then writes the report at the deadline. Without it there is no wall-clock cut.
 - `--idle-timeout S` guards silence; `0` disables it. `--max-commands N` catches command loops; `0`
-  disables it. `--budget-tokens N` counts this invocation's usage, steers at 80%, and cuts at 100%; a
-  resumed invocation gets a fresh budget, and missing server usage leaves spend unknown with a warning.
-- A cut is exit 3 with `cut.kind` `wall`, `idle`, `commands`, or `tokens`; `budget`, `answerPartial`, and
-  the resume hint report what was spent and retained.
+  disables it.
+- A cut is exit 3 with `cut.kind` `wall`, `idle`, or `commands`; `answerPartial` and the resume hint report
+  what was retained.
 
-Seat-file wrappers spell these `TIMEOUT`, `IDLE_TIMEOUT`, `MAX_COMMANDS`, and `BUDGET_TOKENS`.
-`--brief` controls both answer size and context consumption; it does not stop a turn.
+There is no token budget — `tokenUsage` in the report is the server's own accounting, not a bound. The
+three bounds that exist, `--timeout`, `--idle-timeout` and `--max-commands`, are command-line-only,
+because the defaults let a seat run with no sizing header. `--brief` controls both answer size and
+context consumption; it does not stop a turn.
 
 Use `--detach` when a run must outlive its caller. It starts the seat in its own process group under
 `<state>/runs/<runId>/` and returns a handle (exit 10, `turnStatus: running`). `--wait <id|last>` collects
 the report byte-for-byte under the run's exit code; `--wait-timeout S` returns the handle again if the
 seat is still live. `--jobs [--cwd R]` derives `running`, `crashed`, or `ended` from process liveness and
-exposes `lastEventAt`, `tokensSpent`, `commandsSeen`, and `phase`. `--cancel <id>` sends `SIGTERM`; the
-seat's handler writes the interrupted report. A second signal escalates teardown, while `SIGKILL` of the
-driver can strand descendants. Run directories are kept for 14 days or 400 entries, except one whose
-`launch.json` names a live process, which is never pruned however old.
+exposes `lastEventAt`, `tokensSpent` (the server's own total for the thread, cumulative across `--resume`),
+`commandsSeen`, and `phase`. `--cancel <id>` sends `SIGTERM`; the seat's handler writes the interrupted
+report. A second signal escalates teardown, while `SIGKILL` of the driver can strand descendants. Run
+directories are kept for 14 days or 400 entries, except one whose `launch.json` names a live process,
+which is never pruned however old.
 
 The run directory holds `prompt.txt`, `report.json`, `stderr.txt`, and `launch.json`; it is the transport,
 so an unwritable state directory is exit 2 before launch. `endedAt` is written only after the complete
@@ -151,12 +165,19 @@ A signal after the thread exists returns the interrupted report with exit 1 (`tu
 once a turn id exists; the sub-second window before that sends nothing); before the thread exists it is
 exit 4.
 
-The shipped relay always writes `DETACH: yes` and defaults each wait to just under ten minutes; a
-`WAIT_TIMEOUT` header overrides one wait. It repeats at most 24 times (about four hours), so one Agent
-call normally returns the finished answer. If it returns the running
-shape, collect with an empty-body seat carrying `SEAT: <same rights>`, `COLLECT: <threadId>`, and optional
-`WAIT_TIMEOUT`; directly, use `--wait`. `DETACH`, `WAIT_TIMEOUT`, and `COLLECT` are wrapper fields. The
-relay's call cap bounds each wait, never the detached seat.
+## Relay transport
+
+The shipped relay runs `driver.mjs --relay <file>`: one detached seat, one wait of 560 seconds, and one
+text envelope on stdout under the run's own exit code. `CODEX_DELEGATE_RELAY_WAIT_S` overrides that wait
+as a test and live-check seam. While the seat is going, the envelope starts with `exitCode: 10` and carries
+a literal `collect:` command using `--relay-collect <threadId> --cwd <dir>`. The relay repeats it verbatim
+at most 24 times, about four hours, so one Agent call normally returns the finished answer. Run that same
+command by hand to keep collecting, or use `--wait <threadId>` for JSON.
+
+The envelope has one shape: `exitCode` first; report fields and non-null artifact pointers next; the
+`collect:` command only while running; an stderr tail when no report exists; then the full answer and its
+byte count, always last. Everything above the answer marker is metadata, and everything after it is the
+answer even if it looks like a field. Transport is never declared in the seat header.
 
 ## Receipt validation and reporting
 

@@ -29,8 +29,9 @@ not in the coordinator.
   macOS. No dependencies: the driver is one file importing only `node:` builtins.
 - **macOS and Linux are both measured.** CI runs every suite that needs no `codex` binary on
   ubuntu-latest and macos-latest; the one macOS-only call (the managed-preferences plist) is guarded.
-  Export `TMPDIR` when you do: at `--level read` it *is* the grant, a stock Linux shell leaves it unset,
-  and the driver refuses that with exit 2 before spawning anything.
+  A stock Linux shell leaves `TMPDIR` unset, and at `--level read` it *is* the grant: the driver then
+  makes `<state>/tmp/<runId>` (0700) of its own, grants exactly that, and names it in the report as
+  `tmpDir`. Export your own to put the seat's scratch files elsewhere.
 - **Your `~/.codex/config.toml` is the default policy.** Model, reasoning effort, personality and
   service tier are inherited from it unless overridden per call (`--model`, `--effort`); the driver
   deliberately sets no defaults of its own.
@@ -55,14 +56,6 @@ then the plugin, and restart Claude Code:
 claude plugin marketplace update codex-delegate
 claude plugin update codex-delegate@codex-delegate
 ```
-
-Skill only, via the [`skills` CLI](https://github.com/vercel-labs/skills) (directory: [skills.sh](https://skills.sh)):
-
-```bash
-npx skills add Nowely/codex-delegate -g -a claude-code
-```
-
-The `codex-seat` agent is not installed by this route; it installs only the skill.
 
 Or from source — clone and symlink, so the checkout stays the single source of truth (add the second
 symlink if you want the `codex-seat` agent without the plugin route):
@@ -99,8 +92,8 @@ Run the suites from the **repository or plugin root**. Do not compute that root 
 to the skill path: where the skill is a symlink (the clone-and-symlink install above), Node collapses
 `..` lexically and lands somewhere that does not exist, while `ls` follows the link and appears to
 work. Resolve the link, or use the install path announced when the skill loads, or `installPath` in
-`installed_plugins.json`. A bare `npx skills` install carries only the skill itself and no suites, so
-run them from a checkout or a plugin install.
+`installed_plugins.json`. Use either installation route above and run the suites from its checkout or
+plugin root.
 
 ## First run
 
@@ -112,8 +105,8 @@ RETURN: the two sentences.'
 ```
 
 The JSON report (the default) ends with the verdict: `exitCode: 0` means the turn completed, every
-declared check passed, and a command really ran; anything else is a specific complaint — `SKILL.md`
-documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and
+declared check passed, and a command really ran; anything else is a specific complaint — the driver's
+`--help` documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and
 `receiptOk` locate and validate the run's rollout
 ([receipt details](skills/codex-delegate/references/environment-and-internals.md#receipt-validation-and-reporting)
 say what that does and does not prove).
@@ -124,15 +117,16 @@ use `Agent(subagent_type: "codex-delegate:codex-seat", prompt: "TASK: …\nCHECK
 `agentType: "codex-delegate:codex-seat"` in a workflow; the skill is
 `codex-delegate:codex-delegate`. A clone-and-symlink install instead uses bare `codex-seat` for both
 agent call spellings and `codex-delegate` for the skill. Add `SEAT: worktree <repo>` before `TASK:` for
-a managed writer. The pinned relay maps an optional header to driver flags, launches one seat, waits as
-long as it takes, and returns Codex's answer verbatim with the thread id and receipt, never an answer of
-its own.
+a managed writer. The pinned relay does three mechanical things — write the prompt to a file, run
+`driver.mjs --relay <file>`, return that output verbatim — and the driver does the rest: it parses the
+header, launches one seat, waits as long as the work takes and renders the envelope carrying the thread
+id, the receipt and Codex's whole answer. The relay never composes an answer of its own.
 
 ## Rights, per call
 
 | Call | Codex may |
 | --- | --- |
-| `--cwd DIR` (read level, the default) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests |
+| `--level read` (the default; `--cwd DIR` is optional and defaults to the current directory) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests |
 | `--worktree REPO` | write level in a managed detached tree that starts at HEAD; commit or stash WIP first, or use `--level write --cwd` on the live tree. Dependencies are absent, so dependency-needing verifiers exit 1 unless installed in the seat's tree |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
 | `+ --network` / `--writable DIR` / `--commit` | egress, an extra root, or the repository's git dir — each an explicit opt-in |
@@ -147,20 +141,21 @@ is its transport.
 | `--detach` | start the turn in its own process group and print a handle: exit 10, `turnStatus: running`, `threadId`, `pid`, `runId`, and the paths its report and stderr will land at. Bounded by `--idle-timeout`, `--max-commands` and any `--timeout` exactly as a blocking run is |
 | `--wait-timeout S` | how long this process waits before handing back the handle: 0 under `--detach`, 7200 under `--wait` |
 | `--wait <id\|last>` | collect a detached run: its report to stdout and its stderr to stderr, byte for byte, under the code the run itself decided; exit 4 if it died without one |
-| `--jobs [--cwd R]` | the registry as JSON, status from pid liveness — `running` / `crashed` / `ended` — plus `lastEventAt`, `tokensSpent`, `commandsSeen` and `phase`; spawns nothing |
+| `--jobs [--cwd R]` | the registry as JSON, status from pid liveness — `running` / `crashed` / `ended` — plus `lastEventAt`, `tokensSpent` (the server's own total for the thread, cumulative across `--resume`), `commandsSeen` and `phase`; spawns nothing |
 | `--cancel <id>` | `SIGTERM` the run; its own handler writes the full interrupted report |
 
 ## Trust and verification
 
 - **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
-  ladder of exit codes from the event stream. `SKILL.md` documents the ladder.
+  ladder of exit codes from the event stream. The driver's `--help` is the complete inventory;
+  `SKILL.md` gives the relay decisions a coordinator needs.
 - **Three gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
   the model — but with the coordinator's own rights, env and network, so a verifier that executes tree
   contents (`npm test` runs the seat's `package.json` script) is running the seat's code; prefer one
   that does not, or add `--verify-sandboxed` to put it behind the read-only profile;
   `--expect-command <regex>` demands the work matched a declared signature;
   `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can
-  be fooled: `SKILL.md` and [references/result-gates.md](skills/codex-delegate/references/result-gates.md).
+  be fooled: the driver's `--help` and [references/result-gates.md](skills/codex-delegate/references/result-gates.md).
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
   were asked for, and a mismatch refuses the run instead of proceeding under an unknown sandbox.
 - **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout and check it names this thread;
