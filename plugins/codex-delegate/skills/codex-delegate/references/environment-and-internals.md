@@ -3,7 +3,7 @@
 Moved out of `SKILL.md` because none of it is needed at the moment of deciding *whether* and *how* to
 delegate — the two recipes at the top of that file cover the decision.
 
-The canonical flag inventory lives in `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --help`. This file
+The canonical flag inventory lives in `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --help`, with the rarely needed flags and the environment table under `--help-all`. This file
 explains environment, state, wrappers, operational bounds, and lifecycle details behind those flags.
 
 ## Contents
@@ -18,6 +18,9 @@ explains environment, state, wrappers, operational bounds, and lifecycle details
 - Relay transport
 - Receipt validation and reporting
 - Worktree ledger and destination
+- Lock design
+- Git-directory grant
+- Configuration key oracle
 
 ## Environment
 
@@ -40,6 +43,11 @@ threads under `ultra` are not included. `total` is thread-cumulative across `--r
 the most recent **API request**, not the whole turn — measured on a rollout, one turn emitted
 `last: 13584 / total: 13584` then `last: 14273 / total: 27857`. So `total` is what a single turn cost
 and `last` is only its tail.
+
+| Report key | Meaning |
+| --- | --- |
+| `fileChanges` | completed file changes as `{path, kind, move}` objects |
+| `filesTouched` | the flat list of destination paths |
 
 ## The answer log, and what --brief does not deliver
 
@@ -115,6 +123,8 @@ instead of becoming flags. Attachments, steering files, MCP servers, bounds, and
 command-line-only because an injected field could otherwise upload, truncate, grant, or reshape a run
 that the user never named. A header naming a command-line-only bound or transport exits 2 and names the
 flag to use.
+
+Refused by name: `VERIFY` (without `--allow-seat-verify`), `ATTACH`, `STEER_FILE`, `MCP`, `TIMEOUT`, `IDLE_TIMEOUT`, `MAX_COMMANDS`, `DETACH`, `WAIT_TIMEOUT`, `COLLECT`, `PROGRESS`. Boolean fields take `yes|true|1`; `no|false|0` is the same as omitting the line.
 
 ### The injection limit
 
@@ -210,3 +220,136 @@ rebuild content. A private `--mcp` home under `homes/<hex>/` records its owner i
 run reaps it once that owner is gone. It contains caller MCP environment tokens in a 0600 `config.toml`.
 Lock and ledger records also retain the app-server process group and are reclaimed only when both it and
 the driver are gone.
+
+## Lock design
+
+At `--level write` the driver takes an exclusive lock keyed on the cwd. A second run in the same directory
+exits 10 rather than racing the first one's edits, tests and cleanup. Resuming a thread whose turn is still
+open exits 10 as well: its old events would otherwise satisfy the new invocation while the new prompt was
+never consumed.
+
+The lock lives in `~/.codex-delegate/locks/` (or under `$CODEX_DELEGATE_STATE_DIR`, which relocates all
+of this driver's state — two runs under different values therefore do NOT exclude each other), **not**
+in the directory it protects — a lock inside the cwd
+gets staged and committed by a turn running `git add -A` under `--commit`. It is keyed on the directory's
+identity (`dev:ino`), not on how the path was spelled, so a symlink, a rename or a case-variant cannot
+produce a second lock for one directory. Each file holds the pid, a **second identity** for that pid (its
+process start time, from `ps -o lstart=` or `/proc/<pid>/stat`), the cwd it locks, and a start time. A pid
+alone is not an identity: lock files outlive reboots and `SIGKILL`, so a recycled pid otherwise makes a
+directory busy forever. A mismatched identity is stale; one that cannot be read proves nothing, so the
+lock is honoured. The exit-10 message names the file to delete if the holder is really gone. `$TMPDIR` was rejected as a home
+for it: it is a mutable environment variable, so two runs on one cwd under different values would take two
+different locks and both proceed, and it is the one place a `--level read` turn can write.
+
+Reclaiming a stale lock is serialised by its own marker, and liveness is re-checked under it. Without that,
+a run that judged the *stale* lock dead could arrive late and delete the *fresh* lock that had replaced it
+— measured at up to three simultaneous holders of one directory. Note that several runs exiting 0 against
+one cwd is **not** evidence of that bug: runs that acquire in sequence all legitimately succeed. Only
+overlapping hold intervals are.
+
+That marker is abandoned when its **owner** is gone — liveness, not a clock, decides. A deadline got it
+wrong in both directions: it stole the marker from an owner merely stalled past it — a laptop sleep, a
+`SIGSTOP`, a wall-clock step — reopening the very window the marker closes; and it made a provably free
+directory report `BUSY` for the whole deadline whenever a run was killed mid-reclaim. One clock
+survives, as a backstop and nothing else: a marker whose mtime is over an hour old is abandonable even
+if a live process still bears its pid, because after an hour that pid is more likely recycled than
+stalled.
+
+The lock covers the whole run, not just the turn: the job-registry record is written and read inside it,
+and an `--mcp` run's private home is deleted right after release. The isolated Codex home is written
+**before** the lock: its config probe is a second process, and holding a write lock across it made an idle
+directory report exit 10. Concurrent writers there are safe by atomic rename, not by the lock. Detached
+records carry the app-server process group; a stale lock is reclaimed only when both driver and group are
+gone.
+
+The lock is released **after** the driver has waited its child process group out — SIGTERM, up to 2 s,
+then SIGKILL and up to 1 s more — so a next writer does not walk into a directory where the previous
+run's test servers are still dying. A completed `--worktree` turn quiesces that group even earlier,
+before the tree is harvested and removed, so a command the turn backgrounded cannot still be writing
+into the bytes being archived. That wait is bounded: a group member alive after those three
+seconds does not hold the lock any longer, and a driver killed with `SIGKILL` releases nothing at all
+(the next run reclaims the stale lock after finding its pid dead). It still serialises invocations
+rather than directories. What it does not cover at all is a shared scratch directory being deleted out
+from under a run by other work on the machine; give every concurrent run its own uniquely named cwd.
+
+## Git-directory grant
+
+A narrower grant was measured and **rejected**. Whitelisting `{worktrees/<name>, objects, refs, logs/refs}`
+does let `git add` + `git commit` through for a linked worktree on the `files` ref backend, but it breaks
+`git branch -D` and `git tag -d` (`packed-refs.lock` sits at the `.git` root), breaks `git gc`, prints
+`error: Unable to create '.../packed-refs.lock'` on every commit, and cannot be applied at all to a
+reftable repo or to a main worktree, where `index.lock` and `COMMIT_EDITMSG` live at the root. It also
+breaks any pre-commit hook that stashes (lint-staged runs `git stash`, which needs `refs/stash` at the
+`refs/` root).
+
+`workspace-write` has no deny-list, so "grant `.git` but not hooks and config" cannot be said with writable
+roots at all — it needs a permissions profile, which is a bigger change than this flag. Until then: prefer
+harvesting a diff over granting `--commit`, and when you do grant it, point `--cwd` at a worktree of a
+throwaway clone.
+
+The driver's own git is not exposed to what a `--commit` seat writes there. Every git it spawns carries
+`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c diff.external=`, every diff adds
+`--no-ext-diff --no-textconv`, and each call has a 120-second timeout with `SIGKILL`. Without that,
+harvest, worktree removal, and the next checkout ran the seat's hooks, fsmonitor, and external diff with
+the caller's rights before anyone read the report. This does not protect the seat's own commands or
+`--verify`, which run with the rights granted to them.
+
+## Configuration key oracle
+
+Misspelled config keys are swallowed silently by both `-c` and the app-server. `tools.web_search` is a real
+key that looks like the web-search switch and does nothing; the actual one is top-level `web_search`, which
+the driver sets to whatever `--web-search` asked for and to `disabled` only when the flag is absent.
+
+**There are two config surfaces, and this oracle covers one.** The `-c` payload carries `web_search`, the
+read profile, `default_permissions`, `model_reasoning_effort` and `sandbox_workspace_write.*`. The
+isolated home's `config.toml` carries the four inherited keys (`model`, `model_reasoning_effort`,
+`personality`, `service_tier`) and, under `--mcp`, the caller's whole `[mcp_servers]` table — `--mcp`
+adds no `-c` entry at all. A key destined for that file has to be validated by putting it in a
+config.toml and starting codex under `--strict-config`, not with `-c`.
+
+Validate any new `-c` key offline first:
+
+```bash
+codex exec --strict-config -s read-only --skip-git-repo-check -C /tmp \
+  -c model_provider=zzz_nonexistent -c <KEY>=<VALUE> 'x'
+```
+
+`unknown configuration field` means the key is wrong; `Model provider ... not found` means it was accepted.
+A third answer exists: an error naming the key and complaining about its *contents* — `data did not match
+any variant of untagged enum WebSearchToolConfigInput in 'tools.web_search'` — means the key is real and
+the value is wrong.
+
+**The oracle is blind inside `permissions.<profile>.*`, which is exactly where this skill's newest patch
+lives.** Measured:
+
+```
+-c 'permissions.foo.extendz=":read-only"'  -> Model provider ... not found      (ACCEPTED — and wrong)
+-c 'web_serch=disabled'                    -> unknown configuration field       (caught)
+-c 'default_permision="x"'                 -> unknown configuration field       (caught)
+```
+
+A misspelled field inside a profile survives `--strict-config` and silently drops what it was meant to
+grant, while the profile still applies under its correct id:
+
+```
+-c 'permissions.pX.filesystem={":tmpdir"="write"}' -P pX  ->  TMPDIR_WRITABLE
+-c 'permissions.pY.filesysten={":tmpdir"="write"}' -P pY  ->  TMPDIR_DENIED
+```
+
+This is why the driver's read-level assert checks the **effect** as well as the name: sandbox type
+`workspaceWrite`, no network access, the cwd present in `runtimeWorkspaceRoots`, and `writableRoots`
+equal to exactly `[$TMPDIR]` — or exactly empty when `--cwd` IS `$TMPDIR`, where the server moves it to
+`runtimeWorkspaceRoots` instead — canonicalised on both sides. The profile id is asserted first, but a
+name-only check passes in both cases above; verified live, introducing exactly this typo now exits 4
+before any model turn. ($TMPDIR itself also goes through the protected-root guard before the turn, so
+`TMPDIR=~/.codex/x --level read` is a usage error rather than something this assert has to catch.) Check a profile the same way yourself:
+
+```bash
+codex sandbox -c 'permissions.codex_delegate_read.extends=":read-only"' \
+  -c 'permissions.codex_delegate_read.filesystem={":tmpdir"="write"}' \
+  -P codex_delegate_read -C /tmp -- /bin/sh -c \
+  'printf x > "$TMPDIR/p" && echo TMPDIR_OK; printf x > /tmp/p 2>/dev/null && echo SLASHTMP_LEAK; true'
+# expect TMPDIR_OK and no SLASHTMP_LEAK.
+# TMPDIR_DENIED -> the grant stopped applying; read-level vitest is broken again.
+# SLASHTMP_LEAK -> ":read-only" widened upstream; re-check what else the profile now grants.
+```

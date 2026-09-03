@@ -181,13 +181,15 @@ live on 2026-09-03 with nested Claude calls.
 - **sonnet: 3/3.** A header-less prompt stayed header-less and ran as a read seat; `SEAT: write
   /nonexistent/dir` returned exit 2 and created nothing; a running seat reached its final envelope after
   three verbatim `collect:` repeats.
-- **haiku: envelope 3/3 and eight collection repeats verbatim.** On a header-less prompt it nevertheless
-  added `SEAT: read <dir>` and `ALLOW_NO_COMMANDS: yes` in both of two runs despite “add nothing.” The
-  rights stayed read-level, but the added waiver weakened an evidence gate. In one earlier run under
-  wording since removed it also rewrote an existing write seat as read.
+- **The runs reported as haiku on 2026-09-03 were not verified by model id.** The mechanism that made
+  them sonnet is proven: the shipped agent's frontmatter `model: sonnet` overrides a session's
+  `--model haiku`; its transcript shows `claude-sonnet-4-6` under `claude -p --model haiku`.
+- **A real haiku ignored the relay contract in 4/4 runs and answered the task itself.** It was reached
+  through a copy of the agent with `model: haiku` (or the Agent tool's model option), on both the
+  a156c52 body and the new one.
 
-The pin therefore stays sonnet. Re-run all three cases before lowering it. Earlier relay failures and the
-rules they produced live in [incidents.md](../skills/codex-delegate/references/incidents.md#a-relay-on-a-small-model).
+The pin stays sonnet. Measure a lower model through a copy with its own model line. Earlier relay failures
+and the rules they produced live in [incidents.md](../skills/codex-delegate/references/incidents.md#a-relay-on-a-small-model).
 Still unmeasured live: the plugin-install route (`--plugin-dir` plus redirected `HOME`) and the
 `DRIVER_NOT_FOUND`/exit-90 sentinel.
 

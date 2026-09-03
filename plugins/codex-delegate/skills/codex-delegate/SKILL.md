@@ -93,7 +93,7 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 | `SEAT:` | `read [<dir>]`, `worktree <repo>`, `write <dir>` | first, or not at all: no header is a read seat in the current directory |
 | `NETWORK:` | `yes` | the seat cannot finish without egress; write levels only, and settle it with the user first |
 | `WRITABLE:` | `<dir>`, repeatable | a write seat needs one more root than the directory it was given |
-| `COMMIT:` | `yes` | the work has to land as commits: see [commit-blast-radius.md](references/commit-blast-radius.md) |
+| `COMMIT:` | `yes` | the work has to land as commits: see [Git-directory grant](references/environment-and-internals.md#git-directory-grant) |
 | `RESUME:` | `<threadId>`, `last` | this seat continues an earlier thread instead of opening one |
 | `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran |
 | `OUTPUT_SCHEMA:` | `<path to a strict JSON Schema file>` | the answer must parse as one JSON object |
@@ -154,17 +154,17 @@ commands, so it also needs `ALLOW_NO_COMMANDS: yes` (`--allow-no-commands` on a 
 
 ## References
 
-- `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --help` is the canonical inventory of every flag.
+- `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --help` is the canonical inventory of the flags a coordinator sets; `--help-all` adds the rarely needed ones, the `CODEX_DELEGATE_*` variables and the internals.
 - Flags, fields, relay transport, bounds, environment, receipts, and worktree internals:
   [environment-and-internals.md](references/environment-and-internals.md).
 - Evidence gates and verifier semantics: [result-gates.md](references/result-gates.md).
 - Capability and concurrency parity: [parity.md](references/parity.md).
 - The measured failures behind the rules: [incidents.md](references/incidents.md).
-- Commit blast radius: [commit-blast-radius.md](references/commit-blast-radius.md).
-- Locks: [lock-internals.md](references/lock-internals.md).
-- Config drift: [config-drift.md](references/config-drift.md).
-- Pasted images: [pasted-images.md](references/pasted-images.md).
-- Browser tests: [browser-tests.md](references/browser-tests.md).
+- Commit blast radius: [environment-and-internals.md](references/environment-and-internals.md#git-directory-grant).
+- Locks: [environment-and-internals.md](references/environment-and-internals.md#lock-design).
+- Config drift: [environment-and-internals.md](references/environment-and-internals.md#configuration-key-oracle).
+- Pasted images: [parity.md](references/parity.md#pasted-media-handling).
+- Browser tests: [parity.md](references/parity.md#browser-mode-sandbox).
 - Adversarial review: [adversarial-review.md](references/adversarial-review.md).
 - Integration alternatives: [why-not-the-plugin.md](references/why-not-the-plugin.md).
 - Installation and upgrades: [README.md](../../README.md).

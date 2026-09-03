@@ -104,12 +104,17 @@ CHECK: name three real files.
 RETURN: the two sentences.'
 ```
 
-The JSON report (the default) ends with the verdict: `exitCode: 0` means the turn completed, every
+The JSON report — the only report — ends with the verdict: `exitCode: 0` means the turn completed, every
 declared check passed, and a command really ran; anything else is a specific complaint — the driver's
 `--help` documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and
 `receiptOk` locate and validate the run's rollout
 ([receipt details](skills/codex-delegate/references/environment-and-internals.md#receipt-validation-and-reporting)
 say what that does and does not prove).
+
+| Report key | Meaning |
+| --- | --- |
+| `fileChanges` | completed file changes as `{path, kind, move}` objects |
+| `filesTouched` | the flat list of destination paths |
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
 agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed,
@@ -147,7 +152,7 @@ is its transport.
 ## Trust and verification
 
 - **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
-  ladder of exit codes from the event stream. The driver's `--help` is the complete inventory;
+  ladder of exit codes from the event stream. The driver's `--help` is the complete ladder;
   `SKILL.md` gives the relay decisions a coordinator needs.
 - **Three gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
   the model — but with the coordinator's own rights, env and network, so a verifier that executes tree
@@ -178,7 +183,7 @@ what the plugin does better: [references/why-not-the-plugin.md](skills/codex-del
 
 Read level cannot run browser-mode tests (vitest's server binds loopback TCP; the profile refuses it) —
 they run at write level with a one-file Chromium workaround
-([references/browser-tests.md](skills/codex-delegate/references/browser-tests.md)). Node-environment vitest at read level
+([Browser-mode sandbox](skills/codex-delegate/references/parity.md#browser-mode-sandbox)). Node-environment vitest at read level
 needs `--configLoader runner`. Concurrency is memory-bound (~180 MB per seat) and exceeding the machine
 budget gets runs killed by the OS, not throttled. The app-server protocol is `[experimental]` and
 carries no stability promise — hence the pinned schema and the fidelity suite.
@@ -223,7 +228,7 @@ Canonical homes for repeated stories:
 | Subject | Canonical home |
 | --- | --- |
 | composition, rights, workflow | [`SKILL.md`](skills/codex-delegate/SKILL.md) |
-| flags and field formats | `node skills/codex-delegate/scripts/driver.mjs --help` |
+| flags and field formats | `node skills/codex-delegate/scripts/driver.mjs --help` (`--help-all` for the rest) |
 | wrapped-agent relay contract | [`agents/codex-seat.md`](agents/codex-seat.md) |
 | environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/codex-delegate/references/environment-and-internals.md) |
 | native capability parity and dated measurements | [`parity.md`](skills/codex-delegate/references/parity.md) |

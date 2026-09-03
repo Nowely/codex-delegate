@@ -124,7 +124,7 @@
       "files": [],
       "expectations": [
         "Does NOT accept 'the tests pass' from Codex's prose",
-        "Checks the command list or the --json report for a command with a numeric exitCode",
+        "Checks the command list or the JSON report for a command with a numeric exitCode",
         "Re-runs the browser-mode projects locally before recommending a merge"
       ],
       "covers": "behaviour: the honesty gate proves a command ran, not the right one"
