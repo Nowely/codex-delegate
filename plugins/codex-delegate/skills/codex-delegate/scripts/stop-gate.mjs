@@ -26,7 +26,7 @@ if (!git.stdout.trim()) process.exit(0);
 
 const driver = path.join(path.dirname(fileURLToPath(import.meta.url)), "driver.mjs");
 const run = spawnSync(process.execPath, [driver, "--level", "read", "--cwd", cwd,
-  "--review", "uncommitted", "--brief", "--timeout", "300", "--json"],
+  "--review", "uncommitted", "--brief", "--timeout", "300"],
   { cwd, env: process.env, encoding: "utf8", timeout: 310000, maxBuffer: 16 * 1024 * 1024 });
 if (run.error?.code === "ETIMEDOUT") {
   process.stderr.write("codex-delegate stop gate: review timed out after 300 seconds\n");

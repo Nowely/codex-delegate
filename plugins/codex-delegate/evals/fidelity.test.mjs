@@ -555,7 +555,7 @@ async function liveTurns() {
     const state = freshDir("live-state");
     const shim = teeShim(dir, codexBin, log);
     const { code, out, err } = await runDriver(
-      ["--level", "read", "--cwd", dir, "--effort", "low", "--timeout", "300", "--json", "--prompt", LIVE_PROMPT],
+      ["--level", "read", "--cwd", dir, "--effort", "low", "--timeout", "300", "--prompt", LIVE_PROMPT],
       { ...process.env, CODEX_DELEGATE_CODEX: shim, CODEX_DELEGATE_STATE_DIR: state }, 330000);
     let r = null;
     try { r = JSON.parse(out); } catch {}
@@ -612,7 +612,7 @@ async function liveTurns() {
     fs.writeFileSync(path.join(repo, "util.mjs"), "export function clamp(x, lo, hi){\n  if (x < lo) return lo;\n  if (x > hi) return hi\n  return x;\n}\n");
     const shim = teeShim(repo, codexBin, log);
     const { code, out, err } = await runDriver(
-      ["--level", "read", "--cwd", repo, "--effort", "low", "--timeout", "300", "--json", "--review", "uncommitted"],
+      ["--level", "read", "--cwd", repo, "--effort", "low", "--timeout", "300", "--review", "uncommitted"],
       { ...process.env, CODEX_DELEGATE_CODEX: shim, CODEX_DELEGATE_STATE_DIR: state }, 330000);
     let r = null;
     try { r = JSON.parse(out); } catch {}

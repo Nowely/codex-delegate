@@ -207,235 +207,231 @@ function wrapJoined(items, sep, indent, width = 79) {
   return out.join(`\n${" ".repeat(indent)}`);
 }
 
-// ---------------------------------------------------------------- arguments
+// ---------------------------------------------------------------- help
 
-const USAGE = `codex-delegate ${VERSION} — run one Codex turn with rights declared per call.
-
-  node driver.mjs [--level ${[...LEVELS].join("|")}] --cwd DIR [options] --prompt TEXT
-  node driver.mjs --cwd DIR < task.txt
-
-Rights
-  --level read       the default: read anything, write only $TMPDIR; no lock is
-                     taken, so read seats run in parallel over one directory.
-                     $TMPDIR IS the grant. An explicit one is honoured and takes
-                     the same protected-root guard every writable root takes; an
-                     unset one — the default in a stock Linux shell — is not an
-                     error: the driver makes a private 0700 directory of this
-                     run's own at <state>/tmp/<runId> and exports it for the turn
-                     and the verifier, so the grant is narrower than /tmp rather
-                     than absent. It OUTLIVES the run, because --brief tells the
-                     seat to leave long output in a file there; the report names
-                     it as tmpDir, and it is pruned on the run-directory bounds
-                     (14 days or 400 directories, never one still running)
+// Two tiers over ONE list. Each subject is written once: --help prints `text`, --help-all prints `text`
+// with `more` beneath it and adds the blocks marked `all`, so a flag cannot reach one tier alone.
+const HELP = [
+  { s: "Rights",
+    text: `  --level read       the default: read anything, write only $TMPDIR; no lock is
+                     taken, so read seats run in parallel over one directory. An
+                     unset $TMPDIR is not an error — see --help-all
   --level write      workspace-write over --cwd; takes a per-directory lock
+  --cwd DIR          where the turn runs. Required at --level write: the writable
+                     root is a grant, and a defaulted grant is one nobody made
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
-                     there at write level, and dispose of it afterwards. The tree
-                     is created at the repository's HEAD — the LAST COMMIT — so
-                     your uncommitted and staged changes, your untracked and
-                     git-ignored files and your installed dependencies are NOT in
-                     it: a verifier that needs node_modules exits 1 there unless
-                     the seat installs them, and a seat asked about work in
-                     progress finds an empty diff and reports success. Commit or
+                     there at write level, harvest the work to
+                     ~/.codex-delegate/answers/ (paths in the report) and remove
+                     the tree. It is cut at HEAD — the LAST COMMIT — so
+                     uncommitted changes, untracked and ignored files and
+                     installed dependencies are NOT in it: a seat asked about work
+                     in progress finds an empty diff and reports success. Commit or
                      stash first, or run on the live tree with
-                     --level write --cwd REPO. Once the turn completed, the work
-                     is harvested — the tracked diff and an archive of untracked
-                     files land under ~/.codex-delegate/answers/, paths in the
-                     report — and the tree is removed (a clean tree whose turn
-                     never started is removed too). A turn that did not complete,
-                     or a harvest that failed, preserves the tree and the report
-                     says why and how to remove it. With --resume the tree is
-                     REBUILT rather than cut from HEAD: the base commit of that
-                     thread's own tree, plus the diff and untracked archive its
-                     harvest saved (implies --level write; replaces --cwd)
+                     --level write --cwd REPO
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   --commit           also grant the git common dir, for a turn that commits
   every write-level root — --cwd, --writable, the --commit git dir — refuses
-  ~/.codex and ~/.codex-delegate and anything inside them: they hold the
-  rollout receipts and this driver's own state
+  ~/.codex and ~/.codex-delegate: they hold the receipts and this driver's state`,
+    more: `  $TMPDIR IS the read-level grant. An explicit one is honoured and takes the
+  same protected-root guard every writable root takes; where the caller exported
+  none the driver makes a private 0700 one at <state>/tmp/<runId> and reports it
+  as tmpDir. It is exported for the turn AND the verifier, and it OUTLIVES the
+  run, because
+  --brief tells the seat to leave long output in a file there. It is pruned on
+  the run-directory bounds (14 days or 400 directories, never one still running).
+  A worktree turn that did not complete, or a harvest
+  that failed, PRESERVES the tree and the report says why and how to remove it; a
+  clean tree whose turn never started is removed too. With --resume the tree is
+  REBUILT rather than cut from HEAD: the base commit of that thread's own tree,
+  plus the diff and untracked archive its harvest saved (implies --level write;
+  replaces --cwd). Without a job record holding that base commit,
+  \`--worktree REPO --resume ID\` is REFUSED rather than run against a fresh tree.` },
 
+  { s: "Turn",
+    text: `  --prompt TEXT      the task; omit to read it from stdin
   --seat-file F      read the seat from F: a HEADER of "FIELD: value" lines, each
-                     value taken literally to end of line, and then the BODY —
-                     the prompt — from the first line that is not one of them,
-                     verbatim and including that line. Header lines are NAME: at
-                     column 0, upper-case; a blank, a # or any other line ends
-                     the header, and what follows is body even if it looks like
-                     a field. A TASK:, CHECK: or RETURN: line always opens the
-                     body. An ALL-CAPS name above the body that is not a field
-                     is exit 2 naming its line, never a silently ignored one. A
-                     file with no body leaves the prompt to stdin or --prompt,
-                     as before; both at once is exit 2, and so is a body beside
-                     REVIEW, which builds its own prompt. The fields:
+                     value literal to end of line, then the BODY — the prompt —
+                     from the first line that is not one. SEAT is required and
+                     must come FIRST; explicit flags override the file. Fields:
                      ${wrapJoined([...SEAT_FIELDS], "/", 21)}
-                     --attach, --steer-file and --mcp are NOT among them: an
-                     injected line would upload a file nobody named, consume and
-                     rename away a file nobody named, or grant tool servers
-                     nobody granted. Pass those on the command line. Neither
-                     are the bounds and the transport — flags whose defaults
-                     are chosen so a seat needs no header to size them, and
-                     naming one in a seat file is exit 2:
-                     ${wrapJoined(Object.keys(CLI_ONLY_FIELDS), "/", 21)}
-                     SEAT is required and must come FIRST. For a wrapper: write
-                     the values, do not build a command line out of them.
-                     Explicit flags override the file. A NEWLINE inside a value
-                     ends that value and starts a new field — a wrapper handed
-                     caller-supplied text cannot prevent that, so:
-  --allow-seat-verify  permit VERIFY in a seat file. Without it VERIFY there is
-                     refused, because --verify runs an unsandboxed shell with
-                     your own rights and a relayed value must not be able to
-                     introduce one. Pass --verify on the command line instead.
-
-Turn
-  --prompt TEXT      the task; omit to read it from stdin
   --attach FILE      attach a local image (${attachExts("localImage").join("/")}) or audio
                      file (${attachExts("localAudio").join("/")}) to the prompt; repeatable
-  --steer-file F     poll F once a second during the turn: new text is CLAIMED by
-                     renaming F aside, then sent to the RUNNING turn as a steer
-                     message — the way to correct a long seat without killing it.
-                     Append to F again and the next tick picks it up; nothing
-                     appended during a send is lost. Steering is input, never
-                     rights
-  --review T         run the server's native reviewer instead of a prompt:
-                     T = uncommitted | branch:<ref> | commit:<sha>. The review
-                     is the answer; implies --allow-no-commands and excludes
-                     --prompt, --resume and the answer-shape flags.
-                     uncommitted also excludes --worktree: a fresh worktree is
-                     detached at HEAD and holds no uncommitted changes, so that
-                     pair reviews an empty diff and reports success
-  --web-search ${[...WEB_SEARCH].join("|")}
-                     off by default: a search makes the turn depend on what the
-                     index says today
+  --review T         uncommitted | branch:<ref> | commit:<sha> — the server's
+                     native reviewer instead of a prompt. Implies
+                     --allow-no-commands; excludes --prompt, --resume, the
+                     answer-shape flags, and (for uncommitted) --worktree
   --answer-json      demand one bare JSON object as the answer; the report then
                      carries answerJson and answerJsonError
   --output-schema F  demand a JSON object matching the schema in file F: the
-                     server constrains generation with it, the driver checks the
-                     result independently, and one corrective turn is spent on a
-                     mismatch before exit 13. Implies --answer-json.
-                     The server takes a STRICT schema only: every object must
-                     carry "additionalProperties": false and list every one of
-                     its properties in "required" (use "type": ["string","null"]
-                     where you wanted optional). Both are checked here, before
-                     the turn, because the server rejects them after it
+                     server constrains generation, the driver checks the result
+                     independently, and one corrective turn is spent on a mismatch
+                     before exit 13. Implies --answer-json, and takes a STRICT
+                     schema only — see --help-all
   --brief            ask for a summary, not a working note, and cap what comes
-                     back inline — parity with a subagent whose detail stays in
-                     a transcript. The full answer is always written to
-                     ~/.codex-delegate/answers/<threadId>.md and its path is in
-                     the report as answerPath, with or without this flag.
+                     back inline. The full answer is at answerPath either way:
+                     ~/.codex-delegate/answers/<threadId>.md
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
+  --resume THREAD    continue a thread; "--resume last" continues the newest run
+                     recorded for this --cwd or, with --worktree, this repository.
+                     The report names it as resumedFrom — check it after "last"
+  --fork THREAD      branch a new thread from THREAD before the turn: same cwd,
+                     model, sandbox, approval policy and developer instructions
+                     as a fresh thread. Excludes --resume and --worktree`,
+    more: `  --output-schema: the server takes a STRICT schema only — every object must
+  carry "additionalProperties": false and list every one of its properties in
+  "required" (use "type": ["string","null"] where you wanted optional). Both are
+  checked here, before the turn, because the server rejects them after it.
+  A seat file's header lines are NAME: at column 0, upper-case; a blank, a # or
+  any other line ends the header, and what follows is body even if it looks like
+  a field. A TASK:, CHECK: or RETURN: line always opens the body. An ALL-CAPS
+  name above the body that is not a field is exit 2 naming its line, never a
+  silently ignored one. A file with no body leaves the prompt to stdin or
+  --prompt; both at once is exit 2, and so is a body beside REVIEW. --attach,
+  --steer-file and --mcp are NOT fields: an injected line would upload a file
+  nobody named, consume a file nobody named, or grant tool servers nobody
+  granted. Neither are the bounds and the transport, whose defaults are chosen so
+  a seat needs no header to size them, and naming one is exit 2:
+                     ${wrapJoined(Object.keys(CLI_ONLY_FIELDS), "/", 21)}
+  A NEWLINE inside a value ends that value and starts a new field — a wrapper
+  handed caller-supplied text cannot prevent that. For a wrapper: write the
+  values, do not build a command line out of them.` },
+  { s: "Turn", all: true,
+    text: `  --allow-seat-verify  permit VERIFY in a seat file. Without it VERIFY there is
+                     refused, because --verify runs an unsandboxed shell with
+                     your own rights and a relayed value must not be able to
+                     introduce one. Pass --verify on the command line instead
+  --web-search ${[...WEB_SEARCH].join("|")}
+                     off by default: a search makes the turn depend on what the
+                     index says today
   --reasoning-summary ${[...REASONING_SUMMARIES].join("|")}
                      request that density for the per-turn reasoning summary;
                      omitted leaves the model or config default unchanged
-  --fork THREAD      branch a new thread from THREAD before running the turn.
-                     The fork receives the same cwd, model, sandbox, approval
-                     policy and developer instructions as a fresh thread;
-                     excludes --resume and --worktree
   --fork-through TURN
                      with --fork, include history only through TURN (inclusive)
-  --compact          with --resume, run thread/compact/start before the turn;
-                     use for a long continuation nearing its context window
-  --timeout SECONDS  none by default (0): the turn runs as long as the work takes,
-                     bounded by --idle-timeout and --max-commands, like a native
-                     subagent; set one to get the wrap-up steer, the cut and the
-                     hard stop (at most 7200). A declared budget is the whole
-                     budget, anchored at process start, and spent in three rungs.
-                     At T minus a reserve (a quarter of the budget, at least 60 s
-                     and at most 300 s, and only where that fits) it is STEERED: "about
-                     N seconds remain, write your final answer now". At T minus a
-                     grace (10 s, at most a quarter of the budget) the turn is
-                     CUT — turn/interrupt, then the grace for the server to close
-                     it. At T the report is written regardless. A cut lands on
-                     exit 3 with cut.kind wall, and the report says whether the
-                     server closed the turn inside the grace
-  --idle-timeout S   default 900, 0 disables — how long the thread may say
-                     NOTHING before the turn is cut with cut.kind idle. Every
-                     notification and server request on the thread resets it
-                     (item starts and completions, answer deltas, token usage),
-                     so a long command or a long inference step does not trip it.
-                     This, not --timeout, is the hang guard: --timeout is a
-                     budget a healthy turn is allowed to spend, and it is not set
-                     by default
-  --max-commands N   default 1000, 0 disables — how many commands the turn may
-                     run before it is CUT with cut.kind commands (exit 3, the
-                     report holding the answer so far). The volume cap a native
-                     subagent has as maxTurns, and the bound that catches a loop:
-                     a turn retrying one command forever is neither silent nor
-                     expensive, so neither of the other two budgets ends it
-  --detach           start the turn in a process of its own and hand back a
-                     HANDLE instead of a report: exit 10, turnStatus running,
-                     with threadId, pid, runId and the paths its report and
-                     stderr will land at. The run survives this process, its
-                     shell and the session; it is bounded by --idle-timeout,
-                     --max-commands and any --timeout exactly as a blocking run
-                     is. Collect it later with --wait, list it with --jobs, stop
-                     it with --cancel. Under --detach the run directory
-                     (<state>/runs/<runId>/) IS the transport, so a state
-                     directory that cannot be written is a usage error
-  --wait-timeout S   how long to wait for the run before handing back the handle:
-                     0 (the default under --detach) returns at once, N > 0 polls
-                     for up to N seconds and delivers the report itself if it
-                     lands. With --wait the default is 7200
-  --wait ID          collect a detached run: "--wait <threadId>" or "--wait last"
-                     (the newest run recorded for --cwd, else for this process's
-                     own directory). It polls the job record once a second and
-                     then copies that run's report to stdout and its stderr to
-                     stderr, byte for byte, exiting with the code the run itself
-                     decided. A run whose process is gone without a report is
-                     exit 4; one still going when --wait-timeout runs out is the
-                     handle again, exit 10
-  --jobs             print the job registry as a JSON array and exit 0, spawning
-                     nothing: threadId, cwd, repo, level, pid, status, exitCode,
-                     startedAt, endedAt, answerPath, reportPath, runId, plus the
-                     mid-flight lastEventAt, tokensSpent, commandsSeen and phase
-                     a running seat records as it goes. status is
-                     DERIVED at read time from pid liveness, never stored —
-                     running, crashed (no report and the pid is gone) or ended.
-                     --cwd narrows it to one directory or repository
-  --cancel ID        SIGTERM a running seat by threadId: the run's own handler
-                     writes the full interrupted report at its report path. Exit
-                     0 when the signal went out, 2 when the run is not cancellable
-                     (already ended, already dead, or the record is older than
-                     its own budget, where the pid may have been recycled)
-  --resume THREAD    continue a thread; "--resume last" continues the newest run
-                     recorded for this --cwd OR, with --worktree, for this
-                     repository (registry: ~/.codex-delegate/jobs). The report
-                     names the thread actually continued as resumedFrom — check
-                     it when you passed "last". \`--worktree REPO --resume ID\`
-                     rebuilds that thread's worktree from its base commit and its
-                     harvested work and continues there; without a job record
-                     holding that base commit it is refused rather than run
-                     against a fresh tree. --ephemeral leaves no thread behind
+  --compact          with --resume, run thread/compact/start before the turn; use
+                     for a long continuation nearing its context window
+  --ephemeral        leave no thread behind: no job record, so --jobs, --wait and
+                     \`--resume last\` cannot reach it. Excludes --resume` },
 
-Gate — what counts as the turn having done the work
-  --expect-command RE   a command matching RE must have run. RE is matched against
-                     the command the SERVER parsed as well as the wrapper string
-                     it reports (\`/bin/zsh -lc '...'\`), so \`^pnpm\` works
-  --verify CMD          run CMD after the turn, in the seat's tree; its exit code
-                     decides. CMD is a shell command with YOUR rights, your env
-                     and your network — prefer one that does not execute anything
-                     out of the tree the seat just wrote (\`npm test\` runs the
-                     seat's package.json script). Bounded by what is left of
-                     --timeout, at most 300 s; the report carries verify.budgetMs
-                     and verify.timedOut. Its output is streamed, never buffered
-                     whole: the last 64 KiB is kept in memory and the last 2000
-                     characters of each stream reach the report
-  --verify-sandboxed run --verify through \`codex sandbox\` under the same
-                     read-only profile --level read uses: the tree is readable,
-                     \$TMPDIR is writable, nothing else is, and the exit code is
-                     passed through. A verifier that must WRITE (most build and
-                     test runners) will fail under it. Usage error where this
-                     codex has no \`sandbox\` subcommand
+  { s: "Gate — what counts as the turn having done the work",
+    text: `  --expect-command RE   a command matching RE must have run. RE is matched
+                     against the command the SERVER parsed as well as the wrapper
+                     string it reports (\`/bin/zsh -lc '...'\`), so \`^pnpm\` works
+  --verify CMD       run CMD after the turn, in the seat's tree; its exit code
+                     decides. CMD is a shell command with YOUR rights, env and
+                     network, bounded by what is left of --timeout, at most 300 s
+  --verify-sandboxed run --verify through \`codex sandbox\` under the read-only
+                     profile --level read uses: the tree is readable, \$TMPDIR is
+                     writable, nothing else is, so a verifier that must WRITE fails
   --allow-no-commands   accept a turn that ran nothing
   --allow-failed-commands  accept a turn in which a command, a patch or an
-                     unresolved command failed — the rung below --verify, for a
-                     read-only seat whose environment probe is expected to fail
-                     (no repository, no toolchain, a deliberately broken build).
-                     It waives THAT RUNG ONLY: an --expect-command that never
-                     matched is still exit 5, and a --verify that ran and failed
-                     is still exit 9. The counts stay in the report either way
+                     unresolved command failed — for a read-only seat whose probe
+                     is expected to fail. THAT RUNG ONLY: an unmatched
+                     --expect-command is still exit 5, a failed --verify still 9`,
+    more: `  --verify: prefer a command that does not execute anything out of the tree the
+  seat just wrote (\`npm test\` runs the seat's own package.json script). The report
+  carries verify.budgetMs, verify.timedOut and verify.sandboxed, and the last 2000
+  characters of each stream; the output is streamed, never buffered whole, and the
+  last 64 KiB is kept in memory. Most build and test runners write, so most fail
+  under --verify-sandboxed; it passes the exit code through,
+  and is a usage error where this codex has no \`sandbox\` subcommand. A waived rung
+  still leaves its counts in the report.` },
 
-Isolation
-  by default the turn runs against a CODEX_HOME private to this driver — one
+  { s: "Bounds",
+    text: `  --timeout SECONDS  none by default (0): the turn runs as long as the work takes,
+                     bounded by --idle-timeout and --max-commands. A declared
+                     budget is anchored at process start: at T minus a reserve the
+                     turn is STEERED to answer now, at T minus a grace it is CUT
+                     (exit 3, cut.kind wall), at T the report is written anyway
+  --idle-timeout S   default 900, 0 disables — how long the thread may say NOTHING
+                     before the turn is cut with cut.kind idle. Every notification
+                     resets it. This, not --timeout, is the hang guard
+  --max-commands N   default 1000, 0 disables — how many commands the turn may run
+                     before it is cut with cut.kind commands (exit 3, the report
+                     holding the answer so far): the bound that catches a loop`,
+    more: `  --timeout is at most 7200. The reserve is a quarter of the budget, at least
+  60 s and at most 300 s, and only where that fits; the grace is 10 s, at most a
+  quarter of the budget — turn/interrupt, then that long for the server to close
+  the turn, and the report says whether it did. --idle-timeout is reset by every
+  notification AND server request on the thread (item starts and completions,
+  answer deltas, token usage), so a long inference step does not trip it either.` },
+
+  { s: "Run",
+    text: `  --detach           start the turn in a process of its own and hand back a
+                     HANDLE instead of a report: exit 10, turnStatus running, with
+                     threadId, pid, runId and the paths its report and stderr will
+                     land at. The run survives this process, its shell and the
+                     session, under the same bounds; --wait collects it
+  --wait ID          collect a detached run: a threadId, or "last" for the newest
+                     run recorded for --cwd. It polls once a second, then copies
+                     that run's report and stderr byte for byte, exiting with the
+                     code the run itself decided. A run whose process is gone
+                     without a report is exit 4
+  --wait-timeout S   how long to wait before handing back the handle instead: 0
+                     (the default under --detach) returns at once; with --wait
+                     the default is 7200, and giving up is the handle, exit 10
+  --jobs             print the job registry as a JSON array and exit 0, spawning
+                     nothing. status is DERIVED at read time from pid liveness —
+                     running, crashed or ended. --cwd narrows it to one directory
+  --cancel ID        SIGTERM a running seat by threadId: the run's own handler
+                     writes the full interrupted report at its report path. Exit
+                     0 when the signal went out, 2 when it is not cancellable
+  --progress         one line per item start on stderr (run/edit/search), so a
+                     long seat can be watched live without tailing the rollout
+  --steer-file F     poll F once a second: new text is CLAIMED by renaming F
+                     aside and sent to the RUNNING turn as a steer message — how
+                     to correct a long seat without killing it. Input, not rights`,
+    more: `  \`--wait last\` takes the newest run recorded for --cwd, else for this process's
+  own directory. Each --jobs record carries threadId, cwd, repo, level, pid,
+  status, exitCode, startedAt, endedAt, answerPath, reportPath and runId, plus the
+  mid-flight lastEventAt, tokensSpent, commandsSeen and phase a running seat
+  records as it goes; --cwd narrows it to a repository as well as a directory.
+  --cancel is exit 2 on a run already ended, already dead, or older than its own
+  budget, where the pid may have been recycled. Append to a --steer-file again and
+  the next tick picks it up: nothing appended during a send is lost. Under --detach
+  the run directory (<state>/runs/<runId>/) IS the transport, so a state directory
+  that cannot be written is a usage error.` },
+  { s: "Run", all: true,
+    text: `  --run-dir DIR      command-line only, never a seat field: it names where a
+                     detached run's transport lives, and it says "you ARE the
+                     detached run", so it wins over any --detach beside it` },
+
+  { s: "Report",
+    text: `  the JSON report on stdout is the only report: beyond the flags above it
+  carries receiptPath/receiptOk, tokenUsage, timing, cut — null, or the budget
+  that ended the turn — answerPath, answerPartialPath and the command and file
+  counts the exit ladder reads. --help-all lists the rest
+  threadId is announced on stderr as soon as the thread exists, so a long turn's
+  rollout can be tailed; SIGINT/SIGTERM/SIGHUP after that report what the turn did
+  so far and exit 1, and before it they exit 4
+  -h, --help         this text
+  --help-all         this text, plus the rarely needed flags and the internals`,
+    more: `  the rest of the report: receiptOriginator, receiptModelProvider and receiptCwd,
+  read out of the rollout's own session_meta record (the file is OPENED, not
+  merely matched by name); codexVersion, what the server reported, beside the
+  version this plugin was measured against; configInherited, whether model and
+  effort came from a fresh probe of your config, a stale last-known-good, or
+  nothing; commandsPipedToPager, commands whose output the seat cut with
+  head/tail/less; fileChanges, one {path, kind, move} per completed write, where
+  filesTouched keeps only the path a rename ends at.
+  tokenUsage is the server's own accounting for the root thread,
+  cumulative across --resume; cut is {kind, limit, observed, completedInGrace};
+  timing is {wallMs, setupMs, commandMs, modelMs}, commandMs being the server's
+  own per-command durations, so modelMs is what is left for the model itself;
+  answerPartial is what the model had written
+  when the turn was cut, reassembled from the answer stream because the server
+  discards the in-flight message — UNFINISHED text the model never delivered,
+  never promoted to answer, written beside it as answerPartialPath;
+  commentaryPath is where a turn that produced no answer at all had its messages
+  written; rateLimits is the setup-time account snapshot; and turnDiffPath is the
+  last streamed turn diff at ~/.codex-delegate/answers/<threadId>.diff.
+  On a signal, either way, the child process group is waited out before the lock is
+  released.` },
+
+  { s: "Isolation", all: true,
+    text: `  by default the turn runs against a CODEX_HOME private to this driver — one
   directory shared by every run, not a fresh one per turn — so the caller's own
   plugins, skills and memories cannot steer it and it writes no trust records
   back; auth.json and sessions stay linked to the real home, and the caches and
@@ -456,74 +452,33 @@ Isolation
   resolve to, which costs one short process before the turn: bounded by
   5 s, or min(5 s, max(1 s, --timeout)) where a wall clock was declared, and
   normally ~120 ms. It counts against that one budget, which is anchored at
-  process start
+  process start` },
 
-Report
-  --json             machine-readable on stdout — the default; the report also
-                     carries receiptPath/receiptOk plus receiptOriginator,
-                     receiptModelProvider and receiptCwd, read out of the
-                     rollout's own session_meta record (the file is OPENED, not
-                     merely matched by name), and tokenUsage (the server's own
-                     accounting for the root thread; cumulative across --resume).
-                     Also codexVersion (what the server reported, beside the
-                     version this plugin was measured against), configInherited
-                     (whether model/effort came from a fresh probe of your
-                     config, a stale last-known-good, or nothing) and
-                     commandsPipedToPager (commands whose output the seat cut
-                     with head/tail/less). verify carries budgetMs, timedOut and
-                     sandboxed beside the exit status.
-                     cut is null on a run that ended on its own and otherwise
-                     names the budget that ended it: {kind, limit, observed,
-                     completedInGrace}. timing splits the wall clock into
-                     {wallMs, setupMs, commandMs, modelMs}, commandMs being the
-                     server's own per-command durations, so modelMs is what is
-                     left for the model itself.
-                     answerPartial is what the model had written when the turn
-                     was cut, reassembled from the answer stream because the
-                     server discards the in-flight message on an interrupt; it is
-                     UNFINISHED text the model never delivered, is never promoted
-                     to answer, and is written beside it as answerPartialPath.
-                     commentaryPath is where a turn that produced no answer at
-                     all had its messages written. rateLimits is the setup-time
-                     account snapshot; turnDiffPath is the last streamed turn
-                     diff at ~/.codex-delegate/answers/<threadId>.diff
-  --footer           a human footer instead of the JSON report
-  --progress         one line per item start on stderr (run/edit/search), so a
-                     long seat can be watched live without tailing the rollout
-  threadId is announced on stderr as soon as the thread exists, so a long
-  turn's live rollout can be tailed
-  SIGINT / SIGTERM / SIGHUP after the thread exists report what the turn did so
-  far and exit 1; before it they exit 4. Either way the child process group is
-  waited out before the lock is released
-  -h, --help         this text
-
-Relay — the whole command line of a wrapper that must decide nothing
-  --relay FILE       run the seat FILE declares (header and body, as --seat-file
+  { s: "Relay — the whole command line of a wrapper that must decide nothing",
+    text: `  --relay FILE       run the seat FILE declares (header and body, as --seat-file
                      reads it) DETACHED, wait ${RELAY_WAIT_S} s for it, and print the
-                     ENVELOPE below on stdout instead of the JSON report. The
-                     exit code is the run's own, or 10 while it is still going —
-                     in which case the envelope carries a \`collect:\` line that is
-                     a literal command to run again, unchanged. The report is
-                     still written, in full, at the reportPath the envelope
-                     names. A file whose header carries no SEAT is a read seat
-                     in the current directory, so a relay adds nothing to a
-                     coordinator's prompt — not even a rights line; --seat-file
-                     still refuses it. Excludes --json, --footer, --detach,
-                     --wait and --wait-timeout: the mode is format and transport
+                     ENVELOPE below instead of the JSON report. The exit code is
+                     the run's own, or 10 while it is still going — in which case
+                     the envelope carries a \`collect:\` line that is a literal
+                     command to run again, unchanged. The report is still written,
+                     in full, at the reportPath the envelope names. Excludes
+                     --detach, --wait and --wait-timeout: the mode is format and
+                     transport
   --relay-collect ID collect a relayed seat: --wait ID with the relay's own
-                     budget, printing the same envelope under the same rules.
-                     This is what the \`collect:\` line runs, and it is safe to
-                     repeat until the first line is no longer \`exitCode: 10\`
+                     budget, printing the same envelope under the same rules. It
+                     is what \`collect:\` runs, and it is safe to repeat until the
+                     first line is no longer \`exitCode: 10\`
+  a FILE whose header carries no SEAT is a read seat in the current directory;
+  --seat-file still refuses it
 
   The envelope, in this order and nothing else on stdout:
       exitCode: <n>              always the first line
       turnStatus: threadId: receiptOk: commandsSucceeded: reportPath:
       hint:                      when the report carries one
-      then only the pointers that are not null — answerPath,
-      answerPartialPath, commentaryPath, cut (kind=/limit=/observed=),
-      verify (ok=/measured=), resumedFrom, worktreeDiffPath,
-      worktreeUntrackedPath, worktreeCommitsRef, worktreePreserved,
-      worktreeRemoveCommand, schemaErrors
+      then only the pointers that are not null — answerPath, answerPartialPath,
+      commentaryPath, cut (kind=/limit=/observed=), verify (ok=/measured=),
+      resumedFrom, worktreeDiffPath, worktreeUntrackedPath, worktreeCommitsRef,
+      worktreePreserved, worktreeRemoveCommand, schemaErrors
       collect: node "<driver>" --relay-collect <id> --cwd "<dir>"   while running
       --- stderr (last 20 lines) ---   instead of the fields, when the run
       <the tail>                       failed before it had a thread at all
@@ -531,10 +486,12 @@ Relay — the whole command line of a wrapper that must decide nothing
       <the full answer, exactly n bytes, empty where there is none>
   Every value is copied from the report, never composed out of several keys, so
   one rule reads it: the fields are the lines above the first \`--- answer\`, and
-  everything after it is the answer, however field-like it looks
+  everything after it is the answer, however field-like it looks`,
+    more: `  that default is what lets a relay add nothing to a coordinator's prompt — not
+  even a rights line.` },
 
-Environment
-  CODEX_DELEGATE_STATE_DIR      where everything this driver owns lives; must be
+  { s: "Environment", all: true,
+    text: `  CODEX_DELEGATE_STATE_DIR      where everything this driver owns lives; must be
                                 absolute. For test harnesses: two runs under
                                 different values do NOT exclude each other
 ${stateSubdirHelp()}
@@ -550,28 +507,47 @@ ${stateSubdirHelp()}
   CODEX_DELEGATE_VERIFY_FLOOR_MS  how little of the --timeout budget is too
                                 little to start --verify in (default 100).
                                 Also a test seam: the branch is otherwise
-                                reachable only by landing inside a 100 ms window
+                                reachable only by landing inside a 100 ms window` },
 
-Exit codes. Raised the moment they happen, before any turn could run:
-  2  bad arguments
+  { s: "Exit codes. Raised the moment they happen, before any turn could run:",
+    text: `  2  bad arguments
+  3  a stalled probe or stdin under a short --timeout, or a prompt that never
+     arrives on stdin within the silence budget; like a 2 it then prints no report
   4  transport, and every sandbox / approval assertion
-  10 another run holds the lock on this directory, or a resumed thread
-     still has a turn open, or the run is still running (the --detach handle,
-     or --wait giving up on its budget)
-  3  can also fire before the turn (a stalled probe or stdin under a short
-     --timeout, or a prompt that never arrives on stdin within the silence
-     budget); like an argument-error 2 it then prints no report
+  10 another run holds the lock on this directory, a resumed thread still has a
+     turn open, or the run is still running (the --detach handle, or --wait
+     giving up on its budget)
 
-Decided after the turn, first match wins, in this order:
+  Decided after the turn, first match wins, in this order:
 ${ladderHelp()}
 
-  and 4 once more at the very end, if the report could not reach stdout — a
-  closed pipe, or a consumer that never drained it within what was left of
-  --timeout (at least 5 s, and exactly 5 s where no wall clock was set).
+  and 4 once more at the very end, if the report could not reach stdout — a closed
+  pipe, or a consumer that never drained it within what was left of --timeout (at
+  least 5 s, and exactly 5 s where no wall clock was set). So 2 means either, and
+  the report tells them apart: an argument error prints none.
+  Codes decided after the turn can all carry executed work.` },
+];
 
-So 2 means either, and they are told apart by the report: an argument error
-prints none. Codes decided after the turn can all carry executed work.
-`;
+const HELP_HEAD = `codex-delegate ${VERSION} — run one Codex turn with rights declared per call.
+
+  node driver.mjs [--level ${[...LEVELS].join("|")}] --cwd DIR [options] --prompt TEXT
+  node driver.mjs --cwd DIR < task.txt`;
+// --help ends on this line and nothing else; the pin in evals/protocol.test.mjs reads it verbatim.
+const HELP_POINTER = "Rarely needed flags, environment variables and internals: --help-all";
+
+function helpText(full) {
+  const out = [HELP_HEAD];
+  let section = null;
+  for (const b of HELP) {
+    if (b.all && !full) continue;
+    if (b.s !== section) { out.push(`\n${b.s}`); section = b.s; }
+    out.push(full && b.more ? `${b.text}\n${b.more}` : b.text);
+  }
+  if (!full) out.push(`\n${HELP_POINTER}`);
+  return `${out.join("\n")}\n`;
+}
+
+// ---------------------------------------------------------------- arguments
 
 // --seat-file exists so a WRAPPER never builds a shell command line out of values it was handed: it
 // writes them verbatim into a file and the driver parses them itself, so there is no shell between the
@@ -683,13 +659,11 @@ function parseArgs(argv) {
   // No effort default. Sending one unconditionally silently downgraded whatever config.toml asked for —
   // measured: a user whose config said `max` got `low` on every delegation. --model already works this
   // way (null means "whatever the config chose"); effort now matches it.
-  // JSON is the default report: the only real caller is an agent, and every documented recipe passed
-  // --json by hand while forgetting it cost a footer nobody parses. --footer opts back out for a human.
   // No wall clock by default. A native subagent has none: it runs as long as the work takes and is
   // stopped by silence or by its coordinator, and every default here is chosen so that a seat launched
   // with nothing configured behaves that way. --idle-timeout (silence) and --max-commands (volume) are
   // the two bounds that are always armed; a --timeout is a budget the caller opts INTO.
-  const o = { level: "read", timeout: 0, idleTimeout: 900, maxCommands: 1000, writable: [], attach: [], mcpServers: [], json: true };
+  const o = { level: "read", timeout: 0, idleTimeout: 900, maxCommands: 1000, writable: [], attach: [], mcpServers: [] };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -720,8 +694,8 @@ function parseArgs(argv) {
       case "--cancel": o.cancel = need(++i, a); break;
       case "--idle-timeout": o.idleTimeout = Number(need(++i, a)); break;
       case "--max-commands": o.maxCommands = Number(need(++i, a)); break;
-      // need(), like every other value-taking flag. It used to be a bare argv[++i], so `--prompt --json`
-      // silently made "--json" the entire task. A prompt that genuinely starts with "--" goes on stdin,
+      // need(), like every other value-taking flag. It used to be a bare argv[++i], so `--prompt --brief`
+      // silently made "--brief" the entire task. A prompt that genuinely starts with "--" goes on stdin,
       // which is the better shape for a long one anyway.
       case "--prompt": o.prompt = need(++i, a); break;
       case "--writable": o.writable.push(need(++i, a)); break;
@@ -749,10 +723,9 @@ function parseArgs(argv) {
       case "--mcp": o.mcp = true; break;
       // Command-line only: like --mcp itself, a seat file must not be able to grant an external tool.
       case "--mcp-server": o.mcpServers.push(need(++i, a)); break;
-      case "--json": o.json = true; o.jsonExplicit = true; break;   // the default; kept so existing recipes stay valid
-      case "--footer": o.json = false; o.footer = true; break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
-      case "-h": case "--help": process.stdout.write(USAGE); process.exit(EXIT.OK); break;
+      case "-h": case "--help": process.stdout.write(helpText(false)); process.exit(EXIT.OK); break;
+      case "--help-all": process.stdout.write(helpText(true)); process.exit(EXIT.OK); break;
       default: fail(EXIT.USAGE, `unknown argument: ${a}`);
     }
   }
@@ -777,7 +750,7 @@ function parseArgs(argv) {
     const mode = o.relay !== undefined ? "--relay" : "--relay-collect";
     if (o.relay !== undefined && o.relayCollect !== undefined)
       fail(EXIT.USAGE, "--relay and --relay-collect are contradictory: one starts a seat, the other collects one already running");
-    const clash = [["--json", o.jsonExplicit], ["--footer", o.footer], ["--detach", o.detach],
+    const clash = [["--detach", o.detach],
                    ["--wait", o.wait !== undefined], ["--wait-timeout", o.waitTimeoutExplicit]]
       .filter(([, on]) => on).map(([n]) => n);
     if (clash.length)
@@ -3550,8 +3523,8 @@ function invalidRequest(e) {
   catch { return false; }
 }
 
-// Printing turnError.message raw puts a pretty-printed JSON blob in the footer, so the one sentence that
-// says which parameter was wrong scrolls past behind punctuation. Unwrap it when it is there.
+// turnError.message arrives as a pretty-printed JSON blob, which buries the one sentence naming the
+// parameter that was wrong behind punctuation. Unwrap it when it is there.
 function errText(e) {
   const raw = e?.message ?? "";
   try {
@@ -3630,8 +3603,8 @@ function classifyEvidence() {
   const ran = commands.filter((c) => c.status === "completed" && c.exitCode === 0);
   // The schema's CommandExecutionStatus is {inProgress, completed, failed, declined} and exitCode may be
   // null, so a command can FAIL while carrying no numeric code at all. Keying the failure set on the code
-  // alone put those in `blocked`, which the footer prints but the exit ladder ignores — the report said
-  // "NEVER RAN pnpm test" while the run exited 0 under an answer claiming the tests passed.
+  // alone put those in `blocked`, which the exit ladder ignores, so the run exited 0 under an answer
+  // claiming the tests passed.
   const verdictFailed = (c) => c.status === "failed" || c.status === "declined";
   const blocked = commands.filter((c) => !verdictFailed(c) && typeof c.exitCode !== "number");
   // A probe whose exit code answers a QUESTION is not a failed command: grep/rg exit 1 for "no match",
@@ -3647,9 +3620,8 @@ function classifyEvidence() {
   const PROBE_RE = /^\s*(?:grep|rg|egrep|fgrep|test|\[|diff|cmp|git\s+(?:diff|grep))(?:\s[^|&;`$\n\r]*)?$/;
   const probeNegative = (c) => c.status !== "declined" && c.exitCode === 1 && PROBE_RE.test(bareCommand(c));
   const probeNegatives = commands.filter(probeNegative);
-  // A command that ran and FAILED belongs to neither set, so it was printed nowhere — while the footer
-  // told the reader to check the list. A suite that ran and failed under a final answer claiming it
-  // passed is exactly the case this report exists to expose.
+  // A command that ran and FAILED belongs to neither set, so it was counted nowhere. A suite that ran
+  // and failed under a final answer claiming it passed is exactly the case this report exists to expose.
   const failedCmds = commands.filter((c) => !probeNegative(c) && (verdictFailed(c) || (typeof c.exitCode === "number" && c.exitCode !== 0)));
   // A patch that could not be applied is the same class of fact as a command that failed, and was counted
   // nowhere: PatchApplyStatus has failed and declined, and neither reached the ladder.
@@ -3962,8 +3934,8 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
   const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
   const timing = { wallMs, setupMs, commandMs, modelMs: setupMs === null ? null : wallMs - setupMs - commandMs };
-  // Said on stderr as well as in the report: a footer run gets no report keys, and the directory is the
-  // only place the answer's own file paths resolve.
+  // Said on stderr as well as in the report: the directory outlives the run, and it is the only place
+  // the answer's own file paths resolve.
   const tmpDir = keptTmpDir();
   if (tmpDir && tmpHasSeatFiles())
     process.stderr.write(`codex-delegate: the seat left files in its private $TMPDIR ${tmpDir}; it outlives the run and is pruned with the run directories\n`);
@@ -4012,6 +3984,10 @@ function writeReport(ev, verifySkipped, codeOverride) {
       "a command ending in | head/tail/less/more shows the seat only that slice; re-read the file or re-run without the pager before trusting a conclusion drawn from it" } : {}),
     // For a rename the file that EXISTS afterwards is the destination; report that, not the source.
     filesTouched: fileChanges.filter((f) => f.status === "completed").map((f) => f.move ?? f.path),
+    // What each completed change DID, beside where it landed: the kind and a rename's source, both of
+    // which filesTouched folds away by reporting the destination path alone.
+    fileChanges: fileChanges.filter((f) => f.status === "completed")
+      .map((f) => ({ path: f.path, kind: f.kind, move: f.move })),
     fileChangesFailed: failedPatches,
     escalations, interactions, unparsedLines, expectCommand: opts.expect ?? null,
     // Transient provider failures the driver absorbed with a bounded backoff; empty on the vast
@@ -4084,9 +4060,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     ...(opts.answerJson ? parseAnswerJson(fullAnswer) : {})
   };
 
-  const out = opts.json
-    ? `${JSON.stringify({ ...report, commands }, null, 2)}\n`
-    : renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped);
+  const out = `${JSON.stringify({ ...report, commands }, null, 2)}\n`;
   closingFields = { turnStatus, answerPath,
     // The last mid-flight snapshot, on the record for good: the rate limit means a run shorter than
     // half a minute would otherwise end with none of it, which is exactly the run a poller misses.
@@ -4126,140 +4100,6 @@ function writeReport(ev, verifySkipped, codeOverride) {
     closeJobRecord(EXIT.TRANSPORT);
     shutdown().then(() => process.exit(EXIT.TRANSPORT));
   }, drainMs).unref?.();
-}
-
-// The human footer: the same facts as the JSON report, arranged for a reader.
-function renderFooter(ev, code, worktree, receipt, receiptPath, verifySkipped) {
-  // Every field the body reads, schemaErrs included: leaving it out made `--footer --output-schema`
-  // throw inside an already-settled finish(), where abort() is a no-op — the run hung past its own
-  // --timeout and printed no report at all. Verified by reproduction, then by the case below.
-  const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final, answer,
-          schemaErrs, commentaryPath, answerPartial, answerPartialPath } = ev;
-  {
-    const L = [answer, ""];
-    L.push(`--- verification -----------------------------------------`);
-    L.push(`level=${opts.level} sandbox=${effectiveSandbox?.type ?? sandbox} turn=${turnStatus} answerPhase=${final?.phase ?? "none"}`);
-    // Only the surprising case is worth a line: on the host home the caller's plugins and skills were in
-    // the turn, so this run is not comparable with an isolated one.
-    if (codexHome === null) L.push("home=host — the caller's plugins and skills were loaded into this turn");
-    if (codexVersion && codexVersion !== PINNED_CODEX)
-      L.push(`codex ${codexVersion} answered; this plugin was measured against ${PINNED_CODEX}`);
-    // Only the surprising case again: a fresh probe is the ordinary one, and the other two mean the
-    // model and effort in this report were not the caller's current config.
-    if (configInherited && configInherited.source !== "probe")
-      L.push(`config: ${configInherited.source === "last-known-good"
-        ? `INHERITED FROM AN EARLIER RUN (${configInherited.keys.join(", ") || "no keys"}) — the probe failed this time`
-        : "NOTHING INHERITED — this turn ran on the account defaults, not on your config.toml"}`);
-    if (opts.resume) L.push(`resumed thread ${opts.resume}`);
-    if (opts.fork) L.push(`forked from thread ${opts.fork}${opts.forkThrough ? ` through turn ${opts.forkThrough}` : ""}`);
-    if (!opts.ephemeral) L.push(`threadId=${rootThreadId}  (continue with --resume ${rootThreadId})`);
-    if (rootThreadId) L.push(receipt?.verified
-      ? `receipt: ${receiptPath}  (originator=${receipt.originator ?? "?"} provider=${receipt.modelProvider ?? "?"})`
-      : receiptPath ? `receipt: FOUND BUT UNVERIFIED at ${receiptPath} — ${receipt.why}`
-      : `receipt: NOT FOUND in the last two days of ~/.codex/sessions — verify the seat by other means`);
-    if (tokenUsage?.total) L.push(`tokens: in=${tokenUsage.total.inputTokens ?? "?"} (cached ${tokenUsage.total.cachedInputTokens ?? 0}) out=${tokenUsage.total.outputTokens ?? "?"} total=${tokenUsage.total.totalTokens ?? "?"}`);
-    if (rateLimits?.primary) L.push(`rate limit: ${rateLimits.primary.usedPercent ?? "?"}% of the primary window used`);
-    if (turnDiffPath) L.push(`turn diff: ${turnDiffPath}`);
-    {
-      const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
-      const wallMs = Date.now() - startedAtMs;
-      const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
-      L.push(`timing: wall=${wallMs}ms setup=${setupMs ?? "?"}ms commands=${commandMs}ms model=${setupMs === null ? "?" : wallMs - setupMs - commandMs}ms`);
-    }
-    if (opts.outputSchema) L.push((schemaErrs.length
-      ? `output-schema: FAILED after ${outputAttempts} attempt(s) — ${schemaErrs.slice(0, 3).join("; ")}`
-      : `output-schema: matched (${outputAttempts} attempt(s))`)
-      + (opts.schemaUnchecked ? ` [unchecked keywords: ${opts.schemaUnchecked.join(", ")}]` : ""));
-    if (worktree) {
-      L.push(worktree.worktreeRemoved
-        ? `worktree: removed (${worktree.worktreeHarvested ? "work harvested" : "clean"}) — ${worktree.worktreeFleet ?? 0} codex worktree(s) remain under this repo`
-        : `worktree: PRESERVED at ${worktree.worktreePath} — ${worktree.worktreePreserved}`);
-      if (worktree.worktreeRestored)
-        L.push(`  rebuilt at ${worktree.worktreeBase} from ${worktree.worktreeRestored.diff ?? "no saved diff"}` +
-          `${worktree.worktreeRestored.untracked ? " + untracked archive" : ""}`);
-      if (worktree.worktreeDiffStat) L.push(`  ${worktree.worktreeDiffStat.split("\n").at(-1)}`);
-      if (worktree.worktreeDiffPath) L.push(`  tracked diff saved to ${worktree.worktreeDiffPath}`);
-      if (worktree.worktreeUntrackedPath) L.push(`  untracked files saved to ${worktree.worktreeUntrackedPath}`);
-      if (worktree.worktreeCommitsRef)
-        L.push(`  the seat's commits are kept at ${worktree.worktreeCommitsRef} (git log ${worktree.worktreeCommitsRef})`);
-      if (worktree.worktreeIgnoredDropped)
-        L.push(`  ${worktree.worktreeIgnoredDropped.count} git-ignored file(s) were NOT harvested and are gone: ` +
-          `${worktree.worktreeIgnoredDropped.sample.join(", ")}${worktree.worktreeIgnoredDropped.count > worktree.worktreeIgnoredDropped.sample.length ? ", …" : ""}`);
-      if (!worktree.worktreeRemoved) {
-        L.push(`  harvest, then: ${worktree.worktreeRemoveCommand}`);
-        if ((worktree.worktreeFleet ?? 0) > 1) L.push(`  fleet: ${worktree.worktreeFleet} codex worktrees under this repo`);
-      }
-    }
-    L.push(`commands: ${ran.length} succeeded` +
-      `${failedCmds.length ? `, ${failedCmds.length} FAILED` : ""}` +
-      `${probeNegatives.length ? `, ${probeNegatives.length} probe(s) answered no` : ""}` +
-      `${blocked.length ? `, ${blocked.length} never ran` : ""}`);
-    if (pipedToPager.length)
-      L.push(`  ${pipedToPager.length} of them ended in a pager (| head/tail/less) — the seat saw only that slice of the output.`);
-    for (const c of ran.slice(-8)) L.push(`  exit=${c.exitCode} ${c.command.slice(0, 90)}`);
-    for (const c of failedCmds) L.push(`  FAILED exit=${c.exitCode} ${c.command.slice(0, 90)}`);
-    for (const c of blocked) L.push(`  NEVER RAN  ${c.command.slice(0, 90)}`);
-    const wrote = fileChanges.filter((f) => f.status === "completed");
-    if (wrote.length) {
-      L.push(`files: ${wrote.length} written`);
-      for (const f of wrote.slice(-12)) L.push(f.move ? `  rename ${f.path} -> ${f.move}` : `  ${f.kind} ${f.path}`);
-    }
-    for (const f of failedPatches) L.push(`  PATCH ${String(f.status).toUpperCase()} ${f.path}`);
-    if (Object.keys(otherItemCounts).length)
-      L.push(`other activity: ${Object.entries(otherItemCounts).map(([k, v]) => `${k} x${v}`).join(", ")}`);
-    if (subagentThreads.size)
-      L.push(`subagent threads: ${[...subagentThreads.entries()].map(([id, t]) => `${id} (${t.items} item(s), ${t.commands} command(s))`).join("; ")}`);
-    if (escalations.length) {
-      L.push(`escalations refused: ${escalations.length} — the sandbox was too small for this task.`);
-      for (const e of escalations) L.push(`  ${e.method} ${e.detail}`);
-      L.push(`  widen it with --writable <dir> or --network rather than approving per command.`);
-    }
-    // Both checks always report their verdict. Printing only the exit code made a run whose end state was
-    // proven good and one whose end state was proven broken produce byte-identical reports.
-    if (verifyResult) {
-      // "could not be measured" is not "the work is not there" — a verifier that overran maxBuffer or the
-      // deadline says nothing about the work, and printing it as FAIL makes the caller discard good work.
-      L.push(verifyResult.measured
-        ? `verify: \`${verifyResult.command}\` -> ${verifyResult.ok ? "PASS" : "FAIL"} (exit ${verifyResult.exitCode})` +
-          (verifyResult.error ? ` [${verifyResult.error} while draining, exit status observed anyway]` : "")
-        : `verify: \`${verifyResult.command}\` COULD NOT BE MEASURED (` +
-          (verifyResult.exitCode === 127 ? "command not found on the driver's PATH"
-            : verifyResult.exitCode === 126 ? "found but not executable"
-            : verifyResult.timedOut ? `killed at its ${verifyResult.budgetMs}ms budget, which is what was left of --timeout`
-            : verifyResult.error ?? "no exit status") +
-          `${verifyResult.signal ? `, killed by ${verifyResult.signal}` : ""}) — this says nothing about the work; fix the verifier.`);
-    } else if (opts.verify) {
-      L.push(`verify: \`${opts.verify}\` NOT RUN (${verifySkipped}) — the end state is unmeasured.`);
-    }
-    if (opts.expectRe) {
-      L.push(expected.length
-        ? `expect-command /${opts.expect}/: ${expected.length} successful command(s) matched`
-        : `expect-command /${opts.expect}/: NO successful command matched — the turn may have drifted`);
-    }
-    if (unparsedLines) L.push(`${unparsedLines} unparsable line(s) from the server — the pinned schema may be behind \`codex --version\`.`);
-    if (interactions.length) L.push(`UNANSWERABLE server requests — no sandbox change fixes these: ${interactions.join(", ")}`);
-    if (commentaryPath) L.push(`the turn produced no answer; its messages are at ${commentaryPath}`);
-    if (answerPartialPath) L.push(`partial answer (unfinished — the model never delivered it) at ${answerPartialPath}`);
-    if (pendingCut?.kind)
-      L.push(`CUT on the ${pendingCut.kind} budget (${pendingCut.observed ?? "?"} of ${pendingCut.limit ?? "?"}); ` +
-        (pendingCut.completedInGrace ? "the server closed the turn inside the grace" : "the server did not close the turn inside the grace"));
-    if (turnStatus !== "completed") {
-      L.push(`TURN ${String(turnStatus).toUpperCase()} — the answer above is incomplete.`);
-      if (turnStatus === "timedOut") L.push("  a cut is the case most likely to leave a half-written tree; inspect the cwd before reusing it.");
-      if (turnError) L.push(`  cause: ${errKind(turnError)} — ${errText(turnError)}`);
-      if (stderrBuf.trim()) L.push(`  stderr: ${stderrBuf.trim().split("\n").slice(-3).join(" | ")}` +
-        (stderrDropped ? `  [+${stderrDropped} earlier bytes dropped]` : ""));
-    }
-    // Three different facts used to share one line: exit 5 proper, a waived no-command turn, and
-    // commands that all failed. Each now says what actually happened, and exit 5 names its waiver.
-    else if (code === EXIT.NO_COMMANDS) L.push(`NO COMMAND ${commands.length ? "SUCCEEDED" : "EXECUTED"}: the answer is unverified prose.` +
-      (opts.expectRe ? "" : " If running nothing was the point, re-run with --allow-no-commands."));
-    else if (ran.length === 0) L.push(commands.length
-      ? `NOT TRUSTWORTHY: commands ran but none succeeded; the answer is unverified.`
-      : `no command executed — waived by --allow-no-commands.`);
-    L.push(`Note: a passing gate proves commands ran, not that the right ones did. Check the list.`);
-    return `${L.join("\n")}\n`;
-  }
 }
 
 // ---------------------------------------------------------------- run
@@ -4651,8 +4491,8 @@ const RUN_AS_MAIN = (() => {
   if (import.meta.url === pathToFileURL(entry).href) return true;
   try { return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href; } catch { return false; }
 })();
-export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, USAGE, VERSION,
-         WEB_SEARCH, lockKey, renderEnvelope };
+export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, VERSION,
+         WEB_SEARCH, helpText, lockKey, renderEnvelope };
 
 if (RUN_AS_MAIN) {
   process.stdout.on("error", stdoutFailed);

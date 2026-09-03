@@ -48,7 +48,7 @@ function freshDir(name) {
 function run(dir, { scenario = "happy", timeout = 30, args = [], env = {} } = {}) {
   return spawnNode(
     [DRIVER, "--level", "write", ...(dir === null ? [] : ["--cwd", dir]),
-     "--timeout", String(timeout), "--json", "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
+     "--timeout", String(timeout), "--allow-no-commands", ...args, "--prompt", "irrelevant, the server is scripted"],
     { env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
              CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env } }).done;
 }
@@ -78,7 +78,7 @@ test("parseArgs rejects the listed invalid arguments before the turn starts",
       { label: "invalid --expect-command regexp", dir: d, args: ["--expect-command", "["], flags: ["--expect-command"], message: "--expect-command is not a valid regular expression" },
       { label: "unknown --web-search", dir: d, args: ["--web-search", "fresh"], flags: ["--web-search"], message: "--web-search must be one of" },
       { label: "empty flag value", dir: d, args: ["--model", ""], flags: ["--model"], message: "--model requires a non-empty value" },
-      { label: "flag-like value", dir: d, args: ["--model", "--json"], flags: ["--model"], message: "--model requires a non-empty value" },
+      { label: "flag-like value", dir: d, args: ["--model", "--brief"], flags: ["--model"], message: "--model requires a non-empty value" },
     ];
     const misses = [];
     for (const spec of invalid) {
@@ -1186,7 +1186,7 @@ test("concurrent first runs against a fresh state directory do not race on the s
       const state = path.join(STATE_DIR, `home-race-${r}`);
       const seats = Array.from({ length: width }, () => new Promise((res) => {
         const p = spawn(process.execPath,
-          [DRIVER, "--level", "read", "--cwd", d, "--timeout", "30", "--json",
+          [DRIVER, "--level", "read", "--cwd", d, "--timeout", "30",
            "--prompt", "irrelevant, the server is scripted"],
           { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "happy",
                    CODEX_DELEGATE_STATE_DIR: state },
@@ -1213,7 +1213,7 @@ test("a cancelled config probe does not empty the shared home's config",
     const seeded = 'model = "seeded-model"\nmodel_reasoning_effort = "high"\n';
     fs.writeFileSync(cfg, seeded);
     const p = spawn(process.execPath,
-      [DRIVER, "--level", "read", "--cwd", d, "--timeout", "30", "--json", "--prompt", "scripted"],
+      [DRIVER, "--level", "read", "--cwd", d, "--timeout", "30", "--prompt", "scripted"],
       { env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "happy",
                FAKE_CONFIG_HANG: "1", CODEX_DELEGATE_STATE_DIR: state },
         stdio: ["ignore", "ignore", "pipe"] });

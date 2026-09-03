@@ -153,7 +153,7 @@ function argsFor(scenario) {
 async function runScenario(scenario) {
   const emit = path.join(shimDir, `emit-${scenario}.jsonl`);
   try { fs.rmSync(emit, { force: true }); } catch {}
-  await spawnNode([DRIVER, "--level", "read", "--cwd", shimDir, "--json", ...argsFor(scenario)], {
+  await spawnNode([DRIVER, "--level", "read", "--cwd", shimDir, ...argsFor(scenario)], {
     env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
            FAKE_EMIT_LOG: emit, CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state") },
     stdio: ["ignore", "ignore", "ignore"], killAfterMs: 30000 }).done;
