@@ -3,6 +3,13 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## 0.9.1 — 2026-09-03
+
+- `--help` and `--help-all` no longer call `process.exit()` behind the write: on an asynchronous pipe
+  (macOS) that truncated the text when the reader was slower than the exit. Found by CI on the 0.9.0
+  release commit (macOS, Node 18); Linux and Node 24 did not show it. The process now exits on its own
+  once stdout has drained, as every other refusal path already did.
+
 ## 0.9.0 — 2026-09-03
 
 Measured against codex-cli 0.150.1 on macOS (Node 24.11; the free suites on Linux and macOS, Node 18 and 24, in CI). Three commits since 0.8.0: simplification round 3.
