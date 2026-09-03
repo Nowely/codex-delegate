@@ -39,7 +39,7 @@ const PINNED_CODEX = "0.150.1";
 // agree with .claude-plugin/plugin.json, with SKILL.md's metadata.version and with the newest v* tag;
 // evals/package.test.mjs is what makes that a fact rather than a habit. A saved report could not say
 // which driver produced it.
-const VERSION = "0.9.0";
+const VERSION = "0.9.1";
 let codexVersion = null;   // what the server reported this run, parsed out of InitializeResponse.userAgent
 // The full ladder the model catalogue advertises (`codex debug models` -> supported_reasoning_levels),
 // not a subset: rejecting `max` as a usage error while the user's own config.toml asked for it is the
@@ -724,8 +724,9 @@ function parseArgs(argv) {
       // Command-line only: like --mcp itself, a seat file must not be able to grant an external tool.
       case "--mcp-server": o.mcpServers.push(need(++i, a)); break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
-      case "-h": case "--help": process.stdout.write(helpText(false)); process.exit(EXIT.OK); break;
-      case "--help-all": process.stdout.write(helpText(true)); process.exit(EXIT.OK); break;
+      // No process.exit() behind the write: on an asynchronous pipe (macOS) that truncates the text.
+      case "-h": case "--help": case "--help-all":
+        process.stdout.write(helpText(a === "--help-all")); process.exitCode = EXIT.OK; settled = true; throw new Bail();
       default: fail(EXIT.USAGE, `unknown argument: ${a}`);
     }
   }
