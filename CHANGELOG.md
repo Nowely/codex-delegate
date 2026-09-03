@@ -3,6 +3,29 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+### Compatibility notes
+
+- Refuse `--json` and `--footer` as unknown flags. The JSON report is the only report; the footer is
+  gone.
+- Show coordinator-facing flags under `--help`; use `--help-all` for every flag, the
+  `CODEX_DELEGATE_*` variables, and internals.
+- Keep the header-field table in `SKILL.md`. The relay names only `SEAT` and remains a mechanical
+  transport.
+- Correct the 0.8.0 relay measurement: the runs reported as haiku on 2026-09-03 were not verified by
+  model id. The shipped agent's `model: sonnet` frontmatter overrides `claude -p --model haiku`, whose
+  transcript shows `claude-sonnet-4-6`. A real haiku, selected through a copy with `model: haiku` or
+  the Agent tool's model option, ignored the relay contract in four of four runs and answered the task
+  itself on both the a156c52 body and the new one. Measure a lower model through a copy with its own
+  model line; keep the shipped relay pinned to sonnet.
+
+### Documentation
+
+- Consolidate the 11 reference files into six. Move `lock-internals.md`,
+  `commit-blast-radius.md`, and `config-drift.md` into `environment-and-internals.md`; move
+  `browser-tests.md` and `pasted-images.md` into `parity.md`.
+
 ## 0.8.0 — 2026-09-03
 
 Measured against codex-cli 0.150.1 on macOS (Node 24.11; the free suites on Linux and macOS, Node 18 and 24, in CI). Three commits since 0.7.0: the simplification round.

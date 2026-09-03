@@ -9,10 +9,12 @@ oldest numbers here. Re-check after a codex upgrade.
 - Qualifications
 - Relay transport
 - Fan-out and reporting
+- Browser-mode sandbox
+- Pasted-media handling
 
 ## Capability table
 
-The driver's `--help` is canonical for flags and formats; each cell here gives only the routing choice
+The driver's `--help` and `--help-all` are canonical for flags and formats; each cell here gives only the routing choice
 and one qualification.
 
 | Native capability | Codex equivalent | Parity |
@@ -25,8 +27,8 @@ and one qualification.
 | a subagent that outlives the call | `--detach` | returns a handle (exit 10, `turnStatus` running) and the run survives the session; see `--help` |
 | collecting a finished subagent | `--wait <id\|last>` | delivers the run's own report byte for byte under its own exit code; see `--help` |
 | listing / stopping running agents | `--jobs`, `--cancel <id>` | status derived from pid liveness; a cancel lands the full interrupted report; see `--help` |
-| a subagent's MCP tools | `--mcp` | copies representable servers into a private run home; see `--help` |
-| web search | `--web-search cached\|indexed\|live` | off unless requested; see `--help` |
+| a subagent's MCP tools | `--mcp` | copies representable servers into a private run home; see `--help-all` |
+| web search | `--web-search cached\|indexed\|live` | off unless requested; see `--help-all` |
 | a local image or audio file | `--attach <file>` | repeatable and command-line only; see `--help` |
 | an image the user pasted | `scripts/attach-pasted.mjs` | decodes transcript images before delegation; see `--help` |
 | watching a running subagent | `--progress` | reports item starts without delta noise; see `--help` |
@@ -69,7 +71,7 @@ composite-project `tsc --noEmit` fails when it writes `tsbuildinfo`.
 `--level write --cwd <repo>` after settling that blast radius with the user. Dependencies and ignored
 files are absent; a verifier that needs them exits 1 unless they are installed in the seat's tree.
 Browser tests need `--network`, the serial Chromium override in
-[browser-tests.md](browser-tests.md), and no file parallelism. Install egress is separate from the base
+[Browser-mode sandbox](#browser-mode-sandbox), and no file parallelism. Install egress is separate from the base
 isolation choice: `npm install --cache "$PWD/.npm-cache"` keeps its cache in the tree, while
 `pnpm install --frozen-lockfile` works against a warm store.
 
@@ -104,12 +106,12 @@ driver refuses a forbidden mode with exit 2 instead of accepting a silent substi
 `--attach` emits protocol `localImage` or `localAudio` items before the prompt and validates every file
 before starting a turn. It is unavailable in seat files because an injected field could upload an
 unapproved file. Native `--review` refuses attachments because `review/start` carries no input items.
-Formats and limits are canonical in `--help`; ordering details are in
+Formats and limits are canonical in `--help` and `--help-all`; ordering details are in
 [environment-and-internals.md](environment-and-internals.md).
 
 Claude Code retains pasted images only inside its transcript. `attach-pasted.mjs` decodes them before it
 calls the driver and preserves turn order; selection, age limits, storage, and downscaling are in
-[pasted-images.md](pasted-images.md).
+[Pasted-media handling](#pasted-media-handling).
 
 ### Progress, review, steering, and answer shape
 
@@ -152,3 +154,81 @@ Bash call, which has no cap and notifies on completion (measured).
 Do not background a wrapper script that forks driver calls with `&` and exits: the harness tracks its
 parent, the children are reparented, and no result returns. The driver finds `codex` through PATH and
 standard install locations, so a non-login shell needs no PATH export.
+
+## Browser-mode sandbox
+
+Chromium dies under the seatbelt sandbox with `MachPortRendezvousServer: Permission denied`: the profile is
+`deny default` and never grants `mach-register`, so `bootstrap_check_in()` fails in the browser process.
+`--single-process` never constructs that server. With the override below the full suite ran green inside
+the sandbox — 121 files, 2518 passed, identical to an unsandboxed reference run, serial and ~1.6× slower
+(measured once on another repository, before driver 0.4.0 and codex 0.150.1; the shape of the fix is what
+carries over, not the numbers — re-measure on yours).
+
+Write this **untracked** file at the worktree root, so the repo's own config is untouched. Note that a
+completed `--worktree` turn now archives every untracked file into `worktreeUntrackedPath`, so this
+config rides into the harvest: drop it before applying the archive anywhere.
+
+```ts
+// <worktree>/vite.codex.config.ts
+import {playwright} from '@vitest/browser-playwright'
+import baseConfig from './vite.config'
+const config = baseConfig as any
+for (const project of config.test.projects) {
+	if (project.test?.browser) {
+		project.test.browser.provider = playwright({launchOptions: {args: ['--single-process']}})
+	}
+}
+export default config
+```
+
+Then run with `--network` and `--no-file-parallelism` (both mandatory). `--network` is necessary but not
+sufficient for `pnpm install`: the store under `$HOME` is not writable at write level and the driver
+refuses to grant `$HOME`, so a COLD store fails even with egress — the run below assumes a warm one.
+
+```
+pnpm install --frozen-lockfile && pnpm -w exec vitest run --config vite.codex.config.ts --no-file-parallelism
+```
+
+`--single-process` is not a supported Chromium configuration: the renderer shares the browser process's
+thread, and it supports exactly ONE BrowserContext — a second context, a popup or a real second tab kills
+the browser rather than failing a test. That is a Chromium limit, reproduced identically outside the
+sandbox, which is why `--no-file-parallelism` is mandatory and the whole run is serial (~1.6× slower).
+`--network` is needed twice over: for `pnpm install`, and because vitest's Vite server binds loopback TCP,
+which the base profile refuses. The override casts the imported config to `any` and mutates
+`test.projects[].test.browser`. If the repo's `vite.config.ts` is refactored into a FUNCTION, `config.test`
+is undefined and the config load throws a `TypeError` — vitest never starts, which is loud. The silent
+path is the `project.test?.browser` guard: reshape `test.projects` and the loop quietly becomes a no-op,
+the flag stops applying, and the run reverts to the Mach-port crash.
+
+## Pasted-media handling
+
+    --list                  the last 10 image-bearing human turns: uuid, timestamp, count,
+                            stored WxH, first 80 characters. Writes nothing.
+    --pasted-turn <uuid>    take that turn instead (repeatable; selected turns are emitted in
+                            timestamp order)
+    --pasted-pick 1,3-4     1-based indices within ONE selected turn
+    --pasted-allow-old      permit a turn >12h older than the session's newest record
+
+Everything after a bare `--` is the driver's; that `--` is what ends attach-pasted's own flags. If the
+latest human turn carries no image it refuses with exit 2 and names `--list` rather than reaching back.
+
+There is deliberately **no offset selector** (`back:2`, `--turns N`): machine records — task
+notifications, the skill loader's own injections, tool results — share the `user` type and interleave
+with yours, and a message queued while you compose the call shifts the count. An offset therefore
+selects a *different* image with no error. Copy a uuid from `--list`, which a human can check at a
+glance. Record uuids are also **not** stable across sessions: a resumed session copies earlier turns
+into its own file with fresh ids, which is what the 12-hour reach-back guard is for.
+
+Each image is validated before anything is written (media type against the record, magic bytes against
+the media type, 10 MB each / 25 MB across the whole selection / 20 images), lands at
+`~/.codex-delegate/pasted/<pid>-<random>/NN-<sha>.<ext>` (the source type's extension — png, jpg, gif
+or webp) mode 0600 in a 0700 directory, and is removed when the run ends. The stderr receipt names
+each image — turn, timestamp, the turn's text, index, stored dimensions, size, sha256, path — and says
+out loud that it goes to the model provider.
+
+The destination is deliberately not `$TMPDIR`: that is the read level's one writable root, so the very
+seat being shown the images could edit them. Two facts before asking for pixel coordinates: Claude Code
+**downscales** a paste to at most ~2000 px before storing it (its own meta records say "Multiply
+coordinates by 1.73 to map to the original"), so the receipt's `WxH` is the space the seat answers in;
+and the images carry no names, so a prompt that says "the first screenshot" must number them itself —
+the driver adds no sentence of its own to a prompt you wrote.

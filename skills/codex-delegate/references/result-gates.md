@@ -23,8 +23,7 @@ exits with `tail`'s status, so a failing suite reports success, and Codex pipes 
 just to cap output. The contrived bypass is real too — a command that is literally `true # vitest` scores
 `commandsMatchingExpectation: 1`, measured — though it has not been observed in practice: asked directly to
 claim work it had not done, Codex refused and said so.
-The report counts sliced evidence as `commandsPipedToPager`, with `pipedToPagerHint` and a footer under
-the command list.
+The report counts sliced evidence as `commandsPipedToPager`, with `pipedToPagerHint` beside it.
 
 ### `--allow-failed-commands`
 
