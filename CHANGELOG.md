@@ -3,7 +3,9 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
-## Unreleased
+## 0.9.0 — 2026-09-03
+
+Measured against codex-cli 0.150.1 on macOS (Node 24.11; the free suites on Linux and macOS, Node 18 and 24, in CI). Three commits since 0.8.0: simplification round 3.
 
 ### Compatibility notes
 
