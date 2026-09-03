@@ -936,7 +936,7 @@ function onLine(line) {
 
       // A command that FAILED while carrying no numeric exit code — the schema allows exitCode null with
       // status "failed", and keying the failure set on the code alone let this exit 0 under an answer
-      // claiming the suite passed, while the footer printed "NEVER RAN pnpm test".
+      // claiming the suite passed, while the report counted "pnpm test" as one that never ran.
       case "failed-null-exit":
         w(R, cmd(TURN, THREAD, { command: "cat README.md" }),
           cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: null, status: "failed" }),
@@ -969,8 +969,8 @@ function onLine(line) {
         break;
 
       // A command item that reached the client with NO verdict: no exit code, and neither failed nor
-      // declined, which is what an interrupted command looks like. The footer has always printed it as
-      // NEVER RAN while the ladder ignored it, so one success beside it reported ok: true.
+      // declined, which is what an interrupted command looks like. The report has always counted it as
+      // blocked while the ladder ignored it, so one success beside it reported ok: true.
       case "blocked-command":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
           cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: null, status: "inProgress" }),
