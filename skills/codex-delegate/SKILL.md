@@ -72,8 +72,8 @@ Choose the smallest `SEAT` that can complete and check the work:
 | `SEAT: write <dir>` | write under the live directory | yes; this chooses the blast radius |
 
 `NETWORK: yes`, each `WRITABLE: <dir>`, and `COMMIT: yes` widen a write seat. Settle every one with the
-user before adding it. Never translate a refusal into broader rights. Use the complete, canonical header
-table in [agents/codex-seat.md](../../agents/codex-seat.md); model, effort, gates, review, continuation,
+user before adding it. Never translate a refusal into broader rights. Every field is in
+[Header fields](#header-fields) below; model, effort, gates, review, continuation,
 and answer-shape choices belong in that header, not in Agent-tool options. Never pass the Agent tool's
 model option either: it moves the relay off its pinned model, and a relay on a small model widens
 malformed rights and reports false success
@@ -82,6 +82,28 @@ malformed rights and reports false success
 Read seats may share one cwd, but a repository whose tooling keeps a daemon, a socket, or a pid/state
 file needs a distinct cwd or its own `TMPDIR` per concurrent seat; the failure is a native crash, not a
 sandbox refusal.
+
+## Header fields
+
+The header is the leading run of upper-case `NAME: value` lines at column 0; the body starts at `TASK:` or
+at the first line that is not one; a non-field upper-case `NAME:` above it is exit 2 naming it.
+
+| Field (`VERIFY` is refused in a seat file without `--allow-seat-verify`) | Value (booleans: `yes`, `true` or `1`; no line means off) | A coordinator sets it when |
+| --- | --- | --- |
+| `SEAT:` | `read [<dir>]`, `worktree <repo>`, `write <dir>` | first, or not at all: no header is a read seat in the current directory |
+| `NETWORK:` | `yes` | the seat cannot finish without egress; write levels only, and settle it with the user first |
+| `WRITABLE:` | `<dir>`, repeatable | a write seat needs one more root than the directory it was given |
+| `COMMIT:` | `yes` | the work has to land as commits: see [commit-blast-radius.md](references/commit-blast-radius.md) |
+| `RESUME:` | `<threadId>`, `last` | this seat continues an earlier thread instead of opening one |
+| `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran |
+| `OUTPUT_SCHEMA:` | `<path to a strict JSON Schema file>` | the answer must parse as one JSON object |
+| `REVIEW:` | `uncommitted`, `branch:<ref>`, `commit:<sha>` | the server's own reviewer replaces the prompt, so send no body |
+| `MODEL:` | `<slug>` | this seat needs a model other than the configured default |
+| `EFFORT:` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | the task is worth more or less thinking |
+| `WEB_SEARCH:` | `cached`, `indexed`, `live` | the seat needs sources it cannot read locally |
+| `BRIEF:` | `yes` | a short answer is enough; never beside an output schema, which needs a whole JSON object |
+| `ALLOW_NO_COMMANDS:` | `yes` | the seat is recall-only and will run nothing |
+| `ALLOW_FAILED_COMMANDS:` | `yes` | a failing command is the evidence, as for a probe or a test that must fail |
 
 ## Worktree lifecycle
 

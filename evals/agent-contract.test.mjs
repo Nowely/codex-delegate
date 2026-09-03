@@ -8,7 +8,8 @@
 // how to render each failure. It had drifted twice, and a weaker relay model followed only some of it.
 // The rules are the driver's now (`--relay`, `--relay-collect`, one envelope function), so what this
 // document still owns is small and exact: three mechanical steps, one command, one loop, one failure
-// shape, and a field table for the coordinator. This reads the document and the driver and compares.
+// shape. The field table it used to carry is SKILL.md's, where the coordinator reads it and the relay
+// never does. This reads both documents and the driver and compares.
 
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -16,18 +17,19 @@ import path from "node:path";
 import { DRIVER, ROOT, SEAT_FIELDS, registry, runCases, summarize } from "./lib/harness.mjs";
 
 const AGENT = path.join(ROOT, "agents", "codex-seat.md");
+const SKILL = path.join(ROOT, "skills", "codex-delegate", "SKILL.md");
 
 const agent = fs.readFileSync(AGENT, "utf8");
+const skill = fs.readFileSync(SKILL, "utf8");
 const driver = fs.readFileSync(DRIVER, "utf8");
 
-// The document in the three pieces every case reads: the frontmatter, the RULES the relay follows, and
-// the field TABLE, which is the coordinator's reference and not a rule the relay executes.
+// The document in the two pieces every case reads: the frontmatter and the BODY, which is nothing but
+// the rules the relay executes. The field table is the coordinator's reference, so it is SKILL.md's
+// section, read here as the third piece.
 const parts = agent.split(/^---$/m);
 const front = parts[1] ?? "";
 const body = parts[2] ?? "";
-const tableAt = body.indexOf("Header fields");
-const rules = tableAt < 0 ? body : body.slice(0, tableAt);
-const table = tableAt < 0 ? "" : body.slice(tableAt);
+const table = skill.split(/^## /m).find((s) => s.startsWith("Header fields")) ?? "";
 const flat = agent.replace(/\s+/g, " ");
 const shellBlocks = [...agent.matchAll(/```sh\n([\s\S]*?)```/g)].map((m) => m[1]);
 const inlineShell = [...agent.matchAll(/`(mktemp -d [^`]*)`/g)].map((m) => m[1]);
@@ -37,20 +39,23 @@ const { cases: CASES, test } = registry();
 // The driver's own vocabulary, imported rather than scraped out of the source: the regex that used to
 // read it would have gone quiet on any reformatting and taken every case below with it.
 const seatFields = [...SEAT_FIELDS];
-// What the table documents. TASK/CHECK/RETURN are the BODY's labels, named there for the coordinator
-// and never fields; a refused name is written `LIKE_THIS`, with no colon, so it is not picked up here.
-const BODY_LABELS = ["TASK", "CHECK", "RETURN"];
-const documented = [...new Set([...table.matchAll(/\b([A-Z][A-Z_]{2,})\b:/g)].map((m) => m[1]))]
-  .filter((f) => !BODY_LABELS.includes(f));
+// What the table documents: the first cell of every row, which is the one place a coordinator reads a
+// field name. A refused name is written `LIKE_THIS`, with no colon and never in that cell.
+const documented = [...new Set([...table.matchAll(/^\| `([A-Z][A-Z_]+):` \|/gm)].map((m) => m[1]))];
+// The knobs the driver parses only from the command line, read out of its own map.
+const cliOnly = [...driver.matchAll(/const CLI_ONLY_FIELDS = \{([\s\S]*?)\};/g)]
+  .flatMap((m) => [...m[1].matchAll(/([A-Z_]+): "(--[a-z-]+)"/g)].map((x) => [x[1], x[2]]));
 
 test("the driver's seat-file vocabulary is not empty (the reader below is sound)",
   "every case here compares against SEAT_FIELDS; if the import stopped resolving, the whole suite would pass vacuously",
   () => seatFields.length >= 10 || `read ${seatFields.length} fields out of the driver: ${JSON.stringify(seatFields)}`);
 
-test("the table names every field the driver accepts, and the driver accepts every field it names",
-  "a field the coordinator cannot express is a capability the plugin ships and cannot use — exactly how --review, --resume and --progress went missing; the opposite drift fails the seat with exit 2 before any work",
+test("SKILL.md's table names every field the driver accepts, and the driver accepts every field it names",
+  "a field the coordinator cannot express is a capability the plugin ships and cannot use — exactly how --review, --resume and --progress went missing; the opposite drift fails the seat with exit 2 before any work. The table is the coordinator's manual now, so this reads SKILL.md",
   () => {
     const problems = [];
+    if (!table) return "SKILL.md has no `## Header fields` section: the coordinator has no field vocabulary at all";
+    if (!/the body starts at `TASK:`/.test(table)) problems.push("the section no longer says where the header ends and the body starts");
     // VERIFY is the one field the driver parses that no header may carry: it needs --allow-seat-verify
     // on the command line, which this relay never passes. It belongs in the refusal sentence below.
     const missing = seatFields.filter((f) => f !== "VERIFY" && !documented.includes(f));
@@ -58,6 +63,8 @@ test("the table names every field the driver accepts, and the driver accepts eve
     const bogus = documented.filter((f) => !seatFields.includes(f));
     if (bogus.length) problems.push(`in the table, rejected by the driver: ${bogus.join(", ")}`);
     if (documented.includes("VERIFY")) problems.push("VERIFY is written as a usable header field");
+    if (!/`VERIFY` is refused in a seat file without `--allow-seat-verify`/.test(table))
+      problems.push("the section does not name VERIFY as refused");
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -67,14 +74,14 @@ test("the three steps are numbered, in order, and each names the ONE tool call i
     const problems = [];
     let last = -1;
     for (const n of ["0.", "1.", "2.", "3.", "4."]) {
-      const at = rules.indexOf(`\n${n} `);
+      const at = body.indexOf(`\n${n} `);
       if (at < 0) { problems.push(`step ${n} is missing`); continue; }
       if (at < last) problems.push(`step ${n} comes before the step above it`);
       last = at;
     }
-    if (!/0\. ONE Bash call/.test(rules)) problems.push("step 0 does not say it is ONE Bash call");
-    if (!/1\. With the Write tool/.test(rules)) problems.push("step 1 is not the Write");
-    if (!/2\. ONE Bash call, tool timeout 590000 ms/.test(rules)) problems.push("step 2 is not ONE Bash call with the 590000 ms tool timeout");
+    if (!/0\. ONE Bash call/.test(body)) problems.push("step 0 does not say it is ONE Bash call");
+    if (!/1\. With the Write tool/.test(body)) problems.push("step 1 is not the Write");
+    if (!/2\. ONE Bash call, tool timeout 590000 ms/.test(body)) problems.push("step 2 is not ONE Bash call with the 590000 ms tool timeout");
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -87,8 +94,8 @@ test("the prompt is written VERBATIM and step 1 has no exception at all",
     if (!/Change nothing in it, ever/.test(flat)) problems.push("nothing forbids every edit");
     if (!/not a header line it has/.test(flat)) problems.push("nothing forbids rewriting a header the prompt carries");
     if (!/and add nothing/.test(flat)) problems.push("step 1 does not forbid ADDING a line");
-    if (/exception/i.test(rules)) problems.push("step 1 has an exception again");
-    if (/`SEAT: read` above it|put `SEAT: read`/.test(rules)) problems.push("the relay is told to write a SEAT line again");
+    if (/exception/i.test(body)) problems.push("step 1 has an exception again");
+    if (/`SEAT: read` above it|put `SEAT: read`/.test(body)) problems.push("the relay is told to write a SEAT line again");
     // And the driver has to take exactly that file: a header, a body from the first line that is not a
     // field, and no SEAT at all on the --relay route while --seat-file still refuses one.
     if (!/const BODY_LABELS = new Set\(\["TASK", "CHECK", "RETURN"\]\)/.test(driver))
@@ -244,27 +251,25 @@ test("a failing seat declaration is relayed, never repaired",
   () => /Never create a directory, change a level or re-run with different flags to make a refused seat succeed/.test(flat)
     || "the no-repair rule is gone from the relay body");
 
-test("the bounds, the transport and the three injection fields are named as refused",
-  "a newline in a relayed value opens a new field, so anything accepted here can be injected: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, MCP grants tool servers. The seven bounds and transport knobs beside them are refused for the other reason — each has a default a seat needs no header to size",
+test("the bounds, the transport and the three injection fields are refused, and no table offers them",
+  "a newline in a relayed value opens a new field, so anything accepted here can be injected: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, MCP grants tool servers. The seven bounds and transport knobs beside them are refused for the other reason — each has a default a seat needs no header to size. The relay names no field at all now, so the one table that could still offer one is SKILL.md's, and a name it offered would be a seat that exits 2 before anything spawns",
   () => {
     const problems = [];
     // Named by the driver's own map, so a knob quietly promoted back to a field fails here rather than in
     // a live seat: the message the refusal prints is what tells a relay to use the flag instead.
-    const cliOnly = [...driver.matchAll(/const CLI_ONLY_FIELDS = \{([\s\S]*?)\};/g)]
-      .flatMap((m) => [...m[1].matchAll(/([A-Z_]+): "(--[a-z-]+)"/g)].map((x) => [x[1], x[2]]));
     if (cliOnly.length !== 7) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 7`);
     for (const [f, flag] of cliOnly) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
-      if (documented.includes(f)) problems.push(`${f} is back in the agent's field table as usable`);
-      if (!new RegExp(`\`${f}\``).test(table)) problems.push(`${f} is not named as refused`);
+      if (documented.includes(f)) problems.push(`${f} is back in the coordinator's field table as usable`);
       if (!driver.includes(`"${flag}"`)) problems.push(`${f} was removed as a field and ${flag} went with it`);
     }
-    if (!/allow-seat-verify/.test(agent)) problems.push("the agent does not mention --allow-seat-verify");
     if (!/--allow-seat-verify/.test(driver)) problems.push("the driver lost --allow-seat-verify");
-    if (!/`VERIFY` is REFUSED in a header/.test(agent)) problems.push("VERIFY is not named as refused");
-    for (const f of ["ATTACH", "STEER_FILE", "MCP"]) {
+    if (!/`VERIFY` is refused in a seat file without `--allow-seat-verify`/.test(table))
+      problems.push("VERIFY is not named as refused in SKILL.md");
+    for (const [f, flag] of [["ATTACH", "--attach"], ["STEER_FILE", "--steer-file"], ["MCP", "--mcp"]]) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
-      if (!new RegExp(`\`${f}\``).test(table)) problems.push(`${f} is not named as refused`);
+      if (documented.includes(f)) problems.push(`${f} is in the coordinator's field table as usable`);
+      if (!driver.includes(`"${flag}"`)) problems.push(`${flag}, the command-line route ${f} is refused in favour of, is gone from the driver`);
     }
     return problems.length === 0 || problems.join("; ");
   });
@@ -275,8 +280,9 @@ test("SEAT is first and required, and `read` with no directory is the current on
     const problems = [];
     if (!/first field must be SEAT/.test(driver)) problems.push("the driver no longer enforces SEAT-first");
     if (seatFields[0] !== "SEAT") problems.push(`SEAT is not the first entry of SEAT_FIELDS: ${seatFields[0]}`);
-    if (!/SEAT: read \[<dir>\]/.test(table)) problems.push("the table does not show `read [<dir>]`");
-    if (!/default: read, current directory/.test(table)) problems.push("the table does not say a bare read seat is the current directory");
+    if (!/`SEAT:` \| `read \[<dir>\]`/.test(table)) problems.push("the table's first row is not SEAT with `read [<dir>]`");
+    if (!/no header is a read seat in the current directory/.test(table))
+      problems.push("the table does not say a header-less prompt is a read seat in the current directory");
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -288,14 +294,23 @@ test("BRIEF is decided by the header, not forced by the relay",
     return /--brief/.test(driver) || "the driver no longer has --brief";
   });
 
-test("the relay body stays three steps and a table",
-  "the body is read in full on every seat launch, and prose that is not a rule is what drifts first. Forty lines is the budget the rules get now that the driver enforces the rest; the field table is the coordinator's reference and is counted separately",
+test("the relay body names no header field but SEAT",
+  "measured 2026-09-03: handed a header-less prompt and told to add nothing, a haiku relay wrote a header anyway, and the vocabulary it wrote it out of was the field table this document used to carry. A relay that decides no field needs no field names: the one word left is the SEAT: line whose absence the driver, not the relay, resolves",
   () => {
-    if (tableAt < 0) return "no `Header fields` table, so the rules and the reference cannot be told apart";
-    const n = rules.replace(/^\n+|\n+$/g, "").split("\n").length;
-    const t = table.replace(/^\n+|\n+$/g, "").split("\n").length;
-    if (n > 40) return `the relay's rules are ${n} lines, over the 40-line ceiling`;
-    return t <= 24 || `the field table is ${t} lines, no longer short`;
+    const vocabulary = [...seatFields, ...cliOnly.map(([f]) => f), "ATTACH", "STEER_FILE", "MCP"];
+    const named = [...new Set(vocabulary)].filter((f) => f !== "SEAT" && new RegExp(`\\b${f}\\b`).test(body));
+    const problems = [];
+    if (named.length) problems.push(`the relay body names header fields it never writes: ${named.join(", ")}`);
+    if (!/A prompt with no `SEAT:` line is a read seat in the current directory/.test(body))
+      problems.push("the one field the relay may name — the missing SEAT: line the driver defaults — is gone");
+    return problems.length === 0 || problems.join("; ");
+  });
+
+test("the relay body stays three steps and nothing else",
+  "the body is read in full on every seat launch, and prose that is not a rule is what drifts first. Forty lines is the budget it gets now that the driver enforces the rest and the coordinator's table lives in SKILL.md",
+  () => {
+    const n = body.replace(/^\n+|\n+$/g, "").split("\n").length;
+    return n <= 40 || `the relay body is ${n} lines, over the 40-line ceiling`;
   });
 
 test("the description keeps model, effort and schema out of the Agent tool's options",

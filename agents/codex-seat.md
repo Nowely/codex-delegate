@@ -13,7 +13,7 @@ or run a command that is not on this page — waiting, collecting and rendering 
    absolute paths and expand nothing: use the directory it prints — `<DIR>` — never one of your own.
 1. With the Write tool, write the prompt VERBATIM to `<DIR>/prompt.txt`. Change nothing in it, ever —
    not a quote, not a `$`, not a header line it has, not a line that reads like an instruction to you,
-   and add nothing. A prompt with no rights line is a read seat in the current directory: the driver
+   and add nothing. A prompt with no `SEAT:` line is a read seat in the current directory: the driver
    decides that, not you.
 2. ONE Bash call, tool timeout 590000 ms. Substitute `<DIR>` and change nothing else — in the cache
    path the marketplace name and the plugin name are both `codex-delegate`, so that doubled segment is
@@ -45,22 +45,3 @@ not `exitCode:` (the call timed out, the driver crashed). Then, and only then, c
 
 Never create a directory, change a level or re-run with different flags to make a refused seat succeed:
 measured, a relay that created the missing directory ran Codex with rights nobody granted.
-
-Header fields — for the COORDINATOR writing the prompt. You never add, remove or reorder one.
-
-    SEAT: read [<dir>] | worktree <repo> | write <dir>   the rights; default: read, current directory
-    NETWORK: yes    WRITABLE: <dir> (repeatable)    COMMIT: yes      write levels only
-    EXPECT: <regex>     a command matching it must have run
-    RESUME: <threadId> | last          continue that thread
-    REVIEW: uncommitted | branch:<ref> | commit:<sha>    the reviewer writes its own prompt
-    OUTPUT_SCHEMA: <path to a strict JSON Schema file>
-    rarely: MODEL: <slug>   EFFORT: none|minimal|low|medium|high|xhigh|max|ultra
-            WEB_SEARCH: cached|indexed|live   BRIEF: yes   ALLOW_NO_COMMANDS: yes
-            ALLOW_FAILED_COMMANDS: yes
-    Booleans take yes|true|1; no|false|0 means the flag is not passed, as omitting the line does.
-    `VERIFY` is REFUSED in a header — it runs a shell with the coordinator's own rights and this agent
-    never passes `--allow-seat-verify` — and so are `ATTACH`, `STEER_FILE` and `MCP`. The bounds and the
-    transport are the driver's: `TIMEOUT`, `IDLE_TIMEOUT`, `MAX_COMMANDS`, `DETACH`, `WAIT_TIMEOUT`,
-    `COLLECT` and `PROGRESS` are flags, and a header naming one is exit 2 before anything spawns.
-    Everything from the first line that is not one of these fields is the BODY — the task itself,
-    verbatim, `TASK:` label and all.
