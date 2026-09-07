@@ -92,6 +92,7 @@ test("A3 the sibling is loaded first and this page re-cuts only what the mode ch
     const prose = says(
       "(Skill tool, `codex-delegate:codex-delegate`; bare `codex-delegate` on a clone-and-symlink install)",
       "this page re-cuts only what the mode changes",
+      "1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.",
     );
     if (prose !== true) problems.push(prose);
     return problems.length === 0 || problems.join("; ");
@@ -194,14 +195,19 @@ test("D7 Fable never spawns Fable",
   "a top seat that may spawn its own top seat makes the cap of one unenforceable one level down, where nothing is counting",
   () => says("Fable never spawns Fable"));
 
-test("D8 no EFFORT line, except gpt-6-astra at xhigh, and low effort only for mechanical Sonnet stages",
-  "the user's configured effort is the default the seat should inherit; the astra exception exists because ultra delegates to Codex subagent threads whose commands are not evidence",
-  () => says(
-    "Send no `EFFORT:` line",
-    "the `gpt-6-astra`",
-    "seat always carries `EFFORT: xhigh`",
-    "In a Workflow, `effort: 'low'` is for mechanical Claude Sonnet stages only.",
-  ));
+test("D8 no EFFORT line, and low effort only for mechanical Sonnet stages",
+  "the user's configured effort is the default every seat inherits; measured on codex-cli 0.153.4, gpt-6-astra delegates to its own subagent threads at xhigh as readily as at ultra when invited, so no effort line buys the evidence guarantee an exception once claimed",
+  () => {
+    const prose = says(
+      "Send no `EFFORT:` line",
+      "In a Workflow, `effort: 'low'` is for mechanical Claude Sonnet stages only.",
+    );
+    // The negative half: an exception that names an effort value for some seat is exactly what a later
+    // edit would add back, and every positive pin would still pass beside it.
+    const exception = /EFFORT:\s*(none|minimal|low|medium|high|xhigh|max|ultra)\b/.exec(text);
+    if (exception) return `the page names an effort value again: ${JSON.stringify(exception[0])}`;
+    return prose;
+  });
 
 // ------------------------------------------------------------------ E: composition and bounds
 
@@ -310,7 +316,8 @@ test("G1 the five template lines, their indentation, the inline schema, and no B
 test("G3 the run directory: its path, its self-ignoring .gitignore, kept after the task, and what a Codex seat's artifacts are",
   "one directory per run is what keeps a seat's artifacts findable and out of the payload; `.claude/` is tracked in some checkouts, which is why the ignore file has to ignore itself",
   () => says(
-    "create `.claude/orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it ignores itself even where `.claude/` is tracked",
+    "create `.orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it ignores itself",
+    "not under `.claude/`, where every write is refused as a sensitive file",
     "the directory is kept after the task and the user deletes it",
     "Codex artifacts are the paths the driver's envelope names",
   ));

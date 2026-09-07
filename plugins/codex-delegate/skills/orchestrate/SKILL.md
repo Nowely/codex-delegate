@@ -25,14 +25,15 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 | synthesise, attributing every finding to the seat that produced it | verify: you never grade your own work, a fresh seat does |
 
 Scouting is the only exploration you do; report a failed seat and never backfill it. After "go" and before the first seat,
-create `.claude/orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*`
-so it ignores itself even where `.claude/` is tracked. Claude seats write their artifacts there and every brief names the path;
-Codex artifacts are the paths the driver's envelope names; the directory is kept after the task and the user deletes it.
-Redirect a check you run yourself into that directory and read back only a 5-line tail with the counts.
+create `.orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it
+ignores itself; not under `.claude/`, where every write is refused as a sensitive file. Claude seats write their artifacts
+there and every brief names the path; Codex artifacts are the paths the driver's envelope names; the directory is kept after
+the task and the user deletes it. Redirect a check you run yourself into that directory and read back only a 5-line tail
+with the counts.
 
 ## The plan
 
-1. Scout, then decide the composition and the seats.
+1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
 2. Show the plan and stop: the tasks; every seat with its side (Claude or Codex) and its model; the run directory path; and every
    `SEAT: write`, `SEAT: worktree`, `NETWORK:`, `WRITABLE:` and `COMMIT:` a seat needs, a worktree seat named as such because
    a worktree will be made. Announce the composition here. One plan when there is one; when several approaches are viable, show
@@ -68,9 +69,8 @@ review, and `gpt-6-astra` stays the single top Codex seat with the top-row roles
   with a slug from the table, never the config default: pass neither `model` nor `effort` to a `codex-seat` call, in the Agent
   tool or in a Workflow; those reshape the relay, not the seat.
 - Subagents may spawn subagents, but Fable never spawns Fable: a top-tier Claude seat tags its own Agent calls `opus` or `sonnet`.
-- Send no `EFFORT:` line; the user's configured Codex effort is inherited by every `MODEL:`. The one exception: the `gpt-6-astra`
-  seat always carries `EFFORT: xhigh`, because ultra delegates to Codex subagent threads and their commands are not evidence.
-  In a Workflow, `effort: 'low'` is for mechanical Claude Sonnet stages only.
+- Send no `EFFORT:` line; the user's configured Codex effort is inherited by every `MODEL:`. In a Workflow, `effort: 'low'` is
+  for mechanical Claude Sonnet stages only.
 
 ## Composition and bounds
 

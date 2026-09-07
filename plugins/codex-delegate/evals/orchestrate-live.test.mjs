@@ -17,25 +17,40 @@
 // ever the --plugin-dir. Nothing here writes into this repository.
 //
 // The flag set below was PROBED before the cases were written, with --model sonnet and the prompt "Reply
-// with the single word ok", against Claude Code 2.1.170: every flag was accepted as given, stream-json
-// needs --verbose (the CLI says so), and the init line carries model, plugins, skills and agents. Nothing
-// had to be adapted. What that probe measured, and what the cases below now rely on:
+// with the single word ok", against Claude Code 2.1.170, and probed again after the first full run came
+// back with every write and every non-trivial Bash denied. What the probes measured, and what the cases
+// below now rely on:
 //   - the init line is {type:"system", subtype:"init"} and its `model` is the CONCRETE id, not the alias
 //     ("sonnet" arrived as "claude-sonnet-4-6"), so an alias is matched as a substring;
 //   - the init line's tool list names the subagent tool `Task` while the tool_use blocks in the same
 //     build's stream carry `Agent`, so both spellings count and neither alone is safe;
 //   - the last line is {type:"result"} and its `result` is the final text;
 //   - --plugin-dir loaded codex-delegate:codex-delegate, codex-delegate:orchestrate and both spellings of
-//     the codex-seat agent.
+//     the codex-seat agent;
+//   - this machine's managed settings set disableBypassPermissionsMode: "disable", so
+//     --dangerously-skip-permissions is accepted and then ignored, and in -p mode there is no prompt to
+//     answer: every write and every non-trivial Bash is auto-denied. --permission-mode acceptEdits with an
+//     explicit --allowedTools list is the replacement that was measured working, a headless sonnet session
+//     writing lib/x.mjs and creating .orchestrate/probe/.gitignore under a scratch root;
+//   - --allowedTools is variadic and swallows a trailing prompt argument as one more rule, so the prompt
+//     goes in on stdin (runProc's `input`) rather than on the command line;
+//   - a write anywhere under .claude/ is refused as "a sensitive file" even with Write(./.claude/**)
+//     allowed, which is why the page's run directory is .orchestrate/<run>/ at the repository root.
 //
 // Two things outlive a run on purpose. Case 5's session file stays under ~/.claude/projects: --resume
 // reads it, and the CLI has no delete for it. And a FAILING case keeps its scratch tree, which its
 // failure message names; a passing case removes it, so the artifact directory holds the plan, the session
 // output, the reports and the stderr rather than a clone of this repository per case.
 //
-// Case 4's ultra control is not what proves the report's subagentThreads field: protocol.test.mjs pins
-// that against the fixture, in its rich-items and idle-subagent cases, both of which assert a registered
-// child thread. The control here measures what the top MODEL does at ultra, not whether the field fills.
+// Case 4 measures the seat, not the effort. Measured on codex-cli 0.153.4: invited to delegate,
+// gpt-6-astra opened its own subagent threads at xhigh exactly as at ultra (otherItemCounts
+// {subAgentActivity: 6, collabAgentToolCall: 2}, no command on the root thread, exit 5 with the right
+// answer), so delegation is the model's choice and no effort buys the guarantee an EFFORT line once
+// claimed. The case asks for the work on this thread and checks that it arrived there; the inviting
+// prompt survives as an informational probe behind CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1. Nothing
+// here asserts on the report's subagentThreads: on 0.153.4 those child threads never arrive as a
+// thread/started carrying parentThreadId, so the field stays [] while the counters show the delegation.
+// That gap is the driver's, and a follow-up; protocol.test.mjs is what pins the field itself.
 
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -63,7 +78,7 @@ const save = (dir, name, text) => {
   return p;
 };
 
-const ULTRA = process.env.CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA === "1";
+const DELEGATE_PROBE = process.env.CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE === "1";
 const skipped = [];
 // Measured beside a case, never a verdict: printed where the case that produced it is, in runCases' own
 // indent, so a reader keeps the pairing.
@@ -80,11 +95,20 @@ const AGENT_TOOLS = new Set(["Task", "Agent"]);
 
 // --------------------------------------------------------------- processes
 
-function runProc(cmd, args, { cwd, timeoutMs, env } = {}) {
+function runProc(cmd, args, { cwd, timeoutMs, env, input } = {}) {
   return new Promise((resolve) => {
     // detached puts the child in a process group of its own so the bell can kill the GROUP: a session
     // spawns seats, and a seat is a `node driver.mjs` that outlives a SIGKILL aimed at its parent alone.
-    const child = spawn(cmd, args, { cwd, env: env ?? process.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const stdin = input === undefined ? "ignore" : "pipe";
+    const child = spawn(cmd, args, { cwd, env: env ?? process.env, stdio: [stdin, "pipe", "pipe"], detached: true });
+    // A prompt on stdin, because --allowedTools is variadic and eats a trailing positional as a rule. The
+    // error handler is not optional: a child killed at the bell closes its stdin, and an unhandled EPIPE
+    // on the write would take the suite down with it.
+    if (input !== undefined) {
+      child.stdin.on("error", () => {});
+      child.stdin.write(input);
+      child.stdin.end();
+    }
     let out = "", err = "", killed = false;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -123,22 +147,27 @@ function scratchClone(dir) {
 
 // --------------------------------------------------------------- the session and its stream
 
+// Not --dangerously-skip-permissions: managed settings disable that mode on this machine, and a -p
+// session that inherits the denial writes nothing and runs no command. The rules are the tools the page's
+// coordinator uses, both spellings of the subagent tool among them; acceptEdits is what lets a seat write
+// without a prompt no headless run could answer.
 const CLAUDE_FLAGS = ["--plugin-dir", ROOT, "--output-format", "stream-json", "--verbose",
-                      "--dangerously-skip-permissions"];
+                      "--permission-mode", "acceptEdits",
+                      "--allowedTools", "Bash,Write,Edit,Read,Glob,Grep,Skill,Agent,Task,Workflow"];
 
 // --no-session-persistence is the default here and is DROPPED for case 5: a session it disables is not
 // saved to disk and cannot be resumed, and case 5's whole shape is one plan turn and one "go" turn on the
-// same session id.
-function claudeArgs({ model, maxTurns, prompt, sessionId, resume, resumable = false }) {
+// same session id. The prompt is NOT in here; it goes to the child on stdin.
+function claudeArgs({ model, maxTurns, sessionId, resume, resumable = false }) {
   const a = ["-p", "--model", model, ...CLAUDE_FLAGS, "--max-turns", String(maxTurns)];
   if (!resumable) a.push("--no-session-persistence");
   if (sessionId) a.push("--session-id", sessionId);
   if (resume) a.push("--resume", resume);
-  a.push(prompt);
   return a;
 }
 
-const session = (opts, { cwd, timeoutMs }) => runProc("claude", claudeArgs(opts), { cwd, timeoutMs });
+const session = (opts, { cwd, timeoutMs }) =>
+  runProc("claude", claudeArgs(opts), { cwd, timeoutMs, input: opts.prompt });
 
 function parseStream(text) {
   const msgs = [];
@@ -188,35 +217,33 @@ const scriptText = (u) => JSON.stringify(u.input);
 // field is ever renamed, since JSON.stringify leaves `agent(` and a model key matchable.
 const scriptSource = (u) => (typeof u.input.script === "string" ? u.input.script : JSON.stringify(u.input));
 
-// Best effort by construction, and the direction of its error is deliberate: an options object held in a
-// variable, or a call assembled at runtime, reads as untagged rather than as tagged. It is source text,
-// not a parse tree.
+// Source text, not a parse tree, and the whole call span is what it judges: from `agent(` to the next
+// `agent(` or the end. Measured, brace-matching from the first comma read "{ slug }" as the options of a
+// correctly tagged call, because the first brace sat inside the prompt string. Judging the span costs one
+// direction (a prompt that quotes 'opus' reads as tagged) and keeps every other error on the strict side:
+// an options object held in a variable, or a call assembled at runtime, still reads as untagged.
 function untaggedAgentCalls(text) {
   const starts = [...text.matchAll(/\bagent\s*\(/g)].map((m) => m.index);
   const found = [];
   for (let i = 0; i < starts.length; i++) {
-    const call = text.slice(starts[i], starts[i + 1] ?? text.length);
+    const call = text.slice(starts[i], starts[i + 1] ?? text.length).replace(/\s+/g, " ");
     const comma = call.indexOf(",");
-    const open = comma < 0 ? -1 : call.indexOf("{", comma);
-    if (open < 0) { found.push(`${call.slice(0, 60).replace(/\s+/g, " ")}: no options`); continue; }
-    let depth = 0, end = open;
-    for (; end < call.length; end++) {
-      if (call[end] === "{") depth++;
-      else if (call[end] === "}" && --depth === 0) break;
-    }
-    const opts = call.slice(open, end + 1).replace(/\s+/g, " ");
+    if (comma < 0 || call.indexOf("{", comma) < 0) { found.push(`${call.slice(0, 60)}: no options`); continue; }
+    // The script arrives as source when the field is named and as JSON when it is not, so the escaped
+    // quotes of the fallback are undone before the two patterns read it.
+    const flat = call.replace(/\\(["'])/g, "$1");
     // Tagged means one of the two things the page allows and nothing else: a Codex seat by agentType, or
     // a Claude seat whose model is literally opus or sonnet. `model: undefined`, a third tier and a
     // non-Codex agentType all read as untagged.
-    const codex = /["']?agentType["']?\s*:\s*["'][^"']*codex-seat["']/.test(opts);
-    const claude = /["']?model["']?\s*:\s*["'](opus|sonnet)["']/.test(opts);
-    if (!codex && !claude) found.push(opts.slice(0, 100));
+    const codex = /["']?agentType["']?\s*:\s*["'][^"']*codex-seat["']/.test(flat);
+    const claude = /["']?model["']?\s*:\s*["'](opus|sonnet)["']/.test(flat);
+    if (!codex && !claude) found.push(call.slice(0, 100));
   }
   return found;
 }
 
 const runDirs = (scratch) => {
-  const d = path.join(scratch, ".claude", "orchestrate");
+  const d = path.join(scratch, ".orchestrate");
   try { return fs.readdirSync(d).map((n) => path.join(d, n)); } catch { return []; }
 };
 
@@ -247,7 +274,7 @@ function stoppedAtPlan(toolUses, scratch, head0) {
   const head1 = git(scratch, "rev-parse", "HEAD").trim();
   if (head0 && head1 !== head0) problems.push(`HEAD moved from ${head0.slice(0, 12)} to ${head1.slice(0, 12) || "nothing"} before "go"`);
   const made = runDirs(scratch);
-  if (made.length) problems.push(`.claude/orchestrate exists before "go": ${made.map((p) => path.basename(p)).join(", ")}`);
+  if (made.length) problems.push(`.orchestrate exists before "go": ${made.map((p) => path.basename(p)).join(", ")}`);
   return problems;
 }
 
@@ -266,13 +293,19 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   const skills = skillCalls(toolUses);
   if (!skills.some((s) => SIBLING_SKILLS.includes(s)))
     problems.push(`the sibling skill was never loaded; Skill calls: ${skills.join(", ") || "none"}`);
-  if (!text.includes(".claude/orchestrate/"))
-    problems.push("the plan names no `.claude/orchestrate/` run directory");
+  if (!text.includes(".orchestrate/"))
+    problems.push("the plan names no `.orchestrate/` run directory");
   if (!CODEX_MODELS.some((m) => text.includes(m)))
     problems.push(`no seat carries a Codex slug from the tier table (${CODEX_MODELS.join(", ")})`);
+  // Where the plan has a seat table, the rows ARE the seats and everything else is commentary about them:
+  // measured, a plan that listed one Fable seat in a row and then wrote "one Fable seat, one gpt-6-astra
+  // seat, caps respected" in a bullet counted its own summary as a second seat. A plan with no table is
+  // judged on every line, as before.
+  const rows = lines(text).filter((l) => l.trim().startsWith("|"));
+  const seatLines = rows.length ? rows : lines(text);
   // A line naming the SESSION's own tier is not a seat: "you are the Opus orchestrator" satisfied the
   // whole-text test with no tagged seat anywhere in the plan.
-  const named = lines(text).filter((l) => /\b(opus|sonnet)\b/i.test(l));
+  const named = seatLines.filter((l) => /\b(opus|sonnet)\b/i.test(l));
   const seats = named.filter((l) => !/orchestrator|coordinator|session|powered by/i.test(l));
   if (!seats.length)
     problems.push(`no line tags a Claude seat opus or sonnet; the lines that name a tier: ${named.slice(0, 3).map(quote).join(" ") || "none"}`);
@@ -282,7 +315,7 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   // The same exclusion under the fable cap, and for both settings: a Fable session describing itself is
   // not a seat tagged fable, and counting those sentences made the cap unmeetable in case 2 and
   // unmissable in case 1.
-  const tagged = lines(text).filter((l) =>
+  const tagged = seatLines.filter((l) =>
     /\bfable\b/i.test(l) && !/under fable|fable session|orchestrator|coordinator|powered by|you are/i.test(l));
   const count = tagged.reduce((n, l) => n + [...l.matchAll(/\bfable\b/gi)].length, 0);
   if (fable === "none" && count)
@@ -323,6 +356,13 @@ const TAG_TASK =
   + "\"opus\": <second answer>} and nothing else.";
 
 const COUNT_TASK =
+  "Run wc -l on README.md, CHANGELOG.md and RELEASING.md in the current directory yourself, on this thread, "
+  + "one command each or one command for all three, and RETURN three lines file: count copied from its "
+  + "output.";
+
+// The prompt case 4 used to carry, kept for the probe: it is the invitation, and the invitation is what
+// the delegation depends on.
+const DELEGATE_TASK =
   "Three independent counts: the number of lines in README.md, CHANGELOG.md and RELEASING.md in the current "
   + "directory. If you can delegate to subagents, run each count in its own subagent. RETURN: three lines, "
   + "file: count.";
@@ -358,7 +398,7 @@ test("plan only under Opus: the first attempt stops at a plan",
 // --------------------------------------------------------------- 2
 
 test("plan only under Fable: the top pair is named",
-  "under Fable the page's top row holds as written, and the two caps it states are the only thing between a design fan-out and a batch of top-tier seats: one Fable seat, one gpt-6-astra seat, and that astra seat at EFFORT: xhigh because ultra would delegate to Codex subagent threads whose commands are not evidence",
+  "under Fable the page's top row holds as written, and the two caps it states are the only thing between a design fan-out and a batch of top-tier seats: one Fable seat and one gpt-6-astra seat",
   async () => {
     const dir = caseDir(2, "plan-fable");
     const scratch = scratchClone(dir);
@@ -389,12 +429,10 @@ test("plan only under Fable: the top pair is named",
     if (r.killed) problems.push("the session was killed at the timeout");
     if (!s.planText) problems.push(`the session produced no text (result subtype ${JSON.stringify(s.result?.subtype ?? null)})`);
     problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, fable: "one", head0 }));
-    // The effort belongs to the astra seat, so it is looked for on the line that names the seat or the
-    // line after it, not anywhere in the plan, where another seat's xhigh would satisfy a loose test.
-    const astra = lines(s.planText).map((l, i, all) => `${l} ${all[i + 1] ?? ""}`).filter((l) => l.includes("gpt-6-astra"));
-    if (!astra.length) problems.push("the plan names no gpt-6-astra seat");
-    else if (!astra.some((l) => /xhigh/i.test(l)))
-      problems.push(`no gpt-6-astra line, or the line after it, carries EFFORT: xhigh: ${astra.slice(0, 2).map(quote).join(" ")}`);
+    // The top Codex seat by name, not by tier table membership: planProblems accepts any of the three
+    // slugs, and under Fable the top row is the whole claim.
+    if (!lines(s.planText).some((l) => l.includes("gpt-6-astra")))
+      problems.push("the plan names no gpt-6-astra seat");
     return settle(dir, problems);
   });
 
@@ -436,38 +474,41 @@ function jsonObject(text) {
 
 // --------------------------------------------------------------- 4
 
-test("gpt-6-astra at xhigh opens no Codex subagent thread",
-  "the page's one EFFORT: exception exists on this claim alone: at ultra the top Codex model delegates to subagent threads whose commands never reach the report, so a seat's evidence would be a count of work someone else did; xhigh is the highest effort where the report still describes the thread that answered",
+test("gpt-6-astra answers on its own thread when not invited to delegate",
+  "a Codex seat's evidence is the commands its report lists, and the report describes the thread the driver started: invited to delegate, the top model ran nothing on that thread and answered out of children the report cannot show, so what the page rests on is that a seat asked to do the work itself does it here",
   async () => {
-    const dir = caseDir(4, "astra-xhigh");
+    const dir = caseDir(4, "astra-own-thread");
     const scratch = scratchClone(dir);
     const files = ["README.md", "CHANGELOG.md", "RELEASING.md"];
     const expected = Object.fromEntries(files.map((f) => [f, wcL(path.join(scratch, f))]));
-    const base = ["--level", "read", "--cwd", scratch, "--model", "gpt-6-astra", "--prompt", COUNT_TASK];
+    // No --effort: the page sends no EFFORT: line, so the seat inherits the configured effort and this is
+    // the seat the page describes. What the server selected is noted beside the case, never asserted.
+    const base = ["--level", "read", "--cwd", scratch, "--model", "gpt-6-astra"];
     // A release gate leaves no job record on the machine it runs on: --help-all documents
     // CODEX_DELEGATE_STATE_DIR as where everything the driver owns lives, and it must be absolute.
     const env = { ...process.env, CODEX_DELEGATE_STATE_DIR: path.join(dir, "state") };
 
-    const r = await runProc(process.execPath, [DRIVER, ...base, "--effort", "xhigh"], { timeoutMs: DRIVER_TIMEOUT, env });
+    const r = await runProc(process.execPath, [DRIVER, ...base, "--prompt", COUNT_TASK], { timeoutMs: DRIVER_TIMEOUT, env });
     if (r.killed) await cancelSeats(scratch, dir, env);
-    save(dir, "xhigh.report.json", r.out);
-    save(dir, "xhigh.stderr.txt", r.err);
+    save(dir, "report.json", r.out);
+    save(dir, "stderr.txt", r.err);
     let report = null;
     try { report = JSON.parse(r.out); } catch {}
     if (!report) return kept(dir, `the driver printed no JSON report (exit ${r.code}${r.killed ? ", killed at the timeout" : ""}): ${r.err.trim().slice(-400)}`);
     const problems = [];
-    // Exit 0 is the driver's own verdict that the turn completed and passed its gates; a non-zero exit
-    // still prints a report, and an empty subagentThreads on a turn that failed proves nothing.
+    // Exit 0 is the driver's own verdict that the turn completed and passed its gates. Exit 5, "no command
+    // ran", is what the delegating turn came back with, answer and all, and it is this case's failure.
     if (r.code !== 0) problems.push(`the driver exited ${r.code} (turnStatus ${JSON.stringify(report.turnStatus ?? null)}): ${r.err.trim().slice(-200)}`);
     // Which seat answered, before anything is concluded about it: a run that fell back to the config
-    // default would answer this prompt just as well, at another model and another effort, and its empty
-    // subagentThreads would be about neither. reasoningEffort is what the server SELECTED; effort is only
-    // what was asked for.
+    // default would answer this prompt just as well, at another model.
     if (report.model !== "gpt-6-astra") problems.push(`the report's model is ${JSON.stringify(report.model)}, not gpt-6-astra`);
-    if (report.reasoningEffort !== "xhigh")
-      problems.push(`the server selected reasoningEffort ${JSON.stringify(report.reasoningEffort)}, not xhigh`);
-    if (!Array.isArray(report.subagentThreads) || report.subagentThreads.length)
-      problems.push(`subagentThreads is ${JSON.stringify(report.subagentThreads)}, not []`);
+    const commands = Array.isArray(report.commands) ? report.commands : [];
+    if (!commands.length) problems.push("the report lists no command, so nothing ran on the thread that answered");
+    // The counters, not subagentThreads: on 0.153.4 a Codex child thread never registers as one, and
+    // these are what the delegating run showed instead ({subAgentActivity: 6, collabAgentToolCall: 2}).
+    const others = report.otherItemCounts ?? {};
+    for (const k of ["subAgentActivity", "collabAgentToolCall"])
+      if (others[k]) problems.push(`the seat delegated: otherItemCounts.${k} is ${JSON.stringify(others[k])}`);
     // The prompt asks for "file: count", so each count is checked against the line that names its file:
     // three bare numbers somewhere in the answer would also match three wrong attributions.
     const answer = String(report.answer ?? "");
@@ -477,27 +518,23 @@ test("gpt-6-astra at xhigh opens no Codex subagent thread",
       else if (!new RegExp(`\\b${expected[f]}\\b`).test(line))
         problems.push(`${f}: wc -l says ${expected[f]}, the answer says ${JSON.stringify(line.trim().slice(0, 80))}`);
     }
-    if (!problems.length) note(`xhigh: ${report.commands?.length ?? 0} commands on the root thread, exit ${r.code}`);
+    if (!problems.length)
+      note(`${commands.length} command(s) on the root thread, reasoningEffort ${JSON.stringify(report.reasoningEffort ?? null)}, exit ${r.code}`);
 
-    // The control is about the MODEL, not the field: ultra is the effort the page's exception names, so
-    // an empty array there would mean xhigh was never the reason. That the field can fill at all is the
-    // protocol suite's case, and it does not cost a turn.
-    if (!ULTRA) console.log("      ultra control: NOT RUN");
+    // Informational, and a second Codex turn: the inviting prompt is how the delegation was measured, and
+    // this probe is what re-measures it after a codex upgrade. Whether the model delegates is the model's
+    // business and no verdict of this suite, so the only assertion is that a report came back to read.
+    if (!DELEGATE_PROBE) note("delegation probe: NOT RUN");
     else {
-      const u = await runProc(process.execPath, [DRIVER, ...base, "--effort", "ultra"], { timeoutMs: DRIVER_TIMEOUT, env });
-      save(dir, "ultra.report.json", u.out);
-      save(dir, "ultra.stderr.txt", u.err);
-      let ur = null;
-      try { ur = JSON.parse(u.out); } catch {}
-      if (!ur) problems.push(`the ultra control printed no JSON report (exit ${u.code}): ${u.err.trim().slice(-300)}`);
-      else {
-        if (ur.model !== "gpt-6-astra") problems.push(`the ultra control ran on ${JSON.stringify(ur.model)}, not gpt-6-astra`);
-        if (ur.reasoningEffort !== "ultra")
-          problems.push(`the ultra control ran at reasoningEffort ${JSON.stringify(ur.reasoningEffort)}, so it controls for nothing`);
-        if (!Array.isArray(ur.subagentThreads) || !ur.subagentThreads.length)
-          problems.push(`the ultra control opened no subagent thread either (${JSON.stringify(ur.subagentThreads)}), so the xhigh result proves nothing about effort`);
-        else note(`ultra control: ${ur.subagentThreads.length} subagent thread(s) at ${JSON.stringify(ur.reasoningEffort)}`);
-      }
+      const p = await runProc(process.execPath, [DRIVER, ...base, "--prompt", DELEGATE_TASK], { timeoutMs: DRIVER_TIMEOUT, env });
+      if (p.killed) await cancelSeats(scratch, dir, env);
+      save(dir, "delegate.report.json", p.out);
+      save(dir, "delegate.stderr.txt", p.err);
+      let pr = null;
+      try { pr = JSON.parse(p.out); } catch {}
+      if (!pr) problems.push(`the delegation probe printed no JSON report (exit ${p.code}): ${p.err.trim().slice(-300)}`);
+      else note(`delegation probe: exit ${p.code}, ${(pr.commands ?? []).length} command(s), otherItemCounts `
+        + `${JSON.stringify(pr.otherItemCounts ?? null)}, subagentThreads ${JSON.stringify(pr.subagentThreads ?? null)}`);
     }
     return settle(dir, problems);
   });
@@ -564,13 +601,13 @@ test("the full run under Opus: plan, go, run",
     if (!s2.msgs.length) return kept(dir, `turn 2 produced no stream (exit ${t2.code}${t2.killed ? ", killed at the timeout" : ""}): ${t2.err.trim().slice(-400)}`);
 
     const dirs = runDirs(scratch);
-    if (!dirs.length) problems.push("no `.claude/orchestrate/<run>/` was created");
+    if (!dirs.length) problems.push("no `.orchestrate/<run>/` was created");
     for (const d of dirs) {
       const p = path.join(d, ".gitignore");
       if (!fs.existsSync(p)) { problems.push(`${path.basename(d)} has no .gitignore`); continue; }
       const body = fs.readFileSync(p, "utf8");
-      // "*" and nothing else: an ignore file that does not ignore itself leaves the run's artifacts in
-      // `git status` of a checkout that tracks `.claude/`.
+      // "*" and nothing else: an ignore file that does not ignore itself leaves the run's artifacts, and
+      // itself, in the `git status` of the tree the run was made in.
       if (body !== "*" && body !== "*\n") problems.push(`${path.basename(d)}/.gitignore is ${JSON.stringify(body)}, not "*"`);
     }
 
