@@ -33,8 +33,12 @@ the pinned 0.150.1 protocol.
   `OUTPUT_SCHEMA:` file and the answer is read below the envelope's `--- answer` line; the `schema`
   option is for Claude seats.
 - Measured: `agent({model: 'fable'})` under a Fable session answers as Fable 5.1, so the one top Claude
-  seat is tagged like every other Agent call.
+  seat is tagged like every other Agent call. Measured too: an Opus session can tag a subagent `fable`
+  and it answers as Fable, so the page's one top seat under Fable is policy, not a limit.
 - The relay stays pinned to sonnet and the Agent tool's model option is still never passed to it.
+- `evals/orchestrate-live.test.mjs` is the mode's live release gate, behind
+  `CODEX_DELEGATE_LIVE_ORCHESTRATE=1` and out of CI: it spends five headless claude sessions, the
+  subagents cases 3 and 5 spawn, and one `gpt-6-astra` Codex turn (two with the ultra control).
 
 ## 0.9.1 — 2026-09-03
 

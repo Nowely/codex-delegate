@@ -24,7 +24,7 @@ notes; never move or recreate a published tag.
    npm test
    ```
 
-   `npm test` runs eight suites and includes `package`, which checks the payload and version agreement.
+   `npm test` runs nine suites and includes `package`, which checks the payload and version agreement.
    Do not call a suite green without its final count.
 5. Run the local live fidelity gate separately:
 
@@ -36,17 +36,24 @@ notes; never move or recreate a published tag.
    dated parity table after a CLI change. Add `CODEX_DELEGATE_LIVE_TURN=1` when item-shape or probe
    classification changes warrant spending one real turn. Do not make the fixture convenient; it must
    emit what the live server emits.
-6. Run the manual live goal-check for the orchestrate skill. It is not in CI: it costs two real
-   sessions and a model of each tier.
+6. Run the live orchestrate gate. It is not in CI: it spends real sessions and a Codex turn.
 
-   - One orchestrated task in a Fable session and one in an Opus session, each starting from
-     `/codex-delegate:orchestrate` with no other priming.
-   - Record the orchestrator's own context growth from scout to final report (start and end token
-     counts from the session), and keep both plans and both final reports with the release notes.
-   - Confirm all three hypotheses, and treat any one of them failing as a release blocker:
-     self-detection reads the right tier from the system prompt in both sessions; a `gpt-6-astra` seat
-     at `EFFORT: xhigh` opens no Codex subagent threads (check the report's command list, root thread
-     only); an Opus session accepts the explicit `model` tag on every Claude Agent call.
+   ```bash
+   CODEX_DELEGATE_LIVE_ORCHESTRATE=1 node evals/orchestrate-live.test.mjs
+   ```
+
+   Add `CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA=1` when the effort table changed: it spends a second Codex
+   turn on the control that measures what the top model does at `ultra`.
+
+   - Keep the artifact directory the last line prints, plans and session output and reports together,
+     with the release notes.
+   - Treat any failed case as a release blocker. A skipped case is not a pass: the summary names it.
+   - The cases are what the three hypotheses now rest on: self-detection reads the right tier from the
+     system prompt in both sessions (cases 1 and 2, one plan each under Opus and under Fable); a
+     `gpt-6-astra` seat at `EFFORT: xhigh` opens no Codex subagent threads (case 4, against an `ultra`
+     control when `CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA=1` is set; the detector itself is covered by
+     the protocol suite); an Opus session accepts the explicit `model` tag on every Claude Agent call
+     (case 3, read back out of each subagent's own system prompt, and case 5 over a full run).
    - Record the codex-cli and Claude Code builds used, as the fidelity gate does.
 
 7. Review the complete release diff, confirm no generated scratch files or credentials are tracked, and

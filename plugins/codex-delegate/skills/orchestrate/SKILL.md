@@ -64,8 +64,9 @@ yourself, the top Claude seat is Opus with no cap of its own (Opus implementers 
 review, and `gpt-6-astra` stays the single top Codex seat with the top-row roles and its cap of one.
 
 - Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one top seat under Fable;
-  untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line: pass neither `model` nor `effort`
-  to a `codex-seat` call, in the Agent tool or in a Workflow; those reshape the relay, not the seat.
+  untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line, and every Codex seat carries one
+  with a slug from the table, never the config default: pass neither `model` nor `effort` to a `codex-seat` call, in the Agent
+  tool or in a Workflow; those reshape the relay, not the seat.
 - Subagents may spawn subagents, but Fable never spawns Fable: a top-tier Claude seat tags its own Agent calls `opus` or `sonnet`.
 - Send no `EFFORT:` line; the user's configured Codex effort is inherited by every `MODEL:`. The one exception: the `gpt-6-astra`
   seat always carries `EFFORT: xhigh`, because ultra delegates to Codex subagent threads and their commands are not evidence.

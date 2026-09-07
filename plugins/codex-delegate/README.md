@@ -217,10 +217,11 @@ skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the codex-d
                                  prompt only
 agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
-evals/                           eight suites — orchestrate (the orchestrate skill's text), package
+evals/                           nine suites — orchestrate (the orchestrate skill's text), package
                                  (what ships, and the version it claims), agent-contract,
                                  attach-pasted, conformance (the fixture against the pinned schemas),
-                                 protocol, lock, and fidelity against the live server; run-all.mjs runs
+                                 protocol, lock, fidelity against the live server, and orchestrate-live
+                                 (the live release gate for the orchestrate mode); run-all.mjs runs
                                  them, lib/harness.mjs is their shared machinery
 package.json                     private; the Node floor and `npm test`
 .github/workflows/ci.yml         the seven free suites on {ubuntu, macOS} × Node {18, 24}
