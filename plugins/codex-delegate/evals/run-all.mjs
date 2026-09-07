@@ -9,14 +9,17 @@
 //
 // Exit 0 only if every suite exited 0. fidelity self-skips when the codex binary is absent (that is not a
 // fidelity defect) and the summary says so rather than counting it as verified — pass --require-live, or
-// set REQUIRE_LIVE_CODEX=1, to make that skip a failure.
+// set REQUIRE_LIVE_CODEX=1, to make that skip a failure. orchestrate-live is gated the same way and
+// spends real sessions, so without CODEX_DELEGATE_LIVE_ORCHESTRATE=1 it exits 0 having run nothing, and
+// the summary counts it as not run rather than as green.
 
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SUITES = ["orchestrate", "package", "agent-contract", "attach-pasted", "conformance", "protocol", "lock", "fidelity"];
+const SUITES = ["orchestrate", "package", "agent-contract", "attach-pasted", "conformance", "protocol", "lock", "fidelity",
+                "orchestrate-live"];
 const requireLive = process.argv.includes("--require-live") || process.env.REQUIRE_LIVE_CODEX === "1";
 
 function runSuite(name) {
@@ -39,20 +42,27 @@ const countOf = (out) => {
   const all = out.match(/^all (\d+)\b/m);
   const skipped = out.match(/^(\d+) skipped \(codex binary absent\)/m);
   if (skipped && !/\ball \d+ cases that ran agree/.test(out)) return `${skipped[1]} skipped`;
+  // A gated suite exits 0 having run nothing, and a "?" beside "all N suites green" read as one that had
+  // passed. It is named here and counted apart below.
+  if (!all && /NOT RUN/.test(out)) return "not run";
   return all ? all[1] : "?";
 };
 
 const results = [];
-let failedName = null, failedCode = 0;
+let failedName = null, failedCode = 0, notRun = 0;
 for (const name of SUITES) {
   console.log(`\n=== ${name} ===`);
   const { code, out, ms } = await runSuite(name);
-  results.push(`${name} ${countOf(out)}`);
+  const count = countOf(out);
+  if (count === "not run") notRun++;
+  results.push(`${name} ${count}`);
   if (code !== 0) { failedName = name; failedCode = code; break; }
   results[results.length - 1] += ` (${(ms / 1000).toFixed(0)}s)`;
 }
 
 console.log(failedName
   ? `\nrun-all: ${failedName} FAILED (exit ${failedCode}); ${results.length - 1}/${SUITES.length} suites green: ${results.slice(0, -1).join(", ")}`
-  : `\nrun-all: all ${SUITES.length} suites green — ${results.join(", ")}`);
+  : notRun
+    ? `\nrun-all: ${SUITES.length - notRun}/${SUITES.length} suites green, ${notRun} not run — ${results.join(", ")}`
+    : `\nrun-all: all ${SUITES.length} suites green — ${results.join(", ")}`);
 process.exit(failedName ? failedCode : 0);

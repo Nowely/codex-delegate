@@ -41,9 +41,10 @@ jobs:
           node --check skills/codex-delegate/scripts/stop-gate.mjs
           node --check evals/fake-app-server.mjs
       # No install step: the driver, the suites and the fixture import node: builtins only.
-      # run-all's eighth suite, fidelity, needs the real `codex` and is not installed here: it skips,
-      # says so, and exits 0. It stays a LOCAL pre-release step — it needs an authenticated home and its
-      # live-turn case spends real money — and `--require-live` is the flag for that local gate.
+      # run-all's eighth and ninth suites, fidelity and orchestrate-live, need the real `codex` and
+      # `claude` and are not run here: they skip, say so, and exit 0. They stay LOCAL pre-release steps —
+      # they need an authenticated home and they spend real money — and `--require-live` is the flag for
+      # the fidelity gate.
       - name: Suites
         # $TMPDIR is the whole grant at --level read, and a stock Linux shell does not set it: without it
         # every read-level case is a usage error before anything is spawned. The runner context is only

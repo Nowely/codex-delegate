@@ -21,7 +21,7 @@ decorrelated when it was not.
 
 ## The runnable suites
 
-All eight are runnable and should stay green. One command runs them all, cheapest first, stopping at the
+All nine are runnable and should stay green. One command runs them all, cheapest first, stopping at the
 first red suite and printing one summary line:
 
 ```bash
@@ -40,6 +40,7 @@ node evals/protocol.test.mjs        # every case in CASES, against evals/fake-ap
 node evals/lock.test.mjs            # the cwd lock, which the protocol suite cannot reach
 node evals/fidelity.test.mjs        # does the FIXTURE answer like the real server? needs codex, skips without
 CODEX_DELEGATE_LIVE_TURN=1 node evals/fidelity.test.mjs   # spend one real turn on live item shapes, probes, and receipt
+node evals/orchestrate-live.test.mjs # the orchestrate mode's live release gate; CODEX_DELEGATE_LIVE_ORCHESTRATE=1
 ```
 
 The counts are deliberately not written down here — the last one was wrong twice in two days. The `CASES`
@@ -58,6 +59,10 @@ and calls no model.
 authenticated home, and its opt-in live-turn case spends a real turn. Absent the binary it exits 0,
 which makes "portable behaviour passed" and "fidelity was verified" the same code — so the local
 pre-release run passes `--require-live` (or sets `REQUIRE_LIVE_CODEX=1`) and the skip becomes a failure.
+`orchestrate-live.test.mjs` is the second local gate: it drives the real headless `claude` binary against
+`skills/orchestrate/SKILL.md`, spending five headless claude sessions, the subagents cases 3 and 5 spawn,
+and one `gpt-6-astra` Codex turn (two with the ultra control), so without
+`CODEX_DELEGATE_LIVE_ORCHESTRATE=1` it prints one NOT RUN line and exits 0.
 
 `fidelity.test.mjs` asks a different question from the fixture-driven suites, and it exists because of
 a failure they structurally cannot see. They drive the driver against the fixture, which proves the driver

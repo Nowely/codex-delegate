@@ -177,6 +177,7 @@ test("D3 every Claude Agent call is tagged, fable only for the one top seat, and
   "an untagged subagent silently inherits the session model, so a fan-out meant to be cheap runs at the top tier; and model or effort passed to a codex-seat call reshapes the relay instead of the seat",
   () => says(
     "Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one top seat under Fable",
+    "every Codex seat carries one with a slug from the table, never the config default",
     "pass neither `model` nor `effort` to a `codex-seat` call",
   ));
 
