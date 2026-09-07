@@ -319,8 +319,14 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   if (fable === "none" && count)
     problems.push(`a fable tag is in the plan of a session that is not Fable: ${tagged.slice(0, 3).map(quote).join(" ")}`);
   if (fable === "cap") {
-    if (count > 1) problems.push(`fable is named ${count} times, and the cap is one seat: ${tagged.slice(0, 3).map(quote).join(" ")}`);
-    else note(`fable seats in the plan: ${count}`);
+    // The cap is on seats ALIVE at once, and a plan can honour it with two Fable rows run one after the
+    // other: measured, a Fable coordinator wrote two proposer rows and "runs after P1: one Fable seat alive
+    // at a time" beside the second. Sequencing stated in the plan is taken at its word; the run itself is
+    // what would prove it, and a plan-only case cannot.
+    const sequenced = /alive at a time|one at a time|one after the other|sequential|runs after|then the (second|other)/i.test(text);
+    if (count > 1 && !sequenced)
+      problems.push(`fable is named ${count} times with no sequencing stated, and the cap is one seat alive at a time: ${tagged.slice(0, 3).map(quote).join(" ")}`);
+    else note(`fable seats in the plan: ${count}${count > 1 ? ", sequenced by the plan's own words" : ""}`);
   }
   return problems;
 }
