@@ -5,7 +5,7 @@ description: >-
   step (tests, tree-wide greps, source files, diffs, logs) onto Claude and Codex seats so the main context stays small.
 disable-model-invocation: true
 metadata:
-  version: "0.9.1"
+  version: "0.10.0"
 license: MIT
 ---
 

@@ -3,6 +3,39 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## 0.10.0 — 2026-09-07
+
+Prompt-only release: the driver, the relay and the header-field vocabulary are byte-identical to 0.9.1
+but for the driver's version constant. This round's live measurements ran on codex-cli 0.153.4 against
+the pinned 0.150.1 protocol.
+
+### Added
+
+- A second skill, `codex-delegate:orchestrate`, invoked by the user only (`disable-model-invocation:
+  true`): the main conversation becomes an orchestrator that scouts inline, agrees one plan with the
+  rights it needs, and delegates every verbose step to Claude and Codex seats. It is a delta over
+  `codex-delegate` and repeats none of its seat mechanics.
+- What the mode fixes in one place: the Claude/Codex model gradation and which tier does which work, the
+  default half-Codex share for the judgement roles, the seat bounds (5 per side, one top seat per side,
+  one Codex write seat per directory), the five-field return template, the two-round cross-review loop,
+  and `.claude/orchestrate/<run>/` as the run directory, self-ignoring through a `.gitignore` of `*`.
+- `evals/orchestrate.test.mjs` pins that text and runs in `npm test`; `evals/package.test.mjs` now ships
+  the new skill in the payload and holds its `metadata.version` to the same agreement as the old one.
+
+### Notes
+
+- A prompt seat gets no `BRIEF:` line. `BRIEF:` asks for 20 lines and clips at 20 lines or 4000 bytes,
+  which the five-field return does not fit into; the template is the bound instead.
+- The `gpt-6-astra` seat always carries `EFFORT: xhigh`, because ultra delegates to Codex subagent
+  threads whose commands are not evidence. Every other `MODEL:` inherits the configured effort.
+- Measured: a Workflow `schema` on a `codex-seat` call makes the relay wrap the whole envelope into
+  `result`, losing the seat's own fields inside it. A Codex seat takes the five fields as an
+  `OUTPUT_SCHEMA:` file and the answer is read below the envelope's `--- answer` line; the `schema`
+  option is for Claude seats.
+- Measured: `agent({model: 'fable'})` under a Fable session answers as Fable 5.1, so the one top Claude
+  seat is tagged like every other Agent call.
+- The relay stays pinned to sonnet and the Agent tool's model option is still never passed to it.
+
 ## 0.9.1 — 2026-09-03
 
 - `--help` and `--help-all` no longer call `process.exit()` behind the write: on an asynchronous pipe
