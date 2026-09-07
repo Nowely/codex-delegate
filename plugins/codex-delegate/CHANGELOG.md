@@ -3,11 +3,25 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
-## Unreleased
+## 0.10.0 — 2026-09-07
 
 Measured against codex-cli 0.153.4 on macOS (Node 24.11). The pinned protocol moves from 0.150.1 to
 0.153.4; the protocol diff between the two is purely additive (9 new type files, 30 changed, nothing
-removed).
+removed). The orchestrate skill and its evals were measured on 0.153.4 against the 0.150.1 pin before it
+moved.
+
+### Added
+
+- A second skill, `codex-delegate:orchestrate`, invoked by the user only (`disable-model-invocation:
+  true`): the main conversation becomes an orchestrator that scouts inline, agrees one plan with the
+  rights it needs, and delegates every verbose step to Claude and Codex seats. It is a delta over
+  `codex-delegate` and repeats none of its seat mechanics.
+- What the mode fixes in one place: the Claude/Codex model gradation and which tier does which work, the
+  default half-Codex share for the judgement roles, the seat bounds (5 per side, one top seat per side,
+  one Codex write seat per directory), the five-field return template, the two-round cross-review loop,
+  and `.orchestrate/<run>/` as the run directory, self-ignoring through a `.gitignore` of `*`.
+- `evals/orchestrate.test.mjs` pins that text and runs in `npm test`; `evals/package.test.mjs` now ships
+  the new skill in the payload and holds its `metadata.version` to the same agreement as the old one.
 
 ### Changed
 
@@ -29,40 +43,18 @@ removed).
 
 ### Notes
 
-- `CodexErrorInfo` gained `rateLimitExceeded` beside `usageLimitExceeded`; neither is retried, and the
-  comments now say so.
-- The bundled default model is gpt-6-astra when `config.toml` names none; the driver inherits only the
-  keys the caller set, so a flagless seat's model changed with the upgrade. Pin `model` in `config.toml`
-  or pass `MODEL:`.
-- SKILL.md: the `--- answer (N bytes)` marker is the size to check; a relay on a small model was
-  measured cutting long answers and altering escapes in JSON ones. Read `answerPath` when the bytes
-  differ.
-
-## 0.10.0 — 2026-09-07
-
-Prompt-only release: the driver, the relay and the header-field vocabulary are byte-identical to 0.9.1
-but for the driver's version constant. This round's live measurements ran on codex-cli 0.153.4 against
-the pinned 0.150.1 protocol.
-
-### Added
-
-- A second skill, `codex-delegate:orchestrate`, invoked by the user only (`disable-model-invocation:
-  true`): the main conversation becomes an orchestrator that scouts inline, agrees one plan with the
-  rights it needs, and delegates every verbose step to Claude and Codex seats. It is a delta over
-  `codex-delegate` and repeats none of its seat mechanics.
-- What the mode fixes in one place: the Claude/Codex model gradation and which tier does which work, the
-  default half-Codex share for the judgement roles, the seat bounds (5 per side, one top seat per side,
-  one Codex write seat per directory), the five-field return template, the two-round cross-review loop,
-  and `.claude/orchestrate/<run>/` as the run directory, self-ignoring through a `.gitignore` of `*`.
-- `evals/orchestrate.test.mjs` pins that text and runs in `npm test`; `evals/package.test.mjs` now ships
-  the new skill in the payload and holds its `metadata.version` to the same agreement as the old one.
-
-### Notes
-
 - A prompt seat gets no `BRIEF:` line. `BRIEF:` asks for 20 lines and clips at 20 lines or 4000 bytes,
   which the five-field return does not fit into; the template is the bound instead.
-- The `gpt-6-astra` seat always carries `EFFORT: xhigh`, because ultra delegates to Codex subagent
-  threads whose commands are not evidence. Every other `MODEL:` inherits the configured effort.
+- Measured: `gpt-6-astra` delegates to its own Codex subagent threads at `xhigh` as readily as at
+  `ultra` when the prompt invites it, so delegation is the model's choice and no effort keeps the work on
+  the thread the driver started. The mode therefore sets no `EFFORT:` line for any seat, and every
+  `MODEL:` inherits the configured effort. A seat that delegates comes back exit 5, "no command ran",
+  carrying its answer: only the root thread is evidence, and the answer is still the seat's. The report's
+  `subagentThreads` is blind to those children on 0.153.4, which never arrive as a `thread/started` with
+  a `parentThreadId`; a follow-up, and no case asserts on the field.
+- The run directory is `.orchestrate/<run>/` at the repository root, not under `.claude/`: a write
+  anywhere under `.claude/` is refused as a sensitive file, measured even with an explicit
+  `Write(./.claude/**)` allow rule.
 - Measured: a Workflow `schema` on a `codex-seat` call makes the relay wrap the whole envelope into
   `result`, losing the seat's own fields inside it. A Codex seat takes the five fields as an
   `OUTPUT_SCHEMA:` file and the answer is read below the envelope's `--- answer` line; the `schema`
@@ -73,7 +65,18 @@ the pinned 0.150.1 protocol.
 - The relay stays pinned to sonnet and the Agent tool's model option is still never passed to it.
 - `evals/orchestrate-live.test.mjs` is the mode's live release gate, behind
   `CODEX_DELEGATE_LIVE_ORCHESTRATE=1` and out of CI: it spends five headless claude sessions, the
-  subagents cases 3 and 5 spawn, and one `gpt-6-astra` Codex turn (two with the ultra control).
+  subagents cases 3 and 5 spawn, and one `gpt-6-astra` Codex turn (a second one with
+  `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1`, the informational delegation probe). Its sessions run
+  under `--permission-mode acceptEdits` with an explicit `--allowedTools` list and the prompt on stdin;
+  bypass mode is not needed, and is ignored anyway where managed settings disable it.
+- `CodexErrorInfo` gained `rateLimitExceeded` beside `usageLimitExceeded`; neither is retried, and the
+  comments now say so.
+- The bundled default model is gpt-6-astra when `config.toml` names none; the driver inherits only the
+  keys the caller set, so a flagless seat's model changed with the upgrade. Pin `model` in `config.toml`
+  or pass `MODEL:`.
+- SKILL.md: the `--- answer (N bytes)` marker is the size to check; a relay on a small model was
+  measured cutting long answers and altering escapes in JSON ones. Read `answerPath` when the bytes
+  differ.
 
 ## 0.9.1 — 2026-09-03
 

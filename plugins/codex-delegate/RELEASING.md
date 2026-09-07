@@ -37,19 +37,20 @@ notes; never move or recreate a published tag.
    CODEX_DELEGATE_LIVE_ORCHESTRATE=1 node evals/orchestrate-live.test.mjs
    ```
 
-   Add `CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA=1` when the effort table changed: it spends a second Codex
-   turn on the control that measures what the top model does at `ultra`.
+   Add `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` after a codex upgrade: it spends a second Codex turn
+   on an informational probe that invites the seat to delegate and prints what came back. The probe
+   judges nothing; it fails only when the driver prints no report, and its line beside the case is what to
+   read.
 
    - Keep the artifact directory the last line prints, plans and session output and reports together,
      with the release notes.
    - Treat any failed case as a release blocker. A skipped case is not a pass: the summary names it.
-   - The cases are what the three hypotheses now rest on: self-detection reads the right tier from the
-     system prompt in both sessions (the two plan-only cases, one under Opus and one under Fable); a
-     `gpt-6-astra` seat at `EFFORT: xhigh` opens no Codex subagent threads (the case of that name,
-     against an `ultra` control when `CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA=1` is set; the detector
-     itself is covered by the protocol suite); an Opus session accepts the explicit `model` tag on every
-     Claude Agent call (the model-tag case, read back out of each subagent's own system prompt, and the
-     full-run case).
+   - What the cases prove as they now stand: self-detection reads the right tier out of the system
+     prompt in both plan-only sessions, one under Opus and one under Fable; an explicit `model` tag is
+     obeyed, read back out of each subagent's own system prompt (the model-tag case) and over the whole
+     fan-out of a real run (the full-run case); and a `gpt-6-astra` seat answers on its own thread when
+     it is not invited to delegate, with the commands in its report (the case of that name). Delegation
+     is the model's choice, not effort-gated, so no case asserts on `subagentThreads`.
    - Record the codex-cli and Claude Code builds used, as the fidelity gate does.
 
 7. Review the complete release diff, confirm no generated scratch files or credentials are tracked, and
