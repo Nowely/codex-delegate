@@ -3,37 +3,6 @@
 The measured failures that produced SKILL.md's imperatives. Each line is evidence, not folklore: if a
 rule ever looks like ceremony, this is what it cost to learn.
 
-## Contents
-
-- [Isolation](#isolation)
-- [Composition disclosure](#composition-disclosure)
-- [The unverified wrapper](#the-unverified-wrapper)
-- [A relay on a small model](#a-relay-on-a-small-model)
-- [Context cost](#context-cost)
-- [Silent downgrades](#silent-downgrades)
-- [The TOML parser](#the-toml-parser)
-- [Redundant flags as crashes](#redundant-flags-as-crashes)
-- [Worktree leaks, and who actually leaked](#worktree-leaks-and-who-actually-leaked)
-- [Hooks run by the driver's own git](#hooks-run-by-the-drivers-own-git)
-- [Orphaned load](#orphaned-load)
-- [Red-green seats](#red-green-seats)
-- [A non-zero exit discarded](#a-non-zero-exit-discarded)
-- [Safety classifier](#safety-classifier)
-- [Fan-out physics](#fan-out-physics)
-- [Report integrity](#report-integrity)
-- [Resume rights](#resume-rights)
-- [Seat-file newline injection](#seat-file-newline-injection)
-- [State split the lock](#state-split-the-lock)
-- [Shared-home fixture pollution](#shared-home-fixture-pollution)
-- [Stale-lock stampede](#stale-lock-stampede)
-- [Protected-root aliases](#protected-root-aliases)
-- [MCP secrets in argv](#mcp-secrets-in-argv)
-- [Negative probes counted as failures](#negative-probes-counted-as-failures)
-- [Cancellation lost the answer](#cancellation-lost-the-answer)
-- [The verifier gate was inverted](#the-verifier-gate-was-inverted)
-- [An unref'd kill never fired](#an-unrefd-kill-never-fired)
-- [Five of seven seats lost to the wall clock](#five-of-seven-seats-lost-to-the-wall-clock)
-
 ## Isolation
 
 Of 157 delegations run against the caller's own `~/.codex`, 95 spent their FIRST tool
@@ -60,8 +29,8 @@ indistinguishable from a seat that found nothing.
 ## A relay on a small model
 
 A haiku relay received a failing `SEAT` declaration, created the missing directory, and ran Codex under
-rights nobody had granted, then reported success. The shipped `codex-seat` wrapper is pinned to sonnet;
-a hand-rolled relay must not use a small model.
+rights nobody had granted, then reported success. The shipped `codex-seat` wrapper pins its model in
+`agents/codex-seat.md`; a hand-rolled relay must not use a small model.
 
 ## Context cost
 
@@ -107,7 +76,7 @@ caught it out.
 next run's worktree add then execute what the seat wrote there with the CALLER's rights, before anyone
 reads the report. Measured before the fix: `core.fsmonitor=pwn.sh` logged runs under `status`, `diff`,
 `ls-files` twice, `worktree remove` and `worktree add`, at exit 0. Closed by
-`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c diff.external=` on every git the driver spawns.
+the override set every driver-spawned git now carries ([Git-directory grant](environment-and-internals.md#git-directory-grant)).
 
 ## Orphaned load
 

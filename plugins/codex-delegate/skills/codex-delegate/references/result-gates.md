@@ -41,8 +41,8 @@ unknown outcome, so it raises exit 11. A passing verifier or native review overr
 
 ## What `--verify` can and cannot measure
 
-The verifier runs under `/bin/sh` in its own process group. It gets 300 seconds unless a `--timeout` you
-set leaves less (`verify.budgetMs`); at the deadline the group is killed with `SIGKILL` and
+The verifier runs under `/bin/sh` in its own process group. It gets the cap `--help` states for `--verify` unless a
+`--timeout` you set leaves less (`verify.budgetMs`); at the deadline the group is killed with `SIGKILL` and
 `verify.timedOut` says so. Output streams while a bounded tail is retained, so a verifier that prints
 hundreds of megabytes and exits 0 passes. `--verify-sandboxed` runs it through `codex sandbox` under the
 read-only profile: the tree is readable, `$TMPDIR` is writable, and a tree-writing verifier fails;
@@ -60,8 +60,9 @@ The rows are read in order; the first that matches decides.
 | no status at all | **not measured.** Killed at the deadline or the spawn itself failed | **12** |
 | any other status, zero or not | **measured.** The check ran and gave its verdict | `0` passes, else **9** |
 
-A fourth state is not in the table because it produces no exit status to observe: with under 100 ms of
-a `--timeout` you set left when the turn ends, the check is not run at all. That is
+A fourth state is not in the table because it produces no exit status to observe: with less than the admission
+floor (`CODEX_DELEGATE_VERIFY_FLOOR_MS`, default under `--help-all`) of a `--timeout` you set left when the
+turn ends, the check is not run at all. That is
 `verifySkipped: "budget-exhausted"` with `verify: null`, and it is **also exit 12** — a check that was
 declared and not measured is the same instruction to the caller however it came about. It used to fall
 through to the weaker gates and reach exit 0, which is the one shape `--verify` exists to prevent.

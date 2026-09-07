@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 // Lock regression tests for scripts/driver.mjs.
 //
-// The protocol suite cannot reach any of this: it runs every case at --level read, and read level never
-// locks. Each case here is a state a real directory has actually been found in, or one the acquire path
-// demonstrably mishandled before — a directory or a FIFO sitting where the lock file should be, a lock
-// naming a pid that belongs to someone else, a lock released by a peer in the microsecond between our
-// failed create and our read.
+// The protocol suite does not exercise the lock path. These cases cover directory and FIFO obstacles,
+// locks naming other processes, and peers releasing or replacing locks during acquisition.
 //
 //   node evals/lock.test.mjs
 //
@@ -18,19 +15,11 @@ import os from "node:os";
 import path from "node:path";
 import { DRIVER, EXIT, FAKE, codexShim, lockKey, registry, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
 
-// A state directory of this suite's own. Without it every case wrote into the caller's real
-// ~/.codex-delegate — the locks it plants, the isolated Codex home it rewrites, the answer log it
-// prunes — so running the tests mutated production state, and a suite run concurrent with a real
-// delegation replaced that delegation's inherited config with the fixture's `model = "fake-model"`.
-// Measured: after a suite run, ~/.codex-delegate/home/config.toml holds exactly that.
-//
-// It does NOT weaken the case below that pins the lock dir against a moving $HOME: a driver that
-// regressed to os.homedir() would ignore this variable and put its lock under the decoy home, which is
-// precisely what that case looks for.
+// Use a private state directory so planted locks, inherited config and pruning cannot affect real
+// delegations. The moving-HOME case still detects a driver that ignores this override.
 const STATE_DIR = tempDir("codex-lock-state-");
 const LOCK_DIR = path.join(STATE_DIR, "locks");
-// acquireLock's own key function, not a copy of it: the key is the directory's IDENTITY (dev:ino), and a
-// second implementation here would let the two drift while every case stayed green.
+// Use acquireLock's own key function: a second implementation could drift while agreeing with itself.
 const lockFor = (dir) => path.join(LOCK_DIR, lockKey(fs.statSync(dir)));
 
 const shimDir = tempDir("codex-lock-shim-");
@@ -67,7 +56,7 @@ test("parseArgs rejects the listed invalid arguments before the turn starts",
       { label: "missing --cwd", dir: null, args: [], flags: ["--cwd"], message: "--cwd is required" },
       { label: "unknown --level", dir: d, args: ["--level", "execute"], flags: ["--level"], message: "--level must be one of" },
       { label: "non-numeric --timeout", dir: d, args: ["--timeout", "soon"], flags: ["--timeout"], message: "--timeout must be a number of seconds" },
-      // 0 is the DEFAULT now — no wall clock — so the guard's floor is a negative number, not zero.
+      // 0 is the default — no wall clock — so the guard must reject negative values, not zero.
       { label: "negative --timeout", dir: d, args: ["--timeout", "-1"], flags: ["--timeout"], message: "--timeout must be a number of seconds" },
       { label: "over-limit --timeout", dir: d, args: ["--timeout", "7201"], flags: ["--timeout"], message: "--timeout must be a number of seconds" },
       { label: "non-integer --max-commands", dir: d, args: ["--max-commands", "2.5"], flags: ["--max-commands"], message: "--max-commands must be a whole number" },
@@ -209,7 +198,7 @@ test("a lock held by another user's live process is not stolen",
   });
 
 test("a directory at the lock path is a usage error, not a transport failure",
-  "readFileSync threw EISDIR out of acquireLock and landed in the catch-all as exit 4 — claiming codex crashed before codex was spawned",
+  "a directory at the lock path is a lock error, not a codex crash; EISDIR must not escape into the transport-error handler",
   async () => {
     const d = freshDir("eisdir");
     fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
@@ -265,18 +254,12 @@ test("two concurrent runs: exactly one wins",
   });
 
 test("eight concurrent runs against a STALE lock hold it one at a time",
-  "the reclaim path is where mutual exclusion broke: a peer that judged the STALE lock dead arrives late and deletes the FRESH lock that replaced it. With the old unconditional unlink this reached three simultaneous holders",
+  "a late peer reclaiming a stale lock must not delete the fresh lock that replaced it; the critical section must admit only one holder",
   async () => {
-    // Counting how many runs exit 0 does NOT measure this: runs that acquire in sequence all legitimately
-    // succeed, which is exactly what a lock is for. So the critical section is probed directly instead.
-    // --verify executes in the locked cwd while the lock is still held, and `mkdir` is atomic — a second
-    // holder's mkdir therefore fails, turning any overlap into a VERIFY_FAILED that cannot be missed.
-    // Repeated because the race is probabilistic; the old code violated in roughly a quarter of rounds.
+    // Probe mutual exclusion with atomic mkdir in --verify while the lock is held: sequential successes
+    // are legitimate, but overlapping holders produce a VERIFY_FAILED.
     const CRIT = "mkdir .crit 2>/dev/null || exit 9; sleep 0.35; rmdir .crit";
-    // Rounds and width are tuned to the observed violation rate, not picked for looking thorough: the
-    // subtler failure (reclaiming without serialising) showed up in roughly 1 acquisition in 14, so a
-    // handful of narrow rounds would pass by luck. This costs ~30s and is the only test of the guarantee
-    // the whole lock exists for.
+    // Repeat a broad fan-out because reclaim races are probabilistic and narrow rounds can miss them.
     for (let round = 0; round < 10; round++) {
       const d = freshDir(`stampede-${round}`);
       fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
@@ -335,7 +318,7 @@ test("while a LIVE process holds the reclaim marker, nothing is touched — howe
   });
 
 test("the home refusal survives a hostile or absent $HOME",
-  "fixing the COMPARISON to use dev:ino left the ANCHOR on process.env.HOME, which is the same bug one level up: with HOME unset or pointed at a decoy, --cwd $HOME at write level exited 0 and the turn got the whole home directory",
+  "the protected-home anchor must come from account identity, not HOME; an unset or decoy HOME must not grant write access to the real home",
   async () => {
     const real = os.userInfo().homedir;
     const decoy = freshDir("decoy-home");
@@ -374,7 +357,7 @@ test("--writable refuses the parent of the passwd home and names it",
   });
 
 test("two runs on one cwd take one lock however $HOME moves",
-  "the lock key was rooted at os.homedir(), which PREFERS $HOME — so two runs under different HOME values took two different locks in two different homes and both proceeded",
+  "the lock directory must not depend on HOME, or runs with different HOME values can take separate locks for the same directory",
   async () => {
     const d = freshDir("home-split");
     const decoy = freshDir("decoy-home2");
@@ -388,7 +371,7 @@ test("two runs on one cwd take one lock however $HOME moves",
   });
 
 test("the write sandbox is exactly what the flags asked for, echoed back",
-  "the whole write-level sandbox configuration was pinned by nothing: deleting it from the driver left every case green, because the fixture hardcoded an empty root list instead of echoing what it was sent",
+  "the fixture must echo the write-level sandbox configuration so omitted grants are observable rather than supplied by fixture defaults",
   async () => {
     const d = freshDir("wr-echo");
     const extra = freshDir("wr-extra");
@@ -469,7 +452,7 @@ test("a write run whose workspace is not the cwd is refused",
   });
 
 test("--writable naming the cwd itself is not a failure",
-  "the server subtracts the workspace root from writableRoots, so a driver that sends it compared [cwd] against [] and refused a legitimate invocation with exit 4 — and SKILL.md invited exactly that redundancy",
+  "the server subtracts the workspace root from writableRoots; an explicitly repeated cwd must still match the effective sandbox",
   async () => {
     const d = freshDir("wr-self");
     const { code, err } = await run(d, { args: ["--writable", d] });
@@ -477,7 +460,7 @@ test("--writable naming the cwd itself is not a failure",
   });
 
 test("a writable root named twice is not a failure",
-  "the server dedupes the roots it is given, so a driver that sends /x twice compared two entries against the server's one and reported exit 4 — a permanent flag redundancy dressed up as `codex crashed`",
+  "the server deduplicates writableRoots, so duplicate extra-root flags must not cause a transport refusal",
   async () => {
     const d = freshDir("wr-dupe");
     const extra = freshDir("wr-dupe-root");
@@ -486,7 +469,7 @@ test("a writable root named twice is not a failure",
   });
 
 test("a hermetic HOME under the workspace does not make the workspace unusable",
-  "walking the ancestors of $HOME refused a standard hermetic-build layout outright: with HOME=$W/.home the workspace $W itself could not be written, with no override and a message that named the home rather than the anchor",
+  "a build workspace may contain a decoy HOME; the protected-home guard must use the real account anchor rather than reject that workspace",
   async () => {
     const w = freshDir("hermetic");
     const home = path.join(w, ".home");
@@ -505,7 +488,7 @@ test("a relative $HOME cannot promote an arbitrary directory to a home anchor",
   });
 
 test("a write sandbox that grants more than was asked for is refused",
-  "read level was guarded and write was not — an asymmetry, not a decision. Write is the level that can damage a repository, and it accepted whatever network setting the server chose to report",
+  "write level must check the reported network setting as read level does; accepting an unexpected setting changes the granted rights",
   async () => {
     const d = freshDir("write-widened");
     const { code, err } = await run(d, { scenario: "write-networked" });
@@ -515,7 +498,7 @@ test("a write sandbox that grants more than was asked for is refused",
   });
 
 test("the home directory is refused under every spelling of it",
-  "checkRoot string-compared against $HOME, and macOS realpath does not normalise letter case — so `--cwd /users/ruliny` sailed past the guard and started a write-level turn with access to the whole home directory, while `/Users/ruliny` was correctly refused",
+  "realpath does not normalize letter case on macOS; the protected-home guard must compare directory identity so a case variant cannot grant the whole home",
   async () => {
     const home = fs.realpathSync(os.homedir());
     // Case variants of the same real directory, plus its ancestors and the filesystem root. On a
@@ -533,7 +516,7 @@ test("the home directory is refused under every spelling of it",
   });
 
 test("a case-variant --cwd is the same directory",
-  "realpath normalises symlinks but not letter case, so on a case-insensitive volume one directory had two lock names and the second run walked in",
+  "realpath normalizes symlinks but not letter case; case variants of one directory must share a lock on a case-insensitive volume",
   async () => {
     const parent = freshDir("case");
     const upper = path.join(parent, "Worktree");
@@ -568,7 +551,7 @@ const worktreesUnder = (repo) => {
 };
 
 test("--worktree removes a clean tree and reports the disposition",
-  "the manual lifecycle was ignored often enough to leave 64 worktrees and 41 GB behind; parity with isolation:\"worktree\" means the driver itself removes what it can prove worthless",
+  "the driver must remove a completed worktree it can prove holds no work, without requiring manual cleanup",
   async () => {
     const repo = freshRepo("wt-clean");
     if (!repo) return "git setup failed";
@@ -584,7 +567,7 @@ test("--worktree removes a clean tree and reports the disposition",
   });
 
 test("--worktree harvests a completed turn's work and removes the tree",
-  "the routine outcome of a write seat — a tree holding the work — used to hand the operator a harvest-then-force-remove chore that no native worktree subagent asks for; the driver now harvests (staged, unstaged AND untracked) and removes",
+  "a completed dirty worktree must be harvested before removal, including staged, unstaged and untracked work",
   async () => {
     const repo = freshRepo("wt-dirty");
     if (!repo) return "git setup failed";
@@ -620,7 +603,7 @@ test("--worktree harvests a completed turn's work and removes the tree",
   });
 
 test("--worktree harvests a seat's COMMITS, not just its diff, before removing the tree",
-  "the harvest diffed against HEAD, which by definition excludes what the seat committed — and a detached worktree's removal strands those commits behind no ref. A --worktree --commit seat's whole history was destroyed while the report said the work had been harvested",
+  "harvesting against HEAD omits committed work, and removing a detached worktree can strand its commits; the harvest must include the full change from the base",
   async () => {
     const repo = freshRepo("wt-commits");
     if (!repo) return "git setup failed";
@@ -651,7 +634,7 @@ test("--worktree harvests a seat's COMMITS, not just its diff, before removing t
   });
 
 test("--worktree keeps the commits of a seat that left the tree CLEAN",
-  "a --commit seat that commits everything leaves `git status --porcelain` empty, so the clean branch removed the tree and stranded those commits behind no ref — the tidier the seat, the worse the loss",
+  "a seat that commits everything leaves porcelain empty; clean status must not cause removal to strand those commits",
   async () => {
     const repo = freshRepo("wt-clean-commits");
     if (!repo) return "git setup failed";
@@ -694,7 +677,7 @@ test("--worktree still preserves the tree when the turn did not complete, even a
   });
 
 test("a crashed run's ledger entries are reconciled on the next --worktree invocation",
-  "ledger entries had no retention and no reconciler: a killed run's entry (and its clean tree) survived forever, unlike the answer log beside it which is pruned",
+  "crashed runs must not leave ledger entries and clean worktrees indefinitely; reconciliation must remove abandoned state",
   async () => {
     const repo = freshRepo("wt-ledger");
     if (!repo) return "git setup failed";
@@ -738,7 +721,7 @@ test("--worktree preserves the tree on a timeout",
   });
 
 test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts and the driver's own state",
-  "a writable ~/.codex/sessions makes the 'unforgeable' receipt forgeable, and a writable ~/.codex-delegate hands over the locks and the answer log; only ~ itself used to be refused",
+  "a writable ~/.codex/sessions makes receipts forgeable, and a writable ~/.codex-delegate exposes locks and the answer log; both roots must be protected",
   async () => {
     const home = fs.realpathSync(os.userInfo().homedir);
     const targets = [path.join(home, ".codex"), path.join(home, ".codex", "sessions"), path.join(home, ".codex-delegate")];
@@ -750,8 +733,8 @@ test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts
       if (code !== EXIT.USAGE) return `--writable ${t} returned ${code}, expected 2`;
       if (!/receipts|state/.test(err)) return `the refusal did not say why: ${err.trim().slice(0, 160)}`;
     }
-    // The guard is identity-based, so a case-variant spelling on a case-insensitive volume must be
-    // refused too — the first version was a string compare and ~/.CODEX walked straight past it.
+    // The guard uses directory identity, so case-variant spellings on a case-insensitive volume must
+    // be refused too.
     const upper = path.join(home, ".CODEX-DELEGATE");
     let aliased = false;
     try { aliased = fs.statSync(upper).ino === fs.statSync(path.join(home, ".codex-delegate")).ino; } catch {}
@@ -763,7 +746,7 @@ test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts
   });
 
 test("a failed config probe keeps the last known good inherited config",
-  "rewriting the shared isolated config on a FAILED probe truncated what a healthy run had just written, so a transient hiccup silently moved every concurrent seat onto account defaults",
+  "a failed probe must preserve the shared isolated config so a transient failure cannot move concurrent seats onto account defaults",
   async () => {
     const cfg = path.join(STATE_DIR, "home", "config.toml");
     const healthy = await run(freshDir("lkg-healthy"), {});
@@ -781,7 +764,7 @@ test("a failed config probe keeps the last known good inherited config",
   });
 
 test("every run is recorded in the job registry, and --resume last finds the newest",
-  "a coordinator that lost a threadId had no way back to the thread: the registry under jobs/ records each run (started, ended, exit, answerPath) and --resume last resolves the newest record",
+  "the registry records each run and --resume last resolves the newest record, allowing a coordinator to recover a lost threadId",
   async () => {
     const first = await run(freshDir("jobs-first"), {});
     if (first.code !== EXIT.OK) return `the first run exited ${first.code}`;
@@ -849,7 +832,7 @@ test("--mcp refuses to run blind when the config probe never reported the table"
   });
 
 test("--steer-file reaches the running turn as turn/steer",
-  "a native subagent can be corrected mid-task by just typing; a seat could only be killed. Text appended to the steer file must arrive at the server as a steer on the LIVE turn, and the file must be drained so the same text is not sent twice",
+  "text appended to the steer file must reach the LIVE turn and be drained so the same correction is not sent twice",
   async () => {
     const d = freshDir("steer");
     const steer = path.join(d, "steer.txt");
@@ -874,7 +857,7 @@ test("--steer-file reaches the running turn as turn/steer",
   });
 
 test("the answer log is pruned by age",
-  "~/.codex-delegate/answers grew without bound — 97 files within two days of use — and nothing mentioned pruning it",
+  "the answer log must prune old entries so delegation output cannot grow without bound",
   async () => {
     const answers = path.join(STATE_DIR, "answers");
     fs.mkdirSync(answers, { recursive: true, mode: 0o700 });
@@ -891,20 +874,10 @@ test("the answer log is pruned by age",
 
 // ---------------------------------------------------------------- signals and teardown
 //
-// No case anywhere sent the driver a signal. Every guarantee it publishes about teardown — the group is
-// waited out, the lock is released only afterwards, a repeat signal escalates — was pinned by exactly one
-// case that covers NORMAL COMPLETION, and the two mechanisms that satisfy it are redundant, so removing
-// either left the suite green. These cases send the signals.
 
-// A shim that leaves a TERM-ignoring descendant inside the codex process group, the shape of a test
-// server or watcher a turn walks away from.
-//
-// The descendant announces itself by creating a file NAMED after its own pid, and `exec`s sleep so that
-// one pid is the whole survivor: an ignored disposition survives execve, so the sleep inherits the
-// ignored TERM. Detection was `pgrep -f` over a comment marker in the shim's command line, which needs
-// a process table this suite may not be allowed to read — under a sandbox every signal case failed with
-// "the shim never produced a survivor" before it reached any signal handling. The file's NAME carries
-// the pid, so it is complete the moment the redirect creates it, with no partial-write window.
+// A shim leaves a TERM-ignoring descendant in the codex process group and records its pid in a filename.
+// It execs sleep to preserve that pid and ignored TERM disposition; the filename avoids partial writes
+// and process-table searches.
 const survivorShim = tempDir("codex-lock-surv-");
 const survivorPids = tempDir("codex-lock-surv-pids-");
 fs.writeFileSync(path.join(survivorShim, "codex"),
@@ -938,11 +911,8 @@ function spawnRun(dir, { scenario = "stalled-turn", args = [], shim = survivorSh
      "--prompt", "irrelevant, the server is scripted"],
     { env: { PATH: `${shim}:${process.env.PATH}`, FAKE_SCENARIO: scenario,
              CODEX_DELEGATE_STATE_DIR: STATE_DIR, ...env } });
-  // The accumulating stderr, so a case can wait for the driver to announce its thread. The lock is taken
-  // BEFORE codex is spawned, so "the lock exists" does not mean "there is a turn to report": under load
-  // a signal sent on that signal arrived while rootThreadId was still null and got the documented
-  // exit 4 for a run with nothing to hand back. Waiting for `threadId=` is waiting for the precondition
-  // the case is actually about.
+  // Wait for the thread announcement on stderr: the lock is taken before codex starts, so its existence
+  // alone does not establish a thread to report.
   return { p, done, stderrSoFar };
 }
 const waitFor = async (fn, ms = 15000) => {
@@ -971,7 +941,7 @@ async function readyToSignal(p, stderrSoFar, rpcLog) {
 }
 
 test("--host-home sweeps the group and releases the lock exactly as an isolated run does",
-  "the coverage ledger lists --host-home as unmeasured. It is the one path that sets no CODEX_HOME and links nothing into place, so every teardown guarantee is reached through different setup code there — and a TERM-ignoring descendant is the shape that separates a group waited out from one merely signalled",
+  "It is the one path that sets no CODEX_HOME and links nothing into place, so every teardown guarantee is reached through different setup code there — and a TERM-ignoring descendant is the shape that separates a group waited out from one merely signalled",
   async () => {
     reapSurvivors();
     const d = freshDir("host-home");
@@ -1002,8 +972,8 @@ test("--host-home sweeps the group and releases the lock exactly as an isolated 
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   test(`${sig} reports the turn, sweeps the group and releases the lock`,
     sig === "SIGHUP"
-      ? "SIGHUP had no handler at all, so Node's default terminated the driver outright: measured — exit 129, a TERM-ignoring descendant reparented to pid 1, the cwd lock left behind and a zero-byte report. It is what a closing terminal sends, i.e. the ordinary end of a backgrounded delegation"
-      : "a cancelled run used to exit 4 with an EMPTY report, discarding the commands, files and answer already in memory; the turn did not complete, which is exit 1, and the evidence belongs to the caller",
+      ? "SIGHUP is the signal from a closing terminal; it must preserve the report, reap descendants and release the lock like other cancellation signals"
+      : "cancellation must return the incomplete-turn verdict and preserve the commands, files and answer already collected",
     async () => {
       reapSurvivors();
       const d = freshDir(`sig-${sig}`);
@@ -1032,7 +1002,7 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
 }
 
 test("the lock is released only after the process group is dead",
-  "the published guarantee is that a next writer cannot enter a directory where the previous run's descendants are still dying. Both mechanisms that kill the group are redundant for the survivor case, so removing the WAIT left every case green — what the wait actually buys is this ordering, and nothing measured it",
+  "the next writer must not enter while the previous run's descendants are still dying; waiting for group teardown must precede lock release",
   async () => {
     reapSurvivors();
     // Measured as a DIFFERENCE against a control, not as an absolute: the lock is released microseconds
@@ -1062,7 +1032,7 @@ test("the lock is released only after the process group is dead",
   });
 
 test("--worktree refuses a destination that a symlink puts outside the checked repository",
-  "checkRoot(repo) guards where the worktree is asked FROM, not where it lands. With <repo>/.claude a symlink, git created directories in the target and would have checked a whole tree out there — running its hooks — before the cwd check refused the run",
+  "checkRoot(repo) guards the source repository, but a symlinked .claude can redirect the worktree destination; that destination must be checked before git creates files or runs hooks",
   async () => {
     const repo = freshDir("wt-link");
     if (spawnSync("git", ["init", "-q", repo]).status !== 0) return "git init failed";
@@ -1084,7 +1054,7 @@ test("--worktree refuses a destination that a symlink puts outside the checked r
   });
 
 test("a second --seat-file is a usage error, not a silently ignored one",
-  "only the first --seat-file pair is expanded and removed; the second survived into parseArgs, set o.seatFile and was never read — a caller believing something untrue about which seat is running",
+  "a second --seat-file is a contradictory declaration and must be refused rather than silently ignored",
   async () => {
     const a = path.join(shimDir, "dup-a.txt"), b = path.join(shimDir, "dup-b.txt");
     fs.writeFileSync(a, `SEAT: read ${shimDir}\n`);
@@ -1145,7 +1115,7 @@ test("a live holder whose recorded identity still matches is honoured",
   });
 
 test("a lock recorded under one timezone is still held when read under another",
-  "`ps -o lstart=` renders the start time through strftime in the CALLER's timezone and locale, so an unpinned identity makes one live process look like two: a lock written by a run under TZ=Asia/Tokyo read as stale under the default TZ, and a second writer walked into a directory already held",
+  "ps renders lstart in the caller's timezone and locale; process identity must be pinned so different environments cannot make a live lock appear stale",
   async () => {
     const d = freshDir("identity-tz");
     // A real holder, so the identity in the lock is the DRIVER's own rendering, not one this suite wrote.
@@ -1175,11 +1145,10 @@ test("a reclaimed stale lock leaves no marker or temp file behind",
   });
 
 test("concurrent first runs against a fresh state directory do not race on the shared home's links",
-  "isolatedHome() read the link and then created it, so two seats starting on an empty state dir both saw ENOENT and the loser exited 2 with EEXIST on a link the winner had just made correctly — measured at 6 of 60 concurrent read seats",
+  "concurrent first-runs can both observe a missing home link; the loser of link creation must accept the correctly created peer link",
   async () => {
     const d = freshDir("home-race");
-    // 64 first-runs, because the window is small: reverting the fix produced 2 failures in 36, so a
-    // narrower fan-out could stay green against the very bug this case exists to catch.
+    // Fan out repeated first-runs to expose the small window for concurrent link creation.
     const rounds = 4, width = 16, bad = [];
     for (let r = 0; r < rounds; r++) {
       // Fresh every round: the race exists only on the FIRST run against a state directory.
@@ -1204,7 +1173,7 @@ test("concurrent first runs against a fresh state directory do not race on the s
   });
 
 test("a cancelled config probe does not empty the shared home's config",
-  "probeCancel resolved as a SUCCESSFUL probe with no entries, so a run interrupted while probing atomically replaced the shared config.toml with an empty file — which every later run then kept as its last known good, on the account defaults",
+  "cancelling a probe must not count as a successful empty config read and replace the shared last-known-good config with account defaults",
   async () => {
     const d = freshDir("probe-cancel");
     const state = path.join(STATE_DIR, "probe-cancel-state");
@@ -1226,7 +1195,7 @@ test("a cancelled config probe does not empty the shared home's config",
   });
 
 test("a signal during --verify kills the verifier's process group and still reports",
-  "as a spawnSync the verifier deferred every signal for up to its whole budget: measured, two SIGINTs were ignored and `--verify 'sleep 20'` ran to completion, exit 0, twenty-one seconds after the first",
+  "signals must interrupt an active verifier and terminate its process group rather than wait for the verifier's full budget",
   async () => {
     const d = freshDir("verify-signal");
     const pidFile = path.join(d, "verify.pid");
@@ -1275,7 +1244,7 @@ test("--verify-sandboxed runs the verifier through `codex sandbox` under the rea
   });
 
 test("the answer reaches the answer log before the turn ends, so a SIGKILL cannot take it with it",
-  "persistAnswer ran only inside finish(), so a run killed after the model had already answered handed back nothing at all: the one artefact the coordinator needed sat in the memory of a process that no longer exists. A SIGKILL is the shape a harness, an OOM killer or a laptop lid produces",
+  "a delivered answer must be persisted before turn completion so it survives a SIGKILL that leaves no report",
   async () => {
     const d = freshDir("eager-answer");
     const answerFile = path.join(STATE_DIR, "answers", "thr_root.md");
@@ -1297,7 +1266,7 @@ test("the answer reaches the answer log before the turn ends, so a SIGKILL canno
   });
 
 test("a correction appended while a steer is in flight is not overwritten",
-  "the drain was a read-modify-write around a live send: text appended between its read and its write was lost, while the docs promised concurrent appends survive. Claiming the file by rename frees the inbox the moment the text is taken",
+  "claiming the steer file by rename frees the inbox immediately; appends while the send awaits acceptance must survive for the next steer",
   async () => {
     const d = freshDir("steer-window");
     const steer = path.join(d, "steer.txt");
@@ -1310,7 +1279,7 @@ test("a correction appended while a steer is in flight is not overwritten",
     if (!await waitFor(() => logHas(/turn\/start/))) { p.kill("SIGKILL"); return "the turn never started"; }
     fs.writeFileSync(steer, "first correction\n");
     if (!await waitFor(() => logHas(/turn\/steer:first correction/), 8000)) { p.kill("SIGKILL"); return "the first steer never reached the server"; }
-    // The server has not accepted it yet, so this is exactly the window the old drain wrote over.
+    // Append before the server accepts the steer to exercise concurrent inbox writes.
     const stillInInbox = fs.existsSync(steer) && fs.readFileSync(steer, "utf8").includes("first correction");
     fs.appendFileSync(steer, "second correction\n");
     const second = await waitFor(() => logHas(/turn\/steer:second correction/), 12000);
@@ -1329,7 +1298,7 @@ const REAL_GIT = (() => {
 })();
 
 test("no git the driver spawns runs the repository's hooks, fsmonitor or external diff",
-  "--commit hands the seat the git common dir, and the driver's own harvest, its worktree remove and the next run's worktree add then execute what the seat wrote there with the CALLER's rights — code execution before the report is read. Measured before the fix: core.fsmonitor=pwn.sh logged runs under status, diff, ls-files twice, worktree remove and worktree add, at exit 0",
+  "--commit grants the seat access to git configuration; harvest, removal and later worktree creation must not execute seat-authored hooks or helpers with the caller's rights",
   async () => {
     const repo = freshRepo("wt-hooks");
     if (!repo) return "git setup failed";
@@ -1397,12 +1366,12 @@ function plantCrashedTree(repo, name, { commit = false, baseSha = true } = {}) {
 }
 
 test("the reconciler gives a crashed seat's commits a ref before it removes the tree that held them",
-  "reproduced: a crashed --commit seat leaves a SPOTLESS tree whose HEAD is the only thing referencing its commits, and removing it by porcelain alone stranded them — `git fsck` reported the commits dangling and the run announced 'removed a crashed run's clean worktree'",
+  "a crashed seat can leave a spotless detached worktree whose HEAD is the only reference to its commits; porcelain alone cannot justify removing it",
   async () => {
     const repo = freshRepo("wt-reconcile-commits");
     if (!repo) return "git setup failed";
-    // With a base recorded, and — for a ledger written before that field existed — without one, where
-    // reachability from any ref is what has to be disproven instead.
+    // Check records with a base and legacy records without one; without a base, reachability from
+    // any ref is what must be disproven.
     const withBase = plantCrashedTree(repo, "codex-crash-based", { commit: true });
     const noBase = plantCrashedTree(repo, "codex-crash-legacy", { commit: true, baseSha: false });
     if (!withBase || !noBase) return "planting the crashed trees failed";
@@ -1421,7 +1390,7 @@ test("the reconciler gives a crashed seat's commits a ref before it removes the 
   });
 
 test("the ledger entry exists before `git worktree add` creates anything",
-  "a SIGKILL between the add and the ledger write left a checked-out tree that no entry named, so no reconciler could ever find it — an orphan by construction, in the one path whose whole job is to leave a trace",
+  "the ledger entry must exist before worktree add so a crash during checkout cannot leave an unlisted tree",
   async () => {
     const repo = freshRepo("wt-intent");
     if (!repo) return "git setup failed";
@@ -1443,7 +1412,7 @@ test("the ledger entry exists before `git worktree add` creates anything",
   });
 
 test("the reconciler's bound reaches the OLDEST entries, not whichever fifty the filesystem lists first",
-  "the sweep took an unsorted first-50: on a directory that returns a stable order the same fifty are handed to every run and everything after them is starved forever, which for a ledger means a tree nobody ever reconciles",
+  "a bounded sweep must rotate through ledger entries; repeatedly taking the same unsorted prefix starves later entries forever",
   async () => {
     const repo = freshRepo("wt-starve");
     if (!repo) return "git setup failed";
@@ -1467,7 +1436,7 @@ test("the reconciler's bound reaches the OLDEST entries, not whichever fifty the
   });
 
 test("--resume last from the repository finds a worktree seat, whose own cwd no longer exists",
-  "a worktree seat records the tree as its cwd and that tree is REMOVED when the seat finishes, so matching on cwd alone skipped every worktree seat: `--resume last` from the repository silently continued the newest READ seat instead",
+  "a worktree seat's cwd can be removed after completion; --resume last from the repository must still find that seat rather than silently select a read seat",
   async () => {
     const repo = freshRepo("wt-resume-last");
     if (!repo) return "git setup failed";
@@ -1484,7 +1453,7 @@ test("--resume last from the repository finds a worktree seat, whose own cwd no 
   });
 
 test("--worktree REPO --resume ID rebuilds that thread's tree and continues in it",
-  "a completed worktree seat could not be continued at all: the tree was removed, --worktree --resume was refused outright, and the record's cwd pointed at a directory that no longer existed — the seat's base commit and harvested diff lived only in a one-shot report",
+  "resuming a completed worktree seat must rebuild its base and harvested changes so the continued thread sees its prior work",
   async () => {
     const repo = freshRepo("wt-resume-rebuild");
     if (!repo) return "git setup failed";
@@ -1526,7 +1495,7 @@ test("--worktree REPO --resume ID rebuilds that thread's tree and continues in i
   });
 
 test("a crashed --mcp run's private home is reaped by the next one",
-  "the home holds the caller's MCP servers' env tokens in a 0600 config.toml and is removed only in shutdown(); measured: --mcp plus kill -9 left homes/<hex>/config.toml with the token in it, and nothing ever reconciled homes/",
+  "a SIGKILL bypasses shutdown and can leave a private home containing MCP tokens; later runs must reconcile those abandoned homes",
   async () => {
     const homes = path.join(STATE_DIR, "homes");
     const dead = path.join(homes, "00000000deadbeef");
@@ -1542,7 +1511,7 @@ test("a crashed --mcp run's private home is reaped by the next one",
 
 
 test("a crashed tree whose HEAD cannot be read is left in place, not removed",
-  "an unreadable HEAD is not evidence of 'no commits': the committed test read null as false, and the tree was then removed with no ref naming whatever its HEAD held",
+  "an unreadable HEAD is not evidence of no commits; reconciliation must preserve a tree whose commit reachability cannot be determined",
   async () => {
     const repo = freshRepo("wt-head-unreadable");
     if (!repo) return "git setup failed";
@@ -1569,7 +1538,7 @@ test("a crashed tree whose HEAD cannot be read is left in place, not removed",
   });
 
 test("a `worktree add` that died after creating the directory leaves its ledger entry behind",
-  "the entry written before the add is there for exactly this crash, and removing it unconditionally on a failed add turned the half-made tree into the unlisted orphan the entry exists to prevent",
+  "a failed worktree add can leave a half-created tree; its ledger entry must survive so reconciliation can find it",
   async () => {
     const repo = freshRepo("wt-add-orphan");
     if (!repo) return "git setup failed";
@@ -1605,7 +1574,7 @@ test("a `worktree add` that died after creating the directory leaves its ledger 
   });
 
 test("a rebuild that cannot finish leaves no tree and no ledger entry",
-  "the diff applies, the archive does not, and the half-restored tree preserved nothing the answer log did not still hold — while every later reconciler announced it as work someone had to harvest",
+  "if archive restoration fails after the diff applies, the incomplete tree must be removed rather than preserved as successfully restored work",
   async () => {
     const repo = freshRepo("wt-restore-broken");
     if (!repo) return "git setup failed";
@@ -1630,7 +1599,7 @@ test("a rebuild that cannot finish leaves no tree and no ledger entry",
   });
 
 test("a PRESERVED tree keeps its ledger entry, so something still names it",
-  "the entry was dropped on every disposition, removed or not: a preserved tree became invisible to the reconciler, the one reader that would ever mention it again",
+  "a preserved tree must retain its ledger entry so the reconciler can continue to report it",
   async () => {
     const repo = freshRepo("wt-preserved-ledger");
     if (!repo) return "git setup failed";
@@ -1720,7 +1689,6 @@ for (const d of workDirs) {
   try { for (const suffix of ["", ".reclaim"]) fs.rmSync(`${lockFor(d)}${suffix}`, { recursive: true, force: true }); } catch {}
   fs.rmSync(d, { recursive: true, force: true });
 }
-// Every tempdir this suite made, not just the work dirs: STATE_DIR and the survivor shim used to be
-// left behind on every run — 217 had accumulated in $TMPDIR before anyone counted.
+// Remove every tempdir this suite made, including STATE_DIR and the survivor shim.
 for (const d of [shimDir, STATE_DIR, survivorShim, survivorPids]) fs.rmSync(d, { recursive: true, force: true });
 process.exit(summarize(failed, CASES.length));

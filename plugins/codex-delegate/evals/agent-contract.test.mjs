@@ -3,18 +3,13 @@
 //
 //   node evals/agent-contract.test.mjs
 //
-// agents/codex-seat.md is the artefact every default plugin install uses, and its contract used to be a
-// page of prose that nothing checked — which wait to run, when to repeat it, which report keys to copy,
-// how to render each failure. It had drifted twice, and a weaker relay model followed only some of it.
-// The rules are the driver's now (`--relay`, `--relay-collect`, one envelope function), so what this
-// document still owns is small and exact: three mechanical steps, one command, one loop, one failure
-// shape. The field table it used to carry is SKILL.md's, where the coordinator reads it and the relay
-// never does. This reads both documents and the driver and compares.
+// The relay agent owns the numbered steps for invoking the driver and copying its envelope; SKILL.md
+// owns the coordinator's field table. This suite compares both documents with the driver.
 
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { DRIVER, ROOT, SEAT_FIELDS, registry, runCases, summarize } from "./lib/harness.mjs";
+import { DRIVER, ROOT, SEAT_FIELDS, registry, renderEnvelope, runCases, summarize } from "./lib/harness.mjs";
 
 const AGENT = path.join(ROOT, "agents", "codex-seat.md");
 const SKILL = path.join(ROOT, "skills", "codex-delegate", "SKILL.md");
@@ -36,8 +31,7 @@ const inlineShell = [...agent.matchAll(/`(mktemp -d [^`]*)`/g)].map((m) => m[1])
 
 const { cases: CASES, test } = registry();
 
-// The driver's own vocabulary, imported rather than scraped out of the source: the regex that used to
-// read it would have gone quiet on any reformatting and taken every case below with it.
+// Import the driver's vocabulary so source reformatting cannot silently empty the cases' input.
 const seatFields = [...SEAT_FIELDS];
 // What the table documents: the first cell of every row, which is the one place a coordinator reads a
 // field name. A refused name is written `LIKE_THIS`, with no colon and never in that cell.
@@ -51,7 +45,7 @@ test("the driver's seat-file vocabulary is not empty (the reader below is sound)
   () => seatFields.length >= 10 || `read ${seatFields.length} fields out of the driver: ${JSON.stringify(seatFields)}`);
 
 test("SKILL.md's table names every field the driver accepts, and the driver accepts every field it names",
-  "a field the coordinator cannot express is a capability the plugin ships and cannot use — exactly how --review, --resume and --progress went missing; the opposite drift fails the seat with exit 2 before any work. The table is the coordinator's manual now, so this reads SKILL.md",
+  "a field absent from the coordinator's table is a capability it cannot use; a field the driver rejects fails the seat before any work",
   () => {
     const problems = [];
     if (!table) return "SKILL.md has no `## Header fields` section: the coordinator has no field vocabulary at all";
@@ -68,7 +62,7 @@ test("SKILL.md's table names every field the driver accepts, and the driver acce
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the three steps are numbered, in order, and each names the ONE tool call it is",
+test("the numbered steps are in order, and each names the ONE tool call it is",
   "the relay's whole reliability argument is that it decides nothing: a step that does not say how many calls it is, or that can be read out of order, is where a weaker model improvises",
   () => {
     const problems = [];
@@ -86,7 +80,7 @@ test("the three steps are numbered, in order, and each names the ONE tool call i
   });
 
 test("the prompt is written VERBATIM and step 1 has no exception at all",
-  "every edit the relay was allowed became an edit it made. Measured in both WP8-D runs: asked to split a prompt in two, a sonnet relay dropped the TASK: label. Measured in WP9-2: allowed to ADD a missing SEAT line, sonnet and haiku each added `SEAT: read <abs dir>` plus an ALLOW_NO_COMMANDS nobody asked for; told to bound that added line, haiku applied the bound to a header the prompt ALREADY had and rewrote `SEAT: write /nonexistent/dir` to `SEAT: read` — a refusal turned into a live read seat in its own cwd. So the rule is `add nothing`, and the missing-rights default is the driver's",
+  "rewriting a prompt can change its rights, waive a gate or lose task text; the relay must copy it verbatim and leave missing-rights defaults to the driver",
   () => {
     const problems = [];
     if (!/write the prompt VERBATIM to `<DIR>\/prompt\.txt`/.test(flat))
@@ -114,7 +108,7 @@ test("there is exactly ONE command, and it is `--relay` on the file just written
     const block = shellBlocks[0] ?? "";
     if (!/\nnode "\$DRIVER" --relay "\$D\/prompt\.txt"\n/.test(block))
       problems.push(`the driver call is not \`node "$DRIVER" --relay "$D/prompt.txt"\`: ${JSON.stringify(block.trim().slice(-80))}`);
-    // Every other route the relay used to take is gone from the document, and stays gone.
+    // The relay must name no alternative invocation routes.
     for (const flag of ["--seat-file", "--wait", "--detach", "--json", "--wait-timeout", "--timeout"])
       if (block.includes(flag)) problems.push(`the relay's command still carries ${flag}`);
     if (!driver.includes('case "--relay":')) problems.push("the driver has no --relay");
@@ -136,7 +130,7 @@ test("every shell the agent hands the relay parses",
   });
 
 test("the scratch directory comes from one mktemp call, not from an unexpandable $TMPDIR path",
-  "Write and Read take literal absolute paths and expand nothing, so a relay told to write $TMPDIR/prompt.txt improvises — measured 4/4 runs into world-readable /tmp with colliding names",
+  "Write and Read take literal absolute paths and expand nothing, so the relay needs a resolved private directory to avoid colliding or world-readable files",
   () => {
     const problems = [];
     if (!/mktemp -d "\$\{TMPDIR:-\/tmp\}\/codex-seat\.XXXXXXXX"/.test(agent)) problems.push("the mktemp -d pre-step is gone or reworded");
@@ -157,8 +151,7 @@ test("the driver probe starts at the exact ${CLAUDE_PLUGIN_ROOT} placeholder and
     if (!probed.includes(`$HOME/.claude/${REL}`)) problems.push(`the $HOME/.claude route is not probed: ${JSON.stringify(probed)}`);
     if (!/plugins\/cache\/codex-delegate\/codex-delegate\/\*\/skills\/codex-delegate\/scripts\/driver\.mjs/.test(agent))
       problems.push("the plugins/cache route an isolated plugin install actually uses is not probed");
-    // The doubled segment is the marketplace name and then the plugin name, and it has been read as a
-    // typo before: the document says which is which.
+    // The doubled segment names the marketplace and then the plugin; the document explains both.
     if (!/the marketplace name and the plugin name are both `codex-delegate`/.test(flat))
       problems.push("nothing explains the doubled codex-delegate/codex-delegate path segment");
     return problems.length === 0 || problems.join("; ");
@@ -173,7 +166,7 @@ test("the exit-90 sentinel is distinct from every code the driver can return",
   });
 
 test("the collect loop repeats ONE literal command, bounded, on the one condition that means `still running`",
-  "one Agent call that returns the answer whenever the work is done is what a native subagent does. The relay used to build the wait command out of a threadId it had parsed; now the envelope hands it a finished command, and the only decision left is whether the first line still says exitCode: 10",
+  "the envelope hands the relay a complete collect command; the relay repeats it only while the running handle says exitCode: 10 and includes a collect line",
   () => {
     const problems = [];
     if (!/If the output's FIRST line is `exitCode: 10` AND it carries a `collect:` line/.test(flat))
@@ -195,7 +188,7 @@ test("the collect loop repeats ONE literal command, bounded, on the one conditio
   });
 
 test("the relay returns the output verbatim and adds nothing above or below it",
-  "measured: 'the seat failed' for an exit-11 merge trap that had a real answer and receipt, and a stderr quote placed under `--- answer` where the coordinator's parse rule reads it as Codex's answer",
+  "a failed seat can still carry an answer and receipt; the relay must preserve them and keep stderr outside the answer block",
   () => {
     const problems = [];
     if (!/Your entire final message is that output, VERBATIM/.test(flat)) problems.push("the final message is not pinned to the command's output");
@@ -209,7 +202,7 @@ test("the relay returns the output verbatim and adds nothing above or below it",
   });
 
 test("the relay carries no field list of its own: the envelope is rendered by the driver",
-  "the old body listed thirty report keys and their null rules, and every key the driver added or renamed was a second place to fix. The relay copies bytes it does not parse, so naming a report key here is drift waiting to happen",
+  "the relay copies bytes it does not parse, so naming report keys here creates a second contract that can drift",
   () => {
     const owned = ["receiptPath", "filesTouched", "answerTruncated", "outputSchemaOk", "worktreePath",
                    "worktreeRepo", "worktreeBase", "worktreeRestored", "worktreeDiffPath", "timing",
@@ -240,19 +233,21 @@ test("the one failure the relay composes itself is the shape a coordinator can s
     const stderrAt = block.indexOf("--- stderr (last 20 lines) ---"), zeroAt = block.indexOf("--- answer (0 bytes)");
     if (stderrAt < 0) problems.push("the failure envelope has no `--- stderr (last 20 lines) ---` block");
     else if (stderrAt > zeroAt) problems.push("the stderr tail is placed below `--- answer`, where the coordinator reads it as Codex's answer");
-    // The same shape the driver renders for a pre-thread failure, so the two are one format.
-    if (!/L\.push\("--- stderr \(last 20 lines\) ---"\)/.test(driver))
-      problems.push("the driver's own no-report envelope no longer uses the `--- stderr (last 20 lines) ---` block");
+    // The same shape the driver renders for a pre-thread failure, so the two are one format: rendered,
+    // not grepped out of the source, so the driver may spell the marker any way it likes.
+    const rendered = renderEnvelope(null, { exitCode: 4, stderrTail: "x" });
+    if (!rendered.includes(block.slice(stderrAt, block.indexOf("\n", stderrAt)).trim()))
+      problems.push("the driver's own no-report envelope no longer renders the `--- stderr (last 20 lines) ---` block");
     return problems.length === 0 || problems.join("; ");
   });
 
 test("a failing seat declaration is relayed, never repaired",
-  "measured: a relay that created the missing directory ran Codex with rights nobody granted. Whether a path exists, is a repo or is writable is the driver's verdict, and its exit 2 is the answer",
+  "creating a missing directory can turn a refusal into a seat with unintended rights; path validation belongs to the driver, and its exit 2 is the answer",
   () => /Never create a directory, change a level or re-run with different flags to make a refused seat succeed/.test(flat)
     || "the no-repair rule is gone from the relay body");
 
 test("the bounds, the transport and the three injection fields are refused, and no table offers them",
-  "a newline in a relayed value opens a new field, so anything accepted here can be injected: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, MCP grants tool servers. The seven bounds and transport knobs beside them are refused for the other reason — each has a default a seat needs no header to size. The relay names no field at all now, so the one table that could still offer one is SKILL.md's, and a name it offered would be a seat that exits 2 before anything spawns",
+  "a newline in a relayed value can inject a field: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, and MCP grants tool servers. Bounds and transport knobs belong to the CLI; SKILL.md must not offer refused fields as usable headers",
   () => {
     const problems = [];
     // Named by the driver's own map, so a knob quietly promoted back to a field fails here rather than in
@@ -287,7 +282,7 @@ test("SEAT is first and required, and `read` with no directory is the current on
   });
 
 test("BRIEF is decided by the header, not forced by the relay",
-  "a forced --brief tells the model to answer in 20 lines, so the detail is never generated; it also contradicts OUTPUT_SCHEMA, which needs one whole JSON object. The relay adds no flag at all now, which is the same rule stated once",
+  "a forced --brief caps the detail the model generates and contradicts OUTPUT_SCHEMA, which needs one whole JSON object; the header must decide BRIEF",
   () => {
     if (/always `?BRIEF: yes`?|forced on/.test(agent)) return "the relay still forces BRIEF on";
     if (!documented.includes("BRIEF")) return "BRIEF is not in the coordinator's table";
@@ -295,7 +290,7 @@ test("BRIEF is decided by the header, not forced by the relay",
   });
 
 test("the relay body names no header field but SEAT",
-  "measured 2026-09-03: handed a header-less prompt and told to add nothing, a haiku relay wrote a header anyway, and the vocabulary it wrote it out of was the field table this document used to carry. A relay that decides no field needs no field names: the one word left is the SEAT: line whose absence the driver, not the relay, resolves",
+  "the relay decides no fields and needs no field vocabulary; it may name the SEAT line whose absence the driver resolves",
   () => {
     const vocabulary = [...seatFields, ...cliOnly.map(([f]) => f), "ATTACH", "STEER_FILE", "MCP"];
     const named = [...new Set(vocabulary)].filter((f) => f !== "SEAT" && new RegExp(`\\b${f}\\b`).test(body));
@@ -306,8 +301,8 @@ test("the relay body names no header field but SEAT",
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the relay body stays three steps and nothing else",
-  "the body is read in full on every seat launch, and prose that is not a rule is what drifts first. Forty lines is the budget it gets now that the driver enforces the rest and the coordinator's table lives in SKILL.md",
+test("the relay body stays the numbered steps and nothing else",
+  "the numbered steps are read in full on every seat launch; keeping the body within its line cap limits prose that can drift while the driver enforces the rest",
   () => {
     const n = body.replace(/^\n+|\n+$/g, "").split("\n").length;
     return n <= 40 || `the relay body is ${n} lines, over the 40-line ceiling`;

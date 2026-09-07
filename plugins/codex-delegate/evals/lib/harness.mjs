@@ -2,10 +2,8 @@
 // case registrar and the pass/fail loop.
 //
 // It holds no assertions and no cases of its own. A suite keeps its own scenarios, its own runner
-// arguments and its own summary line; what moves here is only the machinery three or more of them had
-// written out identically — where a fix to one copy (the SIGKILL bell, the deleted-env-var rule, the
-// per-case try/catch that stops one bad property access from aborting the rest) reached the others only
-// if someone remembered.
+// arguments and its own summary line; only the machinery every suite needs identically lives here, so a
+// fix to it reaches all of them.
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -14,8 +12,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Straight out of the driver, never restated: a suite holding its own copy of EXIT, of the seat-file
-// vocabulary or of the lock's key has a copy that can disagree with the thing it is testing — which is
-// what each of them did. Importing is safe because driver.mjs runs main() only as an entry point.
+// vocabulary or of the lock's key has a copy that can disagree with the thing it is testing. Importing
+// is safe because driver.mjs runs main() only as an entry point.
 export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, VERSION,
          WEB_SEARCH, lockKey, renderEnvelope } from "../../skills/codex-delegate/scripts/driver.mjs";
 
@@ -65,8 +63,8 @@ export function spawnNode(args, { env = {}, unsetEnv = [], cwd, stdio = ["ignore
   child.stdout?.on("data", (d) => { out += d; });
   child.stderr?.on("data", (d) => { err += d; });
   const startedAt = Date.now();
-  // A bounded run, because a HANG is worse than a failure: an undeclared variable in the driver once
-  // threw inside an event handler and the suite stalled forever instead of reporting anything.
+  // A bounded run, because a HANG is worse than a failure: a throw inside one of the driver's event
+  // handlers would stall the suite forever instead of reporting anything.
   const done = new Promise((resolve) => {
     const bell = killAfterMs ? setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, killAfterMs) : null;
     child.on("close", (code, signal) => {
@@ -77,7 +75,7 @@ export function spawnNode(args, { env = {}, unsetEnv = [], cwd, stdio = ["ignore
   return { child, done, stdoutSoFar: () => out, stderrSoFar: () => err };
 }
 
-// The shape three suites had written out: a name, the reason the case exists, and a function returning
+// The shape every suite's case has: a name, the reason the case exists, and a function returning
 // `true` or the reason it did not.
 export function registry() {
   const cases = [];
@@ -102,6 +100,18 @@ export async function runCases(cases) {
 export function summarize(failed, total) {
   console.log(failed ? `\n${failed}/${total} failed` : `\nall ${total} passed`);
   return failed ? 1 : 0;
+}
+
+// The count a suite states about itself in that line, parsed beside the printer rather than tallied by
+// run-all: a second place to count is a second thing that can disagree with the suite it is counting.
+// A live-only suite exits 0 having run nothing and says so in its own words; those are repeated as
+// "skipped" or "not run" so that "all N suites green" cannot come to mean "nothing was measured".
+export function parseCount(out) {
+  const all = out.match(/^all (\d+)\b/m);
+  const skipped = out.match(/^(\d+) skipped \(codex binary absent\)/m);
+  if (skipped && !/\ball \d+ cases that ran agree/.test(out)) return `${skipped[1]} skipped`;
+  if (!all && /NOT RUN/.test(out)) return "not run";
+  return all ? all[1] : "?";
 }
 
 export const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };

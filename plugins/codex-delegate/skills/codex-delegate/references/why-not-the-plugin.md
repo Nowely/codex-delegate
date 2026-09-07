@@ -5,14 +5,6 @@ the locally cached plugin source (`~/.claude/plugins/cache/openai-codex/codex/1.
 / commit db52e28 the line references below pin), independently by a Claude seat and a Codex seat; the
 sandbox behaviour was reproduced live with a raw JSON-RPC probe against codex-cli 0.150.1.
 
-## Contents
-
-- The two defects, and which machines they bite
-- Why not the exec-based skills
-- Shared skeleton, divergent rights layer
-- Upstream state (as of 2026-08-31)
-- What the plugin does better, and is worth adopting
-
 ## The two defects, and which machines they bite
 
 **1. Hardcoded approval policy (bites managed machines).** The plugin sends
@@ -138,9 +130,8 @@ Verified in its source: a persisted background-job index with progress logs, ses
 cancel (`lib/state.mjs`, `tracked-jobs.mjs`, `job-control.mjs`); a stop-time review gate as a Claude
 Stop hook (`hooks/hooks.json`, `stop-review-gate-hook.mjs`); native `review/start` with target
 resolution and a review output schema; `turn/interrupt` through a shared broker; Claude-session import
-via `externalAgentConfig`. Adoption order that pays: a job record + resume-by-id status for long runs;
-`review/start` at read level (test it with the sandbox-omission trick first); the stop-gate as an
-optional companion, not skill machinery.
+via `externalAgentConfig`. All three have since been adopted here: a job record with resume-by-id status (`--detach`, `--jobs`,
+`--wait`), `review/start` as `--review`, and `stop-gate.mjs` as an optional companion, not skill machinery.
 
 Nothing here modifies the plugin. Patching `?? "never"` in the plugin cache works and was measured —
 and the cache is overwritten on every plugin update, so a fix that silently reverts is worse than none.

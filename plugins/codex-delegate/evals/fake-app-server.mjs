@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// A scripted stand-in for `codex app-server`, used by protocol.test.mjs.
+// A scripted stand-in for `codex app-server`, used by the suites under evals/.
 //
 // It speaks just enough of the protocol to drive scripts/driver.mjs through the paths that a live server
 // makes hard to reach on demand: events attributed to the wrong turn, a completion that overtakes the
@@ -18,15 +18,11 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
+const CODEX_VERSION = process.env.FAKE_CODEX_VERSION ?? "0.153.4";
 const SCENARIO = process.env.FAKE_SCENARIO ?? "happy";
 
-// Every scenario this fixture implements, and how the driver has to be invoked to reach it. It is an
-// INVENTORY rather than a regex over this file's `case` labels, because eleven of them are dispatched
-// before the turn/start switch is ever reached — the sandbox-assert cases decided at thread/start, the
-// resume case, both review emitters — and a discovery that reads `case` labels validated none of those.
-// That is how an invented review payload stayed green in the conformance suite.
-// Consulted by BOTH dispatch paths: a scenario name absent from here reaches neither, because the run
-// stops below.
+// Every scenario this fixture implements, and how the driver has to be invoked to reach it. Many of
+// them are dispatched before the turn/start switch; both dispatch paths require a name in this inventory.
 export const SCENARIOS = {
   happy: {}, "stale-turn": {}, "early-completion": {}, "foreign-thread": {}, "command-failed": {},
   "needs-user": {}, elicitation: {}, escalated: {}, "escalated-file-change": {},
@@ -147,17 +143,13 @@ if (isMain && process.env.FAKE_MCP_CONFIG_LOG && process.env.CODEX_HOME) {
     if (body.includes("[mcp_servers.")) fs.writeFileSync(process.env.FAKE_MCP_CONFIG_LOG, body);
   } catch {}
 }
-// Must match READ_PROFILE in scripts/driver.mjs. The driver refuses to run when the server reports any
-// other profile, so a fixture that names a different one silently turns every case into a transport error.
-const READ_PROFILE = "codex_delegate_read";
 const THREAD = "thr_root";
 const TURN = "turn_root";
 const OTHER_TURN = "turn_stale";
 const OTHER_THREAD = "thr_sub";
 
-// Every line this fixture emits, appended for the conformance suite: the schemas in schema-<version>/
-// are the only oracle for whether a fixture still speaks like the real server, and until this hook
-// existed nothing read them — the fixture could invent a field and every case stayed green.
+// Every emitted line is logged for the conformance suite, which checks it against the pinned schemas
+// so invented fields cannot silently pass.
 const EMIT_LOG = process.env.FAKE_EMIT_LOG;
 // The method being answered, so the log can say which response schema a `result` should be checked
 // against. It rides in the LOG only — the stream the driver reads is untouched.
@@ -187,28 +179,22 @@ const wEndMidLine = (obj) => {
 const reply = (id, result) => ({ jsonrpc: "2.0", id, result });
 const note = (method, params) => ({ jsonrpc: "2.0", method, params });
 
-// Every message below carries the fields the pinned schema marks required. A fixture that omits them, or
-// invents one the server does not send, makes the suite pass while production fails — that has happened
-// here once already, with a top-level turnId on TurnCompletedNotification.
+// Every message below carries the fields the pinned schema marks required; missing or invented fields
+// can make the suite pass while production fails.
 let seq = 0;
 const now = () => 1780000000000 + (seq += 1);
 const thread = (id) => ({
-  id, sessionId: id, cliVersion: "0.153.4", createdAt: 1780000000, updatedAt: 1780000000,
+  id, sessionId: id, cliVersion: CODEX_VERSION, createdAt: 1780000000, updatedAt: 1780000000,
   cwd: "/tmp", ephemeral: false, modelProvider: "openai", preview: "", projectId: null,
-  // ActiveThreadStatus REQUIRES activeFlags; only IdleThreadStatus is the bare {type}. The invented
-  // shape survived because the resume scenario was never schema-validated.
+  // ActiveThreadStatus REQUIRES activeFlags; only IdleThreadStatus is the bare {type}.
   source: "vscode", turns: [],
   status: SCENARIO === "resume-active" ? { type: "active", activeFlags: [] } : { type: "idle" }
 });
 
-// The server reports the WRAPPER it ran, never the command the model wrote, and carries the model's own
-// text in commandActions. Measured on codex 0.150.1: `/bin/zsh -c true`, `/bin/zsh -c 'grep -q zzz
-// /dev/null'`, `/bin/zsh -lc "git status --short && ..."`. A fixture emitting bare commands made the
-// driver's probe exemption look alive while it matched nothing a real turn ever ran.
-// All three forms are measured shapes: a bare word takes no quotes, a script carrying a double quote is
-// wrapped in double quotes with the inner ones escaped (and arrives under -lc), anything else is
-// single-quoted. The middle form is the one no hand strip can undo, which is why commandActions is not
-// a convenience.
+// The server reports the WRAPPER it ran and carries the model's text in commandActions. Measured on
+// codex 0.150.1: `/bin/zsh -c true`, `/bin/zsh -c 'grep -q zzz /dev/null'`, and
+// `/bin/zsh -lc "git status --short && ..."`: bare words are unquoted, scripts carrying double quotes
+// use escaped double quotes under -lc, and other scripts use single quotes.
 const wrap = (command) =>
   /^[\w./=-]+$/.test(command) ? `/bin/zsh -c ${command}`
   : command.includes('"') ? `/bin/zsh -lc "${command.replaceAll('"', '\\"')}"`
@@ -248,16 +234,14 @@ const agentDelta = (turnId, threadId, itemId, delta) =>
   note("item/agentMessage/delta", { threadId, turnId, itemId, delta });
 
 // The caller's own prompt, echoed back as an item at the top of every turn — a review turn included,
-// where the server echoes the prompt IT built. Every live report listed this under otherItemCounts
-// while no fixture scenario emitted one.
+// where the server echoes the prompt IT built.
 const userMsg = (turnId, threadId, text) =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
     item: { id: `item_${seq}`, type: "userMessage", clientId: null,
             content: [{ type: "text", text, text_elements: [] }] } });
 
 // Both review items carry a STRING: enteredReviewMode the target ("current changes"), exitedReviewMode
-// the review itself. Measured live, and what the pinned schema has always said — the object this
-// fixture used to invent kept a dead branch in the driver alive instead.
+// the review itself, as measured live and specified by the pinned schema.
 const reviewItem = (turnId, threadId, type, review) =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
     item: { id: `item_${seq}`, type, review } });
@@ -333,14 +317,12 @@ function onLine(line) {
   }
 
   // The shape measured live, derived from the clientInfo the driver sent:
-  // `Claude Code/0.150.1 (Mac OS 26.6.2; arm64) unknown (codex-delegate; 2.0)`. The server's own version
-  // is the token after the first slash, which is the only part the driver reads; FAKE_CODEX_VERSION
-  // drives the drift warning. `userAgent: "fake"` carried no version at all, so the field could be read
-  // wrongly — or not at all — with every case green.
+  // `Claude Code/0.150.1 (Mac OS 26.6.2; arm64) unknown (codex-delegate; 2.0)`. The server version is the
+  // token after the first slash; FAKE_CODEX_VERSION drives the drift warning.
   if (m.method === "initialize") {
     const ci = m.params?.clientInfo ?? {};
     w(reply(m.id, {
-      userAgent: `${ci.name ?? "unknown"}/${process.env.FAKE_CODEX_VERSION ?? "0.153.4"} (Mac OS 26.6.2; arm64) unknown (${ci.title ?? "unknown"}; ${ci.version ?? "0"})`,
+      userAgent: `${ci.name ?? "unknown"}/${CODEX_VERSION} (Mac OS 26.6.2; arm64) unknown (${ci.title ?? "unknown"}; ${ci.version ?? "0"})`,
       codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" }));
     return;
   }
@@ -360,8 +342,7 @@ function onLine(line) {
     return;
   }
   if (m.method === "turn/steer") {
-    // The reply can be slow, and the window between sending a steer and having it accepted is where a
-    // concurrently appended correction used to be overwritten.
+    // The reply can be slow; corrections appended while a steer awaits acceptance must survive.
     const delay = Number(process.env.FAKE_STEER_DELAY_MS ?? 0);
     const answer = () => {
       // TurnSteerResponse REQUIRES turnId — a bare {} is a reply the driver cannot rely on, and only a
@@ -377,14 +358,8 @@ function onLine(line) {
     return;
   }
 
-  // The driver asks the real server what the caller's config resolves to, instead of parsing their TOML —
-  // so the fixture has to answer it too. It did not, and every case then sat out the driver's probe
-  // bell: the suite went from 5 seconds to over ten minutes, which is how a missing method announces
-  // itself here.
-  // Unlike everything else in this file these are NOT really derived from the request: the driver's probe
-  // sends no -c at all, so CFG is empty here and the fallbacks always win. Said plainly because the
-  // file's own rule is that every field derives from what was sent — this one cannot, and a reader who
-  // assumed otherwise would think a driver change to the probe would show up here. It would not.
+  // The config probe sends no -c values, so these replies use fixture fallbacks rather than CFG.
+  // They model the caller's resolved config, which the driver asks the real server to read.
   if (m.method === "config/read") {
     // A probe whose ASKING fails, as opposed to a config with nothing in it — the driver must warn and
     // must not truncate a previously inherited config.
@@ -392,8 +367,7 @@ function onLine(line) {
       w({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "config store unavailable" } });
       return;
     }
-    // A probe that never answers: the driver waits out its own bell, and a signal arriving in that
-    // window is the case where a cancelled probe used to empty the shared home's config.toml.
+    // A probe that never answers: cancellation must preserve the shared home's last-known-good config.
     if (process.env.FAKE_CONFIG_HANG) return;
     const unquote = (v) => (v ?? "").replace(/^"|"$/g, "");
     w(reply(m.id, { config: {
@@ -406,7 +380,7 @@ function onLine(line) {
         docs: { command: "docs-server", args: ["--port", "0"], env: { TOKEN: "t" } },
         search: { command: "search-server", args: ["--stdio"] },
         exotic: { command: "x", nested: { deep: true } },
-        // Package-style, legal since codex 0.152.0; a bare-key rule used to skip it.
+        // Package-style name, legal since codex 0.152.0; it requires a quoted TOML key.
         "@acme/docs.v2": { command: "acme-docs", args: ["--stdio"] },
       } } : {}),
     }, origins: {} }));
@@ -443,11 +417,8 @@ function onLine(line) {
     // that has nothing to report and must abort instead.
     if (SCENARIO === "no-thread") return;
     requestedThread = m.params;
-    // EVERY field below is derived from what the driver actually SENT — its -c config (CFG) and its
-    // thread/start params — never from a literal. A literal here is a fixture that agrees with itself: it
-    // let the driver stop sending the read-level permission config, or stop pinning approvalsReviewer,
-    // with every case still green. Where a scenario needs a specific server behaviour it overrides the
-    // derived value explicitly, so the override is visible rather than being the default.
+    // Derive fields from the driver's -c config and thread/start params so omitted grants and approval
+    // settings remain observable; scenarios override derived values explicitly.
     const writeLevel = m.params?.sandbox !== undefined;
     const tmp = process.env.TMPDIR ?? os.tmpdir();
 
@@ -463,20 +434,10 @@ function onLine(line) {
     // The $TMPDIR grant exists only because the profile's filesystem entry asked for it — misspell that
     // field and the live server silently drops the grant while keeping the profile id.
     const granted = defined && CFG[`permissions.${wantId}.filesystem`] !== undefined;
-    // The cwd is subtracted at both levels: workspaceWrite implies it, and it is reported under
-    // runtimeWorkspaceRoots instead. Compared canonically, because the driver sends a realpath'd cwd
-    // (/private/var/... on macOS) while TMPDIR is usually the raw /var/... form.
-    // Measured against the live server, and it is not symmetric: the server CANONICALISES each root but
-    // echoes the cwd exactly as it was given, then subtracts by comparing the two. So a cwd sent in raw
-    // /var/... form keeps a root that the same directory sent as /private/var/... loses. The driver always
-    // sends a realpath'd cwd, so the subtraction is what happens in practice — but a fixture that
-    // canonicalises both sides diverges here, and this suite exists to catch exactly that.
-    // Two sources, two rules — measured, not assumed, and they are NOT the same:
-    //   read  : the `:tmpdir` root is CANONICALISED, then compared against the cwd exactly as given.
-    //   write : `writable_roots` are echoed VERBATIM, and subtraction is a plain string comparison of the
-    //           root as given against the cwd as given.
-    // The driver realpaths everything before sending, so in practice both reduce to "the cwd is dropped".
-    // A fixture that canonicalised both sides agreed with the server only by accident.
+    // Measured live: read-level :tmpdir roots are canonicalised before comparison with cwd as given,
+    // while write-level roots are echoed verbatim and compared as strings. A matching cwd is omitted from
+    // writableRoots and reported under runtimeWorkspaceRoots; canonicalising both sides would hide the
+    // difference between /var/... and /private/var/... spellings.
     const readRoots = (!granted || canon(tmp) === m.params?.cwd) ? [] : [canon(tmp)];
     const writeRoots = [...new Set(JSON.parse(CFG["sandbox_workspace_write.writable_roots"] ?? "[]"))]
       .filter((r) => r !== m.params?.cwd);
@@ -499,9 +460,8 @@ function onLine(line) {
     if (SCENARIO === "write-root-widened")
       sb = { ...sb, writableRoots: [...(sb.writableRoots ?? []), canon(`${m.params.cwd}/..`)] };
     if (SCENARIO === "write-full-access") sb = { type: "dangerFullAccess" };
-    // A workspace that does not contain the cwd: nothing in the sandbox object reveals this.
-    // The workspace roots are the cwd AS GIVEN plus every extra writable root — measured; a fixture that
-    // reported the cwd alone hid whether the driver's extra roots reached the server at all.
+    // A workspace missing cwd is a sandbox mismatch; measured live, workspace roots are cwd AS GIVEN
+    // plus every extra writable root, so the fixture must echo those extra roots too.
     const workspace = SCENARIO === "workspace-elsewhere"
       ? ["/tmp/somewhere-else"]
       // The cwd as given, then the extra roots as given, deduped by exact string — the server does no
@@ -510,12 +470,8 @@ function onLine(line) {
 
     w(reply(m.id, {
       thread: thread(THREAD),
-      // Normally a plausible model name, because fidelity.test.mjs diffs this response field against the
-      // LIVE server's and a fixture that reports something the server never would is a divergence, not a
-      // test. Under FAKE_MODEL_ECHO the field reports the REQUEST instead ("inherited" / "explicit:x"),
-      // which is what the "model must be inherited" case needs: the plausible name is the same literal a
-      // hardcoding driver would send, so that case could not tell the two apart — measured, replacing
-      // `model: opts.model ?? null` with `model: "fake-model"` left all 80 cases green.
+      // Use a plausible model name for live fidelity comparisons. FAKE_MODEL_ECHO instead reports the
+      // request so an omitted model and a hardcoded one remain distinguishable.
       model: process.env.FAKE_MODEL_ECHO
         ? (m.params?.model == null ? "inherited" : `explicit:${m.params.model}`)
         : (m.params?.model ?? (CFG["model"] ?? "fake-model").replace(/^"|"$/g, "")),
@@ -523,17 +479,13 @@ function onLine(line) {
       // null when the driver sent no -c override, exactly as the live server reports an inherited value.
       reasoningEffort: CFG["model_reasoning_effort"] ?? null,
       runtimeWorkspaceRoots: workspace,
-      // Echoed: SKILL.md publishes on-request as a contract, and nothing was checking it.
+      // Echo the approval policy so the on-request contract remains observable.
       // Clamping is what an MDM profile actually does to a policy it does not permit — the failure this
       // whole driver exists to route around, and it is invisible in every other field.
       approvalPolicy: SCENARIO === "policy-clamped" ? "untrusted" : (m.params?.approvalPolicy ?? "never"),
-      // Who may approve is a separate axis from what the sandbox permits: under "auto_review" the server
-      // decides approvals itself and this driver never sees an escalation, while the sandbox object stays
-      // byte-identical. Echoed, so a driver that stops pinning it is visible.
-      // `?? "user"` defeated the sentence above: it is exactly what the driver sends, so a driver that
-      // stopped sending the field got it back anyway and the assert passed. Line 164 already avoids this by
-      // defaulting to a value the driver never sends; null does the same while claiming nothing about what
-      // the real server would choose, which is not measured.
+      // Who may approve is separate from what the sandbox permits: auto_review bypasses this driver
+      // without changing the sandbox object. Echo the requested value, using null for an absent field so
+      // an omitted pin cannot look like a successful one; the real server's default is not measured.
       approvalsReviewer: SCENARIO === "reviewer-auto" ? "auto_review" : (m.params?.approvalsReviewer ?? null),
       activePermissionProfile: profile,
       sandbox: sb
@@ -596,11 +548,8 @@ function onLine(line) {
     const thisTurn = turnStarts === 1 ? TURN : TURN2;
     const R = reply(m.id, { turn: { id: thisTurn, status: "inProgress", items: [], error: null } });
     const prompt = m.params?.input?.[0]?.text ?? "";
-    // Did the driver actually SEND the schema, or only validate the answer against it afterwards? The
-    // parity table claims "the server constrains generation with the schema", and nothing checked it:
-    // deleting outputSchema from both turn/start calls left every schema case green, because the fixture
-    // branched on the scenario name alone. Now a schema scenario that was not sent one says so, in prose,
-    // which no schema can match.
+    // A schema scenario must receive outputSchema on turn/start, including the corrective turn.
+    // Without it, return prose that cannot match the schema so local validation alone cannot pass the case.
     const schemaSent = m.params?.outputSchema !== undefined && m.params?.outputSchema !== null;
     const schemaAnswer = (json) => schemaSent ? json : "the server was sent no outputSchema";
     const askApproval = (method, params, expected) => {
@@ -669,9 +618,8 @@ function onLine(line) {
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, schemaAnswer('{"verdict":"ok","count":3}')), done(TURN, THREAD));
         break;
 
-      // --output-schema: PHASED prose first, an UNPHASED valid object on the corrective turn — the
-      // schema permits phase null, and a cross-turn tie-break once let the first turn's phased prose
-      // beat the retry's whole product.
+      // --output-schema: PHASED prose first, an UNPHASED valid object on the corrective turn.
+      // The retry's answer must supersede the first turn's answer regardless of phase.
       case "schema-retry":
         w(R, cmd(thisTurn, THREAD),
           turnStarts === 1
@@ -818,9 +766,8 @@ function onLine(line) {
       case "escalated":
         w(R, { jsonrpc: "2.0", id: 9002, method: "item/commandExecution/requestApproval",
                params: { threadId: THREAD, turnId: TURN, itemId: "item_a", startedAtMs: now(), command: "rm -rf /" } });
-        // What a refusal leaves behind, measured live: the item completes DECLINED, carrying no exit
-        // code at all. The second is probe-shaped on purpose — a declined command is never a probe
-        // answering "no", whatever its text says, and nothing exercised that clause.
+        // What a refusal leaves behind, measured live: the item completes DECLINED with no exit code.
+        // The second is probe-shaped: a declined command is never a probe answering "no".
         setTimeout(() => w(cmd(TURN, THREAD, { command: "rm -rf /", exitCode: null, status: "declined" }),
           cmd(TURN, THREAD, { command: "grep -q root /etc/master.passwd", exitCode: 1, status: "declined" }),
           msg(TURN, THREAD, "could not proceed"), done(TURN, THREAD)), 30);
@@ -950,30 +897,27 @@ function onLine(line) {
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "   \n  "), done(TURN, THREAD));
         break;
 
-      // A command that FAILED while carrying no numeric exit code — the schema allows exitCode null with
-      // status "failed", and keying the failure set on the code alone let this exit 0 under an answer
-      // claiming the suite passed, while the report counted "pnpm test" as one that never ran.
+      // The schema allows a FAILED command with exitCode null; absence of a numeric code must not
+      // hide the failure or report the command as one that never ran.
       case "failed-null-exit":
         w(R, cmd(TURN, THREAD, { command: "cat README.md" }),
           cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: null, status: "failed" }),
           msg(TURN, THREAD, "All tests pass."), done(TURN, THREAD));
         break;
 
-      // An approval refused on a SUBAGENT's thread. The refusal is sent regardless of whose thread asked,
-      // so that subagent really was blocked; recording it only for the root thread reported a clean run.
+      // An approval refused on a SUBAGENT's thread still blocks that subagent and must be recorded.
       case "escalated-subagent":
         w(R, { jsonrpc: "2.0", id: 9201, method: "item/commandExecution/requestApproval",
                params: { threadId: OTHER_THREAD, turnId: TURN, itemId: "item_s", startedAtMs: now(), command: "rm -rf /" } });
-        // The declined item completes on the SUBAGENT's thread, where the command was going to run —
-        // live it is never root evidence, and putting it on the root thread made the fixture agree with
-        // a driver that counted another thread's blocked command as its own.
+        // The declined item completes on the SUBAGENT's thread, where the command was going to run;
+        // it must not count as root evidence.
         setTimeout(() => w(cmd(TURN, THREAD),
           cmd(TURN, OTHER_THREAD, { command: "rm -rf /", exitCode: null, status: "declined" }),
           msg(TURN, THREAD, "done"), done(TURN, THREAD)), 30);
         break;
 
-      // A turn that WROTE files: one applied, one that failed to apply. Neither reached the report or the
-      // exit ladder before — a write-level run said nothing about what it had written.
+      // A turn that WROTE files: one applied, one that failed to apply. Both must reach the report,
+      // and the failed patch must reach the exit ladder.
       case "file-changes":
         w(R, cmd(TURN, THREAD),
           fileChangeItem(TURN, THREAD, { changes: [{ path: "/tmp/wrote.txt", kind: { type: "add" }, diff: "+hello" }] }),
@@ -984,17 +928,16 @@ function onLine(line) {
           msg(TURN, THREAD, "Wrote both files."), done(TURN, THREAD));
         break;
 
-      // A command item that reached the client with NO verdict: no exit code, and neither failed nor
-      // declined, which is what an interrupted command looks like. The report has always counted it as
-      // blocked while the ladder ignored it, so one success beside it reported ok: true.
+      // A command with NO verdict: no exit code, and neither failed nor declined, as with an interrupted
+      // command. A success beside it must not hide the unresolved command.
       case "blocked-command":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
           cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: null, status: "inProgress" }),
           msg(TURN, THREAD, "All tests pass."), done(TURN, THREAD));
         break;
 
-      // A research turn: one real success plus probes that answered "no" — a no-match grep, a false
-      // test. Exit 1 from a plain probe is a verdict, not a failure, and used to exit 11.
+      // A research turn: one real success plus probes that answered "no" — a no-match grep and a false
+      // test. Exit 1 from a plain probe is a verdict, not a failure.
       case "probe-negative":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
           cmd(TURN, THREAD, { command: "grep -n missing_symbol src/main.mjs", exitCode: 1, status: "failed" }),
@@ -1034,17 +977,16 @@ function onLine(line) {
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
-      // A MULTI-LINE bash script whose first line is a probe and whose second is the real work. Codex
-      // routinely sends these; without newlines in the probe regex's excluded set, the failed suite
-      // was laundered into "a probe answered no" and the run exited 0.
+      // A MULTI-LINE bash script whose first line is a probe and whose second is the real work.
+      // The second line's failure must not be classified as a probe answering "no".
       case "probe-multiline":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,40p README.md" }),
           cmd(TURN, THREAD, { command: "grep -q needle src/main.mjs\npnpm test", exitCode: 1, status: "failed" }),
           msg(TURN, THREAD, "all tests pass"), done(TURN, THREAD));
         break;
 
-      // A skill-file read succeeds, the real command fails, and the answer claims it passed. The report
-      // must show the failure; the old one filtered it out of both lists.
+      // A skill-file read succeeds, the real command fails, and the answer claims it passed.
+      // The report must show the failure.
       case "hidden-failure":
         w(R, cmd(TURN, THREAD, { command: "sed -n 1,10p SKILL.md" }),
           cmd(TURN, THREAD, { command: "pnpm -w exec vitest run", exitCode: 1, status: "failed" }),
@@ -1072,11 +1014,8 @@ function onLine(line) {
         break;
       }
 
-      // A long answer, for the --brief clip. The lines are long enough that the FIRST TWENTY already
-      // exceed the 4000-byte cap — 20 x ~420 bytes — so the byte path is exercised, not just the line
-      // path. With short lines the line cap binds first, the byte cap never engages, and a marker
-      // appended outside it goes unnoticed: measured, that fixture left the "marker escapes the cap"
-      // mutation green.
+      // A long answer for the --brief clip: the lines are long enough for the byte cap to bind before
+      // the line cap, so a marker appended outside the byte cap is observable.
       case "long-answer":
         w(R, cmd(TURN, THREAD),
           msg(TURN, THREAD, Array.from({ length: 200 }, (_, i) => `line ${i} ${"x".repeat(400)}`).join("\n")),
@@ -1121,8 +1060,8 @@ function onLine(line) {
         setTimeout(() => process.kill(process.pid, "SIGKILL"), 40);
         break;
 
-      // Turn-scoped notifications with no turn/start response to attribute them to: the driver holds
-      // these, and held them without a bound.
+      // Turn-scoped notifications with no turn/start response to attribute them to: the driver must
+      // bound the events it holds.
       case "early-flood": {
         const flood = [];
         for (let i = 0; i < 1200; i++) flood.push(cmd(TURN, THREAD, { command: `echo flood ${i}` }));
@@ -1155,8 +1094,8 @@ function onLine(line) {
           done(TURN, THREAD));
         break;
 
-      // The turn's completion loses its trailing newline and the stream ends there. readline flushed
-      // such a line; hand-rolled framing must too, or the turn never completes.
+      // The turn's completion loses its trailing newline and the stream ends there; framing must
+      // flush the last line or the turn never completes.
       case "no-trailing-newline":
         w(R, userMsg(thisTurn, m.params?.threadId ?? THREAD, prompt), cmd(TURN, THREAD),
           msg(TURN, THREAD, "the answer"));

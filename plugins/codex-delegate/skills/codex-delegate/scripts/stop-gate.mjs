@@ -5,6 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const REVIEW_TIMEOUT_S = 300;
+
 const enabled = process.env.CODEX_DELEGATE_STOP_GATE === "1";
 if (!enabled) process.exit(0);
 
@@ -26,10 +28,10 @@ if (!git.stdout.trim()) process.exit(0);
 
 const driver = path.join(path.dirname(fileURLToPath(import.meta.url)), "driver.mjs");
 const run = spawnSync(process.execPath, [driver, "--level", "read", "--cwd", cwd,
-  "--review", "uncommitted", "--brief", "--timeout", "300"],
-  { cwd, env: process.env, encoding: "utf8", timeout: 310000, maxBuffer: 16 * 1024 * 1024 });
+  "--review", "uncommitted", "--brief", "--timeout", String(REVIEW_TIMEOUT_S)],
+  { cwd, env: process.env, encoding: "utf8", timeout: REVIEW_TIMEOUT_S * 1000 + 10000, maxBuffer: 16 * 1024 * 1024 });
 if (run.error?.code === "ETIMEDOUT") {
-  process.stderr.write("codex-delegate stop gate: review timed out after 300 seconds\n");
+  process.stderr.write(`codex-delegate stop gate: review timed out after ${REVIEW_TIMEOUT_S} seconds\n`);
   process.exit(1);
 }
 // A non-zero exit is a POST-TURN verdict — a failed command, a missed expectation, a cut turn — and the

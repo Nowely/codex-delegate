@@ -30,6 +30,11 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(HERE, "driver.mjs");
 
+const REACH_BACK_MS = 12 * 3600 * 1000;
+const LIST_TURNS = 10;
+const SCAVENGE_AGE_MS = 3600_000;
+const MAX_IMAGES = 20, MAX_BYTES_EACH = 10 * 1024 * 1024, MAX_BYTES_TOTAL = 25 * 1024 * 1024;
+
 const USAGE = `attach-pasted — give a Codex seat the image(s) the user pasted into this session.
 
   node attach-pasted.mjs [selection] -- <driver.mjs flags…>
@@ -38,11 +43,12 @@ const USAGE = `attach-pasted — give a Codex seat the image(s) the user pasted 
 Selection (default: every image of the LATEST human turn, in the order pasted)
   --pasted-turn UUID    take that turn instead; repeatable, emitted in timestamp order
   --pasted-pick 1,3-4   1-based indices within the selected turn (default: all)
-  --pasted-allow-old    permit a turn more than 12h older than the newest record
+  --pasted-allow-old    permit a turn more than ${REACH_BACK_MS / 3600000}h older than the newest record
   --pasted-transcript F read this transcript instead of resolving the session's own
-  --list                the last 10 image-bearing human turns, then exit; writes nothing
+  --list                the last ${LIST_TURNS} image-bearing human turns, then exit; writes nothing
 
 Everything after -- is passed to driver.mjs unchanged, with --attach <path> prepended per image.
+Limits: ${MAX_IMAGES} images, ${MAX_BYTES_EACH / 1048576} MB each, ${MAX_BYTES_TOTAL / 1048576} MB across the selection.
 The images are uploaded to the Codex model provider: the receipt on stderr names each one.
 
 There is deliberately no offset selector (--turns N, back:N): machine records interleave with human
@@ -58,8 +64,6 @@ const MAGIC = {
   ".gif": (b) => b.subarray(0, 6).toString("latin1") === "GIF87a" || b.subarray(0, 6).toString("latin1") === "GIF89a",
   ".webp": (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP",
 };
-const MAX_IMAGES = 20, MAX_BYTES_EACH = 10 * 1024 * 1024, MAX_BYTES_TOTAL = 25 * 1024 * 1024;
-const REACH_BACK_MS = 12 * 3600 * 1000;
 
 function die(msg) {
   process.stderr.write(`attach-pasted: ${msg}\n`);
@@ -207,7 +211,7 @@ function cleanup() {
 }
 
 // Someone else's leftovers, removed only when provably abandoned: same uid, our own pid-<hex> shape,
-// the pid gone, and older than an hour. A prune without a liveness check deletes a live run's images.
+// the pid gone, and older than SCAVENGE_AGE_MS. A prune without a liveness check deletes a live run's images.
 function scavenge(root) {
   try {
     for (const name of fs.readdirSync(root)) {
@@ -217,7 +221,7 @@ function scavenge(root) {
       let st;
       try { st = fs.statSync(p); } catch { continue; }
       if (st.uid !== os.userInfo().uid) continue;
-      if (Date.now() - st.mtimeMs < 3600_000) continue;
+      if (Date.now() - st.mtimeMs < SCAVENGE_AGE_MS) continue;
       try { process.kill(Number(m[1]), 0); continue; } catch (e) { if (e.code === "EPERM") continue; }
       fs.rmSync(p, { recursive: true, force: true });
     }
@@ -232,7 +236,7 @@ async function main() {
 
   if (o.list) {
     if (!withImages.length) { process.stdout.write("no image-bearing human turn in this session\n"); return 0; }
-    for (const rec of withImages.slice(-10)) {
+    for (const rec of withImages.slice(-LIST_TURNS)) {
       const imgs = imagesOf(rec);
       const dims = imgs.map((b, i) => {
         const { buf, ext } = decodeImage(b, `turn ${rec.uuid} image ${i + 1}`);

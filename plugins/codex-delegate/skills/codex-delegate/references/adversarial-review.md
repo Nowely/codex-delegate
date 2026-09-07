@@ -30,6 +30,6 @@ CHECK
 RETURN
 
 Return only one JSON object matching `schemas/review-output.schema.json`, with no prose or code fence.
-Use `needs-attention` when any material risk should block shipping and `approve` only when no substantive
-adversarial finding is supportable. Keep `summary` a terse ship/no-ship assessment, `findings` compact and
+Use the schema's blocking verdict when any material risk should block shipping and its approving verdict
+only when no substantive adversarial finding is supportable. Keep `summary` a terse ship/no-ship assessment, `findings` compact and
 specific, and `next_steps` limited to actions that change the shipping decision.

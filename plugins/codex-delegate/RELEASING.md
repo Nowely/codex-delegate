@@ -5,26 +5,21 @@ notes; never move or recreate a published tag.
 
 ## Checklist
 
-1. Choose the version and update `.claude-plugin/plugin.json`, `skills/codex-delegate/SKILL.md` and
-   `skills/orchestrate/SKILL.md` at `metadata.version`. Confirm the three values and the intended
-   `vX.Y.Z` tag match. The package eval enforces this version agreement against the newest tag.
+1. Choose the version and set it in every place `evals/package.test.mjs` compares: its version case
+   names each place and fails naming the one you missed. Confirm the value and the intended `vX.Y.Z`
+   tag match. The package eval enforces this version agreement against the newest tag.
 2. Record user-visible changes in `CHANGELOG.md`, including compatibility or breaking-contract notes.
-3. For a Codex CLI upgrade, regenerate the versioned schema directory:
+3. For a Codex CLI upgrade, follow README.md › After a codex upgrade, then update the pinned-version
+   references and fixture only to match observed live protocol output.
+4. Run the syntax checks under the oldest supported runtime (the floor `package.json` declares), then run
+   every suite:
 
    ```bash
-   codex app-server generate-json-schema --out schema-<codex-version>/
-   ```
-
-   Update the pinned-version references and fixture only to match observed live protocol output.
-4. Run the syntax checks under the oldest supported runtime (Node 18), then run every suite:
-
-   ```bash
-   node --check skills/codex-delegate/scripts/driver.mjs
-   node --check skills/codex-delegate/scripts/attach-pasted.mjs
+   for f in skills/codex-delegate/scripts/*.mjs evals/*.mjs evals/lib/*.mjs; do node --check "$f"; done
    npm test
    ```
 
-   `npm test` runs nine suites and includes `package`, which checks the payload and version agreement.
+   `npm test` runs every suite, `package` among them, which checks the payload and version agreement.
    Do not call a suite green without its final count.
 5. Run the local live fidelity gate separately:
 
@@ -49,11 +44,12 @@ notes; never move or recreate a published tag.
      with the release notes.
    - Treat any failed case as a release blocker. A skipped case is not a pass: the summary names it.
    - The cases are what the three hypotheses now rest on: self-detection reads the right tier from the
-     system prompt in both sessions (cases 1 and 2, one plan each under Opus and under Fable); a
-     `gpt-6-astra` seat at `EFFORT: xhigh` opens no Codex subagent threads (case 4, against an `ultra`
-     control when `CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA=1` is set; the detector itself is covered by
-     the protocol suite); an Opus session accepts the explicit `model` tag on every Claude Agent call
-     (case 3, read back out of each subagent's own system prompt, and case 5 over a full run).
+     system prompt in both sessions (the two plan-only cases, one under Opus and one under Fable); a
+     `gpt-6-astra` seat at `EFFORT: xhigh` opens no Codex subagent threads (the case of that name,
+     against an `ultra` control when `CODEX_DELEGATE_LIVE_ORCHESTRATE_ULTRA=1` is set; the detector
+     itself is covered by the protocol suite); an Opus session accepts the explicit `model` tag on every
+     Claude Agent call (the model-tag case, read back out of each subagent's own system prompt, and the
+     full-run case).
    - Record the codex-cli and Claude Code builds used, as the fidelity gate does.
 
 7. Review the complete release diff, confirm no generated scratch files or credentials are tracked, and
