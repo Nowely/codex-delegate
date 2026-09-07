@@ -3,6 +3,41 @@
 Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+Measured against codex-cli 0.153.4 on macOS (Node 24.11). The pinned protocol moves from 0.150.1 to
+0.153.4; the protocol diff between the two is purely additive (9 new type files, 30 changed, nothing
+removed).
+
+### Changed
+
+- `schema-0.153.4/` replaces `schema-0.150.1/` as the pinned protocol reference; `PINNED_CODEX`, the
+  fixture's version strings and the README prerequisite move with it. The drift warning that fired on
+  every run under 0.153.4 is quiet again.
+- `thread/resume` and `thread/fork` send `excludeTurns: true`: the driver never read `thread.turns`,
+  every thread created under 0.153.4 is paginated, and for those an ephemeral fork without the flag was
+  refused with -32600. Measured: a resume shrank from 1.5 MB to 58 KB.
+
+### Fixed
+
+- A question the model asks through `request_user_input_async` (0.153.0; offered to gpt-6-astra)
+  arrives as an agentMessage carrying `questions`, phased `final_answer`. It used to become the seat's
+  `answer` under exit 0, outranking the turn's real answer. It is now recorded as an interaction
+  (exit 7, `item/agentMessage/questions: <title>`) and never selected as the answer.
+- `--mcp` carries package-style server names (`@scope/pkg`, legal since 0.152.0) as quoted TOML keys
+  instead of skipping the server.
+
+### Notes
+
+- `CodexErrorInfo` gained `rateLimitExceeded` beside `usageLimitExceeded`; neither is retried, and the
+  comments now say so.
+- The bundled default model is gpt-6-astra when `config.toml` names none; the driver inherits only the
+  keys the caller set, so a flagless seat's model changed with the upgrade. Pin `model` in `config.toml`
+  or pass `MODEL:`.
+- SKILL.md: the `--- answer (N bytes)` marker is the size to check; a relay on a small model was
+  measured cutting long answers and altering escapes in JSON ones. Read `answerPath` when the bytes
+  differ.
+
 ## 0.10.0 — 2026-09-07
 
 Prompt-only release: the driver, the relay and the header-field vocabulary are byte-identical to 0.9.1

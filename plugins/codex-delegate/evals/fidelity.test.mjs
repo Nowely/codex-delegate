@@ -213,7 +213,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
   // Also before any thread exists: the driver reads the account snapshot once and refuses to start when
   // the primary window is at 100% (driver.mjs:4200). Answered with the MINIMAL shape that
-  // schema-0.150.1/v2/GetAccountRateLimitsResponse.json accepts — only rateLimits is required, and
+  // schema-0.153.4/v2/GetAccountRateLimitsResponse.json accepts — only rateLimits is required, and
   // RateLimitSnapshot requires nothing — so this reply can never gate the capture, and the field the
   // driver actually reads is compared against the live server in the differential below, not here.
   if (m.method === "account/rateLimits/read") {

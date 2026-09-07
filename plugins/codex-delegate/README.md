@@ -28,7 +28,7 @@ this skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md)).
 
 - **`codex` CLI, installed and authenticated.** `codex` must be on `PATH` and signed in — check with
   `codex login status`. Runs reuse your credentials: `auth.json` is symlinked from your real `~/.codex`.
-- **codex-cli 0.150.1.** Everything here is measured against that build; `schema-0.150.1/` is the
+- **codex-cli 0.153.4.** Everything here is measured against that build; `schema-0.153.4/` is the
   pinned protocol reference. After upgrading codex, run the fidelity suite (below) before trusting a run.
 - **Node 18 or later.** Declared in `package.json` (`engines`) and run in CI on 18 and 24, Linux and
   macOS. No dependencies: the driver is one file importing only `node:` builtins.
@@ -225,7 +225,7 @@ evals/                           nine suites — orchestrate (the orchestrate sk
                                  them, lib/harness.mjs is their shared machinery
 package.json                     private; the Node floor and `npm test`
 .github/workflows/ci.yml         the seven free suites on {ubuntu, macOS} × Node {18, 24}
-schema-0.150.1/                  the pinned protocol schema the driver is written against; kept in the
+schema-0.153.4/                  the pinned protocol schema the driver is written against; kept in the
                                  repo (and therefore in plugin installs) deliberately — it is the
                                  regeneration oracle the upgrade recipe diffs against, and stripping it
                                  from installs would also strip the suites this README tells you to run.

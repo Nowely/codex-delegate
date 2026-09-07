@@ -91,7 +91,7 @@ fs.mkdirSync(rolloutDay, { recursive: true });
 const rolloutLine = (id) => JSON.stringify({
   timestamp: new Date().toISOString(), type: "session_meta",
   payload: { session_id: id, id, cwd: shimDir, originator: "Claude Code",
-             cli_version: "0.150.1", source: "vscode", model_provider: "openai" }
+             cli_version: "0.153.4", source: "vscode", model_provider: "openai" }
 });
 fs.writeFileSync(path.join(rolloutDay, "rollout-2026-01-01T00-00-00-thr_root.jsonl"), `${rolloutLine("thr_root")}\n`);
 // Same filename convention, a session_meta naming a DIFFERENT thread: the file exists, the receipt is
@@ -230,6 +230,19 @@ const CASES = [
     env: { FAKE_MCP: "1" },
     why: "an unknown MCP server name is a usage error rather than a seat silently missing its requested tool",
     assertStderr: (e) => /unknown server "missing"/.test(e) || `the unknown name was not reported: ${e.slice(0, 180)}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    args: ["--mcp", "--mcp-server", "@acme/docs.v2"],
+    env: { FAKE_MCP: "1", FAKE_MCP_CONFIG_LOG: mcpConfigLog },
+    why: "since codex 0.152.0 a server name may be package-style (`@scope/pkg`): it is carried as a quoted TOML key, where a bare-key rule used to skip the server out loud",
+    assert: () => {
+      const cfg = fs.existsSync(mcpConfigLog) ? fs.readFileSync(mcpConfigLog, "utf8") : "";
+      return (cfg.includes('[mcp_servers."@acme/docs.v2"]') && !cfg.includes("[mcp_servers.docs]"))
+        || `package-style MCP name produced: ${JSON.stringify(cfg)}`;
+    } },
+  { scenario: "async-question",   expect: EXIT.INTERACTION,
+    why: "since 0.153.0 a question for a human can arrive as an agentMessage carrying `questions` (request_user_input_async), phased final_answer: it used to ship as the seat's answer under exit 0; it is an interaction, and the turn's real answer stays the answer",
+    assert: (r) => (Array.isArray(r.interactions) && r.interactions.some((i) => /^item\/agentMessage\/questions: Which database/.test(i)) && r.answer === "DONE-ANSWER")
+      || `async question mishandled: ${JSON.stringify({ i: r.interactions, a: r.answer })}` },
   { scenario: "stale-turn",       expect: EXIT.NO_COMMANDS,         why: "the command and answer belong to an earlier turn on the same thread" },
   { scenario: "early-completion", expect: EXIT.OK,                  why: "events that overtake the turn/start response are held and replayed, not lost" },
   { scenario: "foreign-thread",   expect: EXIT.NO_COMMANDS,         why: "a subagent's work on another thread is not ours" },
@@ -777,7 +790,7 @@ const CASES = [
   // --- what the report says about the run's own footing ---
   { scenario: "happy",            expect: EXIT.OK,
     why: "the initialize response carries the server's version in userAgent, and the driver dropped it — version drift was named only after a method came back -32601",
-    assert: (r) => (r.codexVersion === "0.150.1" && r.codexVersionPinned === "0.150.1")
+    assert: (r) => (r.codexVersion === "0.153.4" && r.codexVersionPinned === "0.153.4")
       || `codexVersion was not read out of the userAgent: ${JSON.stringify({ v: r.codexVersion, pinned: r.codexVersionPinned })}` },
   { scenario: "happy",            expect: EXIT.OK, env: { FAKE_CODEX_VERSION: "9.9.9" },
     why: "a codex that is not the one the protocol facts were measured against is the first thing to know when behaviour contradicts the docs; it must be said on stderr and in the report, not inferred from a later failure",

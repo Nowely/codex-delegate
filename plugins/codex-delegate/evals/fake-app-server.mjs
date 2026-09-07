@@ -93,6 +93,9 @@ export const SCENARIOS = {
   // Six commands 150 ms apart, then an answer: the shape --max-commands bounds. It ends on its own when
   // nothing caps it, so the conformance suite drives it to completion like any other scenario.
   "many-commands": {},
+  // 0.153.0: a question for a human arrives as a MESSAGE carrying `questions`, phased final_answer, then
+  // the turn's real answer. Measured live on 0.153.4 with gpt-6-astra.
+  "async-question": {},
 };
 if (!Object.hasOwn(SCENARIOS, SCENARIO)) {
   process.stderr.write(`fake-app-server: ${JSON.stringify(SCENARIO)} is not in SCENARIOS; an uninventoried name would answer as the default scenario and measure nothing\n`);
@@ -190,7 +193,7 @@ const note = (method, params) => ({ jsonrpc: "2.0", method, params });
 let seq = 0;
 const now = () => 1780000000000 + (seq += 1);
 const thread = (id) => ({
-  id, sessionId: id, cliVersion: "0.150.1", createdAt: 1780000000, updatedAt: 1780000000,
+  id, sessionId: id, cliVersion: "0.153.4", createdAt: 1780000000, updatedAt: 1780000000,
   cwd: "/tmp", ephemeral: false, modelProvider: "openai", preview: "", projectId: null,
   // ActiveThreadStatus REQUIRES activeFlags; only IdleThreadStatus is the bare {type}. The invented
   // shape survived because the resume scenario was never schema-validated.
@@ -337,7 +340,7 @@ function onLine(line) {
   if (m.method === "initialize") {
     const ci = m.params?.clientInfo ?? {};
     w(reply(m.id, {
-      userAgent: `${ci.name ?? "unknown"}/${process.env.FAKE_CODEX_VERSION ?? "0.150.1"} (Mac OS 26.6.2; arm64) unknown (${ci.title ?? "unknown"}; ${ci.version ?? "0"})`,
+      userAgent: `${ci.name ?? "unknown"}/${process.env.FAKE_CODEX_VERSION ?? "0.153.4"} (Mac OS 26.6.2; arm64) unknown (${ci.title ?? "unknown"}; ${ci.version ?? "0"})`,
       codexHome: "/tmp", platformFamily: "unix", platformOs: "macos" }));
     return;
   }
@@ -403,6 +406,8 @@ function onLine(line) {
         docs: { command: "docs-server", args: ["--port", "0"], env: { TOKEN: "t" } },
         search: { command: "search-server", args: ["--stdio"] },
         exotic: { command: "x", nested: { deep: true } },
+        // Package-style, legal since codex 0.152.0; a bare-key rule used to skip it.
+        "@acme/docs.v2": { command: "acme-docs", args: ["--stdio"] },
       } } : {}),
     }, origins: {} }));
     return;
@@ -630,6 +635,17 @@ function onLine(line) {
 
       case "fork":
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify(requestedThread)), done(TURN, THREAD));
+        break;
+
+      // request_user_input_async: the question is an agentMessage with `questions` and delivery "async",
+      // phased final_answer — the shape 0.153.4 emits — followed by the turn's real, unphased answer.
+      case "async-question":
+        w(R, cmd(TURN, THREAD),
+          note("item/completed", { threadId: THREAD, turnId: TURN, completedAtMs: now(),
+            item: { id: `item_${seq}`, type: "agentMessage", text: "Which database should I use?\n- postgres\n- sqlite",
+                    phase: "final_answer", delivery: "async", memoryCitation: null,
+                    questions: [{ title: "Which database should I use?", options: ["postgres", "sqlite"] }] } }),
+          msg(TURN, THREAD, "DONE-ANSWER", null), done(TURN, THREAD));
         break;
 
       case "compact":
