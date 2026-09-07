@@ -281,9 +281,10 @@ function stoppedAtPlan(toolUses, scratch, head0) {
 const quote = (line) => JSON.stringify(line.trim().slice(0, 140));
 const lines = (text) => text.split("\n").filter((l) => l.trim());
 
-// `fable`: "none" for a session that is not Fable, where the tag must not appear at all; "one" for the
-// Fable session, where exactly one seat carries it. That single option is the whole difference between
-// case 1's text assertions and case 2's.
+// `fable`: "none" for a session that is not Fable, where the tag must not appear at all; "cap" for the
+// Fable session, where at most one seat carries it. The page states a cap, not a duty: measured, a Fable
+// coordinator planned a four-seat comparison on strong-tier seats and reserved the top pair for a tie-break,
+// which the page allows. That single option is the whole difference between case 1's assertions and case 2's.
 //
 // Everything below the tool checks is a heuristic over free text, and reads as one: a plan can satisfy
 // every line here and still be a bad plan. The artifact plan.txt is what the release reader judges; these
@@ -303,12 +304,9 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   // judged on every line, as before.
   const rows = lines(text).filter((l) => l.trim().startsWith("|"));
   const seatLines = rows.length ? rows : lines(text);
-  // A line naming the SESSION's own tier is not a seat: "you are the Opus orchestrator" satisfied the
-  // whole-text test with no tagged seat anywhere in the plan.
-  const named = seatLines.filter((l) => /\b(opus|sonnet)\b/i.test(l));
-  const seats = named.filter((l) => !/orchestrator|coordinator|session|powered by/i.test(l));
-  if (!seats.length)
-    problems.push(`no line tags a Claude seat opus or sonnet; the lines that name a tier: ${named.slice(0, 3).map(quote).join(" ") || "none"}`);
+  // No Claude-seat requirement: the page lets the coordinator take a quick targeted edit itself, and
+  // measured, an Opus plan for the slug task did exactly that with one Codex verifier beside it. Whether
+  // every Claude Agent call that does run carries a tag is judged after "go", on the calls themselves.
   if (!/\bCodex\b/.test(text)
       || !/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.test(text))
     problems.push("the plan announces no composition: the word Codex and a count or \"zero\"");
@@ -320,10 +318,10 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   const count = tagged.reduce((n, l) => n + [...l.matchAll(/\bfable\b/gi)].length, 0);
   if (fable === "none" && count)
     problems.push(`a fable tag is in the plan of a session that is not Fable: ${tagged.slice(0, 3).map(quote).join(" ")}`);
-  if (fable === "one" && count !== 1)
-    problems.push(count
-      ? `fable is named ${count} times, and the cap is one seat: ${tagged.slice(0, 3).map(quote).join(" ")}`
-      : "no seat is tagged fable in a Fable session");
+  if (fable === "cap") {
+    if (count > 1) problems.push(`fable is named ${count} times, and the cap is one seat: ${tagged.slice(0, 3).map(quote).join(" ")}`);
+    else note(`fable seats in the plan: ${count}`);
+  }
   return problems;
 }
 
@@ -397,8 +395,8 @@ test("plan only under Opus: the first attempt stops at a plan",
 
 // --------------------------------------------------------------- 2
 
-test("plan only under Fable: the top pair is named",
-  "under Fable the page's top row holds as written, and the two caps it states are the only thing between a design fan-out and a batch of top-tier seats: one Fable seat and one gpt-6-astra seat",
+test("plan only under Fable: the top pair is capped",
+  "under Fable the page's top row holds as written, and its caps are the only thing between a design fan-out and a batch of top-tier seats: at most one Fable seat and one gpt-6-astra seat alive at a time, and the astra seat named at all only proves the session read its own tier",
   async () => {
     const dir = caseDir(2, "plan-fable");
     const scratch = scratchClone(dir);
@@ -428,7 +426,7 @@ test("plan only under Fable: the top pair is named",
     if (wrong) problems.push(wrong);
     if (r.killed) problems.push("the session was killed at the timeout");
     if (!s.planText) problems.push(`the session produced no text (result subtype ${JSON.stringify(s.result?.subtype ?? null)})`);
-    problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, fable: "one", head0 }));
+    problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, fable: "cap", head0 }));
     // The top Codex seat by name, not by tier table membership: planProblems accepts any of the three
     // slugs, and under Fable the top row is the whole claim.
     if (!lines(s.planText).some((l) => l.includes("gpt-6-astra")))
