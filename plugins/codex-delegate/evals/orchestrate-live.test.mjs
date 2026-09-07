@@ -313,20 +313,35 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   // The same exclusion under the fable cap, and for both settings: a Fable session describing itself is
   // not a seat tagged fable, and counting those sentences made the cap unmeetable in case 2 and
   // unmissable in case 1.
-  const tagged = seatLines.filter((l) =>
-    /\bfable\b/i.test(l) && !/under fable|fable session|orchestrator|coordinator|powered by|you are/i.test(l));
+  // The cap is on seats ALIVE at once. Measured three plans in a row honour it three different ways: two
+  // rows with "runs after P1" beside the second; a "Wave" column with one Fable and one astra seat per
+  // wave; a single top seat. So the count is taken per wave when the table has a wave/stage/phase/step
+  // column, else per plan, and a stated sequencing exempts a plan-level count. A self-description is not a
+  // seat: "you are Fable" and "under Fable" are excluded before counting.
+  const isSeat = (l) => !/under fable|fable session|orchestrator|coordinator|powered by|you are/i.test(l);
+  const header = rows[0] ? rows[0].split("|").map((c) => c.trim().toLowerCase()) : [];
+  const waveCol = header.findIndex((c) => /^(wave|stage|phase|step|order|round|batch|when)$/.test(c));
+  const groupOf = (l) => (waveCol >= 0 ? (l.split("|")[waveCol] ?? "").trim() : "");
+  const capMax = (re) => {
+    const per = new Map();
+    for (const l of seatLines.filter(isSeat)) {
+      const n = [...l.matchAll(re)].length;
+      if (n) per.set(groupOf(l), (per.get(groupOf(l)) ?? 0) + n);
+    }
+    return Math.max(0, ...per.values());
+  };
+  const tagged = seatLines.filter((l) => /\bfable\b/i.test(l) && isSeat(l));
   const count = tagged.reduce((n, l) => n + [...l.matchAll(/\bfable\b/gi)].length, 0);
   if (fable === "none" && count)
     problems.push(`a fable tag is in the plan of a session that is not Fable: ${tagged.slice(0, 3).map(quote).join(" ")}`);
   if (fable === "cap") {
-    // The cap is on seats ALIVE at once, and a plan can honour it with two Fable rows run one after the
-    // other: measured, a Fable coordinator wrote two proposer rows and "runs after P1: one Fable seat alive
-    // at a time" beside the second. Sequencing stated in the plan is taken at its word; the run itself is
-    // what would prove it, and a plan-only case cannot.
     const sequenced = /alive at a time|one at a time|one after the other|sequential|runs after|then the (second|other)/i.test(text);
-    if (count > 1 && !sequenced)
-      problems.push(`fable is named ${count} times with no sequencing stated, and the cap is one seat alive at a time: ${tagged.slice(0, 3).map(quote).join(" ")}`);
-    else note(`fable seats in the plan: ${count}${count > 1 ? ", sequenced by the plan's own words" : ""}`);
+    for (const [name, re] of [["fable", /\bfable\b/gi], ["gpt-6-astra", /gpt-6-astra/g]]) {
+      const max = capMax(re);
+      if (max > 1 && !sequenced)
+        problems.push(`${max} ${name} seats in one wave with no sequencing stated, and the cap is one alive at a time: ${seatLines.filter((l) => re.test(l) && isSeat(l)).slice(0, 3).map(quote).join(" ")}`);
+      else note(`${name} seats in the plan: ${count && name === "fable" ? count : capMax(re)}${waveCol >= 0 ? `, at most ${max} per ${header[waveCol]}` : sequenced && max > 1 ? ", sequenced by the plan's own words" : ""}`);
+    }
   }
   return problems;
 }
