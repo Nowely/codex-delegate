@@ -3,14 +3,9 @@
 //
 //   node evals/conformance.test.mjs
 //
-// The pinned schemas under schema-<version>/ were the plugin's largest artefact and nothing read them:
-// they were an oracle for a human doing an upgrade, and a fixture that invented a field — which has
-// happened twice — stayed green in every other suite. This one drives the driver through every fixture
-// scenario, captures each line the fixture EMITS, and validates it against those schemas.
-//
-// The validator is deliberately small and local (no dependency): local $ref, oneOf/anyOf/allOf, type,
-// enum, const, required, properties, additionalProperties, items. Keywords outside that set are
-// REPORTED as unchecked rather than silently skipped, so "conformant" cannot come to mean "nothing was
+// This suite drives every fixture scenario and validates each emitted line against the pinned schemas.
+// The validator is deliberately small and local (no dependency): local $ref and the structural keywords
+// in KNOWN; other keywords are REPORTED as unchecked so conformance cannot mean nothing was checked.
 // looked at".
 
 import fs from "node:fs";
@@ -80,7 +75,7 @@ function check(value, schemaIn, root, at = "$") {
   if (schema.oneOf || schema.anyOf) {
     const branches = schema.oneOf ?? schema.anyOf;
     if (branches.some((b) => check(value, b, root, at).length === 0)) return errs;
-    // A union of 79 method variants reports uselessly unless the RIGHT variant is named. These unions
+    // A union of dozens of method variants reports uselessly unless the RIGHT variant is named. These unions
     // are discriminated by a literal `method`, so pick that branch and report its own complaints;
     // fall back to the fewest-errors branch only for unions with no discriminator.
     const byMethod = value && typeof value === "object" && value.method
@@ -119,10 +114,8 @@ function check(value, schemaIn, root, at = "$") {
   return errs;
 }
 
-// Every scenario the fixture implements, taken from the fixture's own exported inventory. It used to be
-// a regex over `case` labels, which silently skipped every scenario dispatched before the turn/start
-// switch — all the sandbox-assert cases, the resume case and both review emitters, eleven in all. The
-// object review payload survived in exactly that gap.
+// Every scenario the fixture implements, taken from its exported inventory so dispatches outside the
+// turn/start switch are included.
 const scenarios = Object.keys(SCENARIOS);
 
 // A few scenarios only emit their interesting messages when the driver asks for the matching feature.

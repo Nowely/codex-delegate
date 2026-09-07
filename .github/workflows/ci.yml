@@ -1,9 +1,8 @@
 name: CI
 
-# The seven suites that need no `codex` binary and call no model. Nothing but a person's memory was running
-# them. The matrix exists because the driver has one macOS-only call (the managed preferences plist) and
-# Linux was never measured at all, and because the Node floor package.json declares — 18 — was a claim
-# nothing tested.
+# Every suite that needs no `codex` binary and calls no model, on both OSes and on the Node floor
+# package.json declares: the driver has a macOS-only call (the managed preferences plist), Linux is
+# otherwise unmeasured, and the floor was a claim nothing tested.
 on:
   push:
     branches: [main]
@@ -33,18 +32,14 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       # Parsed before anything runs: a syntax error under the older engine is the one failure that must
-      # not arrive disguised as a broken test.
+      # not arrive disguised as a broken test. The list is the directories, so a new script is covered
+      # the day it is added.
       - name: Parse every shipped script under this engine
-        run: |
-          node --check skills/codex-delegate/scripts/driver.mjs
-          node --check skills/codex-delegate/scripts/attach-pasted.mjs
-          node --check skills/codex-delegate/scripts/stop-gate.mjs
-          node --check evals/fake-app-server.mjs
+        run: for f in skills/codex-delegate/scripts/*.mjs evals/*.mjs evals/lib/*.mjs; do node --check "$f"; done
       # No install step: the driver, the suites and the fixture import node: builtins only.
-      # run-all's eighth and ninth suites, fidelity and orchestrate-live, need the real `codex` and
-      # `claude` and are not run here: they skip, say so, and exit 0. They stay LOCAL pre-release steps —
-      # they need an authenticated home and they spend real money — and `--require-live` is the flag for
-      # the fidelity gate.
+      # The suites that need the real `codex` or `claude` are not run here: without the binary or the
+      # opt-in variable each skips, says so, and exits 0. They stay LOCAL pre-release steps (RELEASING.md):
+      # they need an authenticated home and they spend real money.
       - name: Suites
         # $TMPDIR is the whole grant at --level read, and a stock Linux shell does not set it: without it
         # every read-level case is a usage error before anything is spawned. The runner context is only

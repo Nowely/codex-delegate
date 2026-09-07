@@ -3,10 +3,8 @@
 //
 //   node evals/attach-pasted.test.mjs
 //
-// It never calls codex: the driver is replaced by a shim that records the argv it was given, so every
-// case checks what WOULD have been delegated. The transcripts are synthetic but shaped like the real
-// ones — including the machine records that share the "user" type and once made an offset selector
-// count the wrong turns.
+// The driver is replaced by a shim that records argv, so each case checks what would be delegated.
+// Synthetic transcripts include machine records that share the "user" type but must not count as human turns.
 
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -207,7 +205,7 @@ test("the extracted images are 0600 under the state dir, and are removed when th
   });
 
 test("the driver's exit code is forwarded, not translated",
-  "a front-end that swallows the exit code makes the published ladder unreadable — every code from 1 to 13 means something specific",
+  "a front-end that swallows the exit code makes the published ladder unreadable — every code in the ladder means something specific",
   () => {
     const t = transcript("rc", [humanTurn([img(PNG_1x1), txt("x")], 10)]);
     const r = run(["--pasted-transcript", t, "--", "--cwd", work], { SHIM_RC: "11" });

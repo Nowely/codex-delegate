@@ -3,21 +3,18 @@
 //
 //   node evals/fidelity.test.mjs
 //
-// The other two suites drive the driver against the fixture. That proves the driver behaves as the fixture
-// expects — and the fixture is one person's model of the server. When that model is wrong, the driver and
-// the fixture are wrong in the SAME way and every case stays green while production fails. This has now
-// happened twice: `move_path` dropped from a rename, and the cwd not subtracted from writableRoots. Both
-// were live-server behaviours the fixture did not model, both shipped under a fully green suite.
+// The fixture-driven suites drive the driver against the fixture. That proves the driver behaves as the
+// fixture expects — and the fixture is one person's model of the server. When that model is wrong, the
+// driver and the fixture are wrong in the SAME way and every case stays green while production fails.
 //
 // So this suite asks a different question: for the same request, does the fixture reply like the real
 // thing? It only ever performs the initialize / account-read / thread-start handshake — no turn is
 // started and no model is called — which makes it cheap enough to run on every change to either side.
 //
 // It writes into a private CODEX_HOME, not the caller's: a bare thread/start is enough to make the server
-// record a trusted-project entry, so the earlier claim that this suite wrote nothing was wrong by 195
-// entries. The one thing of the caller's it borrows is ~/.codex/auth.json, linked in exactly as the
-// driver links it, because the account snapshot the driver now reads has no answer without it. Nothing
-// of the caller's is modified, and every case still costs one handshake.
+// record a trusted-project entry. The one thing of the caller's it borrows is ~/.codex/auth.json, linked
+// in exactly as the driver links it, because the account snapshot the driver reads has no answer without
+// it. Nothing of the caller's is modified, and every case still costs one handshake.
 //
 // It SKIPS rather than fails only when `codex` is absent, because a missing binary is not a fidelity
 // defect. Every other spawn or handshake failure is protocol drift. A skip is reported loudly so it
@@ -115,7 +112,7 @@ const idShape = (id) => typeof id === "string" && id.length ? "<non-empty string
 function shapeOf(r, limits) {
   const sb = r?.sandbox ?? {};
   return {
-    // The only field the driver reads out of account/rateLimits/read (driver.mjs:4202). Its VALUE is the
+    // The only field the driver reads out of account/rateLimits/read. Its VALUE is the
     // account's real usage and changes between runs, so the TYPE is what is compared: a fixture that
     // omits `primary`, or reports usedPercent as a string, leaves the driver's >=100 refusal permanently
     // unarmed while every other field still agrees.
@@ -137,11 +134,10 @@ function shapeOf(r, limits) {
   };
 }
 
-// Three live differences were hidden outside the old subset. `model` is now compared under a fixed
-// inherited config. The other two are thread.cwd and thread.ephemeral: the fixture's nested Thread is
-// intentionally canned history metadata (/tmp and false), while this driver reads neither field (it uses
-// the top-level cwd/runtimeWorkspaceRoots and its own request flag). Comparing them would turn harmless
-// fixture metadata into permanent noise. Volatile ids/timestamps and new response-only metadata such as
+// `model` is compared under a fixed inherited config. thread.cwd and thread.ephemeral are not compared:
+// the fixture's nested Thread is intentionally canned history metadata (/tmp and false), while this
+// driver reads neither field (it uses the top-level cwd/runtimeWorkspaceRoots and its own request flag),
+// so comparing them would turn harmless fixture metadata into permanent noise. Volatile ids/timestamps and new response-only metadata such as
 // instructionSources/multiAgentMode are excluded for the same reason; thread.id is the exception because
 // the driver uses it to attribute every event and to start the turn, so its required non-empty shape is
 // compared above and asserted independently below.
@@ -203,17 +199,16 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (m.method === "config/read") {
     send({ jsonrpc: "2.0", id: m.id, result: { config: {
       model: "fake-model", model_reasoning_effort: "high", personality: "none", service_tier: "auto",
-      // Deliberately NOT in the driver's INHERITED list, and the reason it is here: without a key the
-      // driver ignores, ADDING one to that list changed nothing observable and every suite stayed green.
-      // With it, a widened list writes a fifth line into the isolated config and ISOLATED_CONFIG below
-      // stops matching. Removing a key was already caught; this is the other direction.
+      // Deliberately NOT in the driver's INHERITED list: without a key the driver ignores, widening that
+      // list changes nothing observable. With it, a widened list writes an extra line into the isolated
+      // config and ISOLATED_CONFIG below stops matching; a narrowed one is caught the same way.
       model_verbosity: "high",
     }, origins: {} } });
     return;
   }
   // Also before any thread exists: the driver reads the account snapshot once and refuses to start when
-  // the primary window is at 100% (driver.mjs:4200). Answered with the MINIMAL shape that
-  // schema-0.153.4/v2/GetAccountRateLimitsResponse.json accepts — only rateLimits is required, and
+  // the primary window is at 100%. Answered with the MINIMAL shape the pinned schema's
+  // GetAccountRateLimitsResponse accepts — only rateLimits is required, and
   // RateLimitSnapshot requires nothing — so this reply can never gate the capture, and the field the
   // driver actually reads is compared against the live server in the differential below, not here.
   if (m.method === "account/rateLimits/read") {
@@ -242,12 +237,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `, { mode: 0o700 });
 
-// All four production-inherited scalars are present, but their values are fixed by the test. `fake-model`
+// Every production-inherited scalar is present, but their values are fixed by the test. `fake-model`
 // matches the fixture's deterministic fallback, `high` is also sent as the driver's real --effort
 // override so the fixture can observe it without pretending to parse config.toml, and `auto` resolves to
 // the protocol's null service tier. The extra scalar in the capture's reply is what makes a WIDENED
-// INHERITED list visible; a probe pointed at the wrong CODEX_HOME is NOT pinned by anything here, and
-// saying so is better than the claim that used to sit on this line.
+// INHERITED list visible; a probe pointed at the wrong CODEX_HOME is NOT pinned by anything here.
 const CALLER_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\npersonality = "none"\nservice_tier = "auto"\nmodel_verbosity = "low"\n\n[mcp_servers.must_not_escape]\ncommand = "false"\n`;
 const ISOLATED_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\npersonality = "none"\nservice_tier = "auto"\n`;
 
@@ -256,10 +250,9 @@ function captureDriver(spec) {
   const callerCodex = path.join(passwdHome, ".codex");
   fs.mkdirSync(callerCodex);
   fs.writeFileSync(path.join(callerCodex, "config.toml"), CALLER_CONFIG, { mode: 0o600 });
-  // The isolated home borrows the caller's credentials by symlink (driver.mjs:1136), and the fake passwd
-  // home built here had none — so every replayed server ran UNAUTHENTICATED. That was invisible for as
-  // long as the handshake stopped at thread/start, which needs no account; the first request that does
-  // need one is answered
+  // The isolated home borrows the caller's credentials by symlink, and a fake passwd home with none makes
+  // every replayed server run UNAUTHENTICATED: the handshake up to thread/start needs no account, but the
+  // first request that does is answered
   //   {"code":-32600,"message":"codex account authentication required to read rate limits"}
   // and every case goes red at once. Linked, never copied: no credential is written into a temp directory
   // and a token refresh still lands in the real home. When the caller has no auth.json the link is simply
@@ -277,9 +270,9 @@ function captureDriver(spec) {
     ...baseEnv,
     FIDELITY_PASSWD_HOME: passwdHome,
     // A $TMPDIR of this case's own, a SIBLING of the fake passwd home rather than its ancestor. The
-    // driver now applies the writable-root guard to $TMPDIR — it is the read level's entire grant — and
-    // that guard refuses any ancestor of the home directory. Inheriting the real TMPDIR made it an
-    // ancestor of this harness's fake home, so every case refused before it could send anything.
+    // driver applies the writable-root guard to $TMPDIR — it is the read level's entire grant — and that
+    // guard refuses any ancestor of the home directory, which the real TMPDIR is for this harness's fake
+    // home.
     TMPDIR: spec.env?.TMPDIR ?? freshDir("tmp"),
     PATH: `${captureBin}${path.delimiter}${baseEnv.PATH ?? ""}`,
   };
@@ -316,13 +309,11 @@ function captureDriver(spec) {
       if (captured.spawnArgs?.at(-1) !== "app-server")
         { finish(reject, new Error(`driver argv did not end in app-server: ${JSON.stringify(captured.spawnArgs)}`)); return; }
       // A differential compares two REPLIES to one request, so anything wrong with the REQUEST is
-      // invisible: the capture replays it to both servers and both agree on the same wrong thing.
-      // Measured — mutating web_search to `live`, dropping --strict-config, flipping experimentalApi or
-      // ephemeral each left every case agreeing, because no response field carries their effect. So those
-      // four are asserted here by value — a small explicit list, not a second copy of the driver's argv.
-      // A child pointed at a different TMPDIR is invisible HERE too, but is not unpinned: it reddens most
-      // of the protocol suite and one lock case (48 of the 59 cases that existed when that was measured;
-      // counts in comments go stale, so read the suite's own summary line for today's).
+      // invisible: the capture replays it to both servers and both agree on the same wrong thing. So the
+      // request values no response field carries — web_search, --strict-config, experimentalApi,
+      // ephemeral — are asserted here by value: a small explicit list, not a second copy of the driver's
+      // argv. A child pointed at a different TMPDIR is invisible HERE too, but is not unpinned: it reddens
+      // most of the protocol suite and a lock case.
       const sent = (key) => {
         const i = captured.spawnArgs.findIndex((a, n) => captured.spawnArgs[n - 1] === "-c" && a.startsWith(`${key}=`));
         return i < 0 ? null : captured.spawnArgs[i].slice(key.length + 1);
@@ -335,8 +326,7 @@ function captureDriver(spec) {
       if (expect("-c web_search", sent("web_search"), "disabled")) return;
       if (expect("--strict-config", captured.spawnArgs.includes("--strict-config"), true)) return;
       if (expect("initialize capabilities.experimentalApi", captured.initializeParams?.capabilities?.experimentalApi, false)) return;
-      // The capture invokes the driver WITH --ephemeral (line ~211), so true is the correct value here;
-      // asserting undefined was my own mistake and the suite caught it on the first run.
+      // The capture invokes the driver WITH --ephemeral, so true is the correct value here.
       if (expect("thread ephemeral", captured.threadParams?.ephemeral, true)) return;
       let isolated;
       try { isolated = fs.readFileSync(path.join(expectedHome, "config.toml"), "utf8"); }
@@ -408,10 +398,8 @@ const CASES = [
         mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([alias])) };
     } },
 
-  // The base rule the alias case above refines, and it went uncovered when that case was rewritten to use
-  // a symlink: the driver filters the cwd out of its own roots, so nothing reaches this branch of the
-  // server unless the request is mutated to put it back. Measured while it was missing — deleting the
-  // fixture's cwd subtraction left all three suites green.
+  // The base rule the alias case above refines: the driver filters the cwd out of its own roots, so
+  // nothing reaches this branch of the server unless the request is mutated to put it back.
   { name: "write level, the cwd's own spelling sent as a writable root",
     why: "the server subtracts the cwd from writableRoots when the spellings match exactly",
     build: () => {
@@ -419,9 +407,8 @@ const CASES = [
       return { level: "write", cwd: d, mutate: (r) => replaceConfig(r, WRITE_ROOTS, JSON.stringify([canon(d)])) };
     } },
 
-  // The rewrite replaced this case's exact duplicate with two alias spellings, which tests a different
-  // rule and left the plain one uncovered: deleting the fixture's dedup kept every case agreeing. Both
-  // spellings of the question are needed.
+  // Exact duplication is a different server rule from alias subtraction, so both spellings of the
+  // question are needed.
   { name: "write level, the same root named twice, spelled identically",
     why: "the server collapses an exact duplicate before reporting writableRoots",
     build: () => {
@@ -452,11 +439,8 @@ const CASES = [
 // ---------------------------------------------------------------- the live turn
 //
 // Everything above compares two answers to ONE handshake and stops before the first turn — so every
-// fact the driver reads out of a turn had the fixture as its only oracle, and three live turns found
-// three divergences at once: every command arrives wrapped in a shell the fixture did not emit, the
-// review payload is a string where the fixture invented an object, and the caller's own prompt comes
-// back as an item type the fixture never sent. This case spends ONE cheap turn on the real server and
-// checks what the handshake cannot: the shape of the items, the classification the driver derives from
+// fact the driver reads out of a turn has the fixture as its only oracle. This case spends ONE cheap
+// turn on the real server and checks what the handshake cannot: the shape of the items, the classification the driver derives from
 // them, and the receipt.
 //
 // Gated because it costs a model call and about a minute: CODEX_DELEGATE_LIVE_TURN=1.
@@ -567,8 +551,7 @@ async function liveTurns() {
       const shape = JSON.stringify({ exit: code, ok: r.commandsSucceeded, failed: r.commandsFailed,
         probes: r.commandsProbeNegative, blocked: r.commandsBlocked, esc: r.escalations?.length,
         declined: declined.length, receipt: r.receiptOk, cmds: cmds.map((c) => c.command) });
-      // Every live command is a wrapper — the fact the probe exemption was blind to for as long as it
-      // existed, and the one the fixture now reproduces. The flag varies between runs (-c and -lc have
+      // Every live command is a wrapper, which the fixture reproduces. The flag varies between runs (-c and -lc have
       // both been measured on the same binary), so the shape is matched, not the spelling.
       if (!cmds.length || !cmds.every((c) => /^\S*(?:sh|bash|zsh|dash|ksh)\s+-[A-Za-z]+\s/.test(c.command)))
         report("live turn: commands arrive wrapped in a shell", shape);

@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 // Protocol regression tests for scripts/driver.mjs.
 //
-// Every case here is a path that once produced a false success, or that a review demonstrated could.
-// They run against evals/fake-app-server.mjs rather than the real Codex: the point is to reach orderings
-// a live server will not produce on demand — a completion that overtakes its own response, an event
-// belonging to a turn that already ended, a server request nobody can answer.
+// These cases exercise false-success paths against evals/fake-app-server.mjs, including orderings a live
+// server will not produce on demand: a completion overtaking its response, an event from an ended turn,
+// and a server request nobody can answer.
 //
 //   node evals/protocol.test.mjs
 //
@@ -25,17 +24,13 @@ const STOP_GATE = path.join(SCRIPTS, "stop-gate.mjs");
 const REVIEW_SCHEMA = path.join(ROOT, "skills", "codex-delegate", "schemas", "review-output.schema.json");
 
 const shimDir = tempDir("codex-delegate-test-");
-// Unique per run: a fixed name in the shared $TMPDIR is the cross-run collision the relay eval fixed
-// elsewhere with a random suffix.
+// Use a unique name per run to avoid collisions in the shared $TMPDIR.
 const survivorPidName = `verify-survivor-${crypto.randomBytes(4).toString("hex")}.pid`;
 codexShim(shimDir);
 
-// A schema file for the --output-schema cases, and a non-executable file for the verify-126 branch.
-// STRICT, because that is the only kind the provider accepts and the fixture must not be laxer than the
-// thing it stands in for: measured against the live server, an ordinary schema comes back
-// 400 invalid_json_schema — "'additionalProperties' is required to be supplied and to be false" — and
-// "'required' ... an array including every key in properties". These files used to be ordinary, so every
-// schema case exercised a shape a real run cannot use.
+// A STRICT schema for --output-schema and a non-executable file for verify-126. Measured against the
+// live server, a non-strict schema returns 400 invalid_json_schema: additionalProperties must be false
+// and required must include every property key.
 const schemaFile = path.join(shimDir, "verdict.schema.json");
 fs.writeFileSync(schemaFile, JSON.stringify({
   type: "object", additionalProperties: false, required: ["verdict", "count"],
@@ -55,7 +50,7 @@ fs.writeFileSync(oneOfSchemaFile, JSON.stringify({
   properties: { verdict: { type: "string" }, count: { type: "integer" } },
   oneOf: [{ required: ["verdict"] }]
 }));
-// The three shapes the provider rejects, each of which used to cost a whole delegation to discover.
+// Provider-rejected schema shapes that admission must catch before a delegation starts.
 const looseSchemaFile = path.join(shimDir, "loose.schema.json");
 fs.writeFileSync(looseSchemaFile, JSON.stringify({
   type: "object", required: ["verdict"], properties: { verdict: { type: "string" } }
@@ -70,17 +65,15 @@ fs.writeFileSync(optionalSchemaFile, JSON.stringify({
   type: "object", additionalProperties: false, required: ["verdict"],
   properties: { verdict: { type: "string" }, note: { type: "string" } }
 }));
-// A strict schema whose required key is named after a member of Object.prototype. `k in value` reaches
-// the prototype, so the absent key used to be validated against the inherited FUNCTION and produced a
-// second, invented error beside the true one.
+// A required key named after a member of Object.prototype must be treated as absent, not validated
+// against an inherited function that adds a spurious error.
 const protoSchemaFile = path.join(shimDir, "proto.schema.json");
 fs.writeFileSync(protoSchemaFile, JSON.stringify({
   type: "object", additionalProperties: false, required: ["verdict", "count", "toString"],
   properties: { verdict: { type: "string" }, count: { type: "integer" }, toString: { type: "string" } }
 }));
 
-// A rollout that looks like a real one, so the receipt locator has a POSITIVE case. Without it the whole
-// of findRollout could be replaced by `return null` and the suite stayed green.
+// A realistic rollout provides a positive receipt-locator case so an always-null locator cannot pass.
 const sessionsDir = path.join(shimDir, "sessions");
 const rolloutDay = (() => {
   const d = new Date();
@@ -96,9 +89,8 @@ const rolloutLine = (id) => JSON.stringify({
 fs.writeFileSync(path.join(rolloutDay, "rollout-2026-01-01T00-00-00-thr_root.jsonl"), `${rolloutLine("thr_root")}\n`);
 // Same filename convention, a session_meta naming a DIFFERENT thread: the file exists, the receipt is
 // not this run's, and receiptOk must say so rather than trusting the name.
-// A state directory that already exists when the run starts, and a $TMPDIR inside it. The read level's
-// only writable root is $TMPDIR, so pointing it at the driver's own protected state is the shape that
-// used to hand a read seat write access to the receipts.
+// A pre-existing state directory with $TMPDIR inside it: the read-level grant must not expose the
+// driver's protected state to writes.
 const protectedState = path.join(shimDir, "state");
 const protectedTmp = path.join(protectedState, "tmp");
 fs.mkdirSync(protectedTmp, { recursive: true });
@@ -108,8 +100,7 @@ fs.mkdirSync(protectedTmp, { recursive: true });
 // behind, and the failure case would then report that instead of "nothing".
 const emptyState = path.join(shimDir, "state-empty");
 
-// A directory whose name holds TWO consecutive spaces, for the seat-file literalness case: the SEAT
-// value used to be split on whitespace and rejoined with single spaces, silently rewriting the path.
+// A directory name with consecutive spaces checks that seat-file parsing preserves the literal path.
 const spacedDir = path.join(shimDir, "two  spaces");
 fs.mkdirSync(spacedDir);
 
@@ -192,7 +183,7 @@ const CASES = [
     assert: (r) => r.rateLimits?.primary?.usedPercent === 25
       || `rateLimits missing from the report: ${JSON.stringify(r.rateLimits)}` },
   { scenario: "happy",            expect: EXIT.OK, env: { FAKE_RATELIMITS_ERROR: "1" },
-    why: "a server that REJECTS account/rateLimits/read — an older build, a managed device — costs the report its snapshot and nothing else; the unguarded await aborted the whole run at exit 4 with no report at all",
+    why: "a server that rejects account/rateLimits/read costs the report its snapshot, not the whole run",
     assert: (r) => r.rateLimits === null
       || `a rejected snapshot did not leave rateLimits null: ${JSON.stringify(r.rateLimits)}` },
   { scenario: "compact",          expect: EXIT.OK, args: ["--resume", "thr_root", "--compact"],
@@ -233,14 +224,14 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.OK,
     args: ["--mcp", "--mcp-server", "@acme/docs.v2"],
     env: { FAKE_MCP: "1", FAKE_MCP_CONFIG_LOG: mcpConfigLog },
-    why: "since codex 0.152.0 a server name may be package-style (`@scope/pkg`): it is carried as a quoted TOML key, where a bare-key rule used to skip the server out loud",
+    why: "a package-style MCP name (`@scope/pkg`) must be carried as a quoted TOML key rather than skipped by a bare-key rule",
     assert: () => {
       const cfg = fs.existsSync(mcpConfigLog) ? fs.readFileSync(mcpConfigLog, "utf8") : "";
       return (cfg.includes('[mcp_servers."@acme/docs.v2"]') && !cfg.includes("[mcp_servers.docs]"))
         || `package-style MCP name produced: ${JSON.stringify(cfg)}`;
     } },
   { scenario: "async-question",   expect: EXIT.INTERACTION,
-    why: "since 0.153.0 a question for a human can arrive as an agentMessage carrying `questions` (request_user_input_async), phased final_answer: it used to ship as the seat's answer under exit 0; it is an interaction, and the turn's real answer stays the answer",
+    why: "since 0.153.0 a human question can arrive as an agentMessage with questions, phased final_answer; it is an interaction, and the turn's real answer must remain the answer",
     assert: (r) => (Array.isArray(r.interactions) && r.interactions.some((i) => /^item\/agentMessage\/questions: Which database/.test(i)) && r.answer === "DONE-ANSWER")
       || `async question mishandled: ${JSON.stringify({ i: r.interactions, a: r.answer })}` },
   { scenario: "stale-turn",       expect: EXIT.NO_COMMANDS,         why: "the command and answer belong to an earlier turn on the same thread" },
@@ -269,7 +260,7 @@ const CASES = [
   { scenario: "turn-failed",      expect: EXIT.TURN_NOT_COMPLETED,  why: "arrival of turn/completed is not success; the status is — and a failure AFTER observable work is never retried",
     assert: (r) => (r.transientRetries?.length === 0) || `a turn with visible work was retried: ${JSON.stringify(r.transientRetries)}` },
   { scenario: "transient-then-ok", expect: EXIT.OK,
-    why: "the enumerated transient causes were documented as retryable and never retried — a provider blip failed the whole delegation; one bounded backoff absorbs it when the turn produced nothing observable",
+    why: "one bounded backoff absorbs an enumerated transient failure only when the turn produced no observable work",
     assert: (r) => (r.transientRetries?.length === 1 && r.transientRetries[0].cause === "responseStreamDisconnected" && r.commandsSucceeded === 1)
       || `the retry did not happen or was miscounted: ${JSON.stringify({ retries: r.transientRetries, cmds: r.commandsSucceeded })}` },
   { scenario: "transient-after-tool", expect: EXIT.TURN_NOT_COMPLETED,
@@ -291,7 +282,7 @@ const CASES = [
     assert: (r) => (/off-by-one in clamp/.test(String(r.answer)) && r.commandsSucceeded === 0 && r.otherItemCounts?.exitedReviewMode === 1)
       || `the review did not become the answer: ${JSON.stringify({ a: String(r.answer).slice(0, 60), c: r.commandsSucceeded })}` },
   { scenario: "review-inline",    expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
-    why: "ExitedReviewModeThreadItem.review is a STRING in the pinned schema and in every live review; the fixture's invented object kept a dead stringify branch in the driver alive, and the answer a caller reads must be the review, not a JSON dump of one",
+    why: "ExitedReviewModeThreadItem.review is a STRING in the pinned schema and live reviews; the caller must receive that review text rather than a JSON dump",
     assert: (r) => {
       if (/^[[{]/.test(String(r.answer).trim())) return `the review came back as a JSON blob: ${String(r.answer).slice(0, 80)}`;
       if (r.otherItemCounts?.enteredReviewMode !== 1) return `the review was not preceded by enteredReviewMode: ${JSON.stringify(r.otherItemCounts)}`;
@@ -301,7 +292,7 @@ const CASES = [
         || `the reviewer's own commands were misclassified: ${JSON.stringify({ f: r.commandsFailed, p: r.commandsProbeNegative })}`;
     } },
   { scenario: "happy",            expect: EXIT.OK,
-    why: "the caller's own prompt comes back as a userMessage item at the top of every live turn; counted as activity it made every report claim work the seat never did, and as observable work it would have disarmed the transient-retry guard",
+    why: "the server echoes the caller's prompt as a userMessage at the start of a turn; that echo must not count as activity or disarm the no-work retry guard",
     assert: (r) => (r.otherItemCounts === null || r.otherItemCounts.userMessage === undefined)
       || `the caller's own prompt was reported as activity: ${JSON.stringify(r.otherItemCounts)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted", "--worktree", "/tmp"], noPrompt: true,
@@ -328,7 +319,7 @@ const CASES = [
     assertStderr: (e) => /PROGRESS is command-line-only; pass --progress/.test(e)
       || `PROGRESS was still accepted as a seat field: ${e.slice(0, 200)}` },
   { scenario: "rich-items",       expect: EXIT.OK,
-    why: "reasoning summaries, tool/search items and subagent threads used to be dropped on the floor — a turn that mostly searched or delegated looked idle; they are now VISIBLE in the report while the child's command still counts for nothing",
+    why: "reasoning summaries, tool/search items and subagent threads must be visible in the report while the child's command counts for no root evidence",
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
         && r.otherItems?.some((x) => x.type === "webSearch" && x.detail === "node atomics")
         && r.subagentThreads?.length === 1 && r.subagentThreads[0].threadId === "thr_child"
@@ -352,7 +343,7 @@ const CASES = [
         || `input items wrong (expected image, image, text): ${JSON.stringify(inp.map((x) => x.type))}`;
     } },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted", "--attach", attachFile], noPrompt: true,
-    why: "review/start carries no input items and the review branch returns before turn/start, so an attachment on a review run was decoded, written, and never sent — with nothing said",
+    why: "review/start carries no input items, so an attachment must be refused rather than decoded and silently left unsent",
     assertStderr: (e) => /would be dropped silently/.test(e) || `the silent drop was not refused: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--attach", "/nonexistent/shot.png"],
     why: "a missing attachment is the caller's error, raised before anything runs — the server would otherwise refuse it mid-turn, after the delegation was paid for",
@@ -365,7 +356,7 @@ const CASES = [
       return /turn\/interrupt/.test(log) || `the driver never sent turn/interrupt: ${JSON.stringify(log)}`;
     } },
   { scenario: "probe-negative",   expect: EXIT.OK,
-    why: "a no-match grep or a false test is a probe answering 'no', not a failed command — routine research seats exited 11 for finding nothing. The commands arrive WRAPPED (`/bin/zsh -c '...'`), which is the whole reason the exemption used to be dead: the pattern was anchored on the wrapper",
+    why: "a no-match grep or false test is a probe answering no; the server reports wrapped commands, so classification must use the parsed command rather than match the wrapper",
     assert: (r) => {
       if (!(r.commands ?? []).every((c) => /^\/bin\/zsh -c /.test(c.command)))
         return `the fixture stopped emitting the live wrapper, so this case no longer tests anything: ${JSON.stringify((r.commands ?? []).map((c) => c.command))}`;
@@ -385,7 +376,7 @@ const CASES = [
     assert: (r) => (r.commandsFailed === 2 && r.commandsBlocked === 0 && r.commandsProbeNegative === 0)
       || `a declined command was misclassified: ${JSON.stringify({ f: r.commandsFailed, b: r.commandsBlocked, p: r.commandsProbeNegative })}` },
   { scenario: "blocked-command",  expect: EXIT.COMMAND_FAILED,
-    why: "a command item with no numeric exit code that is neither failed nor declined has no verdict at all; the report counted it as blocked while the ladder ignored it, so one success beside one unresolved command reported ok: true under an answer claiming the suite passed",
+    why: "a command with no numeric exit code that is neither failed nor declined has no verdict; a success beside it must not hide that unresolved command",
     assert: (r) => (r.commandsBlocked === 1 && r.commandsFailed === 0 && r.commandsSucceeded === 1)
       || `the unresolved command was not counted: ${JSON.stringify({ b: r.commandsBlocked, f: r.commandsFailed, s: r.commandsSucceeded })}` },
   { scenario: "blocked-command",  expect: EXIT.OK, args: ["--verify", "true"],
@@ -402,7 +393,7 @@ const CASES = [
     why: "a compound command starting with a probe keeps failure semantics: its exit 1 may belong to the other command" },
   { scenario: "hidden-failure",  expect: EXIT.COMMAND_FAILED,     why: "a failed command is a failed run, whatever the answer claims; one incidental success must not mask it" },
   { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--allow-failed-commands"],
-    why: "a read-only analysis seat whose environment probe is expected to fail (no repository, no toolchain, a deliberately broken build) had no way to say so: every such seat exited 11 with a perfectly good answer, and the only waiver was a --verify the seat did not need",
+    why: "--allow-command-failures lets an analysis seat accept expected probe failures without requiring an unrelated verifier",
     assert: (r) => (r.commandsFailed === 1 && r.ok === true)
       || `the waived failure left the report: ${JSON.stringify({ failed: r.commandsFailed, ok: r.ok })}` },
   { scenario: "hidden-failure",  expect: EXIT.NO_COMMANDS,
@@ -456,25 +447,25 @@ const CASES = [
     why: "write level must reject dangerFullAccess before an otherwise healthy turn can run",
     assertStderr: (t) => /sandbox type/.test(t) || `stderr did not name the sandbox type: ${JSON.stringify(t)}` },
   { scenario: "happy",            expect: EXIT.OK, args: ["--verify", "yes abcdefghij | head -c 100000000; exit 0"],
-    why: "a verifier that prints 100 MB and exits 0 has PASSED: under spawnSync it overran maxBuffer and came back status null, so a run whose end state was proven good reported exit 12. Streaming the output with a bounded tail keeps the exit status, which is the only thing the verdict may rest on",
+    why: "a verifier that exits 0 has passed even when its output exceeds the verifier tail cap; streaming a bounded tail must preserve its exit status",
     assert: (r) => (r.verify?.ok === true && r.verify?.measured === true
       && String(r.verify?.stdout ?? "").length <= 2000)
       || `a passing loud verifier was not measured: ${JSON.stringify({ ...r.verify, stdout: String(r.verify?.stdout ?? "").length })}` },
   { scenario: "failed-null-exit", expect: EXIT.COMMAND_FAILED,
-    why: "the schema allows a FAILED command with exitCode null; keying the failure set on the code alone let it exit 0 while the report counted the command as merely blocked",
+    why: "the schema permits a FAILED command with exitCode null; failure classification must not depend on a numeric exit code",
     assert: (r) => r.commandsFailed === 1 || `the failed command was not counted: failed=${r.commandsFailed} blocked=${r.commandsBlocked}` },
   { scenario: "escalated-subagent", expect: EXIT.ESCALATED,
     why: "the refusal is sent whoever asked, so a subagent really was blocked — evidence of FAILURE must be inclusive even though evidence of SUCCESS is root-only",
     assert: (r) => r.escalations?.length === 1 || `a refused subagent escalation went unrecorded: ${JSON.stringify(r.escalations)}` },
   { scenario: "happy",            expect: EXIT.OK,
-    why: "with no --effort the driver must send no override at all, so ~/.codex/config.toml decides; forcing a default silently downgraded a user who had asked for max",
+    why: "with no --effort the driver must send no override so the caller's config decides; a forced default can silently downgrade the requested effort",
     assert: (r) => r.effort === null && r.reasoningEffort === null
       || `an effort was imposed: requested=${JSON.stringify(r.effort)} selected=${JSON.stringify(r.reasoningEffort)}` },
   { scenario: "happy",            expect: EXIT.OK, args: ["--effort", "max"],
-    why: "`max` is on the model's advertised ladder and was rejected as a usage error by a stale hardcoded list",
+    why: "max is on the model's advertised ladder and must not be rejected by a stale hardcoded list",
     assert: (r) => r.reasoningEffort === "max" || `--effort max did not reach the server: ${JSON.stringify(r.reasoningEffort)}` },
   { scenario: "file-changes",     expect: EXIT.COMMAND_FAILED,
-    why: "a patch that failed to apply is the same class of fact as a failed command, and reached neither the report nor the ladder. PatchChangeKind is an OBJECT on the wire ({type, move_path}), so storing it raw put `[object Object]` where the report names what happened to the file",
+    why: "a failed patch must reach the exit ladder and report; PatchChangeKind is an object whose type and move_path must be rendered as meaningful fields",
     assert: (r) => (r.fileChangesFailed?.length === 1 && r.fileChangesFailed[0].kind === "update"
         && JSON.stringify(r.filesTouched) === JSON.stringify(["/tmp/wrote.txt", "/tmp/new.txt"])
         // fileChanges keeps what filesTouched folds away: the kind, and the path a rename STARTED at.
@@ -484,16 +475,16 @@ const CASES = [
       // The rename must be reported by its DESTINATION: /tmp/old.txt no longer exists after it.
       || `write results wrong: touched=${JSON.stringify(r.filesTouched)} changes=${JSON.stringify(r.fileChanges)} failed=${JSON.stringify(r.fileChangesFailed)}` },
   { scenario: "resume-active",    expect: EXIT.BUSY, args: ["--resume", "thr_root"],
-    why: "a deliberate refusal after the child is spawned kept its exit code only by accident: shutdown SIGTERMs the child and the exit handler rewrote every one of them to 4, making the documented exit 10 unreachable" },
+    why: "shutdown signals must not overwrite the exit code of a deliberate refusal after spawn" },
   { scenario: "happy",            expect: EXIT.OK, args: ["--resume", "thr_root"],
-    why: "which thread a turn continued was announced on stderr only — which a relay shows on failure — so a resumed run's report was indistinguishable from a fresh one, and `--resume last` is exactly where the wrong thread gets picked silently",
+    why: "a resumed report must name the continued thread so the coordinator can distinguish it from a fresh run and detect a wrong resume target",
     assert: (r) => r.resumedFrom === "thr_root" || `the report did not name the thread it continued: ${JSON.stringify(r.resumedFrom)}` },
   { scenario: "happy",            expect: EXIT.OK, env: { TMPDIR: null },
-    why: "when --cwd IS the tmpdir the server subtracts it from writableRoots and reports it under runtimeWorkspaceRoots; demanding it in both places refused a legitimate scratch-directory run",
+    why: "when cwd is the tmpdir, the server reports it under runtimeWorkspaceRoots rather than writableRoots; the sandbox check must accept that effective grant",
     assert: (r) => JSON.stringify(r.sandbox?.writableRoots) === "[]"
       || `expected the tmpdir root to be subtracted, got ${JSON.stringify(r.sandbox?.writableRoots)}` },
   { scenario: "happy",            expect: EXIT.OK, env: { FAKE_MODEL_ECHO: "1" },
-    why: "the model must be inherited, never hardcoded: with no --model the driver sends null and the server chooses. Under FAKE_MODEL_ECHO the fixture reports the REQUEST ('inherited' vs 'explicit:x') instead of a plausible name — it used to fall back to the same literal a hardcoding driver would send, so this case could not tell them apart. The echo is opt-in because fidelity.test.mjs diffs this field against the live server",
+    why: "with no --model the driver sends null and the server chooses; FAKE_MODEL_ECHO reports the request so a hardcoded model cannot look inherited. The echo is opt-in because fidelity.test.mjs compares this field with the live server",
     assert: (r) => r.model === "inherited" || `a model was imposed rather than inherited: ${JSON.stringify(r.model)}` },
   { scenario: "happy",            expect: EXIT.OK,
     env: { PATH: "/usr/bin:/bin", CODEX_DELEGATE_CODEX: path.join(shimDir, "codex") },
@@ -545,21 +536,17 @@ const CASES = [
 
   // --- teardown: nothing this driver started may outlive it ---
   { scenario: "spawn-survivor",   expect: EXIT.OK,
-    why: "a TERM-ignoring descendant — a test server, a watcher — used to survive every normal completion, because process.exit() discarded the SIGKILL escalation timer; the group teardown must wait it out",
+    why: "group teardown must wait out TERM-ignoring descendants so test servers and watchers cannot outlive normal completion",
     assert: (r) => {
       const pid = Number((String(r.answer).match(/survivor (\d+)/) ?? [])[1]);
       if (!pid) return `the fixture did not report its survivor pid: ${JSON.stringify(r.answer)}`;
       try { process.kill(pid, 0); return `survivor ${pid} is still alive after the driver exited`; }
       catch { return true; }
     } },
-  // The background child's stdio is DETACHED (`>/dev/null 2>&1 </dev/null`), and that is what makes this
-  // case deterministic. Holding the verifier's stdout kept spawnSync draining the pipe for the whole
-  // remaining budget — ~19 s of the case's 30 s bell — so under any load the harness killed the driver
-  // first and the survivor was reported as having outlived a run that never got to sweep it. Measured at
-  // roughly one red in three while other work was on the machine. Detached, spawnSync returns at once and
-  // the group sweep is the only thing that can end the child, which is the property under test.
+  // Detach the background child's stdio so it cannot hold the verifier's pipe open. The group sweep must
+  // be the mechanism that ends the child.
   { scenario: "happy",            expect: EXIT.OK, args: ["--verify", `sh -c 'trap "" TERM; echo $$ > "$TMPDIR/${survivorPidName}"; exec sleep 30' >/dev/null 2>&1 </dev/null & sleep 0.3; exit 0`],
-    why: "the verifier runs in its own process group and the group is swept afterwards — anything it backgrounded used to outlive the run",
+    why: "the verifier runs in its own process group, which must be swept afterwards so background descendants cannot outlive the run",
     assert: (r) => {
       if (r.verify?.ok !== true) return `the verifier itself did not pass: ${JSON.stringify(r.verify)}`;
       let pid = 0;
@@ -605,14 +592,14 @@ const CASES = [
     why: "an unreadable schema is the caller's error, raised before anything runs",
     assertStderr: (t) => /--output-schema cannot read/.test(t) || `stderr did not name the schema file: ${t.slice(0, 120)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", laxSchemaFile],
-    why: "a schema without type:\"object\" ({} or oneOf-only) certified ANY value — a bare string included — as a match; admission now demands the object contract be stated",
+    why: "schema admission requires an explicit object contract; an empty or oneOf-only schema must not certify arbitrary values as valid output",
     assertStderr: (t) => /must declare "type": "object"/.test(t) || `admission let a type-less schema through: ${t.slice(0, 140)}` },
   { scenario: "schema-good",      expect: EXIT.OK, args: ["--output-schema", oneOfSchemaFile],
     why: "keywords the shallow validator ignores must be NAMED in the report, so outputSchemaOk can never silently mean 'nothing was checked'",
     assert: (r) => (r.outputSchemaOk === true && Array.isArray(r.schemaKeywordsUnchecked) && r.schemaKeywordsUnchecked.includes("oneOf"))
       || `unchecked keywords not reported: ${JSON.stringify(r.schemaKeywordsUnchecked)}` },
   { scenario: "schema-retry-refused", expect: EXIT.SCHEMA, args: ["--output-schema", schemaFile],
-    why: "a refused corrective turn/start used to abort with exit 4 and NO report, discarding the completed first turn's evidence; it now finishes with the first attempt's report and exit 13",
+    why: "a refused corrective turn must preserve the completed first turn's evidence and report the schema failure",
     assert: (r) => (r.outputSchemaOk === false && r.outputAttempts === 2 && String(r.answer).length > 0 && r.commandsSucceeded === 1)
       || `the first turn's report was lost: ${JSON.stringify({ ok: r.outputSchemaOk, a: r.outputAttempts, ans: String(r.answer).slice(0, 40) })}` },
   // --- --seat-file: a wrapper writes values, it does not build a command line out of them ---
@@ -627,7 +614,7 @@ const CASES = [
         && (r.sandbox?.writableRoots ?? []).length <= 1 && String(r.expectCommand).includes("--commit"))
       || `a seat-file value escaped into flags: ${JSON.stringify({ l: r.level, n: r.network, roots: r.sandbox?.writableRoots })}` },
   { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWDSP>\nEXPECT: echo\n",
-    why: "the SEAT value is literal to end of line: a path holding consecutive spaces was split on whitespace and rejoined with single spaces, silently rewriting where the rights land",
+    why: "the SEAT value is literal to end of line; collapsing consecutive spaces would silently change where rights are granted",
     assert: (r) => String(r.cwd).endsWith("two  spaces") || `the spaced path was rewritten: ${JSON.stringify(r.cwd)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBOGUS: x\n",
     why: "an unknown field is a malformed seat, not a field to ignore — a typo must never silently become a different seat",
@@ -643,19 +630,19 @@ const CASES = [
     why: "a completion arriving after the deadline reported must not start a corrective turn on a run that declared itself timed out",
     assertStderr: (t) => !/spending the corrective turn/.test(t) || "a settled run announced new work after its own report" },
 
-  // --- accounting and the remaining untested branches ---
+  // --- token accounting and verifier execution errors ---
   { scenario: "happy",            expect: EXIT.OK,
-    why: "the server's own token accounting reaches the report, so a coordinator can budget a fan-out — and it is the ROOT thread's. The fixture now also emits a subagent thread's usage, after the root's and with a bigger total, so deleting the thread filter reports 9900",
+    why: "the report must carry the ROOT thread's token accounting; a later subagent usage event with a larger total exposes a missing thread filter",
     assert: (r) => r.tokenUsage?.total?.totalTokens === 135
       || `tokenUsage missing, wrong, or taken from another thread: ${JSON.stringify(r.tokenUsage)}` },
   { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", notExec],
-    why: "exit 126 — found but not executable — is 'fix the verifier', not 'the work is not there'; this branch had no test and could be deleted green",
+    why: "exit 126 means the verifier was found but is not executable: fix the verifier, not the work",
     assert: (r) => (r.verify?.measured === false && r.verify?.exitCode === 126)
       || `a non-executable verifier was not classified as unmeasurable: ${JSON.stringify(r.verify)}` },
 
-  // --- the receipt, which had no positive case at all ---
+  // --- receipt location and identity ---
   { scenario: "happy",            expect: EXIT.OK, env: { CODEX_DELEGATE_SESSIONS_DIR: sessionsDir },
-    why: "the receipt is LOCATED and READ: a rollout whose session_meta names this thread makes receiptOk true and surfaces the originator and provider. Without this case findRollout could be replaced by `return null` with every suite green",
+    why: "the receipt must be located and read: matching session_meta makes receiptOk true and surfaces originator and provider",
     assert: (r) => (r.receiptOk === true && typeof r.receiptPath === "string"
       && r.receiptOriginator === "Claude Code" && r.receiptModelProvider === "openai")
       || `a genuine rollout was not recognised: ${JSON.stringify({ ok: r.receiptOk, path: r.receiptPath, o: r.receiptOriginator, p: r.receiptModelProvider })}` },
@@ -664,7 +651,7 @@ const CASES = [
     assert: (r) => (r.receiptOk === false && typeof r.receiptPath === "string" && /session id/.test(r.receiptWhy ?? ""))
       || `a mismatched rollout was accepted or misreported: ${JSON.stringify({ ok: r.receiptOk, path: r.receiptPath, why: r.receiptWhy })}` },
 
-  // --- --output-schema: the provider takes a STRICT schema only, and said so only after the turn ---
+  // --- --output-schema: reject non-strict schemas before the turn ---
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--output-schema", looseSchemaFile],
     why: "an ordinary JSON Schema is rejected by the server with 400 invalid_json_schema AFTER the turn has started, costing the whole delegation; the admission check must catch it first",
     assertStderr: (e) => /additionalProperties/.test(e) || `a non-strict schema was admitted: ${e.slice(0, 160)}` },
@@ -675,7 +662,7 @@ const CASES = [
     why: "a strict schema permits no optional property: `required` must list every key in `properties`, or the server refuses the request",
     assertStderr: (e) => /required.*every key|Missing|"note"/.test(e) || `an optional property was admitted: ${e.slice(0, 200)}` },
   { scenario: "schema-good",      expect: EXIT.SCHEMA, args: ["--output-schema", protoSchemaFile],
-    why: "a required key named after a member of Object.prototype is MISSING, not a function: `k in value` reached the prototype and invented a second error beside the true one, which then went into the corrective turn's prompt",
+    why: "a required key named after an Object.prototype member is missing; inherited properties must not add invented validation errors to the corrective prompt",
     assert: (r) => {
       const errs = (r.schemaErrors ?? []).join(" | ");
       if (/got function/.test(errs)) return `the prototype was validated instead of the absent key: ${errs}`;
@@ -690,7 +677,7 @@ const CASES = [
     why: "a seat file with no SEAT at all declares no rights, and defaulting them is exactly what a rights declaration exists to prevent. Comments and blank lines are the only way past the first-field check, so this is the case that reaches the final one",
     assertStderr: (e) => /no SEAT field/.test(e) || `a seat file with no SEAT was accepted: ${e.slice(0, 160)}` },
   { scenario: "happy", seat: "SEAT: read <CWD>\nVERIFY: touch <CWD>/seat-verify-must-not-run\n", expect: EXIT.USAGE,
-    why: "VERIFY runs an unsandboxed /bin/sh with the caller's own rights. A newline inside any caller-supplied value creates a new field, so a relay copying values verbatim could introduce one — measured, it ran. From a seat file it now needs --allow-seat-verify, which only the command line can carry",
+    why: "VERIFY runs an unsandboxed shell with the caller's rights, so a newline-injected header must not enable it; seat-file use requires --allow-seat-verify on the command line",
     assertStderr: (e) => /allow-seat-verify/.test(e) || `a seat file supplied a verifier unasked: ${e.slice(0, 200)}` },
   { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nVERIFY: true\n", expect: EXIT.OK, args: ["--allow-seat-verify"],
     why: "the escape hatch works and is explicit: with --allow-seat-verify on the command line the same file runs its verifier",
@@ -701,9 +688,9 @@ const CASES = [
     assert: (r) => (Array.isArray(r.seatFileFields) && r.seatFileFields.join(",") === "SEAT,EXPECT")
       || `seatFileFields wrong: ${JSON.stringify(r.seatFileFields)}` },
 
-  // --- caps and bounds the docs publish as numbers ---
+  // --- caps and bounds published by the driver ---
   { scenario: "long-answer",      expect: EXIT.OK, args: ["--brief"],
-    why: "--brief publishes 20 lines / 4000 bytes as a bound; the 'clipped' marker used to be appended AFTER the cap, so the field whose whole job is to be a bound always exceeded it",
+    why: "the --brief cap includes the clipped marker; appending the marker after clipping would exceed the bound",
     assert: (r) => {
       const bytes = Buffer.byteLength(String(r.answer), "utf8");
       if (bytes > 4000) return `--brief returned ${bytes} bytes, past its own 4000-byte cap`;
@@ -713,18 +700,18 @@ const CASES = [
 
   { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--verify", "true"],
     env: { CODEX_DELEGATE_VERIFY_FLOOR_MS: "600000" },
-    why: "a declared verifier the wall clock left no room for was NOT run and NOT reported as a failure: verifyResult stayed null, both verify rungs test for it, and the ladder fell through to the weaker gates — a run with an unrun check reaching exit 0 is the one shape --verify exists to prevent",
+    why: "a declared verifier with no remaining budget is unrun and must fail closed rather than fall through to weaker gates",
     assert: (r) => (r.verifySkipped === "budget-exhausted" && r.verify === null)
       || `the skipped verifier was not reported as such: ${JSON.stringify({ s: r.verifySkipped, v: r.verify })}` },
 
   // --- the read level's writable root is $TMPDIR, so $TMPDIR needs the guard every root gets ---
   { scenario: "happy",            expect: EXIT.USAGE,
     env: { CODEX_DELEGATE_STATE_DIR: protectedState, TMPDIR: protectedTmp },
-    why: "$TMPDIR IS the read level's grant, and it reached the sandbox unexamined: measured, `TMPDIR=~/.codex/x --level read` exited 0 with the server reporting write access inside the directory that holds the receipts",
+    why: "$TMPDIR is the read-level write grant and must pass the protected-root guard so it cannot expose the receipt store",
     assertStderr: (e) => /refusing to grant write access/.test(e)
       || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.OK, unsetEnv: ["TMPDIR"],
-    why: "TMPDIR unset is the default in a stock Linux shell, and refusing it made every such seat a usage error over an environment variable the caller never thought about. A private 0700 directory of the run's own is the narrower grant — the seat can start a test runner, and what it gets is one run's scratch space rather than all of /tmp. It lives under the driver's state, where the run-directory pruner reaches it",
+    why: "when TMPDIR is unset, a private directory permits scratch writes without granting all of /tmp; it lives under driver state so retention pruning reaches it",
     assert: (r) => {
       const roots = r.sandbox?.writableRoots ?? [];
       if (roots.length !== 1) return `the private temp grant is not exactly one root: ${JSON.stringify(roots)}`;
@@ -737,7 +724,7 @@ const CASES = [
       return fs.existsSync(r.tmpDir) || `the run's private temp directory was removed at exit: ${r.tmpDir}`;
     } },
   { scenario: "tmp-write",        expect: EXIT.OK, unsetEnv: ["TMPDIR"],
-    why: "the private directory is the read seat's ONLY writable root, and --brief tells the seat to leave long output in a file there and give its absolute path. Removing it at exit took that file with it, so the one path the answer named resolved to nothing — measured against the same teardown that removes the per-run home",
+    why: "the private directory is the read seat's only writable root and may hold files named by --brief; it must outlive the run so those answer paths remain usable",
     assert: (r) => {
       const named = /full notes at (\S+)/.exec(String(r.answer))?.[1];
       if (!named) return `the seat did not name the file it wrote: ${String(r.answer).slice(0, 160)}`;
@@ -757,46 +744,46 @@ const CASES = [
 
   // --- a server that dies mid-turn still has to hand back what the turn did ---
   { scenario: "server-crash",     expect: EXIT.TRANSPORT,
-    why: "the child's exit routed straight to abort(), which prints NO report: an OOM-killed app-server discarded the threadId, the commands and a partial answer — the loss the signal and timeout paths exist to prevent",
+    why: "an app-server that dies mid-turn must not discard the threadId, commands and partial answer already collected",
     assert: (r) => (r.commandsSucceeded === 1 && r.threadId === "thr_root"
       && /crashed/.test(JSON.stringify(r.turnError ?? {})) && /partial answer/.test(String(r.answer)))
       || `the crash discarded the turn's evidence: ${JSON.stringify({ cmds: r.commandsSucceeded, thread: r.threadId, err: r.turnError, answer: String(r.answer).slice(0, 60) })}` },
 
   // --- the main transport's two unbounded buffers ---
   { scenario: "early-flood",      expect: EXIT.TRANSPORT,
-    why: "turn-scoped notifications arriving before the turn/start response are HELD, and were held without any bound: a broken server can exhaust the driver's memory with them while the report it is buffering for never arrives",
+    why: "turn-scoped notifications held before turn/start responds need a bound so a broken server cannot exhaust memory while the response never arrives",
     assertStderr: (e) => /before answering turn\/start/.test(e)
       || `the early buffer was not bounded: ${e.slice(0, 200)}` },
   { scenario: "unterminated-line", expect: EXIT.TRANSPORT,
-    why: "readline buffers an unterminated line without limit; the setup probe has had a 256 KB cap since one took driver RSS from 52 to 387 MB, and the main stream had none",
+    why: "the main transport must bound unterminated lines so one broken server write cannot exhaust memory",
     assertStderr: (e) => /with no newline/.test(e)
       || `an unterminated line was buffered without a bound: ${e.slice(0, 200)}` },
 
   { scenario: "no-trailing-newline", expect: EXIT.OK,
-    why: "EOF terminates a line as surely as a newline does, and readline flushed one: with hand-rolled framing and no end handler, a final turn/completed whose newline was lost is dropped and the run reports nothing it saw",
+    why: "EOF terminates a line as surely as a newline; the final turn/completed must still be processed when its trailing newline is missing",
     assert: (r) => (r.turnStatus === "completed" && r.commandsSucceeded === 1 && /the answer/.test(String(r.answer)))
       || `a final line without its newline was dropped: ${JSON.stringify({ turn: r.turnStatus, cmds: r.commandsSucceeded, answer: String(r.answer).slice(0, 40) })}` },
 
   // --- the report has to reach stdout, and a paused reader is not a broken one ---
   { scenario: "long-answer",      expect: EXIT.TRANSPORT, closeStdout: true,
-    why: "a consumer that stops reading (`| head -c 1`) makes the report write fail EPIPE; with no 'error' listener Node made that an uncaught exception — exit 1 and a stack trace on a driver whose contract says a report that cannot reach stdout is exit 4",
+    why: "a consumer that stops reading makes the report write fail EPIPE; this must be the documented transport failure, not an uncaught exception",
     assertStderr: (e) => /EPIPE|did not reach the caller/.test(e)
       || `a closed stdout was not reported as a transport failure: ${e.slice(0, 200)}` },
   { scenario: "long-answer",      expect: EXIT.OK, pauseStdout: 8000, args: ["--timeout", "40"],
-    why: "the drain wait was a flat 5 s, so a consumer that paused for eight seconds got 65536 bytes and exit 4 for a report it would have drained. The bound is what is LEFT of --timeout, with a 5 s floor",
+    why: "a paused reader must have the remaining report-drain budget to resume; a short fixed wait can truncate a report the reader would have drained",
     assert: (r) => (typeof r.answer === "string" && r.answer.length > 60000)
       || `the report was truncated for a consumer that paused: ${String(r.answer ?? "").length} bytes of answer` },
 
   // --- what the report says about the run's own footing ---
   { scenario: "happy",            expect: EXIT.OK,
-    why: "the initialize response carries the server's version in userAgent, and the driver dropped it — version drift was named only after a method came back -32601",
+    why: "the initialize response carries the server version in userAgent; the report must preserve it so protocol drift is diagnosable",
     assert: (r) => (r.codexVersion === "0.153.4" && r.codexVersionPinned === "0.153.4")
       || `codexVersion was not read out of the userAgent: ${JSON.stringify({ v: r.codexVersion, pinned: r.codexVersionPinned })}` },
   { scenario: "happy",            expect: EXIT.OK, env: { FAKE_CODEX_VERSION: "9.9.9" },
     why: "a codex that is not the one the protocol facts were measured against is the first thing to know when behaviour contradicts the docs; it must be said on stderr and in the report, not inferred from a later failure",
     assert: (r) => r.codexVersion === "9.9.9" || `drift was not reported: ${JSON.stringify(r.codexVersion)}` },
   { scenario: "happy",            expect: EXIT.OK,
-    why: "a run on account defaults and a healthy run were indistinguishable through the relay: nothing said whether model and effort came from a fresh probe of the caller's config, a stale last-known-good, or nothing at all",
+    why: "the report must distinguish config inherited from a fresh probe, a last-known-good snapshot and account defaults",
     assert: (r) => (r.configInherited?.source === "probe" && r.configInherited.keys.includes("model"))
       || `a healthy probe was not reported as one: ${JSON.stringify(r.configInherited)}` },
   { scenario: "happy",            expect: EXIT.OK,
@@ -805,19 +792,19 @@ const CASES = [
     assert: (r) => (r.configInherited?.source === "none" && r.configInherited.keys.length === 0)
       || `a failed probe was reported as inheritance: ${JSON.stringify(r.configInherited)}` },
   { scenario: "probe-piped",      expect: EXIT.COMMAND_FAILED,
-    why: "SKILL.md publishes `| tail` as a trap — the seat sees a slice of its own evidence and concludes from it — and no report field named it",
+    why: "the report must name commands piped to a pager because a seat can mistake a slice of its evidence for the whole result",
     assert: (r) => (r.commandsPipedToPager === 1 && /head\/tail\/less/.test(String(r.pipedToPagerHint ?? "")))
       || `a command ending in a pager was not counted: ${JSON.stringify({ n: r.commandsPipedToPager, hint: r.pipedToPagerHint })}` },
 
   // --- the server's parse is evidence, not authority ---
   { scenario: "probe-laundered",  expect: EXIT.COMMAND_FAILED,
-    why: "the probe exemption trusts commandActions absolutely: one tidy action extracted from a MULTI-LINE script let `grep -q needle` stand for `grep -q needle\\npnpm test`, laundering a failed suite into 'the probe answered no' and exiting 0 under an answer claiming the tests pass",
+    why: "one tidy commandAction for a multi-line script must not hide a failed command on a later line behind a probe exemption",
     assert: (r) => (r.commandsProbeNegative === 0 && r.commandsFailed === 1)
       || `a multi-line script was read as a probe: ${JSON.stringify({ probe: r.commandsProbeNegative, failed: r.commandsFailed })}` },
 
   // --- --expect-command is matched against the command, not the shell that ran it ---
   { scenario: "happy",            expect: EXIT.OK, args: ["--expect-command", "^echo"],
-    why: "the live server reports the WRAPPER (`/bin/zsh -lc '...'`), so an anchored pattern — the natural way to write one — could never match a live command; it must be matched against the command the server parsed as well",
+    why: "the live server reports a shell wrapper, so --expect-command must also match the parsed command for anchored patterns to work",
     assert: (r) => (r.expectationOk === true && r.commandsMatchingExpectation === 1)
       || `an anchored pattern did not match the parsed command: ${JSON.stringify({ ok: r.expectationOk, n: r.commandsMatchingExpectation })}` },
 
@@ -833,13 +820,13 @@ const CASES = [
 
   // --- the seat file is written by a relay, so it must take the shapes a relay writes ---
   { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nNETWORK: no\nCOMMIT: false\nBRIEF: 0\n", expect: EXIT.OK,
-    why: "NETWORK/COMMIT/BRIEF accepted only yes|true|1, so a relay copying `NETWORK: no` out of its own header template failed the whole seat with exit 2 before any work — and at read level the flag it was refusing for is itself a usage error",
+    why: "NETWORK/COMMIT/BRIEF must accept explicit false values in a header template without enabling the flag or rejecting the seat",
     assert: (r) => (r.network === false && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,COMMIT,BRIEF")
       || `a negated boolean did not read as omission: ${JSON.stringify({ net: r.network, fields: r.seatFileFields })}` },
 
   // --- --verify: the budget that killed it, and the sandbox that is opt-in ---
   { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--timeout", "3", "--verify", "sleep 20"],
-    why: "a verifier killed at min(300s, what is left of --timeout) reported `exitCode: null, signal: SIGKILL, error: ETIMEDOUT` without saying that the caller's own clock had killed it",
+    why: "a verifier killed at its budget must report that the clock caused the cut, rather than leave a null exit code and signal unexplained",
     assert: (r) => (r.verify?.timedOut === true && r.verify?.budgetMs > 0 && r.verify?.measured === false)
       || `the budget that ended the verifier was not reported: ${JSON.stringify(r.verify)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--verify-sandboxed"],
@@ -870,7 +857,7 @@ const CASES = [
     why: "and it must not fire where the reserve does not fit: on a 20 s seat a wrap-up steer would land in the first tick, which is an interruption rather than a warning — the rung is armed only when it leaves the model real time to write",
     assertStderr: (e) => !/wrap-up:/.test(e) || `a short seat was steered anyway: ${e.slice(0, 200)}` },
   { scenario: "cut-flush",        expect: EXIT.TIMEOUT, args: ["--timeout", "1"],
-    why: "a cut is not a kill: the server is asked to end the turn and given a grace to do it, and an answer that lands inside that grace is the answer the caller gets. Before this the deadline reported and tore the group down in the same tick, so a completion already on the wire was thrown away",
+    why: "a cut asks the server to end the turn and grants time to do so; an answer delivered inside that grace must reach the caller",
     assert: (r) => {
       if (r.cut?.kind !== "wall") return `the report did not name the budget that cut it: ${JSON.stringify(r.cut)}`;
       if (r.cut.completedInGrace !== true) return `the turn closed inside the grace and the report says otherwise: ${JSON.stringify(r.cut)}`;
@@ -900,7 +887,7 @@ const CASES = [
     why: "the pre-thread rung is unchanged by the cut: with no thread there is nothing to interrupt and nothing to report, so it aborts with the code and prints no report — the same contract --help publishes",
     assertStderr: (e) => /timed out after 0.5s/.test(e) || `the pre-thread timeout did not announce itself: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.OK,
-    why: "the schema has carried durationMs on every commandExecution item all along and the driver dropped it, so nothing could say whether a slow seat was slow because of the model or because of the work it ordered",
+    why: "durationMs on commandExecution items distinguishes time spent running commands from time spent in the model",
     assert: (r) => {
       const t = r.timing;
       if (!t || typeof t.wallMs !== "number" || typeof t.setupMs !== "number") return `no timing in the report: ${JSON.stringify(t)}`;
@@ -945,7 +932,7 @@ const CASES = [
         || `the review's token usage did not reach the report: ${JSON.stringify(r.tokenUsage?.total)}`;
     } },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: 100000\n",
-    why: "the token budget is gone entirely — a rudimentary bound nobody could size honestly — so the field it rode is not a knob to re-spell but an unknown one, and a header carrying it must fail loudly rather than run unbounded",
+    why: "the driver has no token-budget knob; a header naming one must fail loudly rather than imply an unenforced bound",
     assertStderr: (e) => /unknown seat field BUDGET_TOKENS at line 2 of/.test(e)
       || `BUDGET_TOKENS was still understood: ${e.slice(0, 200)}` },
 
@@ -955,7 +942,7 @@ const CASES = [
     assertStderr: (e) => /TIMEOUT is command-line-only; pass --timeout/.test(e)
       || `a seat file still set the wall clock: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nIDLE_TIMEOUT: 300\n",
-    why: "same for the two always-armed bounds: 900 s of silence and 1000 commands are native-like defaults, and a header able to widen or disable them is a hang guard a relayed value can switch off",
+    why: "the default idle guard and command cap belong to the driver; a relayed header must not widen or disable these hang guards",
     assertStderr: (e) => /IDLE_TIMEOUT is command-line-only; pass --idle-timeout/.test(e)
       || `a seat file still set the silence guard: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nMAX_COMMANDS: 2\n",
@@ -985,7 +972,7 @@ const CASES = [
     assert: (r) => (r.cut?.kind === "idle" && r.cut.limit === 1 && r.cut.observed >= 1 && r.turnStatus === "timedOut")
       || `the silent turn was not cut on the idle budget: ${JSON.stringify({ cut: r.cut, t: r.turnStatus })}` },
   { scenario: "idle-subagent",    expect: EXIT.OK, args: ["--idle-timeout", "1", "--timeout", "20"],
-    why: "Codex runs its own threads under ours, and their notifications are the turn working: judging liveness on the root thread alone cut a seat whose subagent had been busy for seconds. Liveness is inclusive; evidence of SUCCESS stays root-only, so the child's command still satisfies no gate",
+    why: "subagent notifications prove liveness even while the root is silent; success evidence stays root-only so the child's command satisfies no gate",
     assert: (r) => {
       if (r.cut !== null) return `a turn whose subagent was working throughout was cut: ${JSON.stringify(r.cut)}`;
       if (r.subagentThreads?.[0]?.threadId !== "thr_child") return `the subagent thread was not registered: ${JSON.stringify(r.subagentThreads)}`;
@@ -1007,7 +994,7 @@ const CASES = [
 
   // --- the default: no wall clock at all, the way a native subagent runs ---
   { scenario: "slow-turn",        expect: EXIT.OK, noTimeout: true,
-    why: "the default arms NO wall-clock rung: a turn that takes its time finishes and reports cut: null, where the old 900 s default made every seat a budget the coordinator had to size",
+    why: "the default arms no wall-clock rung: a turn that takes its time finishes and reports cut: null",
     assert: (r, ms) => (r.cut === null && r.turnStatus === "completed" && ms > 1200)
       || `the default run was bounded by something: ${JSON.stringify({ cut: r.cut, turnStatus: r.turnStatus, ms })}` },
   { scenario: "echo-instructions", expect: EXIT.OK, noTimeout: true,
@@ -1048,7 +1035,7 @@ const CASES = [
     assert: (r) => (r.cut === null && r.commandsSucceeded === 6)
       || `--max-commands 0 did not disable the cap: ${JSON.stringify({ cut: r.cut, cmds: r.commandsSucceeded })}` },
   { scenario: "many-commands",    expect: EXIT.OK, noTimeout: true,
-    why: "the 1000 default is a safety net, not a bound a six-command seat can feel",
+    why: "the default command cap is a safety net that this short command sequence must not reach",
     assert: (r) => (r.cut === null && r.commandsSucceeded === 6)
       || `the default command cap bit an ordinary turn: ${JSON.stringify({ cut: r.cut, cmds: r.commandsSucceeded })}` },
   { scenario: "many-commands",    expect: EXIT.TIMEOUT, noTimeout: true,
@@ -1059,7 +1046,7 @@ const CASES = [
 
   // --- the read level's cwd: a grant only where it grants something ---
   { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read\nEXPECT: echo\n",
-    why: "`SEAT: read` with no directory is the header a coordinator writes when the task is about the tree it is already standing in; refusing it made the ONE line a relay always has to fill in the one it could not omit",
+    why: "SEAT: read without a directory means the current tree and grants no additional write rights",
     assert: (r) => (r.cwd === (fs.realpathSync(process.cwd())) && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
       || `a bare SEAT: read did not default to the current directory: ${JSON.stringify({ cwd: r.cwd, fields: r.seatFileFields })}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: write\n",
@@ -1067,14 +1054,14 @@ const CASES = [
     assertStderr: (e) => /SEAT write needs a directory/.test(e)
       || `a bare SEAT: write defaulted its writable root: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, noCwd: true, args: ["--level", "write"],
-    why: "the same rule on the command line, where --cwd used to be required at both levels",
+    why: "the command line applies the same cwd rule: read can use the current directory, while write requires an explicit grant",
     assertStderr: (e) => /--cwd is required at --level write/.test(e)
       || `--level write ran without a writable root: ${e.slice(0, 200)}` },
 
   // --- one file, both halves: the header is the leading FIELD: lines and the rest is the prompt ---
   { scenario: "echo-input", expect: EXIT.OK, noPrompt: true,
     seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: count the files\nand say how many\n",
-    why: "the relay writes ONE file and never decides where the prompt begins: everything from the first line that is not a header field is the body, verbatim and label included, which is what a sonnet relay got wrong in both WP8-D live runs when it had to split the two itself",
+    why: "the relay writes one file; the driver preserves everything from the first non-header line as the body, including its label",
     assert: (r) => {
       const answer = String(r.answer);
       if (!/TASK: count the files\\nand say how many/.test(answer)) return `the body did not reach the turn verbatim: ${answer.slice(0, 200)}`;
@@ -1087,7 +1074,7 @@ const CASES = [
       || `a line below TASK: was read as a field: ${JSON.stringify({ net: r.network, model: r.model, fields: r.seatFileFields })}` },
   { scenario: "happy", expect: EXIT.USAGE, noPrompt: true,
     seat: "SEAT: read <CWD>\nEXPECT: echo\nNOTE: not a field\nTASK: do it\n",
-    why: "variant 2 of the owner's decision: an ALL-CAPS name that is not a field and not a body label, above the body, is a typo or a flag — and running the seat with that line silently swallowed into the prompt is the failure this refusal replaces",
+    why: "an unknown ALL-CAPS name above the body is a typo or flag; silently treating it as prompt text would leave a believed setting unapplied",
     assertStderr: (e) => (/unknown seat field NOTE at line 3 of/.test(e) && /the body starts at the first TASK: line/.test(e))
       || `the unknown field did not name its line and the way out: ${e.slice(0, 240)}` },
   { scenario: "resume-active", expect: EXIT.BUSY, relay: true, noPrompt: true,
@@ -1131,20 +1118,16 @@ function run(c) {
       seatArgs = [c.relay ? "--relay" : "--seat-file", f];
     }
     const { child: p, done } = spawnNode(
-      // Every case gets a wall clock so a hung fixture cannot stall the suite; `noTimeout` opts out, and
-      // that is the only way to measure the DEFAULT — which is now no wall clock at all.
+      // Give cases a wall clock to bound hung fixtures; noTimeout opts out to measure the default.
       [DRIVER, ...(c.seat ? seatArgs : c.noCwd ? [] : ["--level", "read", "--cwd", shimDir]),
        ...(c.noTimeout ? [] : ["--timeout", "20"]),
        ...(c.noPrompt ? [] : ["--prompt", "irrelevant, the server is scripted"]), ...(c.args ?? [])],
-      // A state directory of this suite's own: every case used to write locks, an isolated Codex home and
-      // the answer log into the caller's real ~/.codex-delegate, so a suite run concurrent with a real
-      // delegation overwrote that delegation's inherited config with this fixture's values.
+      // Use private state so fixture config, locks and answer logs cannot affect real delegations.
       { env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
                CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
                ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
         unsetEnv: c.unsetEnv ?? [], killAfterMs: 30000 });
-    // A consumer that stops reading, and one that merely pauses: the report write is the only place the
-    // driver touches a pipe it does not own, and both shapes used to end the run wrongly.
+    // A consumer that stops reading and one that merely pauses exercise the report's pipe handling.
     if (c.closeStdout) { try { p.stdout.destroy(); } catch {} }
     if (c.pauseStdout) { p.stdout.pause(); setTimeout(() => p.stdout.resume(), c.pauseStdout); }
     done.then(resolve);
@@ -1172,9 +1155,7 @@ const deadPid = () => {
   return r.pid ?? 999999;
 };
 
-// A repository of this suite's OWN making. The dirty leg used to run on the checkout the suite lives in,
-// so it measured the developer's working tree rather than the gate: on a clean checkout the gate skipped,
-// no review was printed, and the case passed only while someone happened to have uncommitted work.
+// Create a repository for the gate cases so dirtiness is controlled by the case, not the caller's checkout.
 const gitRepo = (name, dirty) => {
   const dir = path.join(shimDir, name);
   fs.mkdirSync(dir, { recursive: true });
@@ -1228,7 +1209,7 @@ flow("the opt-in stop gate reviews a dirty tree and skips a clean tree",
   });
 
 flow("the stop gate prints the review a non-zero driver exit still carries",
-  "a post-turn exit code — a failed command, a missed expectation, a cut turn — arrives WITH the answer beside it; printing only stderr there discarded the very review the hook exists to show",
+  "a non-zero post-turn exit can carry the review answer; the stop gate must print it rather than show only stderr",
   async () => {
     const repo = gitRepo("failing-stop-gate", true);
     if (repo.error) return repo.error;
@@ -1321,7 +1302,7 @@ flow("--wait that runs out of budget hands back the handle, not a verdict",
   });
 
 flow("a run that died without writing a report is exit 4, not a wait that never ends",
-  "no endedAt and no process is the one state a poller cannot resolve on its own: saying 'still running' about a SIGKILLed seat wedges the coordinator for the fourteen days the record is kept",
+  "no endedAt and no process is a state a poller cannot resolve on its own; calling it still running wedges the coordinator for as long as the record is kept",
   async () => {
     const state = flowState();
     const jobs = path.join(state, "jobs");
@@ -1378,7 +1359,7 @@ flow("--jobs derives running, crashed and ended from pid liveness, and spawns no
   });
 
 flow("with no wall clock, a prompt that never arrives on stdin is ended by the silence budget",
-  "the wall clock used to be the only thing that could unblock the stdin read; with no clock, a pipe left open by a caller that has since died would hold the driver open forever, with no thread, no report and nobody to reclaim it",
+  "with no wall clock, an open stdin pipe from a dead caller can hold the driver forever before any thread exists; the stdin read needs its own bound",
   async () => {
     const state = flowState();
     const p = spawn(process.execPath, [DRIVER, "--level", "read", "--cwd", shimDir, "--idle-timeout", "2"],
@@ -1399,7 +1380,7 @@ flow("with no wall clock, a prompt that never arrives on stdin is ended by the s
   });
 
 flow("a detached run with no --timeout records no wall clock, and still ends on its own",
-  "the detached route used to default to 7200 s because nobody was waiting on it; with no wall clock anywhere, one default covers every route and a coordinator has nothing to size",
+  "the detached route uses the same no-wall-clock default as the blocking route, leaving no implicit budget for a coordinator to size",
   async () => {
     const state = flowState();
     const { code, out, err } = await run({ scenario: "slow-turn", args: ["--detach"], noTimeout: true,
@@ -1415,7 +1396,7 @@ flow("a detached run with no --timeout records no wall clock, and still ends on 
   });
 
 flow("--cancel still stops a seat with no wall clock, hours after it started",
-  "the age guard used to fall back to 7200 s for a run that declared no budget, so a default seat became uncancellable after 2 h 01 — while the relay's own wait loop runs for ~4 h. The pid-recycling guard is the recorded identity, which holderAlive already checks; an invented cap only made 'stopped by you' false where it mattered",
+  "a run with no declared budget must remain cancellable regardless of age; the recorded process identity guards against pid recycling without inventing an age cap",
   async () => {
     const state = flowState();
     const jobs = path.join(state, "jobs");
@@ -1574,7 +1555,7 @@ flow("run directories are pruned on both bounds, and a run still writing into on
   });
 
 flow("a detached run's own child does not detach again",
-  "the child re-parses the front's command line, so the front has to strip --detach AND --run-dir has to win: without that precedence every seat forks driver after driver. DETACH is command-line-only now, so the seat file cannot reintroduce it either",
+  "the child re-parses the front command line, so --detach must be stripped and --run-dir must win to prevent recursive detachment; seat files cannot reintroduce CLI-only DETACH",
   async () => {
     const state = flowState();
     const { code, out, err } = await run({ scenario: "happy",
@@ -1615,9 +1596,6 @@ flow("the detach contradictions are refused, and a run directory that cannot be 
 
 // --- the relay: one command in, one envelope out, and no decision left to the agent that ran it ---
 //
-// Everything below used to be prose in agents/codex-seat.md — which wait to run, when to repeat it, which
-// keys to copy, how to render a failure. A weaker model followed some of it. These are the cases that
-// replace it, so a rule that regresses fails here rather than in a live seat.
 
 // The shape a coordinator parses: fields above the first `--- answer (N bytes) ---`, answer below it,
 // and nothing else anywhere.
@@ -1653,7 +1631,7 @@ flow("--relay prints the envelope and exits with the code the run itself decided
   });
 
 flow("a seat that outlives the relay's wait comes back as exit 10 with a LITERAL collect command",
-  "the relay repeats one command it was handed; a command needing substitution is a decision, and the wait loop is exactly where a weaker model improvised (measured: a hand-built --wait with the wrong id). So the envelope carries the absolute driver, the thread and the cwd, already quoted",
+  "the envelope must supply an absolute, quoted collect command with the thread and cwd so the relay can repeat it without substitution",
   async () => {
     const state = flowState();
     const started = await run({ scenario: "stalled-turn", relay: true, noPrompt: true,
@@ -1684,7 +1662,7 @@ flow("a seat that outlives the relay's wait comes back as exit 10 with a LITERAL
   });
 
 flow("a relayed seat that never got a thread is an envelope too, with the stderr tail in its own block",
-  "the relay has no rule for an empty stdout: every exit the driver can take in this mode starts with `exitCode:`, and the failure evidence goes in a `--- stderr` block ABOVE the answer marker — measured, a relay that put a stderr quote below it had the coordinator read it as Codex's answer",
+  "every relay-mode exit starts with exitCode; stderr belongs above the answer marker so the coordinator cannot read failure diagnostics as Codex's answer",
   async () => {
     const { code, out } = await run({ scenario: "happy", relay: true, noPrompt: true,
       seat: "SEAT: read /nonexistent/relay/dir\nTASK: do it\n",
@@ -1716,7 +1694,7 @@ flow("the envelope carries the FULL answer where --brief clipped the report's",
   });
 
 flow("--relay supplies the rights line a coordinator's prompt does not have, and --seat-file still refuses to",
-  "every edit the relay was allowed became an edit it made — it added a SEAT line with a directory, then a gate waiver, then rewrote a header that was already there. So the relay adds nothing and the DEFAULT is here: read level in the current directory, which widens nothing, on the --relay route only. The JSON route keeps `rights must be declared, not defaulted`, and the case for it below stays green",
+  "the relay copies the prompt unchanged; only --relay defaults missing rights to read in the current directory, while --seat-file requires a rights declaration",
   async () => {
     const here = fs.realpathSync(process.cwd());
     // A prompt exactly as a coordinator wrote it: no header at all.
@@ -1777,7 +1755,7 @@ flow("--relay and --relay-collect refuse the flags that would change what they p
   });
 
 flow("the job record's tokensSpent is what a real run measured, on the root thread",
-  "every other case here writes the record by hand, so nothing pinned the value a run computes — and it is what --jobs and the running handle report, the one number a coordinator sizes a fan-out with. The fixture emits a subagent thread's 9900 after the root's 135, so a dropped thread filter reads 9900 here",
+  "the run must compute the root token total that --jobs and the running handle report; a later subagent usage event exposes a missing thread filter",
   async () => {
     const state = flowState();
     const { code, err } = await run({ scenario: "happy", env: { CODEX_DELEGATE_STATE_DIR: state } });
@@ -1789,7 +1767,7 @@ flow("the job record's tokensSpent is what a real run measured, on the root thre
   });
 
 flow("a private $TMPDIR outlives its run and is reaped on the run-directory bounds",
-  "two measured failures in one rule: removing it at exit took with it the file --brief had told the seat to write, and leaving it in the system temp dir left a directory per SIGKILLed run forever. Under <state>/tmp/<runId> it survives the run and the next run that needs one prunes it — never one whose own run is still alive",
+  "private scratch must survive exit so answer paths remain usable, then be pruned by later runs within retention bounds; live runs must never be pruned",
   async () => {
     const state = flowState();
     const first = await run({ scenario: "tmp-write", unsetEnv: ["TMPDIR"], env: { CODEX_DELEGATE_STATE_DIR: state } });
@@ -1824,10 +1802,8 @@ for (const c of CASES) {
   let report = null;
   try { report = JSON.parse(out); } catch {}
   if (report) rendered.push({ label, report });
-  // An exit code alone cannot catch a report that destroys information — two runs with opposite verify
-  // results once printed byte-identically at the same code. `assert` returns true, or a reason string.
-  // A THROWING assert is a failed case, not a dead suite: unlike lock.test.mjs this loop had no
-  // per-case guard, so one bad property access aborted every case after it and skipped cleanup.
+  // Check report contents as well as exit codes so opposite verifier results cannot look identical.
+  // An assertion returns true or a reason; a thrown assertion fails its case without aborting the suite.
   let assertion;
   try {
     assertion = c.assertStderr ? c.assertStderr(err, ms)
@@ -1851,7 +1827,7 @@ for (const c of CASES) {
 }
 
 flow("--ephemeral leaves no thread behind: a turn ran, but no job record and nothing for `--resume last`",
-  "the coverage ledger listed --ephemeral as untouched and the only cases it had were argument errors, so nothing measured what the flag DOES — writeJob() is where a leak would show, and `--resume last` is what a coordinator would pick up afterwards",
+  "--ephemeral must leave no job record that --resume last could pick up, while the control run proves ordinary records are still written",
   async () => {
     const state = flowState();
     const eph = await run({ scenario: "happy", args: ["--ephemeral"],
@@ -1900,7 +1876,7 @@ flow("every report this suite produced renders as an envelope a coordinator can 
 const helpRun = (flag) => spawnSync(process.execPath, [DRIVER, flag], { encoding: "utf8" });
 
 flow("--help fits a screenful and ends by pointing at --help-all",
-  "the two tiers exist because a 389-line --help is one a coordinator scrolls past instead of reading; a cap nobody measures is the cap that grows back one flag at a time",
+  "the short --help has a line cap so a coordinator can read it; measuring that cap prevents it growing one flag at a time",
   () => {
     const core = helpRun("--help"), all = helpRun("--help-all");
     const problems = [];

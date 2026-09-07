@@ -7,19 +7,28 @@
 // and a broken driver fails them all with the same cause. Each suite's own output is passed through as it
 // arrives; the last line here is the one to read.
 //
-// Exit 0 only if every suite exited 0. fidelity self-skips when the codex binary is absent (that is not a
-// fidelity defect) and the summary says so rather than counting it as verified — pass --require-live, or
-// set REQUIRE_LIVE_CODEX=1, to make that skip a failure. orchestrate-live is gated the same way and
-// spends real sessions, so without CODEX_DELEGATE_LIVE_ORCHESTRATE=1 it exits 0 having run nothing, and
-// the summary counts it as not run rather than as green.
+// Exit 0 only if every suite exited 0. A suite that needs a live binary or an opt-in variable exits 0
+// without it and says so in its own last line; the summary repeats that as skipped or not run rather than
+// counting it green. --require-live (or REQUIRE_LIVE_CODEX=1) turns fidelity's skip into a failure.
 
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseCount } from "./lib/harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// Hand-ordered, because the order is information (cheapest first), and checked against the directory,
+// because a suite file nobody listed here would otherwise never run.
 const SUITES = ["orchestrate", "package", "agent-contract", "attach-pasted", "conformance", "protocol", "lock", "fidelity",
                 "orchestrate-live"];
+const onDisk = fs.readdirSync(HERE).filter((f) => f.endsWith(".test.mjs")).map((f) => f.slice(0, -".test.mjs".length));
+const unlisted = onDisk.filter((n) => !SUITES.includes(n)), missing = SUITES.filter((n) => !onDisk.includes(n));
+if (unlisted.length || missing.length) {
+  console.log(`run-all: SUITES disagrees with evals/: ${[...unlisted.map((n) => `${n}.test.mjs is not listed`),
+    ...missing.map((n) => `${n}.test.mjs does not exist`)].join("; ")}`);
+  process.exit(2);
+}
 const requireLive = process.argv.includes("--require-live") || process.env.REQUIRE_LIVE_CODEX === "1";
 
 function runSuite(name) {
@@ -36,24 +45,12 @@ function runSuite(name) {
   });
 }
 
-// The count each suite states about itself, rather than a tally kept here: a second place to count is a
-// second thing that can disagree with the suite it is counting.
-const countOf = (out) => {
-  const all = out.match(/^all (\d+)\b/m);
-  const skipped = out.match(/^(\d+) skipped \(codex binary absent\)/m);
-  if (skipped && !/\ball \d+ cases that ran agree/.test(out)) return `${skipped[1]} skipped`;
-  // A gated suite exits 0 having run nothing, and a "?" beside "all N suites green" read as one that had
-  // passed. It is named here and counted apart below.
-  if (!all && /NOT RUN/.test(out)) return "not run";
-  return all ? all[1] : "?";
-};
-
 const results = [];
 let failedName = null, failedCode = 0, notRun = 0;
 for (const name of SUITES) {
   console.log(`\n=== ${name} ===`);
   const { code, out, ms } = await runSuite(name);
-  const count = countOf(out);
+  const count = parseCount(out);
   if (count === "not run") notRun++;
   results.push(`${name} ${count}`);
   if (code !== 0) { failedName = name; failedCode = code; break; }

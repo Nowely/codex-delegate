@@ -3,12 +3,9 @@
 //
 //   node evals/orchestrate.test.mjs
 //
-// The orchestrate mode is prompt only: it ships no driver change and no new header field, so nothing the
-// other suites read can tell whether a decision survived an edit. What the page owns is a list of
-// decisions the user agreed to one by one, each of them a sentence, a table row or a template line that a
-// later rewrite can lose without breaking anything visible. This pins them: one case per decision, the
-// prose whitespace-collapsed so a re-wrap is not a failure, the rows and the template anchored because
-// their layout is what a seat copies. It reads three files and calls no model.
+// The orchestrate mode is prompt only, so these cases pin its decisions as sentences, rows and template
+// lines. Prose is whitespace-collapsed to allow rewrapping; rows and templates are anchored to preserve
+// the layout a seat copies.
 //
 // The page is the approved text. A pin that disagrees with it is a wrong pin.
 
@@ -83,7 +80,7 @@ test("the tier table pairs all eight model names, one tier per row",
 // ------------------------------------------------------------------ A: what the mode is
 
 test("A1 the mode is prompt only",
-  "the whole review rested on this: the mode buys nothing new to maintain, and a page that starts asking for a header field or a driver flag is a different proposal",
+  "the mode adds no mechanism to maintain; asking for a new header field or driver flag would change its scope",
   () => says("The mode is prompt only: no driver or relay change, no new header field or flag, the relay's temp file and the driver's state directory unchanged."));
 
 test("A3 the sibling is loaded first and this page re-cuts only what the mode changes",

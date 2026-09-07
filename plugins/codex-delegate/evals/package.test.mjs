@@ -5,22 +5,25 @@
 //
 // marketplace.json declares `source: "./"`, so the payload IS this repository: everything git tracks is
 // installed into a user's plugin cache. Nothing asserted what must be in it, and nothing compared the
-// four places the version is written — plugin.json, both SKILL.md files' metadata.version and the
-// driver — against each other or against the tag that was cut.
+// places the version is written against each other or against the tag that was cut.
 
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { ROOT, VERSION, registry, runCases, summarize } from "./lib/harness.mjs";
+import { EVALS, ROOT, SCRIPTS, VERSION, registry, runCases, summarize } from "./lib/harness.mjs";
 
 const { cases: CASES, test } = registry();
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const git = (args) => spawnSync("git", ["-C", ROOT, ...args], { encoding: "utf8" });
+// Every skill page the tree holds, read from the directory rather than listed: a new skill is a new copy
+// of the version and a new set of links the day its directory appears.
+const skillPages = fs.readdirSync(path.join(ROOT, "skills"), { withFileTypes: true })
+  .filter((d) => d.isDirectory()).map((d) => `skills/${d.name}/SKILL.md`).sort();
 
 // ------------------------------------------------------------------ version
 
-test("plugin.json, both SKILL.md files and the driver state one version",
-  "a saved report names the driver that produced it, and an install names the plugin; four hand-maintained copies drifted silently for a release, and a second skill is a fourth copy nobody bumps",
+test("plugin.json, every SKILL.md and the driver state one version",
+  "a saved report names the driver that produced it, and an install names the plugin; hand-maintained copies drifted silently for a release, and every new skill adds one nobody bumps",
   () => {
     const plugin = JSON.parse(read(".claude-plugin/plugin.json")).version;
     // The Agent Skills spec puts version under `metadata`; a top-level `version` is an unknown frontmatter
@@ -29,12 +32,20 @@ test("plugin.json, both SKILL.md files and the driver state one version",
       /^metadata:\s*$[\s\S]*?^\s+version:\s*"?([^"\s]+)"?\s*$/m.exec(read(rel).split("---")[1] ?? "")?.[1] ?? null;
     const seen = {
       "plugin.json": plugin,
-      "codex-delegate SKILL.md metadata.version": metaVersion("skills/codex-delegate/SKILL.md"),
-      "orchestrate SKILL.md metadata.version": metaVersion("skills/orchestrate/SKILL.md"),
+      ...Object.fromEntries(skillPages.map((p) => [`${p} metadata.version`, metaVersion(p)])),
       "driver VERSION": VERSION,
     };
     const disagree = Object.entries(seen).filter(([, v]) => v !== VERSION);
     return disagree.length === 0 || `versions disagree: ${JSON.stringify(seen)}`;
+  });
+
+test("marketplace.json describes the same plugin as plugin.json",
+  "the marketplace entry is a second copy of the plugin's name and description, and a marketplace listing that names a plugin the manifest does not is an install that fails at the last step",
+  () => {
+    const plugin = JSON.parse(read(".claude-plugin/plugin.json"));
+    const entry = JSON.parse(read(".claude-plugin/marketplace.json")).plugins.find((p) => p.name === plugin.name);
+    if (!entry) return `marketplace.json lists no plugin named ${plugin.name}`;
+    return entry.description === plugin.description || "the two descriptions differ";
   });
 
 test("the newest v* tag is the version the tree claims",
@@ -64,30 +75,31 @@ const tracked = (() => {
   return r.status === 0 ? r.stdout.split("\0").filter(Boolean) : null;
 })();
 
-test("git can list the payload (the two cases below are sound)",
-  "both content cases read this list; if it were empty they would pass vacuously, asserting nothing about what ships",
+test("git can list the payload (the content cases below are sound)",
+  "the content cases read this list; if it were empty they would pass vacuously, asserting nothing about what ships",
   () => (tracked && tracked.length > 50) || `git ls-files returned ${tracked ? tracked.length : "an error"}`);
 
 test("every file the plugin needs to run is in the payload",
   "an install is a copy of this tree: a file left untracked is a file the user does not get, and the failure lands at delegation time as exit 90 or a missing reference",
   () => {
+    // The fixed entries are the files no directory listing yields; skill pages, scripts and suites come
+    // from the tree itself, so a file created and never `git add`ed is caught here rather than at a
+    // user's install.
+    const under = (rel) => fs.readdirSync(path.join(ROOT, rel)).filter((f) => f.endsWith(".mjs")).map((f) => `${rel}/${f}`);
     const required = [
       ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json",
-      "skills/codex-delegate/SKILL.md",
-      "skills/orchestrate/SKILL.md",
-      "skills/codex-delegate/scripts/driver.mjs",
-      "skills/codex-delegate/scripts/attach-pasted.mjs",
-      "skills/codex-delegate/scripts/stop-gate.mjs",
       "skills/codex-delegate/schemas/review-output.schema.json",
       "agents/codex-seat.md", "LICENSE", "README.md",
+      ...skillPages,
+      ...under(path.relative(ROOT, SCRIPTS)),
+      ...under(path.relative(ROOT, EVALS)), ...under(path.relative(ROOT, path.join(EVALS, "lib"))),
     ];
     const have = new Set(tracked ?? []);
     const missing = required.filter((f) => !have.has(f));
     // Every reference a SKILL.md sends the reader to, resolved rather than listed here: a new one is
     // covered the moment it is linked, and a link to a file nobody committed is caught before release.
-    // Both pages, because orchestrate's whole mechanism is a link into the sibling.
-    const pages = ["skills/codex-delegate/SKILL.md", "skills/orchestrate/SKILL.md"];
-    const linked = pages.flatMap((page) => [...read(page).matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)]
+    // Every page, because orchestrate's whole mechanism is a link into the sibling.
+    const linked = skillPages.flatMap((page) => [...read(page).matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)]
       .map((m) => m[1].split("#")[0])
       .filter((t) => t && !/^[a-z]+:/.test(t))                     // an external URL is not part of the payload
       .map((t) => path.relative(ROOT, path.resolve(path.dirname(path.join(ROOT, page)), t)).split(path.sep).join("/")));
