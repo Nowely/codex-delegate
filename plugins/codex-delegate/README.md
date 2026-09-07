@@ -19,6 +19,11 @@ report as though it had; the relay agent's defaults are the native ones. Where a
 compete, the default wins. Where a rule must be known to succeed, that is a defect in this repository,
 not in the coordinator.
 
+A second, user-invoked skill applies the same goal to the whole session. `/codex-delegate:orchestrate`
+turns the main conversation into an orchestrator that scouts inline, agrees one plan, and pushes every
+verbose step onto Claude and Codex seats; it is prompt only, adds no flag or field, and is a delta over
+this skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md)).
+
 ## Prerequisites
 
 - **`codex` CLI, installed and authenticated.** `codex` must be on `PATH` and signed in — check with
@@ -38,15 +43,16 @@ not in the coordinator.
 
 ## Install
 
-As a plugin — the full set: the skill plus the namespaced subagent (the repo is its own marketplace):
+As a plugin — the full set: both skills plus the namespaced subagent (the repo is its own marketplace):
 
 ```
 /plugin marketplace add Nowely/codex-delegate
 /plugin install codex-delegate@codex-delegate
 ```
 
-This route exposes the skill as `codex-delegate:codex-delegate` and the wrapped seat as
-`codex-delegate:codex-seat`.
+This route exposes the skill as `codex-delegate:codex-delegate`, the wrapped seat as
+`codex-delegate:codex-seat`, and the orchestrator mode as `codex-delegate:orchestrate`, which only the
+user can turn on.
 
 The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then
 `claude plugin install codex-delegate@codex-delegate`. To update, refresh the marketplace clone and
@@ -58,7 +64,7 @@ claude plugin update codex-delegate@codex-delegate
 ```
 
 Or from source — clone and symlink, so the checkout stays the single source of truth (add the second
-symlink if you want the `codex-seat` agent without the plugin route):
+symlink for the `codex-seat` agent without the plugin route, the third for the orchestrator mode):
 
 ```bash
 git clone https://github.com/Nowely/codex-delegate.git
@@ -66,13 +72,14 @@ cd codex-delegate
 mkdir -p ~/.claude/skills ~/.claude/agents          # absent on a machine that has never run Claude Code
 ln -s "$PWD/skills/codex-delegate" ~/.claude/skills/codex-delegate
 ln -s "$PWD/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
+ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
 ```
 
-On this clone-and-symlink route the agent spelling is bare `codex-seat` and the skill is
-`codex-delegate`; on the plugin route they are `codex-delegate:codex-seat` and
-`codex-delegate:codex-delegate`.
+On this clone-and-symlink route the agent spelling is bare `codex-seat`, the skill is
+`codex-delegate` and the mode is `/orchestrate`; on the plugin route they are
+`codex-delegate:codex-seat`, `codex-delegate:codex-delegate` and `/codex-delegate:orchestrate`.
 
-The `mkdir -p` is not decoration: without it both `ln -s` calls fail with `No such file or directory`
+The `mkdir -p` is not decoration: without it all three `ln -s` calls fail with `No such file or directory`
 on a fresh account, which is exactly the account this route is written for.
 
 Verify the install from the checkout (plugin installs carry the suites too, under the plugin root) —
@@ -206,14 +213,17 @@ skills/codex-delegate/           the skill: SKILL.md (the operating manual), scr
                                  (one file, no dependencies, only Node builtins),
                                  scripts/attach-pasted.mjs (hands a seat the images the user pasted,
                                  which live only in the Claude Code transcript), references/
+skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the codex-delegate skill,
+                                 prompt only
 agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
-evals/                           seven suites — package (what ships, and the version it claims),
-                                 agent-contract, attach-pasted, conformance (the fixture against the
-                                 pinned schemas), protocol, lock, and fidelity against the live
-                                 server; run-all.mjs runs them, lib/harness.mjs is their shared machinery
+evals/                           eight suites — orchestrate (the orchestrate skill's text), package
+                                 (what ships, and the version it claims), agent-contract,
+                                 attach-pasted, conformance (the fixture against the pinned schemas),
+                                 protocol, lock, and fidelity against the live server; run-all.mjs runs
+                                 them, lib/harness.mjs is their shared machinery
 package.json                     private; the Node floor and `npm test`
-.github/workflows/ci.yml         the six free suites on {ubuntu, macOS} × Node {18, 24}
+.github/workflows/ci.yml         the seven free suites on {ubuntu, macOS} × Node {18, 24}
 schema-0.150.1/                  the pinned protocol schema the driver is written against; kept in the
                                  repo (and therefore in plugin installs) deliberately — it is the
                                  regeneration oracle the upgrade recipe diffs against, and stripping it
@@ -228,6 +238,7 @@ Canonical homes for repeated stories:
 | Subject | Canonical home |
 | --- | --- |
 | composition, rights, workflow | [`SKILL.md`](skills/codex-delegate/SKILL.md) |
+| orchestration: tiers, Codex share, seat bounds, returns | [`skills/orchestrate/SKILL.md`](skills/orchestrate/SKILL.md) |
 | flags and field formats | `node skills/codex-delegate/scripts/driver.mjs --help` (`--help-all` for the rest) |
 | wrapped-agent relay contract | [`agents/codex-seat.md`](agents/codex-seat.md) |
 | environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/codex-delegate/references/environment-and-internals.md) |

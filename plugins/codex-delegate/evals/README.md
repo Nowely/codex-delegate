@@ -21,7 +21,7 @@ decorrelated when it was not.
 
 ## The runnable suites
 
-All seven are runnable and should stay green. One command runs them all, cheapest first, stopping at the
+All eight are runnable and should stay green. One command runs them all, cheapest first, stopping at the
 first red suite and printing one summary line:
 
 ```bash
@@ -31,6 +31,7 @@ npm test                # = node evals/run-all.mjs
 Individually, when one of them is the thing being worked on:
 
 ```bash
+node evals/orchestrate.test.mjs     # the orchestrate skill's text; no model, no codex
 node evals/package.test.mjs         # what ships, and the version it says it is
 node evals/agent-contract.test.mjs  # the shipped relay agent against the driver
 node evals/attach-pasted.test.mjs   # handing a seat the images the user pasted
@@ -49,8 +50,9 @@ arrays are the inventory, and each suite states its own count in its last line.
 own `EXIT`, `SEAT_FIELDS`, `LADDER` and `lockKey` rather than letting a suite restate them.
 `driver.mjs` runs `main()` only when it IS the entry point, which is what makes importing it safe.
 
-`.github/workflows/ci.yml` runs the six free suites — package, agent-contract, attach-pasted,
-conformance, protocol, lock — on {ubuntu, macOS} × Node {18, 24}. It installs nothing and calls no model.
+`.github/workflows/ci.yml` runs the seven free suites — orchestrate, package, agent-contract,
+attach-pasted, conformance, protocol, lock — on {ubuntu, macOS} × Node {18, 24}. It installs nothing
+and calls no model.
 
 `fidelity.test.mjs` is the exception and runs LOCALLY, before a release: it needs the real `codex` and an
 authenticated home, and its opt-in live-turn case spends a real turn. Absent the binary it exits 0,

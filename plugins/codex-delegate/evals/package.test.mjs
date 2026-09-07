@@ -5,8 +5,8 @@
 //
 // marketplace.json declares `source: "./"`, so the payload IS this repository: everything git tracks is
 // installed into a user's plugin cache. Nothing asserted what must be in it, and nothing compared the
-// three places the version is written — plugin.json, SKILL.md's metadata.version and the driver — against
-// each other or against the tag that was cut.
+// four places the version is written — plugin.json, both SKILL.md files' metadata.version and the
+// driver — against each other or against the tag that was cut.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -19,15 +19,20 @@ const git = (args) => spawnSync("git", ["-C", ROOT, ...args], { encoding: "utf8"
 
 // ------------------------------------------------------------------ version
 
-test("plugin.json, SKILL.md and the driver state one version",
-  "a saved report names the driver that produced it, and an install names the plugin; three hand-maintained copies drifted silently for a release",
+test("plugin.json, both SKILL.md files and the driver state one version",
+  "a saved report names the driver that produced it, and an install names the plugin; four hand-maintained copies drifted silently for a release, and a second skill is a fourth copy nobody bumps",
   () => {
     const plugin = JSON.parse(read(".claude-plugin/plugin.json")).version;
     // The Agent Skills spec puts version under `metadata`; a top-level `version` is an unknown frontmatter
     // key and strict packaging rejects it, so this reads the nested one and nothing else.
-    const front = read("skills/codex-delegate/SKILL.md").split("---")[1] ?? "";
-    const skill = /^metadata:\s*$[\s\S]*?^\s+version:\s*"?([^"\s]+)"?\s*$/m.exec(front)?.[1] ?? null;
-    const seen = { "plugin.json": plugin, "SKILL.md metadata.version": skill, "driver VERSION": VERSION };
+    const metaVersion = (rel) =>
+      /^metadata:\s*$[\s\S]*?^\s+version:\s*"?([^"\s]+)"?\s*$/m.exec(read(rel).split("---")[1] ?? "")?.[1] ?? null;
+    const seen = {
+      "plugin.json": plugin,
+      "codex-delegate SKILL.md metadata.version": metaVersion("skills/codex-delegate/SKILL.md"),
+      "orchestrate SKILL.md metadata.version": metaVersion("skills/orchestrate/SKILL.md"),
+      "driver VERSION": VERSION,
+    };
     const disagree = Object.entries(seen).filter(([, v]) => v !== VERSION);
     return disagree.length === 0 || `versions disagree: ${JSON.stringify(seen)}`;
   });
@@ -69,6 +74,7 @@ test("every file the plugin needs to run is in the payload",
     const required = [
       ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json",
       "skills/codex-delegate/SKILL.md",
+      "skills/orchestrate/SKILL.md",
       "skills/codex-delegate/scripts/driver.mjs",
       "skills/codex-delegate/scripts/attach-pasted.mjs",
       "skills/codex-delegate/scripts/stop-gate.mjs",
@@ -77,10 +83,14 @@ test("every file the plugin needs to run is in the payload",
     ];
     const have = new Set(tracked ?? []);
     const missing = required.filter((f) => !have.has(f));
-    // Every reference SKILL.md sends the reader to, resolved rather than listed here: a new one is
+    // Every reference a SKILL.md sends the reader to, resolved rather than listed here: a new one is
     // covered the moment it is linked, and a link to a file nobody committed is caught before release.
-    const skill = read("skills/codex-delegate/SKILL.md");
-    const linked = [...skill.matchAll(/references\/([a-z0-9-]+\.md)/g)].map((m) => `skills/codex-delegate/references/${m[1]}`);
+    // Both pages, because orchestrate's whole mechanism is a link into the sibling.
+    const pages = ["skills/codex-delegate/SKILL.md", "skills/orchestrate/SKILL.md"];
+    const linked = pages.flatMap((page) => [...read(page).matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)]
+      .map((m) => m[1].split("#")[0])
+      .filter((t) => t && !/^[a-z]+:/.test(t))                     // an external URL is not part of the payload
+      .map((t) => path.relative(ROOT, path.resolve(path.dirname(path.join(ROOT, page)), t)).split(path.sep).join("/")));
     const dangling = [...new Set(linked)].filter((f) => !have.has(f));
     const problems = [];
     if (missing.length) problems.push(`not tracked, so not shipped: ${missing.join(", ")}`);

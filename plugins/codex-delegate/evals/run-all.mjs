@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SUITES = ["package", "agent-contract", "attach-pasted", "conformance", "protocol", "lock", "fidelity"];
+const SUITES = ["orchestrate", "package", "agent-contract", "attach-pasted", "conformance", "protocol", "lock", "fidelity"];
 const requireLive = process.argv.includes("--require-live") || process.env.REQUIRE_LIVE_CODEX === "1";
 
 function runSuite(name) {
