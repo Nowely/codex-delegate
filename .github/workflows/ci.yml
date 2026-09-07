@@ -1,6 +1,6 @@
 name: CI
 
-# The six suites that need no `codex` binary and call no model. Nothing but a person's memory was running
+# The seven suites that need no `codex` binary and call no model. Nothing but a person's memory was running
 # them. The matrix exists because the driver has one macOS-only call (the managed preferences plist) and
 # Linux was never measured at all, and because the Node floor package.json declares — 18 — was a claim
 # nothing tested.
@@ -41,7 +41,7 @@ jobs:
           node --check skills/codex-delegate/scripts/stop-gate.mjs
           node --check evals/fake-app-server.mjs
       # No install step: the driver, the suites and the fixture import node: builtins only.
-      # run-all's seventh suite, fidelity, needs the real `codex` and is not installed here: it skips,
+      # run-all's eighth suite, fidelity, needs the real `codex` and is not installed here: it skips,
       # says so, and exits 0. It stays a LOCAL pre-release step — it needs an authenticated home and its
       # live-turn case spends real money — and `--require-live` is the flag for that local gate.
       - name: Suites
