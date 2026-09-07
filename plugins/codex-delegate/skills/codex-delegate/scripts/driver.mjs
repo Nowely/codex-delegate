@@ -34,7 +34,7 @@ const READ_PROFILE = "codex_delegate_read";
 // schema-<version>/ directory carries. The server states its own in the initialize response's userAgent;
 // a difference is not an error (this driver is normally forward-compatible) but it is the first thing to
 // know when something behaves unlike the docs, and it was being thrown away.
-const PINNED_CODEX = "0.150.1";
+const PINNED_CODEX = "0.153.4";
 // This plugin's own version, printed by --help and carried in every report as driverVersion. It must
 // agree with .claude-plugin/plugin.json, with SKILL.md's metadata.version and with the newest v* tag;
 // evals/package.test.mjs is what makes that a fact rather than a habit. A saved report could not say
@@ -1095,13 +1095,17 @@ let mcpFromProbe = null;   // the caller's mcp_servers table, captured by the pr
 // per-run AND keeps the secrets in a 0600 file, at the cost of the shared home's warm caches.
 //
 // Only shapes the driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string
-// arrays, and a string-valued env table; a server using anything richer, or a name that is not a bare
-// TOML key, is skipped OUT LOUD rather than mangled.
+// arrays, and a string-valued env table; a server using anything richer, or a name outside the charset
+// codex itself accepts, is skipped OUT LOUD rather than mangled.
 function tomlMcpServers(servers) {
   const bare = (k) => /^[A-Za-z0-9_-]+$/.test(k);
+  // Since codex 0.152.0 a server name may also carry `:`, `@`, `/` and `.` (package-style names such as
+  // `@scope/pkg`); those are legal TOML only as a quoted key, so the table header quotes them.
+  const serverName = (k) => /^[A-Za-z0-9_@:/.-]+$/.test(k);
+  const key = (k) => (bare(k) ? k : tomlString(k));
   const lines = [];
   for (const [name, cfg] of Object.entries(servers ?? {})) {
-    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg) || !bare(name)) {
+    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg) || !serverName(name)) {
       process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} has a shape or name the driver cannot carry faithfully; skipped\n`);
       continue;
     }
@@ -1131,8 +1135,8 @@ function tomlMcpServers(servers) {
       process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} uses a config shape the driver cannot carry faithfully; skipped\n`);
       continue;
     }
-    lines.push(`[mcp_servers.${name}]`, ...scalars);
-    if (env.length) lines.push(`[mcp_servers.${name}.env]`, ...env);
+    lines.push(`[mcp_servers.${key(name)}]`, ...scalars);
+    if (env.length) lines.push(`[mcp_servers.${key(name)}.env]`, ...env);
   }
   return lines;
 }
@@ -3110,7 +3114,15 @@ function handleMessage(msg, bytes = 0) {
       // The accumulator goes with the message it belonged to: a partial may only ever describe a message
       // the server never finished, and a long turn must not carry every message it already delivered.
       if (it.id !== undefined) answerDeltas.delete(String(it.id));
-      if (it.text) {
+      // A question for a human, delivered as a MESSAGE: since 0.153.0 request_user_input_async surfaces as
+      // an agentMessage carrying `questions`, never as a server request, so the handler above never sees
+      // it. Measured on 0.153.4 (gpt-6-astra): it arrives phased final_answer, and left among the messages
+      // it outranked the turn's real answer and shipped as `answer` under exit 0. It is what an elicitation
+      // form is — input no sandbox change can supply — and is recorded as one.
+      const questions = Array.isArray(it.questions) ? it.questions.filter((q) => typeof q?.title === "string") : [];
+      if (questions.length) {
+        interactions.push(`item/agentMessage/questions: ${questions.map((q) => q.title).join(" | ").slice(0, 200)}`);
+      } else if (it.text) {
         messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
         // Written the moment it arrives rather than at finish(): a SIGKILL after the answer exists must
         // not take it with the process. classifyEvidence rewrites the file with the final choice.
@@ -3182,7 +3194,8 @@ function handleMessage(msg, bytes = 0) {
     // Populated only when the turn failed, and it carries an enumerated cause worth acting on:
     // serverOverloaded / internalServerError / the transport causes -> retried below, once (RETRYABLE);
     // contextWindowExceeded -> the handoff was too large, split it; unauthorized -> stop;
-    // sandboxError -> the rights level was wrong; usageLimitExceeded -> a quota, not a blip.
+    // sandboxError -> the rights level was wrong; usageLimitExceeded and rateLimitExceeded (0.153.4)
+    // -> a quota, not a blip.
     turnError = p?.turn?.error ?? null;
     // A cut is a decision already taken. The completion that lands inside the grace ENDS the run: a
     // transient retry or a corrective turn here would start new work on a budget that is already spent.
@@ -3308,8 +3321,9 @@ function answerSchemaErrors(text) {
 // The backoff per transient cause, taken from CodexErrorInfo in the pinned schema rather than from
 // prose. The transport causes arrive as OBJECT variants ({responseStreamDisconnected:{httpStatusCode}}),
 // which errKind() flattens to their key; serverOverloaded and internalServerError are bare strings.
-// usageLimitExceeded is deliberately absent: a quota window does not clear in ten seconds, so retrying
-// it only spends the caller's deadline. responseTooManyFailedAttempts is absent too — codex has
+// usageLimitExceeded and rateLimitExceeded (added in 0.153.4) are deliberately absent: a quota window
+// does not clear in ten seconds, so retrying it only spends the caller's deadline.
+// responseTooManyFailedAttempts is absent too — codex has
 // already retried by the time it says that.
 const RETRYABLE = {
   responseStreamDisconnected: 2000, responseStreamConnectionFailed: 2000, httpConnectionFailed: 2000,
@@ -4371,10 +4385,13 @@ async function main() {
   const approvalsReviewer = "user";
   const threadBase = { cwd, model: opts.model ?? null, approvalPolicy: "on-request", approvalsReviewer,
     ...sandboxParam, developerInstructions };
+  // excludeTurns: the driver never reads thread.turns off the response, and every thread created under
+  // 0.153.4 is paginated — for those full-history hydration is deprecated, and an EPHEMERAL fork without
+  // the flag is refused outright (-32600). Measured: a resume shrank from 1.5 MB to 58 KB with it.
   const threadReq = resuming
-    ? ["thread/resume", { threadId: opts.resume, ...threadBase }]
+    ? ["thread/resume", { threadId: opts.resume, excludeTurns: true, ...threadBase }]
     : forking
-      ? ["thread/fork", { threadId: opts.fork, lastTurnId: opts.forkThrough ?? null,
+      ? ["thread/fork", { threadId: opts.fork, lastTurnId: opts.forkThrough ?? null, excludeTurns: true,
           ...threadBase, ephemeral: Boolean(opts.ephemeral) }]
     // Resumable by default. Whether a thread is worth continuing is only knowable after reading the
     // answer, and an ephemeral thread cannot be continued — so opting IN was a trap: you learned you

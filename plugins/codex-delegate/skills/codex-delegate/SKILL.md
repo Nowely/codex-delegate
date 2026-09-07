@@ -122,6 +122,9 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
   or a busy resumed thread, read the stderr block.
 - Exit 4 and a pre-turn exit 2, 3 or 10 print no report; read the envelope's stderr block.
 - Any other non-zero is a gate verdict on the run; read the answer before deciding what to do.
+- The `--- answer (N bytes) ---` marker states the answer's size. The relay is a small model copying
+  text: when fewer bytes follow the marker, or a JSON answer does not parse, read `answerPath`.
+  Measured, a Sonnet relay cut two 13-16 KB answers to 9 KB and altered escapes in two 3 KB ones.
 - `receiptOk: false` on a run that claims success is a red flag; what the receipt proves and does not
   prove is in
   [environment-and-internals.md](references/environment-and-internals.md#receipt-validation-and-reporting).
