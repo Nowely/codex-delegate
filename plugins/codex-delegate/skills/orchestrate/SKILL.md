@@ -100,7 +100,7 @@ code, or from you under the redirect rule.
 ## Mechanism
 
 Your user's invocation of this skill authorises Workflow: use it for any fan-out of two or more seats and for verify chains, the
-Agent tool for a single seat and for continuing an agent. Load the `workflow-authoring` skill before writing the script.
+Agent tool for a single seat and for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated
 object when `schema` is given; `agentType: 'codex-delegate:codex-seat'` (bare `codex-seat` on a clone-and-symlink install) makes
 it a Codex seat. `pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier for when

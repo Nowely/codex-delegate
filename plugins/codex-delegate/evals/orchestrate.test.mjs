@@ -259,7 +259,7 @@ test("F1 the invocation authorises Workflow, names the agent signature, both age
   "Workflow is what makes a five-seat batch one decision instead of five; the bare agentType is the clone-and-symlink install, and a subagent told nothing about its final text writes a message to a human that no script reads",
   () => says(
     "authorises Workflow",
-    "Load the `workflow-authoring` skill before writing the script.",
+    "Load the `workflow-authoring` skill before writing the script when the session lists it.",
     "`agent(prompt, {label, phase, schema, model, effort, agentType, isolation})`",
     "`agentType: 'codex-delegate:codex-seat'` (bare `codex-seat` on a clone-and-symlink install) makes it a Codex seat",
     "`pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier",
