@@ -187,15 +187,15 @@ carries no stability promise — hence the pinned schema and the fidelity suite.
 
 ```bash
 codex app-server generate-json-schema --out <tmp-new>/
-git archive schema-<old-version>-full | tar -x -C <tmp-old>/
-diff -r <tmp-old>/ <tmp-new>/
+git archive 7364f7b schema-<old-version> | tar -x -C <tmp-old>/
+diff -r <tmp-old>/schema-<old-version>/ <tmp-new>/
 ```
 
-Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` and tag that
-commit `schema-<new-version>-full`, the oracle the next upgrade diffs against.
+Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` in a commit of its
+own: that commit holds the full tree the next upgrade diffs against, so replace `7364f7b` above with its hash.
 `CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` validates it while
 `schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new
-directory to the files [conformance](evals/conformance.test.mjs) loads, and delete the old one. Then
+directory to the files [conformance](evals/conformance.test.mjs) loads in a second commit, and delete the old one. Then
 `npm test` and `node evals/fidelity.test.mjs --require-live`, inspect any fixture/live difference, and
 re-check [the dated parity reference](skills/codex-delegate/references/parity.md).
 
@@ -215,9 +215,9 @@ package.json                     private; the Node floor and `npm test`
 schema-<version>/                the files evals/conformance.test.mjs loads out of the pinned protocol
                                  schema; kept in the repo (and therefore in plugin installs) because
                                  those are what the suites this README tells you to run validate
-                                 against. The full generated tree is not kept here: the annotated tag
-                                 schema-<version>-full holds it, and the upgrade recipe diffs the next
-                                 regeneration against that tag.
+                                 against. The full generated tree is not kept here: the commit named in
+                                 the upgrade recipe holds the last one (7364f7b for 0.153.4), and the
+                                 recipe diffs the next regeneration against it.
 ```
 
 Canonical homes for repeated stories:
