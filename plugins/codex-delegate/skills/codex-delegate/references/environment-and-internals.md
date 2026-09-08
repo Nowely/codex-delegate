@@ -15,7 +15,9 @@ live-check seams as much as knobs (the floor is explained under
 [Bounding or stopping a seat](#bounding-or-stopping-a-seat)); and `TMPDIR` is the read level's entire
 writable grant, so a caller's own goes through the same guard as a write root — unset, the driver makes a
 private one (0700) and grants exactly that; it outlives the run, the report names it as `tmpDir`, and it is
-pruned with the run directories.
+pruned with the run directories. The seat's shell also receives `TMPPREFIX` under that directory: zsh keeps
+here-document temp files at `$TMPPREFIX*`, default `/tmp/zsh`, which no grant covers
+([incidents](incidents.md#here-documents-under-the-grant)).
 
 ## Observability
 

@@ -71,7 +71,7 @@ Choose the smallest `SEAT` that can complete and check the work:
 | `SEAT: worktree <repo>` | write in a driver-managed detached tree | say that a worktree will be made |
 | `SEAT: write <dir>` | write under the live directory | yes; this chooses the blast radius |
 
-`NETWORK: yes`, each `WRITABLE: <dir>`, and `COMMIT: yes` widen a write seat. Settle every one with the
+`NETWORK: yes` and each `WRITABLE: <dir>` widen a write seat. Settle every one with the
 user before adding it. Never translate a refusal into broader rights. Every field is in
 [Header fields](#header-fields) below; model, effort, gates, review, continuation,
 and answer-shape choices belong in that header, not in Agent-tool options. Never pass the Agent tool's
@@ -93,17 +93,14 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 | `SEAT:` | `read [<dir>]`, `worktree <repo>`, `write <dir>` | first, or not at all: no header is a read seat in the current directory |
 | `NETWORK:` | `yes` | the seat cannot finish without egress; write levels only, and settle it with the user first |
 | `WRITABLE:` | `<dir>`, repeatable | a write seat needs one more root than the directory it was given |
-| `COMMIT:` | `yes` | the work has to land as commits: see [Git-directory grant](references/environment-and-internals.md#git-directory-grant) |
 | `RESUME:` | `<threadId>`, `last` | this seat continues an earlier thread instead of opening one |
 | `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran |
 | `OUTPUT_SCHEMA:` | `<path to a strict JSON Schema file>` | the answer must parse as one JSON object |
-| `REVIEW:` | `uncommitted`, `branch:<ref>`, `commit:<sha>` | the server's own reviewer replaces the prompt, so send no body |
 | `MODEL:` | `<slug>` | this seat needs a model other than the configured default |
 | `EFFORT:` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | the task is worth more or less thinking |
 | `WEB_SEARCH:` | `cached`, `indexed`, `live` | the seat needs sources it cannot read locally |
 | `BRIEF:` | `yes` | a short answer is enough; never beside an output schema, which needs a whole JSON object |
 | `ALLOW_NO_COMMANDS:` | `yes` | the seat is recall-only and will run nothing |
-| `ALLOW_FAILED_COMMANDS:` | `yes` | a failing command is the evidence, as for a probe or a test that must fail |
 
 ## Worktree lifecycle
 

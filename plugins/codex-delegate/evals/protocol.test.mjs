@@ -17,10 +17,9 @@ import path from "node:path";
 import { SCENARIOS } from "./fake-app-server.mjs";
 // renderEnvelope and its marker regex come from the driver through the harness, never restated here:
 // the envelope is a published format and a suite holding its own copy of it can agree with nothing.
-import { DRIVER, ENVELOPE_ANSWER_RE, EXIT, FAKE, ROOT, SCRIPTS, codexShim, registry, renderEnvelope, runCases,
-         spawnNode, summarize, tempDir } from "./lib/harness.mjs";
+import { DRIVER, ENVELOPE_ANSWER_RE, EXIT, FAKE, LADDER, ROOT, codexShim, readJson, registry,
+         renderEnvelope, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
 
-const STOP_GATE = path.join(SCRIPTS, "stop-gate.mjs");
 const REVIEW_SCHEMA = path.join(ROOT, "skills", "codex-delegate", "schemas", "review-output.schema.json");
 
 const shimDir = tempDir("codex-delegate-test-");
@@ -95,11 +94,6 @@ const protectedState = path.join(shimDir, "state");
 const protectedTmp = path.join(protectedState, "tmp");
 fs.mkdirSync(protectedTmp, { recursive: true });
 
-// A state directory used by exactly one case, so "what did the config probe inherit" has a deterministic
-// answer: with the shared state-root a previous case's healthy probe leaves a last-known-good config
-// behind, and the failure case would then report that instead of "nothing".
-const emptyState = path.join(shimDir, "state-empty");
-
 // A directory name with consecutive spaces checks that seat-file parsing preserves the literal path.
 const spacedDir = path.join(shimDir, "two  spaces");
 fs.mkdirSync(spacedDir);
@@ -118,43 +112,13 @@ fs.writeFileSync(path.join(mismatchDay, "rollout-2026-01-01T00-00-00-thr_root.js
 // The RPC log for the interrupt case: the effect of turn/interrupt is server-side and otherwise
 // invisible, so the fixture records what it was sent.
 const interruptLog = path.join(shimDir, "rpc-interrupt.log");
-// One log per case that counts steers: the fixture APPENDS, so a shared file would let one case read
-// another's sends and a "sent exactly once" assertion would depend on the order the suite runs in.
-const reviewSteerLog = path.join(shimDir, "rpc-review-steer.log");
+// One log per case that reads it: the fixture APPENDS, so a shared file would let one case read
+// another's requests and an "exactly once" assertion would depend on the order the suite runs in.
 const modelListLog = path.join(shimDir, "rpc-model-list.log");
 const unknownModelLog = path.join(shimDir, "rpc-unknown-model.log");
 const rateLimitLog = path.join(shimDir, "rpc-rate-limit.log");
-const compactLog = path.join(shimDir, "rpc-compact.log");
-const mcpConfigLog = path.join(shimDir, "mcp-config.toml");
-const steersIn = (file) => {
-  let log = "";
-  try { log = fs.readFileSync(file, "utf8"); } catch {}
-  return log.split("\n").filter((l) => l.startsWith("turn/steer"));
-};
-
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
-  { scenario: "fork",             expect: EXIT.OK,
-    args: ["--fork", "thr_parent", "--fork-through", "turn_parent"],
-    why: "thread/fork branches through the requested turn with the same rights-bearing parameters as thread/start, and its response establishes the new root thread",
-    assert: (r) => {
-      let sent = null;
-      try { sent = JSON.parse(r.answer); } catch { return `the fixture did not echo fork params: ${String(r.answer).slice(0, 100)}`; }
-      return (r.threadId === "thr_root" && r.forkedFrom === "thr_parent" && r.forkedThrough === "turn_parent"
-          && sent.threadId === "thr_parent" && sent.lastTurnId === "turn_parent"
-          && fs.realpathSync(sent.cwd) === fs.realpathSync(shimDir)
-          && sent.approvalPolicy === "on-request" && sent.approvalsReviewer === "user"
-          && typeof sent.developerInstructions === "string" && sent.ephemeral === false)
-        || `fork request/report wrong: ${JSON.stringify({ thread: r.threadId, from: r.forkedFrom, through: r.forkedThrough, sent })}`;
-    } },
-  { scenario: "happy",            expect: EXIT.USAGE,
-    args: ["--fork", "thr_parent", "--resume", "thr_root"],
-    why: "forking and resuming select different thread identities and are refused together",
-    assertStderr: (e) => /--fork and --resume are contradictory/.test(e) || `the contradiction was not named: ${e.slice(0, 180)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: worktree /tmp\n",
-    args: ["--fork", "thr_parent"],
-    why: "a fork keeps the caller-declared cwd and cannot simultaneously create a new detached worktree",
-    assertStderr: (e) => /--fork and --worktree are contradictory/.test(e) || `the contradiction was not named: ${e.slice(0, 180)}` },
   { scenario: "model-unknown",    expect: EXIT.USAGE, args: ["--effort", "minimal"],
     env: { FAKE_RPC_LOG: modelListLog },
     why: "model/list rejects an effort the catalogue does not advertise before thread/start pays the normal provider floor",
@@ -186,50 +150,10 @@ const CASES = [
     why: "a server that rejects account/rateLimits/read costs the report its snapshot, not the whole run",
     assert: (r) => r.rateLimits === null
       || `a rejected snapshot did not leave rateLimits null: ${JSON.stringify(r.rateLimits)}` },
-  { scenario: "compact",          expect: EXIT.OK, args: ["--resume", "thr_root", "--compact"],
-    env: { FAKE_RPC_LOG: compactLog },
-    why: "--compact on a resumed thread finishes thread/compact/start before the next turn starts",
-    assert: () => {
-      const log = fs.existsSync(compactLog) ? fs.readFileSync(compactLog, "utf8") : "";
-      return log.indexOf("thread/resume") >= 0 && log.indexOf("thread/compact/start") > log.indexOf("thread/resume")
-          && log.indexOf("turn/start") > log.indexOf("thread/compact/start")
-        || `compact request order wrong: ${JSON.stringify(log)}`;
-    } },
-  { scenario: "happy",            expect: EXIT.USAGE, args: ["--compact"],
-    why: "compaction is meaningful only for a resumed thread and must not silently alter a fresh one",
-    assertStderr: (e) => /--compact requires --resume/.test(e) || `the missing resume was not named: ${e.slice(0, 160)}` },
   { scenario: "turn-diff",        expect: EXIT.OK,
     why: "the last turn/diff/updated payload is persisted under the answer log and named in the report",
     assert: (r) => (typeof r.turnDiffPath === "string" && fs.readFileSync(r.turnDiffPath, "utf8") === "last diff\n")
       || `the last diff was not persisted: ${JSON.stringify(r.turnDiffPath)}` },
-  { scenario: "reasoning-summary", expect: EXIT.OK, args: ["--reasoning-summary", "detailed"],
-    why: "--reasoning-summary forwards the selected density as turn/start.summary",
-    assert: (r) => {
-      let sent = null; try { sent = JSON.parse(r.answer); } catch {}
-      return sent?.summary === "detailed" || `turn/start summary was ${JSON.stringify(sent)}`;
-    } },
-  { scenario: "happy",            expect: EXIT.OK,
-    args: ["--mcp", "--mcp-server", "docs"],
-    env: { FAKE_MCP: "1", FAKE_MCP_CONFIG_LOG: mcpConfigLog },
-    why: "a --mcp-server allowlist copies only the named server into the private run home: the fixture also configures `search`, which is perfectly carriable and must still be left behind",
-    assert: () => {
-      const cfg = fs.existsSync(mcpConfigLog) ? fs.readFileSync(mcpConfigLog, "utf8") : "";
-      return (cfg.includes("[mcp_servers.docs]") && !cfg.includes("[mcp_servers.search]"))
-        || `MCP allowlist produced: ${JSON.stringify(cfg)}`;
-    } },
-  { scenario: "happy",            expect: EXIT.USAGE, args: ["--mcp", "--mcp-server", "missing"],
-    env: { FAKE_MCP: "1" },
-    why: "an unknown MCP server name is a usage error rather than a seat silently missing its requested tool",
-    assertStderr: (e) => /unknown server "missing"/.test(e) || `the unknown name was not reported: ${e.slice(0, 180)}` },
-  { scenario: "happy",            expect: EXIT.OK,
-    args: ["--mcp", "--mcp-server", "@acme/docs.v2"],
-    env: { FAKE_MCP: "1", FAKE_MCP_CONFIG_LOG: mcpConfigLog },
-    why: "a package-style MCP name (`@scope/pkg`) must be carried as a quoted TOML key rather than skipped by a bare-key rule",
-    assert: () => {
-      const cfg = fs.existsSync(mcpConfigLog) ? fs.readFileSync(mcpConfigLog, "utf8") : "";
-      return (cfg.includes('[mcp_servers."@acme/docs.v2"]') && !cfg.includes("[mcp_servers.docs]"))
-        || `package-style MCP name produced: ${JSON.stringify(cfg)}`;
-    } },
   { scenario: "async-question",   expect: EXIT.INTERACTION,
     why: "since 0.153.0 a human question can arrive as an agentMessage with questions, phased final_answer; it is an interaction, and the turn's real answer must remain the answer",
     assert: (r) => (Array.isArray(r.interactions) && r.interactions.some((i) => /^item\/agentMessage\/questions: Which database/.test(i)) && r.answer === "DONE-ANSWER")
@@ -277,47 +201,13 @@ const CASES = [
         && r.verify === null && r.verifySkipped === "turn-timed-out"
       || `timeout report lost its verdict or verify skip: ${JSON.stringify({ ok: r.ok, exitCode: r.exitCode, turnStatus: r.turnStatus, verify: r.verify, verifySkipped: r.verifySkipped })}` },
   { scenario: "no-answer",        expect: EXIT.NO_ANSWER,           why: "commentary is not a final answer" },
-  { scenario: "review-inline",    expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
-    why: "--review runs the server's native reviewer: the exitedReviewMode payload is the answer, and a turn with no commands is its ordinary success",
-    assert: (r) => (/off-by-one in clamp/.test(String(r.answer)) && r.commandsSucceeded === 0 && r.otherItemCounts?.exitedReviewMode === 1)
-      || `the review did not become the answer: ${JSON.stringify({ a: String(r.answer).slice(0, 60), c: r.commandsSucceeded })}` },
-  { scenario: "review-inline",    expect: EXIT.OK, args: ["--review", "uncommitted"], noPrompt: true,
-    why: "ExitedReviewModeThreadItem.review is a STRING in the pinned schema and live reviews; the caller must receive that review text rather than a JSON dump",
-    assert: (r) => {
-      if (/^[[{]/.test(String(r.answer).trim())) return `the review came back as a JSON blob: ${String(r.answer).slice(0, 80)}`;
-      if (r.otherItemCounts?.enteredReviewMode !== 1) return `the review was not preceded by enteredReviewMode: ${JSON.stringify(r.otherItemCounts)}`;
-      // The reviewer's own failing probe and its one non-probe failure are its working method: the
-      // waiver is keyed on a review having ARRIVED, and both must be visible in the report.
-      return (r.commandsFailed === 1 && r.commandsProbeNegative === 1)
-        || `the reviewer's own commands were misclassified: ${JSON.stringify({ f: r.commandsFailed, p: r.commandsProbeNegative })}`;
-    } },
   { scenario: "happy",            expect: EXIT.OK,
     why: "the server echoes the caller's prompt as a userMessage at the start of a turn; that echo must not count as activity or disarm the no-work retry guard",
     assert: (r) => (r.otherItemCounts === null || r.otherItemCounts.userMessage === undefined)
       || `the caller's own prompt was reported as activity: ${JSON.stringify(r.otherItemCounts)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted", "--worktree", "/tmp"], noPrompt: true,
-    why: "a --worktree is created detached at HEAD and therefore holds no uncommitted changes: measured, the pair exited 0 answering 'no staged, unstaged, or untracked changes to review' — a review that examined nothing, reported as a clean bill of health",
-    assertStderr: (e) => /--review uncommitted and --worktree are contradictory/.test(e)
-      || `the empty-tree review was not refused: ${e.slice(0, 200)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted"],
-    why: "--review builds its own prompt; a --prompt beside it (the harness always passes one here) is a contradiction, not an extra",
-    assertStderr: (e) => /--review builds its own prompt/.test(e) || `the contradiction was not named: ${e.slice(0, 140)}` },
-  { scenario: "review-broken",    expect: EXIT.COMMAND_FAILED, args: ["--review", "branch:nonexistent"], noPrompt: true,
-    why: "the review waiver is keyed on a review having ARRIVED, not on the flag: a review whose git commands failed and which produced no payload must not exit 0 just because --review was passed",
-    assert: (r) => r.commandsFailed === 1 || `the failed review command was not counted: ${JSON.stringify(r.commandsFailed)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nATTACH: /etc/hosts\n",
     why: "ATTACH is not a seat-file field: a newline in any relayed value could inject one, and the injected line would upload a file the coordinator never named to the model provider",
     assertStderr: (e) => /unknown seat field ATTACH at line 2 of/.test(e) || `an injected ATTACH was accepted: ${e.slice(0, 160)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nSTEER_FILE: <CWD>/precious.txt\n",
-    why: "the driver TRUNCATES the steer file while the turn runs, so an injected STEER_FILE line is a write primitive aimed at any file the caller can write",
-    assertStderr: (e) => /unknown seat field STEER_FILE at line 2 of/.test(e) || `an injected STEER_FILE was accepted: ${e.slice(0, 160)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nMCP: yes\n",
-    why: "--mcp grants tool servers that run with the caller's rights outside the seat's sandbox; a relayed value must not be able to grant them",
-    assertStderr: (e) => /unknown seat field MCP at line 2 of/.test(e) || `an injected MCP grant was accepted: ${e.slice(0, 160)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nEXPECT: echo\nPROGRESS: yes\n",
-    why: "--progress instruments the CALLER's stderr, which a relay never shows, so it is a flag and a header naming it is a caller who believes something untrue about what he will see",
-    assertStderr: (e) => /PROGRESS is command-line-only; pass --progress/.test(e)
-      || `PROGRESS was still accepted as a seat field: ${e.slice(0, 200)}` },
   { scenario: "rich-items",       expect: EXIT.OK,
     why: "reasoning summaries, tool/search items and subagent threads must be visible in the report while the child's command counts for no root evidence",
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
@@ -328,12 +218,6 @@ const CASES = [
         // announcement does, and null is the honest answer for both rather than a guess.
         && r.subagentThreads[0].agentPath === null && r.subagentThreads[0].status === null)
       || `visibility fields wrong: ${JSON.stringify({ reasoning: r.reasoningSummary, other: r.otherItemCounts, items: r.otherItems, sub: r.subagentThreads, cmds: r.commandsSucceeded })}` },
-  { scenario: "progress",         expect: EXIT.OK, args: ["--progress"],
-    why: "--progress announces each item start on stderr, so a long seat is watchable live — a native subagent's progress visibility, without the delta firehose",
-    assertStderr: (e) => /> run: .*echo hi/.test(e) || `no progress line: ${e.slice(0, 160)}` },
-  { scenario: "progress",         expect: EXIT.OK,
-    why: "without --progress the same events stay silent: the default report contract does not grow noise",
-    assertStderr: (e) => !/> run:/.test(e) || "progress lines appeared without --progress" },
   { scenario: "echo-input",       expect: EXIT.OK, args: ["--attach", attachFile, "--attach", attachFile2],
     why: "--attach maps local images into the turn input as localImage items, IMAGES FIRST and in the order given — the layout every one of the 29 image-carrying user turns on this machine has, so a seat asked about 'the first screenshot' sees what its coordinator saw",
     assert: (r) => {
@@ -345,9 +229,6 @@ const CASES = [
           && inp[2].type === "text")
         || `input items wrong (expected image, image, text): ${JSON.stringify(inp.map((x) => x.type))}`;
     } },
-  { scenario: "happy",            expect: EXIT.USAGE, args: ["--review", "uncommitted", "--attach", attachFile], noPrompt: true,
-    why: "review/start carries no input items, so an attachment must be refused rather than decoded and silently left unsent",
-    assertStderr: (e) => /would be dropped silently/.test(e) || `the silent drop was not refused: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--attach", "/nonexistent/shot.png"],
     why: "a missing attachment is the caller's error, raised before anything runs — the server would otherwise refuse it mid-turn, after the delegation was paid for",
     assertStderr: (e) => /--attach.*does not exist/.test(e) || `the missing file was not named: ${e.slice(0, 140)}` },
@@ -370,7 +251,7 @@ const CASES = [
     why: "the server wraps a script carrying a double quote in double quotes and escapes the inner ones — measured live — so the bare command survives only in commandActions; unwrapping the text by hand cannot recover it, and the probe exemption dies again for exactly the seats that use quoted patterns",
     assert: (r) => (r.commandsFailed === 0 && r.commandsProbeNegative === 1)
       || `a quoted probe was not recovered from the server's own parse: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
-  { scenario: "probe-piped",      expect: EXIT.COMMAND_FAILED,
+  { scenario: "probe-piped",      expect: EXIT.OK,
     why: "a probe piped into another command exits with the LAST command's status, and the server parses it into two actions — classifying on the first one would launder `grep x | tail` exiting 1 into 'the probe answered no'",
     assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
       || `a pipeline was laundered into a probe: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
@@ -378,43 +259,37 @@ const CASES = [
     why: "a refused approval completes its item as DECLINED with no exit code: that is a failure whatever the code says, never an unresolved command, and never a probe answering 'no' however grep-shaped its text",
     assert: (r) => (r.commandsFailed === 2 && r.commandsBlocked === 0 && r.commandsProbeNegative === 0)
       || `a declined command was misclassified: ${JSON.stringify({ f: r.commandsFailed, b: r.commandsBlocked, p: r.commandsProbeNegative })}` },
-  { scenario: "blocked-command",  expect: EXIT.COMMAND_FAILED,
-    why: "a command with no numeric exit code that is neither failed nor declined has no verdict; a success beside it must not hide that unresolved command",
+  { scenario: "blocked-command",  expect: EXIT.OK,
+    why: "a command with no numeric exit code that is neither failed nor declined has no verdict; that is a report field and no exit code, so a caller reads commandsBlocked instead of being told the run failed",
     assert: (r) => (r.commandsBlocked === 1 && r.commandsFailed === 0 && r.commandsSucceeded === 1)
       || `the unresolved command was not counted: ${JSON.stringify({ b: r.commandsBlocked, f: r.commandsFailed, s: r.commandsSucceeded })}` },
-  { scenario: "blocked-command",  expect: EXIT.OK, args: ["--verify", "true"],
-    why: "an unresolved command lands on the same rung as a failed one, and takes the same waiver: the caller's own check measured the end state, which outranks a missing verdict",
-    assert: (r) => (r.verify?.ok === true && r.commandsBlocked === 1)
-      || `the waiver did not apply: ${JSON.stringify({ v: r.verify, b: r.commandsBlocked })}` },
-  { scenario: "probe-multiline",  expect: EXIT.COMMAND_FAILED,
+  { scenario: "probe-multiline",  expect: EXIT.OK,
     why: "codex sends multi-line bash scripts; a newline is a command separator too, so 'grep -q x file\\npnpm test' exiting 1 is a failed suite, not a probe answering no",
     assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
       || `a multi-line script was laundered into a probe: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
-  { scenario: "probe-error",      expect: EXIT.COMMAND_FAILED,
-    why: "probes reserve exit 2 for real trouble — a bad pattern is a failure, not a 'no'" },
-  { scenario: "probe-compound",   expect: EXIT.COMMAND_FAILED,
-    why: "a compound command starting with a probe keeps failure semantics: its exit 1 may belong to the other command" },
-  { scenario: "hidden-failure",  expect: EXIT.COMMAND_FAILED,     why: "a failed command is a failed run, whatever the answer claims; one incidental success must not mask it" },
-  { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--allow-failed-commands"],
-    why: "--allow-command-failures lets an analysis seat accept expected probe failures without requiring an unrelated verifier",
+  { scenario: "probe-error",      expect: EXIT.OK,
+    why: "probes reserve exit 2 for real trouble — a bad pattern is a failure, not a 'no'",
+    assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
+      || `a probe error was read as a 'no': failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "probe-compound",   expect: EXIT.OK,
+    why: "a compound command starting with a probe keeps failure semantics: its exit 1 may belong to the other command",
+    assert: (r) => (r.commandsFailed === 1 && r.commandsProbeNegative === 0)
+      || `a compound command was laundered into a probe: failed=${r.commandsFailed} probes=${r.commandsProbeNegative}` },
+  { scenario: "hidden-failure",  expect: EXIT.OK,
+    why: "a completed turn that answered exits 0 whatever its commands did: both records of the old rung were harm, and the failure stays counted for the caller to read",
     assert: (r) => (r.commandsFailed === 1 && r.ok === true)
-      || `the waived failure left the report: ${JSON.stringify({ failed: r.commandsFailed, ok: r.ok })}` },
+      || `the failure left the report, or the run was still failed: ${JSON.stringify({ failed: r.commandsFailed, ok: r.ok })}` },
   { scenario: "hidden-failure",  expect: EXIT.NO_COMMANDS,
-    args: ["--allow-failed-commands", "--expect-command", "zzz_never"],
-    why: "the waiver is for the failed-command rung and nothing else; asking for proof and then accepting its absence is the failure --expect-command exists to prevent",
+    args: ["--expect-command", "zzz_never"],
+    why: "the demoted rung takes nothing with it: asking for proof and then accepting its absence is the failure --expect-command exists to prevent",
     assert: (r) => r.commandsMatchingExpectation === 0
       || `the expectation was not measured: ${JSON.stringify(r.commandsMatchingExpectation)}` },
   { scenario: "hidden-failure",  expect: EXIT.VERIFY_FAILED,
-    args: ["--allow-failed-commands", "--verify", "false"],
-    why: "the same: a check the caller ran and that said no outranks every waiver, because it measured the end state instead of inferring it",
+    args: ["--verify", "false"],
+    why: "a check the caller ran and that said no is still exit 9, because it measured the end state instead of inferring it from the command list",
     assert: (r) => r.verify?.ok === false || `the failed check was not reported: ${JSON.stringify(r.verify)}` },
-  { scenario: "hidden-failure",  expect: EXIT.OK,
-    seat: "SEAT: read <CWD>\nALLOW_FAILED_COMMANDS: yes\n",
-    why: "the relay writes fields, never a command line, so a flag it cannot express is a flag the plugin ships and cannot use",
-    assert: (r) => ((r.seatFileFields ?? []).includes("ALLOW_FAILED_COMMANDS") && r.commandsFailed === 1)
-      || `the seat file's waiver did not reach the run: ${JSON.stringify({ fields: r.seatFileFields, failed: r.commandsFailed })}` },
   { scenario: "hidden-failure",  expect: EXIT.OK,                 args: ["--verify", "true"],
-    why: "only the caller's own check can overrule a failed command" },
+    why: "a passing check beside a failed command is exit 0, and both reach the report" },
   { scenario: "happy",           expect: EXIT.VERIFY_FAILED,      args: ["--verify", "false"],
     why: "the caller's own check decides: a clean turn still fails when the work is not there" },
   { scenario: "null-phase",      expect: EXIT.OK,                 why: "the schema permits phase: null; an unphased answer is still an answer" },
@@ -454,7 +329,7 @@ const CASES = [
     assert: (r) => (r.verify?.ok === true && r.verify?.measured === true
       && String(r.verify?.stdout ?? "").length <= 2000)
       || `a passing loud verifier was not measured: ${JSON.stringify({ ...r.verify, stdout: String(r.verify?.stdout ?? "").length })}` },
-  { scenario: "failed-null-exit", expect: EXIT.COMMAND_FAILED,
+  { scenario: "failed-null-exit", expect: EXIT.OK,
     why: "the schema permits a FAILED command with exitCode null; failure classification must not depend on a numeric exit code",
     assert: (r) => r.commandsFailed === 1 || `the failed command was not counted: failed=${r.commandsFailed} blocked=${r.commandsBlocked}` },
   { scenario: "escalated-subagent", expect: EXIT.ESCALATED,
@@ -467,8 +342,8 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.OK, args: ["--effort", "max"],
     why: "max is on the model's advertised ladder and must not be rejected by a stale hardcoded list",
     assert: (r) => r.reasoningEffort === "max" || `--effort max did not reach the server: ${JSON.stringify(r.reasoningEffort)}` },
-  { scenario: "file-changes",     expect: EXIT.COMMAND_FAILED,
-    why: "a failed patch must reach the exit ladder and report; PatchChangeKind is an object whose type and move_path must be rendered as meaningful fields",
+  { scenario: "file-changes",     expect: EXIT.OK,
+    why: "a failed patch must reach the report; PatchChangeKind is an object whose type and move_path must be rendered as meaningful fields",
     assert: (r) => (r.fileChangesFailed?.length === 1 && r.fileChangesFailed[0].kind === "update"
         && JSON.stringify(r.filesTouched) === JSON.stringify(["/tmp/wrote.txt", "/tmp/new.txt"])
         // fileChanges keeps what filesTouched folds away: the kind, and the path a rename STARTED at.
@@ -523,8 +398,8 @@ const CASES = [
     why: "a passing --verify does NOT waive a declared expectation — a stale artefact satisfies the end state while the work never ran — but it must still be REPORTED",
     assert: (r) => r.verify?.ok === true || `verify was suppressed by the expectation miss: ${JSON.stringify(r.verify)}` },
   { scenario: "hidden-failure",   expect: EXIT.NO_COMMANDS, args: ["--expect-command", "zzz_never", "--verify", "true"],
-    why: "the COMMAND_FAILED waiver keys on the check's RESULT, not on the flag being present; here the expectation misses, and verify must still have run",
-    assert: (r) => r.verify?.ok === true || `a check that never ran waived a failed command: ${JSON.stringify(r.verify)}` },
+    why: "a missed expectation is exit 5 whatever the verifier said, and the verifier must still have run and been reported",
+    assert: (r) => r.verify?.ok === true || `the verifier was suppressed by the expectation miss: ${JSON.stringify(r.verify)}` },
   { scenario: "turn-failed",      expect: EXIT.TURN_NOT_COMPLETED, args: ["--verify", "true"],
     why: "a passing verify cannot rescue a turn that never completed, and on a non-completed turn the end state is recorded as unmeasured rather than guessed",
     assert: (r) => r.verify === null && typeof r.verifySkipped === "string"
@@ -611,10 +486,10 @@ const CASES = [
     assert: (r) => (r.level === "read" && r.expectationOk === true && r.answerTruncated === false)
       || `seat file did not map cleanly: ${JSON.stringify({ l: r.level, e: r.expectationOk })}` },
   { scenario: "happy",            expect: EXIT.NO_COMMANDS,
-    seat: "SEAT: read <CWD>\nEXPECT: x' --level write --cwd / --commit --network '\n",
-    why: "THE reason this flag exists: a hostile header value must stay one value. Interpolated into a shell command line the same characters would have granted write level, the filesystem root, the git dir and egress",
+    seat: "SEAT: read <CWD>\nEXPECT: x' --level write --cwd / --writable / --network '\n",
+    why: "THE reason this flag exists: a hostile header value must stay one value. Interpolated into a shell command line the same characters would have granted write level, the filesystem root and egress",
     assert: (r) => (r.level === "read" && r.network === false && r.sandbox?.type === "workspaceWrite"
-        && (r.sandbox?.writableRoots ?? []).length <= 1 && String(r.expectCommand).includes("--commit"))
+        && (r.sandbox?.writableRoots ?? []).length <= 1 && String(r.expectCommand).includes("--writable"))
       || `a seat-file value escaped into flags: ${JSON.stringify({ l: r.level, n: r.network, roots: r.sandbox?.writableRoots })}` },
   { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWDSP>\nEXPECT: echo\n",
     why: "the SEAT value is literal to end of line; collapsing consecutive spaces would silently change where rights are granted",
@@ -715,12 +590,12 @@ const CASES = [
       || `a protected $TMPDIR was granted at read level: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.OK, unsetEnv: ["TMPDIR"],
     why: "when TMPDIR is unset, a private directory permits scratch writes without granting all of /tmp; it lives under driver state so retention pruning reaches it",
-    assert: (r) => {
+    assert: (r, _ms, stateRoot) => {
       const roots = r.sandbox?.writableRoots ?? [];
       if (roots.length !== 1) return `the private temp grant is not exactly one root: ${JSON.stringify(roots)}`;
       if (roots[0] === os.tmpdir() || roots[0] === "/tmp") return `the grant is the whole system temp dir: ${JSON.stringify(roots[0])}`;
       if (r.tmpDir === null) return "the run made a private temp directory and the report does not name it";
-      const base = path.join(shimDir, "state-root", "tmp");
+      const base = path.join(stateRoot, "tmp");
       if (path.dirname(r.tmpDir) !== base) return `the private temp directory is not under <state>/tmp: ${JSON.stringify(r.tmpDir)}`;
       if (fs.realpathSync(r.tmpDir) !== roots[0]) return `the grant is not the reported directory: ${JSON.stringify({ tmpDir: r.tmpDir, root: roots[0] })}`;
       if ((fs.statSync(r.tmpDir).mode & 0o777) !== 0o700) return `the private temp directory is not 0700: ${(fs.statSync(r.tmpDir).mode & 0o777).toString(8)}`;
@@ -735,6 +610,14 @@ const CASES = [
       if (r.tmpDir === null) return "a kept private temp directory was not named in the report";
       if (path.dirname(named) !== r.tmpDir) return `the report's tmpDir is not the directory the file is in: ${JSON.stringify({ tmpDir: r.tmpDir, named })}`;
       return true;
+    } },
+  { scenario: "env-tmpprefix",    expect: EXIT.OK, unsetEnv: ["TMPDIR", "TMPPREFIX"],
+    why: "zsh keeps every here-document in a file under TMPPREFIX, default /tmp/zsh, which no grant covers: the seat's shell must see it under the run's TMPDIR or every <<EOF fails (measured, 15 rollouts)",
+    assert: (r) => {
+      const got = /TMPPREFIX=(\S+)/.exec(String(r.answer))?.[1];
+      if (!got) return `the fixture did not report TMPPREFIX: ${String(r.answer).slice(0, 160)}`;
+      if (r.tmpDir === null) return "a private temp directory was not named in the report";
+      return got === path.join(r.tmpDir, "zsh") || `TMPPREFIX is not under the run's TMPDIR: ${JSON.stringify({ got, tmpDir: r.tmpDir })}`;
     } },
   { scenario: "happy",            expect: EXIT.OK, env: { TMPDIR: explicitTmp },
     why: "an explicit TMPDIR is honoured unchanged — the private directory is a fallback for an unset variable, never a substitution for the caller's own choice",
@@ -790,17 +673,17 @@ const CASES = [
     assert: (r) => (r.configInherited?.source === "probe" && r.configInherited.keys.includes("model"))
       || `a healthy probe was not reported as one: ${JSON.stringify(r.configInherited)}` },
   { scenario: "happy",            expect: EXIT.OK,
-    env: { FAKE_CONFIG_FAIL: "1", CODEX_DELEGATE_STATE_DIR: emptyState },
+    env: { FAKE_CONFIG_FAIL: "1" },
     why: "the same field must distinguish the unhealthy case: a probe that failed with no last-known-good to keep means the turn ran on the account defaults",
     assert: (r) => (r.configInherited?.source === "none" && r.configInherited.keys.length === 0)
       || `a failed probe was reported as inheritance: ${JSON.stringify(r.configInherited)}` },
-  { scenario: "probe-piped",      expect: EXIT.COMMAND_FAILED,
+  { scenario: "probe-piped",      expect: EXIT.OK,
     why: "the report must name commands piped to a pager because a seat can mistake a slice of its evidence for the whole result",
     assert: (r) => (r.commandsPipedToPager === 1 && /head\/tail\/less/.test(String(r.pipedToPagerHint ?? "")))
       || `a command ending in a pager was not counted: ${JSON.stringify({ n: r.commandsPipedToPager, hint: r.pipedToPagerHint })}` },
 
   // --- the server's parse is evidence, not authority ---
-  { scenario: "probe-laundered",  expect: EXIT.COMMAND_FAILED,
+  { scenario: "probe-laundered",  expect: EXIT.OK,
     why: "one tidy commandAction for a multi-line script must not hide a failed command on a later line behind a probe exemption",
     assert: (r) => (r.commandsProbeNegative === 0 && r.commandsFailed === 1)
       || `a multi-line script was read as a probe: ${JSON.stringify({ probe: r.commandsProbeNegative, failed: r.commandsFailed })}` },
@@ -822,9 +705,9 @@ const CASES = [
       || `the contradictory pair was still sent: ${String(r.answer).slice(0, 300)}` },
 
   // --- the seat file is written by a relay, so it must take the shapes a relay writes ---
-  { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nNETWORK: no\nCOMMIT: false\nBRIEF: 0\n", expect: EXIT.OK,
-    why: "NETWORK/COMMIT/BRIEF must accept explicit false values in a header template without enabling the flag or rejecting the seat",
-    assert: (r) => (r.network === false && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,COMMIT,BRIEF")
+  { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nNETWORK: no\nALLOW_NO_COMMANDS: false\nBRIEF: 0\n", expect: EXIT.OK,
+    why: "NETWORK/ALLOW_NO_COMMANDS/BRIEF must accept explicit false values in a header template without enabling the flag or rejecting the seat",
+    assert: (r) => (r.network === false && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,ALLOW_NO_COMMANDS,BRIEF")
       || `a negated boolean did not read as omission: ${JSON.stringify({ net: r.network, fields: r.seatFileFields })}` },
 
   // --- --verify: the budget that killed it, and the sandbox that is opt-in ---
@@ -918,22 +801,6 @@ const CASES = [
     assertStderr: (e) => !/measured failure shape/.test(e) || `the effort warning fired for low effort: ${e.slice(0, 200)}` },
 
   // --- the token accounting the SERVER does, which is not a bound the driver enforces ---
-  { scenario: "review-instructions", expect: EXIT.OK, noPrompt: true, args: ["--review", "uncommitted"],
-    why: "under --review the server builds the reviewer's whole prompt, so the wall-clock sentence names a bound the reviewer cannot act on in a turn whose shape is fixed; the standing rules still ride",
-    assert: (r) => {
-      if (!/unattended/.test(String(r.answer))) return `the review turn carried no developerInstructions at all: ${String(r.answer).slice(0, 160)}`;
-      return !/seconds of wall clock/.test(String(r.answer))
-        || `a review turn was given a wall-clock sentence: ${String(r.answer).slice(0, 240)}`;
-    } },
-  { scenario: "review-inline",    expect: EXIT.OK, noPrompt: true,
-    args: ["--review", "uncommitted"], env: { FAKE_RPC_LOG: reviewSteerLog },
-    why: "the steer the DRIVER invents is refused under --review — the reviewer answers its own prompt in a fixed shape and 'write your final answer now' names nothing it can act on — while the server's own accounting still reaches the report",
-    assert: (r) => {
-      const steers = steersIn(reviewSteerLog);
-      if (steers.length) return `the server's own reviewer was steered: ${JSON.stringify(steers)}`;
-      return r.tokenUsage?.total?.totalTokens === 900
-        || `the review's token usage did not reach the report: ${JSON.stringify(r.tokenUsage?.total)}`;
-    } },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nBUDGET_TOKENS: 100000\n",
     why: "the driver has no token-budget knob; a header naming one must fail loudly rather than imply an unenforced bound",
     assertStderr: (e) => /unknown seat field BUDGET_TOKENS at line 2 of/.test(e)
@@ -1138,8 +1005,12 @@ const CASES = [
 }
 
 let seatSeq = 0;
+// One state root per table case: a shared root made every case's config probe, job record and answer
+// log an input to the next case's, and the fixture reports the same thread id for all of them.
+let caseSeq = 0;
 function run(c) {
   return new Promise((resolve) => {
+    const stateRoot = path.join(shimDir, "case-state", String(caseSeq++));
     // A seat-file case writes its declaration to disk and passes only --seat-file, exactly as the
     // codex-seat relay does — the point being that no value ever passes through a shell. `relay: true`
     // is the same file through --relay, which is the whole of the relay's command line.
@@ -1156,13 +1027,13 @@ function run(c) {
        ...(c.noPrompt ? [] : ["--prompt", "irrelevant, the server is scripted"]), ...(c.args ?? [])],
       // Use private state so fixture config, locks and answer logs cannot affect real delegations.
       { env: { PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: c.scenario,
-               CODEX_DELEGATE_STATE_DIR: path.join(shimDir, "state-root"),
+               CODEX_DELEGATE_STATE_DIR: stateRoot,
                ...(c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v ?? shimDir])) : {}) },
         unsetEnv: c.unsetEnv ?? [], killAfterMs: 30000 });
     // A consumer that stops reading and one that merely pauses exercise the report's pipe handling.
     if (c.closeStdout) { try { p.stdout.destroy(); } catch {} }
     if (c.pauseStdout) { p.stdout.pause(); setTimeout(() => p.stdout.resume(), c.pauseStdout); }
-    done.then(resolve);
+    done.then((r) => resolve({ ...r, stateRoot }));
   });
 }
 
@@ -1178,7 +1049,6 @@ const flowState = () => {
   fs.mkdirSync(d, { recursive: true });
   return d;
 };
-const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
 const recordOf = (state, id = "thr_root") => readJson(path.join(state, "jobs", `${id}.json`));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // A pid that is certainly gone: a process this suite started and reaped.
@@ -1186,76 +1056,6 @@ const deadPid = () => {
   const r = spawnSync(process.execPath, ["-e", ""]);
   return r.pid ?? 999999;
 };
-
-// Create a repository for the gate cases so dirtiness is controlled by the case, not the caller's checkout.
-const gitRepo = (name, dirty) => {
-  const dir = path.join(shimDir, name);
-  fs.mkdirSync(dir, { recursive: true });
-  const git = (...args) => spawnSync("git", ["-c", "init.defaultBranch=main", "-c", "user.name=codex-delegate tests",
-    "-c", "user.email=tests@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
-    "-C", dir, ...args], { encoding: "utf8" });
-  const init = spawnSync("git", ["-c", "init.defaultBranch=main", "init", "-q", dir], { encoding: "utf8" });
-  if (init.status !== 0) return { dir, error: `could not create ${name}: ${init.stderr}` };
-  fs.writeFileSync(path.join(dir, "tracked.txt"), "one\n");
-  const added = git("add", "tracked.txt");
-  const committed = git("commit", "-q", "--no-verify", "-m", "one");
-  if (added.status !== 0 || committed.status !== 0)
-    return { dir, error: `could not commit in ${name}: ${added.stderr}${committed.stderr}` };
-  if (dirty) fs.writeFileSync(path.join(dir, "untracked.txt"), "two\n");
-  return { dir, error: null };
-};
-
-flow("the opt-in stop gate reviews a dirty tree and skips a clean tree",
-  "the shipped hook helper must remain inert by default, print the native review verdict when enabled, and avoid launching a seat for a clean repository",
-  async () => {
-    const repo = gitRepo("dirty-stop-gate", true);
-    if (repo.error) return repo.error;
-    const cwd = repo.dir;
-    const inert = spawnSync(process.execPath, [STOP_GATE], {
-      input: JSON.stringify({ cwd }), encoding: "utf8",
-      env: { ...process.env, CODEX_DELEGATE_STOP_GATE: "0" }
-    });
-    if (inert.status !== 0 || inert.stdout !== "")
-      return `disabled gate was not inert: status=${inert.status} stdout=${JSON.stringify(inert.stdout)} stderr=${JSON.stringify(inert.stderr)}`;
-
-    const reviewed = spawnSync(process.execPath, [STOP_GATE], {
-      input: JSON.stringify({ cwd }), encoding: "utf8", timeout: 20000,
-      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`,
-        CODEX_DELEGATE_STOP_GATE: "1", CODEX_DELEGATE_STATE_DIR: flowState(),
-        FAKE_SCENARIO: "review-inline" }
-    });
-    if (reviewed.status !== 0 || !reviewed.stdout.includes("off-by-one"))
-      return `enabled gate did not print the review: status=${reviewed.status} stdout=${JSON.stringify(reviewed.stdout)} stderr=${JSON.stringify(reviewed.stderr)}`;
-
-    const clean = gitRepo("clean-stop-gate", false);
-    if (clean.error) return clean.error;
-    const skipped = spawnSync(process.execPath, [STOP_GATE], {
-      input: JSON.stringify({ cwd: clean.dir }), encoding: "utf8",
-      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`,
-        CODEX_DELEGATE_STOP_GATE: "1", CODEX_DELEGATE_STATE_DIR: flowState(),
-        FAKE_SCENARIO: "schema-never" }
-    });
-    return skipped.status === 0 && skipped.stdout === ""
-      ? true
-      : `clean gate did not skip: status=${skipped.status} stdout=${JSON.stringify(skipped.stdout)} stderr=${JSON.stringify(skipped.stderr)}`;
-  });
-
-flow("the stop gate prints the review a non-zero driver exit still carries",
-  "a non-zero post-turn exit can carry the review answer; the stop gate must print it rather than show only stderr",
-  async () => {
-    const repo = gitRepo("failing-stop-gate", true);
-    if (repo.error) return repo.error;
-    const run = spawnSync(process.execPath, [STOP_GATE], {
-      input: JSON.stringify({ cwd: repo.dir }), encoding: "utf8", timeout: 20000,
-      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`,
-        CODEX_DELEGATE_STOP_GATE: "1", CODEX_DELEGATE_STATE_DIR: flowState(),
-        FAKE_SCENARIO: "review-broken" }
-    });
-    return (run.status === 1 && run.stdout.includes("I could not inspect that ref.")
-        && /review exit 11/.test(run.stderr))
-      ? true
-      : `the answer behind a non-zero exit was lost: status=${run.status} stdout=${JSON.stringify(run.stdout)} stderr=${JSON.stringify(run.stderr.slice(-300))}`;
-  });
 
 // Poll until the predicate holds, so a flow never sleeps for a fixed guess.
 async function until(fn, ms = 15000) {
@@ -1548,6 +1348,29 @@ flow("endedAt is written only once the report has actually landed",
     return true;
   });
 
+flow("a job record closed on a broken pipe still carries the run's gates",
+  "the record is the ONLY thing a run leaves when its report cannot be written, and it is what `--relay --wait` renders an envelope from: without the gates the envelope reports `receiptOk: null` and `commandsSucceeded: null` for a run that measured both, which reads as evidence nobody collected",
+  async () => {
+    const state = flowState();
+    const { code } = await run({ scenario: "long-answer", closeStdout: true,
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.TRANSPORT) return `a report that could not be written exited ${code}, expected 4`;
+    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
+    if (!rec) return "no record was closed at all";
+    for (const k of ["receiptOk", "commandsSucceeded", "commandsFailed", "verify", "verifySkipped", "cut"])
+      if (rec[k] === undefined) return `the record lost ${k}: ${JSON.stringify(Object.keys(rec))}`;
+    if (typeof rec.receiptOk !== "boolean")
+      return `receiptOk is not the gate the run computed: ${JSON.stringify(rec.receiptOk)}`;
+    if (rec.commandsSucceeded !== 1 || rec.commandsFailed !== 0)
+      return `the command counts are not this run's: ${JSON.stringify({ ok: rec.commandsSucceeded, bad: rec.commandsFailed })}`;
+    // What a coordinator actually reads: the envelope rendered from the record, through the driver's own
+    // renderer rather than a second copy of it.
+    const env = renderEnvelope({ ...rec, exitCode: rec.exitCode, threadId: "thr_root" });
+    if (/^receiptOk: null$/m.test(env) || /^commandsSucceeded: null$/m.test(env))
+      return `the envelope built from the record still shows null gates: ${env.split("\n").slice(0, 6).join(" | ")}`;
+    return true;
+  });
+
 flow("run directories are pruned on both bounds, and a run still writing into one is never pruned",
   "the run directory holds a whole report and a whole stderr per detached seat, so unbounded it is the answer log's growth problem with bigger files — but it is also the LIVE transport of a run in progress: removing it leaves the seat writing into an unlinked inode and the collector reading 'the run ended but left no report'",
   async () => {
@@ -1608,11 +1431,6 @@ flow("the detach contradictions are refused, and a run directory that cannot be 
     const both = await run({ scenario: "happy", args: ["--detach", "--wait", "thr_root"] });
     if (both.code !== EXIT.USAGE || !/contradictory/.test(both.err))
       return `--detach with --wait was not refused: exit ${both.code} ${both.err.slice(0, 160)}`;
-    // An ephemeral run writes no job record, so the handle would name a jobPath that never appears and
-    // --wait, --jobs and --cancel would all have nothing to act on.
-    const eph = await run({ scenario: "happy", args: ["--detach", "--ephemeral"] });
-    if (eph.code !== EXIT.USAGE || !/--detach and --ephemeral are contradictory/.test(eph.err))
-      return `--detach with --ephemeral was not refused: exit ${eph.code} ${eph.err.slice(0, 160)}`;
     const state = path.join(shimDir, `flow-ro-${flowSeq++}`);
     fs.mkdirSync(state, { recursive: true });
     fs.mkdirSync(path.join(state, "runs"));
@@ -1830,7 +1648,7 @@ let failed = 0;
 const rendered = [];
 for (const c of CASES) {
   const label = `${c.scenario}${c.args?.length ? ` ${c.args.join(" ")}` : ""}`;
-  const { code, out, err, ms } = await run(c);
+  const { code, out, err, ms, stateRoot } = await run(c);
   let report = null;
   try { report = JSON.parse(out); } catch {}
   if (report) rendered.push({ label, report });
@@ -1842,7 +1660,7 @@ for (const c of CASES) {
       : c.assertText ? c.assertText(out)
         // ms as well as the report: a rung whose whole content is WHEN it fires (or does not) cannot be
         // told from one that never armed by reading the report alone.
-        : c.assert ? (report ? c.assert(report, ms) : "expected a JSON report, but stdout was not JSON") : true;
+        : c.assert ? (report ? c.assert(report, ms, stateRoot) : "expected a JSON report, but stdout was not JSON") : true;
   } catch (e) { assertion = `assert threw: ${e.message}`; }
   const ok = code === c.expect && assertion === true;
   if (!ok) {
@@ -1857,31 +1675,6 @@ for (const c of CASES) {
     console.log(`ok    ${label} -> ${code}`);
   }
 }
-
-flow("--ephemeral leaves no thread behind: a turn ran, but no job record and nothing for `--resume last`",
-  "--ephemeral must leave no job record that --resume last could pick up, while the control run proves ordinary records are still written",
-  async () => {
-    const state = flowState();
-    const eph = await run({ scenario: "happy", args: ["--ephemeral"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (eph.code !== EXIT.OK) return `the ephemeral run exited ${eph.code}: ${eph.err.trim().slice(0, 160)}`;
-    // The thread EXISTED — read off the report, so "no record" cannot be confused with "no turn ran".
-    let ephReport = null;
-    try { ephReport = JSON.parse(eph.out); } catch {}
-    if (ephReport?.threadId !== "thr_root") return `the ephemeral run reported no thread: ${eph.out.trim().slice(0, 160)}`;
-    if (recordOf(state)) return "an ephemeral run wrote a job record, so --jobs, --wait and `--resume last` can still reach the thread";
-    // A control in a state directory of its own: without it "no record" is equally consistent with a
-    // registry that stopped being written at all, and the case would pass on a broken driver.
-    const control = flowState();
-    const keep = await run({ scenario: "happy", env: { CODEX_DELEGATE_STATE_DIR: control } });
-    if (keep.code !== EXIT.OK) return `the control run exited ${keep.code}: ${keep.err.trim().slice(0, 160)}`;
-    if (recordOf(control)?.threadId !== "thr_root") return "the control run wrote no job record either, so this case cannot tell the flag from a dead registry";
-    const last = await run({ scenario: "happy", args: ["--resume", "last"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (last.code !== EXIT.USAGE || !/no previous run/.test(last.err))
-      return `\`--resume last\` after an ephemeral run exited ${last.code}, expected the usage refusal: ${last.err.trim().slice(0, 160)}`;
-    return true;
-  });
 
 flow("every report this suite produced renders as an envelope a coordinator can parse",
   "the envelope is ONE function over the report object, so the whole matrix of reports above — cut, escalated, schema, worktree, review, brief — is its input set. The two rules a coordinator is given have to hold for every one of them: the first line is the exit code, and everything after the single answer marker is the answer, exactly as many bytes as the marker states",
@@ -1930,7 +1723,7 @@ flow("every flag the parser accepts appears in --help or --help-all",
   () => {
     const parsed = [...new Set([...fs.readFileSync(DRIVER, "utf8").matchAll(/case "(-{1,2}[a-z-]+)":/g)].map((m) => m[1]))];
     // A pattern that stopped matching would pass this case with nothing to check.
-    if (parsed.length < 40) return `only ${parsed.length} case labels matched in the parser; the pattern has drifted`;
+    if (parsed.length < 30) return `only ${parsed.length} case labels matched in the parser; the pattern has drifted`;
     const core = helpRun("--help").stdout, all = helpRun("--help-all").stdout;
     // Word-boundary on the right, or --wait would be "documented" by --wait-timeout.
     const names = (text, f) => new RegExp(`(?<![a-z-])${f}(?![a-z-])`).test(text);
@@ -1954,6 +1747,81 @@ flow("--json and --footer are refused like any other unknown flag",
     }
     return problems.length === 0 || problems.join("; ");
   });
+
+// --- the exit ladder, one rung at a time ---
+//
+// Possible at all only because every `when` is a function of the context decideExitCode hands it: most
+// of them used to read module state that a whole turn had to produce first, so the ladder could be
+// exercised end to end and no other way. LADDER comes from the driver through the harness, so the rungs
+// here ARE the driver's rungs and a rung added there without a case here shows up as a count.
+const LADDER_OPTS = { expectRe: null, allowNoCommands: true, outputSchema: null };
+// A completed turn that ran a command, answered, and tripped nothing.
+const LADDER_BASE = { turnStatus: "completed", turnError: null, interactions: [], escalations: [],
+  verifyResult: null, verifySkipped: null, verifyFailed: false,
+  expected: [{}], answer: "an answer", schemaErrs: [], failedCmds: [], failedPatches: [], blocked: [] };
+const ladderCtx = ({ opts = {}, ...over } = {}) =>
+  ({ ...LADDER_BASE, ...over, opts: { ...LADDER_OPTS, ...opts } });
+// First match wins: the ladder's own rule, and the whole of the driver's walk over it.
+const rungHit = (ctx) => LADDER.findIndex((r) => r.when(ctx));
+
+const RUNGS = [
+  { at: 0, code: EXIT.TIMEOUT, ctx: { turnStatus: "timedOut" },
+    what: "a turn cut on a declared budget",
+    why: "a budget the caller set is the caller's to raise; folded into any rung below it, the report would blame the seat for work that did not fit" },
+  { at: 1, code: EXIT.USAGE, ctx: { turnStatus: "failed", turnError: { codexErrorInfo: "badRequest" } },
+    what: "a request the server refused",
+    why: "the set of efforts and models is per-model and knowable only at runtime; reported as a transport failure the caller retries it forever instead of fixing the parameter" },
+  { at: 2, code: EXIT.TURN_NOT_COMPLETED, ctx: { turnStatus: "failed" },
+    what: "a turn that did not complete",
+    why: "an incomplete turn's answer is whatever arrived before it stopped; exit 0 on it claims a finished piece of work" },
+  { at: 3, code: EXIT.INTERACTION, ctx: { interactions: [{ q: "which branch?" }] },
+    what: "a turn that asked for input",
+    why: "no sandbox change answers a question that needed a human, so this must outrank the escalation rung below it" },
+  { at: 4, code: EXIT.ESCALATED, ctx: { escalations: [{ cmd: "rm" }] },
+    what: "a refused approval",
+    why: "a refused escalation explains the missing command; below NO_COMMANDS it would be reported as 'nothing ran', which hides why" },
+  { at: 5, code: EXIT.VERIFY_UNMEASURABLE, ctx: { verifySkipped: "budget-exhausted" },
+    what: "a --verify the budget left no room for",
+    why: "a declared check that never ran leaves verifyResult null, which every gate below reads as 'nothing to complain about' — the run would reach 0 with its verifier unrun" },
+  { at: 6, code: EXIT.VERIFY_UNMEASURABLE, ctx: { verifyResult: { ok: false, measured: false }, verifyFailed: true },
+    what: "a --verify that ran and measured nothing",
+    why: "'the check could not be measured' and 'the check said no' are different findings, and the unmeasurable one must not be reported as a failure the seat caused" },
+  { at: 7, code: EXIT.VERIFY_FAILED, ctx: { verifyResult: { ok: false, measured: true }, verifyFailed: true },
+    what: "a --verify that ran and failed",
+    why: "the verifier is the gate this repository prefers over every command-shaped proxy below it; a failing one reaching exit 0 makes --verify decorative" },
+  { at: 8, code: EXIT.NO_COMMANDS, ctx: { expected: [], opts: { allowNoCommands: false } },
+    what: "a turn that ran nothing",
+    why: "an answer with no command behind it is recall, not evidence; the floor is what separates the two" },
+  { at: 9, code: EXIT.NO_ANSWER, ctx: { answer: "" },
+    what: "a turn that produced no answer",
+    why: "a run with no answer has nothing for its caller to read, and every gate below it grades the answer's content" },
+  { at: 10, code: EXIT.SCHEMA, ctx: { opts: { outputSchema: {} }, schemaErrs: ["/: missing 'verdict'"] },
+    what: "an answer that failed --output-schema",
+    why: "an unusable answer is what a caller parsing it fails on, and it is the LAST rung: a failed command is a report field and no exit at all" },
+];
+
+flow("the ladder's contexts and its rungs are the same eleven",
+  "a rung added to the driver without a case here is a rung nothing measures, and the ladder is the whole of what an exit code means",
+  async () => (LADDER.length === RUNGS.length
+    || `the driver has ${LADDER.length} rungs and this suite names ${RUNGS.length}`));
+
+flow("a completed turn that tripped no rung exits 0",
+  "the ladder decides every exit this driver takes; a base context that matched something would make every case below it agree for the wrong reason",
+  async () => {
+    const i = rungHit(ladderCtx());
+    return i < 0 || `a clean completed turn matched rung ${i} (exit ${LADDER[i].code})`;
+  });
+
+for (const r of RUNGS)
+  flow(`exit ${r.code}: ${r.what} matches rung ${r.at} and nothing above it`,
+    r.why,
+    async () => {
+      const i = rungHit(ladderCtx(r.ctx));
+      if (i !== r.at) return i < 0
+        ? `nothing matched: the rung reads state its context does not carry`
+        : `rung ${i} (exit ${LADDER[i].code}) matched first`;
+      return LADDER[i].code === r.code || `rung ${r.at} is exit ${LADDER[i].code}, not ${r.code}`;
+    });
 
 failed += await runCases(FLOWS);
 

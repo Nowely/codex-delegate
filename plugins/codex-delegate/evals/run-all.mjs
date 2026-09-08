@@ -15,7 +15,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseCount } from "./lib/harness.mjs";
+import { measured, parseCount } from "./lib/harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Hand-ordered, because the order is information (cheapest first), and checked against the directory,
@@ -41,24 +41,31 @@ function runSuite(name) {
     // the counts out of the line each suite already prints.
     p.stdout.on("data", (d) => { out += d; process.stdout.write(d); });
     p.stderr.on("data", (d) => { out += d; process.stderr.write(d); });
-    p.on("close", (code) => resolve({ code, out, ms: Date.now() - started }));
+    p.on("close", (code, signal) => resolve({ code, signal, out, ms: Date.now() - started }));
   });
 }
 
 const results = [];
-let failedName = null, failedCode = 0, notRun = 0;
+let failedName = null, failedCode = 0, failedWhy = "", notRun = 0;
 for (const name of SUITES) {
   console.log(`\n=== ${name} ===`);
-  const { code, out, ms } = await runSuite(name);
+  const { code, signal, out, ms } = await runSuite(name);
   const count = parseCount(out);
-  if (count === "not run") notRun++;
+  if (!measured(count)) notRun++;
   results.push(`${name} ${count}`);
-  if (code !== 0) { failedName = name; failedCode = code; break; }
+  // A suite killed by a signal reports `code` null, and `process.exit(null)` exits 0: a killed suite
+  // used to end the run green.
+  if (code !== 0 || signal) {
+    failedName = name;
+    failedCode = code ?? 1;
+    failedWhy = signal ? `killed by ${signal}` : `exit ${code}`;
+    break;
+  }
   results[results.length - 1] += ` (${(ms / 1000).toFixed(0)}s)`;
 }
 
 console.log(failedName
-  ? `\nrun-all: ${failedName} FAILED (exit ${failedCode}); ${results.length - 1}/${SUITES.length} suites green: ${results.slice(0, -1).join(", ")}`
+  ? `\nrun-all: ${failedName} FAILED (${failedWhy}); ${results.length - 1}/${SUITES.length} suites green: ${results.slice(0, -1).join(", ")}`
   : notRun
     ? `\nrun-all: ${SUITES.length - notRun}/${SUITES.length} suites green, ${notRun} not run — ${results.join(", ")}`
     : `\nrun-all: all ${SUITES.length} suites green — ${results.join(", ")}`);

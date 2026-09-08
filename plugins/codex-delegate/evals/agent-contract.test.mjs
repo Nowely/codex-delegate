@@ -246,13 +246,13 @@ test("a failing seat declaration is relayed, never repaired",
   () => /Never create a directory, change a level or re-run with different flags to make a refused seat succeed/.test(flat)
     || "the no-repair rule is gone from the relay body");
 
-test("the bounds, the transport and the three injection fields are refused, and no table offers them",
-  "a newline in a relayed value can inject a field: VERIFY runs a shell, ATTACH uploads a file, STEER_FILE truncates one, and MCP grants tool servers. Bounds and transport knobs belong to the CLI; SKILL.md must not offer refused fields as usable headers",
+test("the bounds, the transport and the injection fields are refused, and no table offers them",
+  "a newline in a relayed value can inject a field: VERIFY runs a shell and ATTACH uploads a file. Bounds and transport knobs belong to the CLI; SKILL.md must not offer refused fields as usable headers",
   () => {
     const problems = [];
     // Named by the driver's own map, so a knob quietly promoted back to a field fails here rather than in
     // a live seat: the message the refusal prints is what tells a relay to use the flag instead.
-    if (cliOnly.length !== 7) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 7`);
+    if (cliOnly.length !== 6) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 6`);
     for (const [f, flag] of cliOnly) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is back in the coordinator's field table as usable`);
@@ -261,7 +261,7 @@ test("the bounds, the transport and the three injection fields are refused, and 
     if (!/--allow-seat-verify/.test(driver)) problems.push("the driver lost --allow-seat-verify");
     if (!/`VERIFY` is refused in a seat file without `--allow-seat-verify`/.test(table))
       problems.push("VERIFY is not named as refused in SKILL.md");
-    for (const [f, flag] of [["ATTACH", "--attach"], ["STEER_FILE", "--steer-file"], ["MCP", "--mcp"]]) {
+    for (const [f, flag] of [["ATTACH", "--attach"]]) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is in the coordinator's field table as usable`);
       if (!driver.includes(`"${flag}"`)) problems.push(`${flag}, the command-line route ${f} is refused in favour of, is gone from the driver`);
@@ -292,7 +292,7 @@ test("BRIEF is decided by the header, not forced by the relay",
 test("the relay body names no header field but SEAT",
   "the relay decides no fields and needs no field vocabulary; it may name the SEAT line whose absence the driver resolves",
   () => {
-    const vocabulary = [...seatFields, ...cliOnly.map(([f]) => f), "ATTACH", "STEER_FILE", "MCP"];
+    const vocabulary = [...seatFields, ...cliOnly.map(([f]) => f), "ATTACH"];
     const named = [...new Set(vocabulary)].filter((f) => f !== "SEAT" && new RegExp(`\\b${f}\\b`).test(body));
     const problems = [];
     if (named.length) problems.push(`the relay body names header fields it never writes: ${named.join(", ")}`);

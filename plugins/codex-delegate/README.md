@@ -191,12 +191,18 @@ carries no stability promise — hence the pinned schema and the fidelity suite.
 ## After a codex upgrade
 
 ```bash
-codex app-server generate-json-schema --out schema-<new-version>/
-npm test
-node evals/fidelity.test.mjs --require-live
+codex app-server generate-json-schema --out <tmp-new>/
+git archive schema-<old-version>-full | tar -x -C <tmp-old>/
+diff -r <tmp-old>/ <tmp-new>/
 ```
 
-Then inspect any fixture/live difference and re-check
+Read the diff for anything structural, commit `<tmp-new>/` into the repo as `schema-<new-version>/`,
+and tag that commit `schema-<new-version>-full`: the oracle the next upgrade diffs against.
+`CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version>` lets `node evals/conformance.test.mjs` validate it
+while `schema-<old-version>/` is still the pinned one. Once it is green, move `PINNED_CODEX`, prune
+`schema-<new-version>/` down to the files [conformance](evals/conformance.test.mjs) loads, and remove
+`schema-<old-version>/`. Then run `npm test` and `node evals/fidelity.test.mjs --require-live`, inspect
+any fixture/live difference, and re-check
 [the dated parity reference](skills/codex-delegate/references/parity.md).
 
 ## Layout
@@ -212,13 +218,12 @@ evals/                           the suites, one file each; run-all.mjs lists th
                                  cheapest first, lib/harness.mjs is their shared machinery
 package.json                     private; the Node floor and `npm test`
 .github/workflows/ci.yml         the suites that need no `codex` binary, on its OS × Node matrix
-schema-<version>/                the pinned protocol schema the driver is written against; kept in the
-                                 repo (and therefore in plugin installs) deliberately — it is the
-                                 regeneration oracle the upgrade recipe diffs against, and stripping it
-                                 from installs would also strip the suites this README tells you to run.
-                                 The consolidated `*.schemas.json` bundles inside it are read by
-                                 nothing here — conformance loads the per-type files. They stay so a
-                                 `diff -r` against a regeneration is clean
+schema-<version>/                the files evals/conformance.test.mjs loads out of the pinned protocol
+                                 schema; kept in the repo (and therefore in plugin installs) because
+                                 those are what the suites this README tells you to run validate
+                                 against. The full generated tree is not kept here: the annotated tag
+                                 schema-<version>-full holds it, and the upgrade recipe diffs the next
+                                 regeneration against that tag.
 ```
 
 Canonical homes for repeated stories:

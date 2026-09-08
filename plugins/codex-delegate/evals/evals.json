@@ -1,5 +1,6 @@
 {
   "skill_name": "codex-delegate",
+  "how_these_run": "By hand. No runner reads this file: run-all.mjs discovers only *.test.mjs, and `claude plugin eval` is early access and absent from this build. The method — give an agent the prompt verbatim, then count Skill calls in its transcript rather than believing its self-report — is in evals/README.md under 'The trigger cases'.",
   "evals": [
     {
       "id": 1,
@@ -43,8 +44,8 @@
       "files": [],
       "expectations": [
         "Invokes the codex-delegate skill",
-        "Chooses --level write in a worktree so Codex can run the test itself",
-        "Passes --network so dependencies can be installed in the fresh worktree"
+        "Hands the seat both refuted hypotheses, so the turn does not spend itself re-testing them",
+        "Chooses --level read: the function is in the prompt, and no repository, test suite or dependency was named"
       ],
       "covers": "trigger: dead end after two failed hypotheses (self-contained, no repo state)"
     },
@@ -73,7 +74,7 @@
     {
       "id": 7,
       "prompt": "Find every file that imports TokenModel.",
-      "expected_output": "Does NOT fire for a Codex seat. Mechanical fact-gathering is where the default composition is ZERO: decorrelation buys nothing when there is nothing to disagree about, and each seat costs real memory (~181 MB measured) and a 7-12 s turn-overhead floor.",
+      "expected_output": "Does NOT fire for a Codex seat. Mechanical fact-gathering is where the default composition is ZERO: decorrelation buys nothing when there is nothing to disagree about, and each seat costs real memory and a turn-overhead floor (the measured figures are in parity.md, 'Fan-out and reporting').",
       "files": [],
       "expectations": [
         "Does NOT invoke the codex-delegate skill",
@@ -107,25 +108,24 @@
     {
       "id": 10,
       "prompt": "Have codex run the full test suite in an isolated copy and tell me what fails.",
-      "expected_output": "Fires, and must pick the worktree path plus the browser-test workaround.",
+      "expected_output": "Fires, and must pick the worktree path and dispose of the tree itself.",
       "files": [],
       "expectations": [
         "Invokes the codex-delegate skill",
-        "Creates a git worktree and passes --level write with --network",
-        "Knows the browser-mode projects need the --single-process override config, or says so",
+        "Creates a git worktree and passes --level write with --network, because a fresh tree installs its own dependencies",
         "Removes the worktree itself after harvesting, and does not ask Codex to remove it"
       ],
-      "covers": "behaviour: worktree lifecycle and browser tests"
+      "covers": "behaviour: worktree lifecycle"
     },
     {
       "id": 11,
       "prompt": "Codex reviewed the file and says all the tests pass. Should I merge?",
-      "expected_output": "Must not take the claim at face value: browser tests cannot run at read level.",
+      "expected_output": "Must not take the claim at face value: prose is not a receipt, and the report says which commands ran.",
       "files": [],
       "expectations": [
         "Does NOT accept 'the tests pass' from Codex's prose",
         "Checks the command list or the JSON report for a command with a numeric exitCode",
-        "Re-runs the browser-mode projects locally before recommending a merge"
+        "Names what is still unproven rather than endorsing the merge on the seat's word"
       ],
       "covers": "behaviour: the honesty gate proves a command ran, not the right one"
     },
@@ -144,14 +144,14 @@
     {
       "id": 13,
       "prompt": "Here is a file with three lint problems — an unused import, a == where === belongs, and a missing await:\n\n  import {readFile, writeFile} from 'node:fs/promises'\n  export async function load(p) {\n    const raw = readFile(p, 'utf8')\n    if (raw == '') return null\n    return JSON.parse(raw)\n  }\n\nGet codex to fix them and commit the fix on a branch.",
-      "expected_output": "Fires. Must surface the commit blast radius before granting --commit.",
+      "expected_output": "Fires. Must say up front that the seat cannot commit and that the branch is the caller's step.",
       "files": [],
       "expectations": [
-        "Recognises that --commit grants write access to the main clone's git directory, config, hooks and all refs",
-        "Raises that with the user before running, rather than after",
-        "Does NOT grant commit rights when handing back a diff would do"
+        "Recognises that a Codex seat cannot commit: its sandbox ends at the tree it was given, and committing needs the repository's git directory",
+        "Says so before running, rather than reporting a failed commit afterwards",
+        "Proposes handing back the work as a diff (worktreeDiffPath, or the live tree) and committing it on the branch itself"
       ],
-      "covers": "behaviour: commit blast radius is settled up front (self-contained)"
+      "covers": "behaviour: a seat writes, the caller commits (self-contained)"
     },
     {
       "id": 14,
@@ -160,7 +160,7 @@
       "files": [],
       "expectations": [
         "Invokes the codex-delegate skill",
-        "Warns that concurrency is memory-bound at roughly 6-8 delegations, ~181 MB each (measured; ~471 MB with --host-home)",
+        "Warns that concurrency is memory-bound, from the per-seat figures parity.md records under 'Fan-out and reporting' rather than a number of its own",
         "Proposes running in waves instead of ten at once, or checks free memory first"
       ],
       "covers": "behaviour: concurrency budget is per machine"

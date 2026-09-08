@@ -35,7 +35,7 @@ with the counts.
 
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
 2. Show the plan and stop: the tasks; every seat with its side (Claude or Codex) and its model; the run directory path; and every
-   `SEAT: write`, `SEAT: worktree`, `NETWORK:`, `WRITABLE:` and `COMMIT:` a seat needs, a worktree seat named as such because
+   `SEAT: write`, `SEAT: worktree`, `NETWORK:` and `WRITABLE:` a seat needs, a worktree seat named as such because
    a worktree will be made. Announce the composition here, and the pool beside it: your own model and the default caps below,
    one Fable, one `gpt-6-astra`, six alive. A cap the user overrides in words ("two Fable") replaces the default for this run;
    composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches
@@ -46,8 +46,8 @@ with the counts.
    committed code, atomically parallel work that must run its own tests. Never use one to test uncommitted live edits: it sees
    none of them and passes untouched code. When a plan needs both, the commit or stash that feeds the worktree is a live-tree
    commit and goes into the plan. Use one only where a fresh tree can run: dependencies installable inside it under the planned
-   rights (the live checkout's are absent), no daemon or socket. You decide; ask when unsure. A seat may commit freely inside
-   its own worktree, a Codex worktree seat needs `COMMIT: yes`. Land the harvest by proposal: apply `worktreeDiffPath` and
+   rights (the live checkout's are absent), no daemon or socket. You decide; ask when unsure. A Codex worktree seat cannot
+   commit: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
    restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait,
    unless the plan said "land the winner".
 5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped.
@@ -82,8 +82,7 @@ critique, review, skeptics and refuters, judges. A one-seat task has no judgemen
 adds one. Everything else there holds: an allocation or refusal the user states, the announcement, attribution, no backfill, no
 allow-rules. Implementers are not duplicated: one per task, split by ownership, and which side takes which is your call.
 Cross-review runs the other way round, a Claude implementer's diff to a Codex seat and a Codex seat's diff to a Claude seat; a
-cross-review seat is a prompt seat with the diff's path in `TASK:`, not a `REVIEW:` seat, which takes no body and no
-`OUTPUT_SCHEMA:` and returns the server reviewer's own output instead of the template below.
+cross-review seat is a prompt seat with the diff's path in `TASK:` and the template below in `OUTPUT_SCHEMA:`.
 
 | Bound | Default |
 | --- | --- |
@@ -101,8 +100,8 @@ code, or from you under the redirect rule.
 
 ## Mechanism
 
-Your user's invocation of this skill authorises Workflow: use it for any fan-out of two or more seats and for verify chains, the
-Agent tool for a single seat and for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
+Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge) or
+that must parse a Codex seat's JSON, and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated
 object when `schema` is given; `agentType: 'codex-delegate:codex-seat'` (bare `codex-seat` on a clone-and-symlink install) makes
 it a Codex seat. `pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier for when

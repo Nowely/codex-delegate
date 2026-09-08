@@ -11,11 +11,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { SCENARIOS } from "./fake-app-server.mjs";
-import { DRIVER, ROOT, codexShim, spawnNode, tempDir } from "./lib/harness.mjs";
+import { DRIVER, PINNED_CODEX, ROOT, codexShim, spawnNode, tempDir } from "./lib/harness.mjs";
 
 // The upgrade recipe in README.md generates a SECOND schema-<version>/ beside the old one, and
 // readdirSync order is not sorted — so "the first one that matches" could validate the fixture against
 // the version being replaced and say nothing. Pick the newest by version and name it in the output.
+// CODEX_DELEGATE_SCHEMA_DIR overrides that choice with a directory name, which is how the upgrade
+// recipe validates the newly generated tree before PINNED_CODEX moves to it.
 const schemaDirs = fs.readdirSync(ROOT).filter((n) => /^schema-\d/.test(n))
   .sort((a, b) => {
     const part = (n) => n.slice("schema-".length).split(".").map((x) => Number.parseInt(x, 10) || 0);
@@ -23,10 +25,21 @@ const schemaDirs = fs.readdirSync(ROOT).filter((n) => /^schema-\d/.test(n))
     for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pb[i] ?? 0) - (pa[i] ?? 0);
     return a < b ? 1 : -1;
   });
-const schemaDir = schemaDirs[0];
+const override = process.env.CODEX_DELEGATE_SCHEMA_DIR ?? null;
+const schemaDir = override ?? schemaDirs[0];
 if (!schemaDir) { console.log("FAIL  no schema-<version>/ directory in the repository root"); process.exit(1); }
+if (!fs.existsSync(path.join(ROOT, schemaDir))) {
+  console.log(`FAIL  CODEX_DELEGATE_SCHEMA_DIR names ${schemaDir}, which is not a directory in the repository root`);
+  process.exit(1);
+}
+// The pin is what every report calls codexVersionPinned. A regeneration into a newer directory that
+// nobody pinned would otherwise validate green while each run still claimed the old version.
+if (!override && schemaDir !== `schema-${PINNED_CODEX}`) {
+  console.log(`FAIL  the newest schema directory is ${schemaDir} and the driver pins ${PINNED_CODEX}; move PINNED_CODEX, or set CODEX_DELEGATE_SCHEMA_DIR to validate against one directory while the pin names another`);
+  process.exit(1);
+}
 if (schemaDirs.length > 1)
-  console.log(`note  ${schemaDirs.length} schema directories present; validating against the newest, ${schemaDir} (also: ${schemaDirs.slice(1).join(", ")})`);
+  console.log(`note  ${schemaDirs.length} schema directories present; validating against ${schemaDir} (also: ${schemaDirs.filter((d) => d !== schemaDir).join(", ")})`);
 const SCHEMAS = path.join(ROOT, schemaDir);
 const load = (rel) => JSON.parse(fs.readFileSync(path.join(SCHEMAS, rel), "utf8"));
 
@@ -38,16 +51,16 @@ const RESPONSE_SCHEMAS = {
   "initialize": load("v1/InitializeResponse.json"),
   "thread/start": load("v2/ThreadStartResponse.json"),
   "thread/resume": load("v2/ThreadResumeResponse.json"),
-  "thread/fork": load("v2/ThreadForkResponse.json"),
-  "thread/compact/start": load("v2/ThreadCompactStartResponse.json"),
   "turn/start": load("v2/TurnStartResponse.json"),
-  "review/start": load("v2/ReviewStartResponse.json"),
   "config/read": load("v2/ConfigReadResponse.json"),
   "turn/interrupt": load("v2/TurnInterruptResponse.json"),
   "turn/steer": load("v2/TurnSteerResponse.json"),
   "model/list": load("v2/ModelListResponse.json"),
   "account/rateLimits/read": load("v2/GetAccountRateLimitsResponse.json"),
 };
+// An error reply matches none of the three shapes above, and used to fall through every branch while
+// still counting itself validated. It has a schema of its own.
+const JSONRPC_ERROR = load("JSONRPCError.json");
 
 const unchecked = new Set();
 const KNOWN = new Set(["$ref", "oneOf", "anyOf", "allOf", "type", "enum", "const", "required", "properties",
@@ -131,13 +144,9 @@ fs.writeFileSync(schemaFile, JSON.stringify({
 function argsFor(scenario) {
   const s = SCENARIOS[scenario];
   return [
-    ...(s.review ? ["--review", s.review] : ["--prompt", "conformance"]),
+    "--prompt", "conformance",
     ...(s.resume ? ["--resume", s.resume] : []),
-    ...(s.fork ? ["--fork", s.fork] : []),
-    ...(s.forkThrough ? ["--fork-through", s.forkThrough] : []),
     ...(s.effort ? ["--effort", s.effort] : []),
-    ...(s.compact ? ["--compact"] : []),
-    ...(s.reasoningSummary ? ["--reasoning-summary", s.reasoningSummary] : []),
     ...(s.outputSchema ? ["--output-schema", schemaFile] : []),
     "--timeout", String(s.timeout ?? 20),
   ];
@@ -153,7 +162,7 @@ async function runScenario(scenario) {
   try { return fs.readFileSync(emit, "utf8").split("\n").filter((l) => l.trim()); } catch { return []; }
 }
 
-let failed = 0, validated = 0, notifications = 0, requests = 0, responses = 0;
+let failed = 0, validated = 0, notifications = 0, requests = 0, responses = 0, errors = 0;
 const unvalidatedMethods = new Set();
 const deliberate = [];
 
@@ -188,6 +197,13 @@ for (const scenario of scenarios) {
       const schema = RESPONSE_SCHEMAS[method];
       if (!schema) { unvalidatedMethods.add(method); continue; }
       problems.push(...check(msg.result, schema, schema).map((e) => `response ${method}: ${e}`));
+    } else if (msg.error !== undefined) {
+      errors++;
+      problems.push(...check(msg, JSONRPC_ERROR, JSONRPC_ERROR).map((e) => `error response: ${e}`));
+    } else {
+      // Not a notification, a request, a result or an error: no JSON-RPC message has that shape, and
+      // counting it validated is how the tally came to exceed the four categories it is made of.
+      problems.push(`neither a notification, a request nor a response: ${line.slice(0, 80)}`);
     }
     validated++;
   }
@@ -200,7 +216,7 @@ for (const scenario of scenarios) {
   }
 }
 
-console.log(`\n${validated} message(s) validated: ${notifications} notification(s), ${requests} server request(s), ${responses} response(s)`);
+console.log(`\n${validated} message(s) validated: ${notifications} notification(s), ${requests} server request(s), ${responses} response(s), ${errors} error response(s)`);
 if (unchecked.size) console.log(`keywords the validator does not check: ${[...unchecked].sort().join(", ")}`);
 if (unvalidatedMethods.size) console.log(`responses not validated (no schema mapped): ${[...unvalidatedMethods].join(", ")}`);
 for (const d of deliberate) console.log(`excluded, deliberately malformed — ${d}`);

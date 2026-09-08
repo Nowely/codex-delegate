@@ -20,7 +20,7 @@
 // defect. Every other spawn or handshake failure is protocol drift. A skip is reported loudly so it
 // cannot be mistaken for a pass.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -262,7 +262,7 @@ function captureDriver(spec) {
     { try { fs.symlinkSync(callerAuth, path.join(callerCodex, "auth.json")); } catch {} }
 
   const driverArgs = [DRIVER, "--level", spec.level, "--cwd", spec.cwd,
-    "--effort", "high", "--ephemeral", "--prompt", "fidelity probe"];
+    "--effort", "high", "--prompt", "fidelity probe"];
   for (const root of spec.writable ?? []) driverArgs.push("--writable", root);
   if (spec.network) driverArgs.push("--network");
   const baseEnv = spec.env ?? process.env;
@@ -326,8 +326,8 @@ function captureDriver(spec) {
       if (expect("-c web_search", sent("web_search"), "disabled")) return;
       if (expect("--strict-config", captured.spawnArgs.includes("--strict-config"), true)) return;
       if (expect("initialize capabilities.experimentalApi", captured.initializeParams?.capabilities?.experimentalApi, false)) return;
-      // The capture invokes the driver WITH --ephemeral, so true is the correct value here.
-      if (expect("thread ephemeral", captured.threadParams?.ephemeral, true)) return;
+      // thread/start carries no `ephemeral` field at all: the driver never sends one.
+      if (expect("thread ephemeral", captured.threadParams?.ephemeral, undefined)) return;
       let isolated;
       try { isolated = fs.readFileSync(path.join(expectedHome, "config.toml"), "utf8"); }
       catch (e) { finish(reject, new Error(`cannot read driver's isolated config: ${e.message}`)); return; }
@@ -582,38 +582,6 @@ async function liveTurns() {
     }
   }
 
-  // --- one review turn: the payload is a STRING, and it is the answer ---
-  {
-    const repo = freshDir("live-review");
-    const log = path.join(repo, "stream.jsonl");
-    const state = freshDir("live-review-state");
-    const git = (...a) => spawnSync("git", ["-C", repo, ...a], { encoding: "utf8" });
-    fs.writeFileSync(path.join(repo, "util.mjs"), "export function clamp(x){\n  return x;\n}\n");
-    git("init", "-q", ".");
-    git("add", "-A");
-    git("-c", "user.email=evals@example.invalid", "-c", "user.name=evals", "commit", "-qm", "base");
-    fs.writeFileSync(path.join(repo, "util.mjs"), "export function clamp(x, lo, hi){\n  if (x < lo) return lo;\n  if (x > hi) return hi\n  return x;\n}\n");
-    const shim = teeShim(repo, codexBin, log);
-    const { code, out, err } = await runDriver(
-      ["--level", "read", "--cwd", repo, "--effort", "low", "--timeout", "300", "--review", "uncommitted"],
-      { ...process.env, CODEX_DELEGATE_CODEX: shim, CODEX_DELEGATE_STATE_DIR: state }, 330000);
-    let r = null;
-    try { r = JSON.parse(out); } catch {}
-    if (!r) report("live review", `the driver produced no JSON report (exit ${code}): ${err.trim().slice(-300)}`);
-    else {
-      const answer = String(r.answer ?? "");
-      const shape = JSON.stringify({ exit: code, other: r.otherItemCounts, answer: answer.slice(0, 80) });
-      if (code !== 0) report("live review: a review that arrived is exit 0", shape);
-      else if (!answer.trim() || /^[[{]/.test(answer.trim()))
-        report("live review: the payload is a string, not an object the driver stringifies", shape);
-      else if (r.otherItemCounts?.exitedReviewMode !== 1)
-        report("live review: the review arrives as the exitedReviewMode item", shape);
-      else console.log(`ok    live review (exit ${code}, ${answer.length}-byte string review)`);
-      const { problems, notes } = diffItemKeys(completedItems(log));
-      for (const n of notes) console.log(`      note: ${n}`);
-      for (const p of problems) report("live review: item key sets", p);
-    }
-  }
   return failed;
 }
 

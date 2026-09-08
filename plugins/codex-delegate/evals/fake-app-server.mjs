@@ -34,9 +34,12 @@ export const SCENARIOS = {
   "blank-answer": {}, "failed-null-exit": {}, "blocked-command": {}, "file-changes": {},
   "probe-negative": {}, "probe-error": {}, "probe-compound": {}, "probe-multiline": {},
   "probe-piped": {}, "probe-quoted": {}, "hidden-failure": {}, "slow-turn": {}, "spawn-survivor": {}, "long-answer": {},
-  "rich-items": {}, progress: {}, "echo-input": {}, "null-phase": {},
+  "rich-items": {}, "echo-input": {}, "null-phase": {},
   // A seat that leaves work in $TMPDIR and names the path in its answer — the shape --brief asks for.
   "tmp-write": {},
+  // The environment the driver hands the app-server, as the seat's shell sees it: zsh's here-document
+  // prefix must sit under the run's TMPDIR or every <<EOF fails (driver.mjs, the spawn).
+  "env-tmpprefix": {},
   // The app-server process DIES mid-turn, after the thread and one command exist.
   "server-crash": {},
   // Two unbounded growth paths in the main transport: notifications with no turn/start response to
@@ -77,17 +80,10 @@ export const SCENARIOS = {
   // thread/start is never answered, so the deadline fires with no thread to report.
   "no-thread": { timeout: 0.5 },
   "resume-active": { resume: "thr_root" },
-  "review-inline": { review: "uncommitted" },
-  "review-broken": { review: "branch:nonexistent" },
-  // The developerInstructions of a REVIEW turn, handed back as the review payload: the only way a case
-  // can read what the driver told a reviewer it never writes the prompt for.
-  "review-instructions": { review: "uncommitted" },
   "schema-good": { outputSchema: true }, "schema-retry": { outputSchema: true },
   "schema-never": { outputSchema: true }, "schema-retry-refused": { outputSchema: true },
-  fork: { fork: "thr_parent", forkThrough: "turn_parent" },
   "model-unknown": { effort: "minimal" }, "rate-limited": {},
-  compact: { resume: "thr_root", compact: true }, "turn-diff": {},
-  "reasoning-summary": { reasoningSummary: "detailed" },
+  "turn-diff": {},
   "late-completion": { outputSchema: true, timeout: 0.4 },
   "stalled-turn": { timeout: 0.5 },
   // Six commands 150 ms apart, then an answer: the shape --max-commands bounds. It ends on its own when
@@ -127,7 +123,7 @@ if (isMain && process.argv[2] === "sandbox") {
 }
 
 // The -c config this server was spawned with, one `cfg:<key>` line each — the only way a suite can see
-// a per-run grant that rides the spawn args (--mcp) rather than any file.
+// a grant that rides the spawn args rather than any file.
 if (isMain && process.env.FAKE_RPC_LOG) {
   try {
     fs.appendFileSync(process.env.FAKE_RPC_LOG,
@@ -141,12 +137,6 @@ if (isMain && process.env.FAKE_RPC_LOG) {
 const CFG = Object.fromEntries(process.argv.slice(2)
   .filter((a, i, all) => all[i - 1] === "-c" && a.includes("="))
   .map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
-if (isMain && process.env.FAKE_MCP_CONFIG_LOG && process.env.CODEX_HOME) {
-  try {
-    const body = fs.readFileSync(`${process.env.CODEX_HOME}/config.toml`, "utf8");
-    if (body.includes("[mcp_servers.")) fs.writeFileSync(process.env.FAKE_MCP_CONFIG_LOG, body);
-  } catch {}
-}
 const THREAD = "thr_root";
 const TURN = "turn_root";
 const OTHER_TURN = "turn_stale";
@@ -246,12 +236,6 @@ const userMsg = (turnId, threadId, text) =>
     item: { id: `item_${seq}`, type: "userMessage", clientId: null,
             content: [{ type: "text", text, text_elements: [] }] } });
 
-// Both review items carry a STRING: enteredReviewMode the target ("current changes"), exitedReviewMode
-// the review itself, as measured live and specified by the pinned schema.
-const reviewItem = (turnId, threadId, type, review) =>
-  note("item/completed", { threadId, turnId, completedAtMs: now(),
-    item: { id: `item_${seq}`, type, review } });
-
 const fileChangeItem = (turnId, threadId, { status = "completed", changes = [] } = {}) =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
     item: { id: `item_${seq}`, type: "fileChange", status, changes } });
@@ -303,8 +287,6 @@ export const sampleItems = () => [
   userMsg(TURN, THREAD, "sample"),
   reasoningItem(TURN, THREAD, ["sample"]),
   fileChangeItem(TURN, THREAD, { changes: [{ path: "/tmp/sample", kind: { type: "add" }, diff: "+x" }] }),
-  reviewItem(TURN, THREAD, "enteredReviewMode", "current changes"),
-  reviewItem(TURN, THREAD, "exitedReviewMode", "the review"),
 ].map((n) => n.params.item);
 
 // Matches TurnCompletedNotification exactly: threadId and turn, and NO top-level turnId. A fixture that
@@ -374,19 +356,13 @@ function onLine(line) {
     return;
   }
   if (m.method === "turn/steer") {
-    // The reply can be slow; corrections appended while a steer awaits acceptance must survive.
-    const delay = Number(process.env.FAKE_STEER_DELAY_MS ?? 0);
-    const answer = () => {
-      // TurnSteerResponse REQUIRES turnId — a bare {} is a reply the driver cannot rely on, and only a
-      // scenario that steers puts this response in front of the conformance suite at all.
-      w(reply(m.id, { turnId: m.params?.expectedTurnId ?? TURN }));
-      // The wrap-up rung: the steer TEXT is the only thing under test, so it comes straight back as the
-      // answer — and answering ends the turn, which is what the rung is asking the model to do.
-      if (SCENARIO === "wrap-up")
-        w(cmd(TURN, THREAD), msg(TURN, THREAD, String(m.params?.input?.[0]?.text ?? "")), done(TURN, THREAD));
-    };
-    if (delay > 0) setTimeout(answer, delay);
-    else answer();
+    // TurnSteerResponse REQUIRES turnId — a bare {} is a reply the driver cannot rely on, and only a
+    // scenario that steers puts this response in front of the conformance suite at all.
+    w(reply(m.id, { turnId: m.params?.expectedTurnId ?? TURN }));
+    // The wrap-up rung: the steer TEXT is the only thing under test, so it comes straight back as the
+    // answer — and answering ends the turn, which is what the rung is asking the model to do.
+    if (SCENARIO === "wrap-up")
+      w(cmd(TURN, THREAD), msg(TURN, THREAD, String(m.params?.input?.[0]?.text ?? "")), done(TURN, THREAD));
     return;
   }
 
@@ -407,14 +383,6 @@ function onLine(line) {
       model_reasoning_effort: unquote(CFG["model_reasoning_effort"]) || "medium",
       personality: unquote(CFG["personality"]) || "pragmatic",
       service_tier: unquote(CFG["service_tier"]) || "auto",
-      // What --mcp asks the probe to carry across; one carriable server, one that is not.
-      ...(process.env.FAKE_MCP ? { mcp_servers: {
-        docs: { command: "docs-server", args: ["--port", "0"], env: { TOKEN: "t" } },
-        search: { command: "search-server", args: ["--stdio"] },
-        exotic: { command: "x", nested: { deep: true } },
-        // Package-style name, legal since codex 0.152.0; it requires a quoted TOML key.
-        "@acme/docs.v2": { command: "acme-docs", args: ["--stdio"] },
-      } } : {}),
     }, origins: {} }));
     return;
   }
@@ -444,7 +412,7 @@ function onLine(line) {
     return;
   }
 
-  if (m.method === "thread/start" || m.method === "thread/resume" || m.method === "thread/fork") {
+  if (m.method === "thread/start" || m.method === "thread/resume") {
     // Never answered: the deadline then fires with a child but no thread, the one rung of the wall clock
     // that has nothing to report and must abort instead.
     if (SCENARIO === "no-thread") return;
@@ -525,54 +493,6 @@ function onLine(line) {
     return;
   }
 
-  if (m.method === "thread/compact/start") {
-    w(reply(m.id, {}));
-    return;
-  }
-
-  // A review whose own git commands fail and which produces NO review payload: the flag alone must
-  // not waive a genuine failure.
-  if (m.method === "review/start" && SCENARIO === "review-broken") {
-    const R = reply(m.id, { reviewThreadId: m.params?.threadId ?? THREAD,
-      turn: { id: TURN, status: "inProgress", items: [], error: null } });
-    w(R, cmd(TURN, THREAD, { command: "git diff nonexistent-ref", exitCode: 128, status: "failed" }),
-      msg(TURN, THREAD, "I could not inspect that ref."), done(TURN, THREAD));
-    return;
-  }
-
-  // What the THREAD was told, returned as the review itself. A review turn's prompt is the server's,
-  // so the developerInstructions are the only text the driver contributes to it.
-  if (m.method === "review/start" && SCENARIO === "review-instructions") {
-    const R = reply(m.id, { reviewThreadId: m.params?.threadId ?? THREAD,
-      turn: { id: TURN, status: "inProgress", items: [], error: null } });
-    w(R, reviewItem(TURN, THREAD, "exitedReviewMode", String(requestedThread?.developerInstructions ?? "")),
-      done(TURN, THREAD));
-    return;
-  }
-
-  if (m.method === "review/start") {
-    // Inline review: the turn runs on the caller's thread; the review payload arrives as the
-    // exitedReviewMode item and the turn completes with no commands at all.
-    const R = reply(m.id, { reviewThreadId: m.params?.threadId ?? THREAD,
-      turn: { id: TURN, status: "inProgress", items: [], error: null } });
-    w(R,
-      // The order a live review arrives in: the mode is entered, the reviewer works, the review comes
-      // back as the exit payload. The echoed userMessage is the prompt the SERVER built, not ours.
-      reviewItem(TURN, THREAD, "enteredReviewMode", "current changes"),
-      userMsg(TURN, THREAD, "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings."),
-      // A failing probe of the reviewer's own, and a failure that is NOT a probe — measured live, real
-      // reviews run both as their working method, and neither may turn the run into exit 11 once a
-      // review has actually arrived.
-      cmd(TURN, THREAD, { command: "grep -n clamp src/util.mjs", exitCode: 1, status: "failed" }),
-      cmd(TURN, THREAD, { command: "cat src/util.mjs.orig", exitCode: 1, status: "failed" }),
-      // A review costs tokens like any other turn, and the server reports them the same way.
-      usage(TURN, THREAD, 900, 900),
-      reviewItem(TURN, THREAD, "exitedReviewMode",
-        "Needs work: off-by-one in clamp — the loop stops early."),
-      done(TURN, THREAD));
-    return;
-  }
-
   if (m.method === "turn/start") {
     turnStarts++;
     // The corrective turn under --output-schema is a SECOND turn/start on the same thread; it must get
@@ -614,10 +534,6 @@ function onLine(line) {
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
-      case "fork":
-        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify(requestedThread)), done(TURN, THREAD));
-        break;
-
       // request_user_input_async: the question is an agentMessage with `questions` and delivery "async",
       // phased final_answer — the shape 0.153.4 emits — followed by the turn's real, unphased answer.
       case "async-question":
@@ -629,20 +545,11 @@ function onLine(line) {
           msg(TURN, THREAD, "DONE-ANSWER", null), done(TURN, THREAD));
         break;
 
-      case "compact":
-        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "compacted, then answered"), done(TURN, THREAD));
-        break;
-
       case "turn-diff":
         w(R, cmd(TURN, THREAD),
           note("turn/diff/updated", { threadId: THREAD, turnId: TURN, diff: "first diff\n" }),
           note("turn/diff/updated", { threadId: THREAD, turnId: TURN, diff: "last diff\n" }),
           msg(TURN, THREAD, "diff saved"), done(TURN, THREAD));
-        break;
-
-      case "reasoning-summary":
-        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, JSON.stringify({ summary: m.params?.summary ?? null })),
-          done(TURN, THREAD));
         break;
 
       // --output-schema: a valid object on the first try.
@@ -717,6 +624,10 @@ function onLine(line) {
         const f = path.join(process.env.TMPDIR ?? os.tmpdir(), "seat-note.txt");
         try { fs.writeFileSync(f, "the seat's long output\n"); } catch {}
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, `full notes at ${f}`), done(TURN, THREAD));
+        break;
+      }
+      case "env-tmpprefix": {
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, `TMPPREFIX=${process.env.TMPPREFIX ?? "(unset)"}`), done(TURN, THREAD));
         break;
       }
 
@@ -1116,17 +1027,6 @@ function onLine(line) {
           msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
         break;
 
-      // item/started before the completion pair: what --progress announces.
-      case "progress":
-        w(R,
-          note("item/started", { threadId: THREAD, turnId: TURN, startedAtMs: now(),
-            item: { id: "item_p1", type: "commandExecution", command: wrap("echo hi"), status: "inProgress",
-                    cwd: "/tmp", commandActions: actionsFor("echo hi"), aggregatedOutput: null,
-                    exitCode: null, processId: "50999", durationMs: 0,
-                    source: "unifiedExecStartup", pluginId: null, scriptPath: null } }),
-          cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
-        break;
-
       // The turn input, echoed back as the answer: the only way a case can see what the driver SENT
       // as input items (--attach mapping, text ordering).
       case "echo-input":
@@ -1187,8 +1087,12 @@ function onLine(line) {
         w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "unphased but real", null), done(TURN, THREAD));
         break;
 
+      // An inventoried scenario with no handler here: a deleted case label, or one whose name drifted
+      // from the inventory. The generic response-and-completion this used to send is success-shaped, so
+      // the case measured nothing and passed. Nothing under evals/ reaches this today.
       default:
-        w(R, done(TURN, THREAD));
+        process.stderr.write(`fake-app-server: ${JSON.stringify(SCENARIO)} is in SCENARIOS but has no turn/start handler\n`);
+        process.exit(2);
     }
     if (echoesInput) w(userMsg(thisTurn, m.params?.threadId ?? THREAD, prompt));
     return;
