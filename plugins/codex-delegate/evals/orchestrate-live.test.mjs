@@ -47,10 +47,11 @@
 // {subAgentActivity: 6, collabAgentToolCall: 2}, no command on the root thread, exit 5 with the right
 // answer), so delegation is the model's choice and no effort buys the guarantee an EFFORT line once
 // claimed. The case asks for the work on this thread and checks that it arrived there; the inviting
-// prompt survives as an informational probe behind CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1. Nothing
-// here asserts on the report's subagentThreads: on 0.153.4 those child threads never arrive as a
-// thread/started carrying parentThreadId, so the field stays [] while the counters show the delegation.
-// That gap is the driver's, and a follow-up; protocol.test.mjs is what pins the field itself.
+// prompt survives as a probe behind CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1. Whether the seat
+// delegates at all is still the model's business, and the probe is what re-measures that after a codex
+// upgrade; when it does, the probe CHECKS what the driver made of it: every child announced as a
+// subAgentActivity item registered in subagentThreads with its agentPath, its status and the commands it
+// ran, and exit 5 whose cause names them. protocol.test.mjs pins the same shape against the fixture.
 
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -523,8 +524,8 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
     if (report.model !== "gpt-6-astra") problems.push(`the report's model is ${JSON.stringify(report.model)}, not gpt-6-astra`);
     const commands = Array.isArray(report.commands) ? report.commands : [];
     if (!commands.length) problems.push("the report lists no command, so nothing ran on the thread that answered");
-    // The counters, not subagentThreads: on 0.153.4 a Codex child thread never registers as one, and
-    // these are what the delegating run showed instead ({subAgentActivity: 6, collabAgentToolCall: 2}).
+    // The counters beside subagentThreads: a delegating seat shows both, and the counters are the signal
+    // the first measurement saw ({subAgentActivity: 6, collabAgentToolCall: 2}) before children registered.
     const others = report.otherItemCounts ?? {};
     for (const k of ["subAgentActivity", "collabAgentToolCall"])
       if (others[k]) problems.push(`the seat delegated: otherItemCounts.${k} is ${JSON.stringify(others[k])}`);
@@ -540,9 +541,9 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
     if (!problems.length)
       note(`${commands.length} command(s) on the root thread, reasoningEffort ${JSON.stringify(report.reasoningEffort ?? null)}, exit ${r.code}`);
 
-    // Informational, and a second Codex turn: the inviting prompt is how the delegation was measured, and
-    // this probe is what re-measures it after a codex upgrade. Whether the model delegates is the model's
-    // business and no verdict of this suite, so the only assertion is that a report came back to read.
+    // A second Codex turn: the inviting prompt is how the delegation was measured, and this probe is what
+    // re-measures it after a codex upgrade. The model decides whether to delegate; the driver decides what
+    // the report then says about it, and that is what is checked here.
     if (!DELEGATE_PROBE) note("delegation probe: NOT RUN");
     else {
       const p = await runProc(process.execPath, [DRIVER, ...base, "--prompt", DELEGATE_TASK], { timeoutMs: DRIVER_TIMEOUT, env });
@@ -552,8 +553,30 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
       let pr = null;
       try { pr = JSON.parse(p.out); } catch {}
       if (!pr) problems.push(`the delegation probe printed no JSON report (exit ${p.code}): ${p.err.trim().slice(-300)}`);
-      else note(`delegation probe: exit ${p.code}, ${(pr.commands ?? []).length} command(s), otherItemCounts `
-        + `${JSON.stringify(pr.otherItemCounts ?? null)}, subagentThreads ${JSON.stringify(pr.subagentThreads ?? null)}`);
+      else {
+        // One entry per child the root announced. otherItemCounts.subAgentActivity counts the started AND
+        // completed announcements of each, so it is no count of children; the list itself is.
+        const subs = Array.isArray(pr.subagentThreads) ? pr.subagentThreads : [];
+        if (!subs.length)
+          problems.push(`the invited seat's children reached no subagentThreads entry (otherItemCounts ${JSON.stringify(pr.otherItemCounts ?? null)})`);
+        for (const t of subs) {
+          if (!t.agentPath) problems.push(`a registered child carries no agentPath: ${JSON.stringify(t)}`);
+          if (t.status !== "completed") problems.push(`a registered child's status is ${JSON.stringify(t.status ?? null)}, not completed: ${JSON.stringify(t)}`);
+          if (!(t.commands >= 1)) problems.push(`a registered child ran no command: ${JSON.stringify(t)}`);
+        }
+        // The delegating run's own verdict: the root ran nothing, which is exit 5, and the cause is where
+        // the children are named rather than left as "no command ran" beside a working answer.
+        if (p.code !== 5) problems.push(`the delegating probe exited ${p.code}, not 5 (${(pr.commands ?? []).length} root command(s))`);
+        else {
+          const hint = String(pr.hint ?? "");
+          // Every registered child by name (the cause lists up to six, then a count), not only the shape.
+          const unnamed = subs.slice(0, 6).map((t) => t.agentPath).filter((a) => a && !hint.includes(a));
+          if (!/no command ran on the root thread/.test(hint) || !/liveness, not evidence/.test(hint) || unnamed.length)
+            problems.push(`the exit-5 cause does not name the subagent threads${unnamed.length ? ` (${unnamed.join(", ")} missing)` : ""}: ${JSON.stringify(pr.hint ?? null)}`);
+        }
+        note(`delegation probe: exit ${p.code}, ${(pr.commands ?? []).length} root command(s), otherItemCounts `
+          + `${JSON.stringify(pr.otherItemCounts ?? null)}, subagentThreads ${JSON.stringify(subs)}`);
+      }
     }
     return settle(dir, problems);
   });

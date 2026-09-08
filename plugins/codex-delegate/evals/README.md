@@ -51,8 +51,9 @@ which makes "portable behaviour passed" and "fidelity was verified" the same cod
 pre-release run passes `--require-live` (or sets `REQUIRE_LIVE_CODEX=1`) and the skip becomes a failure.
 `orchestrate-live.test.mjs` is the second local gate: it drives the real headless `claude` binary against
 `skills/orchestrate/SKILL.md`, spending real sessions, the subagents they spawn and one `gpt-6-astra`
-Codex turn, a second one when `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` adds the informational
-delegation probe. Without `CODEX_DELEGATE_LIVE_ORCHESTRATE=1` it prints one NOT RUN line and exits 0.
+Codex turn, a second one when `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` adds the delegation probe,
+which checks the `subagentThreads` of a seat that took the invitation. Without
+`CODEX_DELEGATE_LIVE_ORCHESTRATE=1` it prints one NOT RUN line and exits 0.
 
 `fidelity.test.mjs` asks a different question from the fixture-driven suites, and it exists because of
 a failure they structurally cannot see. They drive the driver against the fixture, which proves the driver

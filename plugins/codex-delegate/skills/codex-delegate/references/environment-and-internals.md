@@ -24,10 +24,22 @@ pruned with the run directories.
 lock, a sandbox assertion) prints none, because there is none.
 
 The report's `tokenUsage` carries the server's own accounting for the ROOT thread; Codex's own subagent
-threads under `ultra` are not included. `total` is thread-cumulative across `--resume`, and `last` is
-the most recent **API request**, not the whole turn — measured on a rollout, one turn emitted
-`last: 13584 / total: 13584` then `last: 14273 / total: 27857`. So `total` is what a single turn cost
-and `last` is only its tail.
+threads are not included. `total` is thread-cumulative across `--resume`, and `last` is the most recent
+**API request**, not the whole turn — measured on a rollout, one turn emitted `last: 13584 / total: 13584`
+then `last: 14273 / total: 27857`. So `total` is what a single turn cost and `last` is only its tail.
+
+Codex delegates to subagent threads of its own whenever the model chooses to, at any effort. Measured on
+0.153.4 a child never sends `thread/started` to the client: the ROOT announces it as a `subAgentActivity`
+item carrying the child's `agentThreadId` and `agentPath`, before the child's first turn (one idle
+`thread/status/changed` under the child's id can precede the announcement and is ignored), and the child
+then sends everything else (its status changes, its turn, its items, its usage) under its own thread id.
+The driver registers a child from that announcement, and from a `thread/started` carrying a
+`parentThreadId` where a server still sends one (`agentPath` and `status` are null there). The report
+lists them as `subagentThreads: [{threadId, agentPath, status, items, commands}]`. That buys liveness and
+visibility, never evidence: a child's events rearm the idle guard, so a long delegation is not cut as
+silence, while the commands that count as evidence and the tokens that are the accounting stay the root's.
+A root that ran nothing is still exit 5, and the cause then names the children: `no command ran on the
+root thread; N subagent thread(s) ran (<agentPath list>, <n> commands): liveness, not evidence`.
 
 ## The answer log, and what --brief does not deliver
 
