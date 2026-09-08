@@ -81,6 +81,21 @@ plugin route they are `codex-delegate:codex-delegate` and `/codex-delegate:orche
 The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`
 on a fresh account, which is exactly the account this route is written for.
 
+**Where the driver's state lives.** `${CLAUDE_PLUGIN_DATA}`, the plugin's own data directory, which
+Claude Code substitutes into the skill's recipes and which this install resolves to
+`~/.claude/plugins/data/codex-delegate-codex-delegate/`. The answers and the isolated Codex home, the
+write locks, the worktree ledger and the orchestrator mode's run directories are all there. It survives
+plugin updates; an uninstall deletes it unless you pass `claude plugin uninstall --keep-data`. The driver
+keeps no default of its own: with neither that variable nor `CODEX_DELEGATE_STATE_DIR` it exits 2. In
+every permission mode but auto and bypass, a write outside the working directory prompts, so add that
+directory to `permissions.additionalDirectories` once — this plugin adds no rules on your behalf. On the
+clone-and-symlink route nothing substitutes the placeholder, so export an absolute path of your own
+instead, in your shell profile:
+
+```bash
+export CODEX_DELEGATE_STATE_DIR="$HOME/.local/state/codex-delegate"
+```
+
 Verify the install from the checkout (plugin installs carry the suites too, under the plugin root) —
 costs nothing, calls no model:
 
@@ -103,6 +118,8 @@ work. Resolve the link, or use the install path announced when the skill loads, 
 `installed_plugins.json`.
 
 ## First run
+
+From the checkout, with the state directory exported as Install says:
 
 ```bash
 node skills/codex-delegate/scripts/driver.mjs --cwd . --brief \

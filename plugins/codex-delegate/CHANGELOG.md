@@ -57,8 +57,16 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   repository — not the one most recently written to, so a long seat still running no longer outranks a
   shorter one begun after it and already finished. A newest run that is still running is exit 10 as
   before.
-- A relative `CODEX_DELEGATE_STATE_DIR` is exit 2 at parse time. It used to be accepted, and the answer
-  log and turn diff answered a bad root by silently dropping the artefact.
+- There is no built-in state directory any more. The state root is `CODEX_DELEGATE_STATE_DIR`, read
+  first, else `CLAUDE_PLUGIN_DATA` — `${CLAUDE_PLUGIN_DATA}`, the plugin's own data directory, which the
+  skill recipes now pass on every driver call; with neither set the run exits 2 naming both. The old
+  default under the home directory held answers, an isolated Codex home and a worktree ledger that no
+  plugin uninstall reached. Existing state under `~/.codex-delegate` is NOT migrated: threads started
+  before this release cannot be resumed, and the directory can be deleted. README › Install says where
+  the state now lives, and what to add to `permissions.additionalDirectories` for it.
+- A relative `CODEX_DELEGATE_STATE_DIR`, or a relative `CLAUDE_PLUGIN_DATA`, is exit 2 at parse time
+  naming the variable. It used to be accepted, and the answer log and turn diff answered a bad root by
+  silently dropping the artefact.
 - A header that declares no `SEAT` — with or without other fields — is a read seat in the current
   directory, which is the default `--relay` used to supply; `SEAT`, where it appears, must be first.
 - `schema-0.153.4/` tracks only the 12 files `evals/conformance.test.mjs` loads, down from 304. The full
@@ -95,6 +103,10 @@ Codex seat is now a direct background call of the driver, and the flags no live 
 
 ### Changed
 
+- The orchestrate mode's run directory moved out of the repository into the plugin's data directory,
+  `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`, where the slug is the working directory's
+  path as Claude Code spells it under `~/.claude/projects/`. A run therefore leaves the tree it works in
+  untouched, and the self-ignoring `.gitignore` the old `.orchestrate/<run>/` needed is gone with it.
 - The orchestrate page prefers background Agent calls, one notification per seat, over a Workflow, which
   reports nothing until its last agent returns (measured 2026-09-08: a seat's exit at minute 9 surfaced
   only when the user asked, while its sibling ran 18 minutes). Workflow stays for a chain a script must

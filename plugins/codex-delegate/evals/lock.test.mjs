@@ -363,8 +363,10 @@ test("two runs on one cwd take one lock however $HOME moves",
     fs.writeFileSync(lockFor(d), JSON.stringify({ pid: process.pid, cwd: fs.realpathSync(d), started: "now" }));
     const { code } = await run(d, { env: { HOME: decoy } });
     fs.rmSync(lockFor(d), { force: true });
-    if (fs.existsSync(path.join(decoy, ".codex-delegate")))
-      return "the run created a second lock home under the decoy HOME";
+    // The state directory is named by the environment and never derived from a home, so a decoy HOME must
+    // leave NOTHING behind: not a second lock directory, not a stray dot-directory of any name.
+    const left = fs.readdirSync(decoy);
+    if (left.length) return `the run wrote under the decoy HOME: ${left.join(", ")}`;
     return code === EXIT.BUSY ? true : `a run under a decoy HOME walked past a held lock, got ${code}`;
   });
 
@@ -474,11 +476,11 @@ test("a case-variant --cwd is the same directory",
     return code === EXIT.BUSY ? true : `expected 10 via the case-variant spelling, got ${code}`;
   });
 
-test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts and the driver's own state",
-  "a writable ~/.codex/sessions makes receipts forgeable, and a writable ~/.codex-delegate exposes locks and the answer log; both roots must be protected",
+test("--writable refuses ~/.codex and the state directory in use, which hold the receipts and the driver's own state",
+  "a writable ~/.codex/sessions makes receipts forgeable, and a writable state directory exposes locks and the answer log; the state root is protected by its RESOLVED path, so the guard follows wherever the caller pointed it rather than a name",
   async () => {
     const home = fs.realpathSync(os.userInfo().homedir);
-    const targets = [path.join(home, ".codex"), path.join(home, ".codex", "sessions"), path.join(home, ".codex-delegate")];
+    const targets = [path.join(home, ".codex"), path.join(home, ".codex", "sessions"), STATE_DIR];
     for (const t of targets) {
       let exists = true;
       try { fs.statSync(t); } catch { exists = false; }
@@ -488,10 +490,10 @@ test("--writable refuses ~/.codex and ~/.codex-delegate, which hold the receipts
       if (!/receipts|state/.test(err)) return `the refusal did not say why: ${err.trim().slice(0, 160)}`;
     }
     // The guard uses directory identity, so case-variant spellings on a case-insensitive volume must
-    // be refused too.
-    const upper = path.join(home, ".CODEX-DELEGATE");
+    // be refused too — measured against the state directory this harness actually uses.
+    const upper = path.join(path.dirname(STATE_DIR), path.basename(STATE_DIR).toUpperCase());
     let aliased = false;
-    try { aliased = fs.statSync(upper).ino === fs.statSync(path.join(home, ".codex-delegate")).ino; } catch {}
+    try { aliased = fs.statSync(upper).ino === fs.statSync(STATE_DIR).ino; } catch {}
     if (aliased) {
       const { code } = await run(freshDir("writable-protected-case"), { args: ["--writable", upper] });
       if (code !== EXIT.USAGE) return `case-variant --writable ${upper} returned ${code}, expected 2 — the identity guard is not holding`;

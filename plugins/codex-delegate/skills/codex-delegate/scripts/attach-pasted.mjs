@@ -287,8 +287,15 @@ async function main() {
 
   // Under the driver's own state directory, which every write-level root refuses by identity — not
   // $TMPDIR, which is the read level's ONE writable root and therefore reachable by the very seat
-  // being shown the images.
-  const stateRoot = process.env.CODEX_DELEGATE_STATE_DIR || path.join(os.userInfo().homedir, ".codex-delegate");
+  // being shown the images. Resolved as the driver resolves it, and refused on the same terms: the
+  // staged images have to land where the driver's own guard already protects them.
+  const stateVar = process.env.CODEX_DELEGATE_STATE_DIR ? "CODEX_DELEGATE_STATE_DIR"
+    : process.env.CLAUDE_PLUGIN_DATA ? "CLAUDE_PLUGIN_DATA" : null;
+  if (stateVar === null)
+    die("no state directory: set CODEX_DELEGATE_STATE_DIR, or pass CLAUDE_PLUGIN_DATA, the plugin's "
+      + "data directory ${CLAUDE_PLUGIN_DATA}, which the skill recipes carry");
+  const stateRoot = process.env[stateVar];
+  if (!path.isAbsolute(stateRoot)) die(`${stateVar} must be an absolute path, got ${JSON.stringify(stateRoot)}`);
   const pastedRoot = path.join(stateRoot, "pasted");
   fs.mkdirSync(pastedRoot, { recursive: true, mode: 0o700 });
   fs.chmodSync(pastedRoot, 0o700);

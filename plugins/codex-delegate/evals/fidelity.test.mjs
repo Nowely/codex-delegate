@@ -154,10 +154,12 @@ function cleanup() {
 // notably stdout EPIPE when a caller closes a pipe — which otherwise bypasses that control flow.
 process.once("exit", cleanup);
 
-// Capture the driver's real app-server argv and initialize/thread requests without starting a turn. The
-// preload changes only os.userInfo().homedir for this child, so the driver's passwd-anchored isolated home
-// lands under our temp directory instead of ~/.codex-delegate. The capture server exits as soon as it sees
-// thread/start and never replies to it, so the driver cannot issue turn/start.
+// Capture the driver's real app-server argv and initialize/thread requests without starting a turn. Each
+// capture gets a state root of its own, so the isolated home lands under our temp directory and never in
+// a real one; the preload changes os.userInfo().homedir for this child as well, because the credentials
+// the isolated home links are read from the PASSWD home and this harness must not read the developer's.
+// The capture server exits as soon as it sees thread/start and never replies to it, so the driver cannot
+// issue turn/start.
 const CAPTURE_MARKER = "FIDELITY_DRIVER_CAPTURE ";
 const captureRoot = freshDir("capture");
 const captureBin = path.join(captureRoot, "bin");
@@ -247,6 +249,9 @@ const ISOLATED_CONFIG = `model = "fake-model"\nmodel_reasoning_effort = "high"\n
 
 function captureDriver(spec) {
   const passwdHome = freshDir("passwd");
+  // The driver has no default state directory; this one is a sibling of the fake passwd home, so a run
+  // that ignored the variable would be visible as a home somewhere else entirely.
+  const stateRoot = freshDir("state");
   const callerCodex = path.join(passwdHome, ".codex");
   fs.mkdirSync(callerCodex);
   fs.writeFileSync(path.join(callerCodex, "config.toml"), CALLER_CONFIG, { mode: 0o600 });
@@ -269,6 +274,7 @@ function captureDriver(spec) {
   const driverEnv = {
     ...baseEnv,
     FIDELITY_PASSWD_HOME: passwdHome,
+    CODEX_DELEGATE_STATE_DIR: stateRoot,
     // A $TMPDIR of this case's own, a SIBLING of the fake passwd home rather than its ancestor. The
     // driver applies the writable-root guard to $TMPDIR — it is the read level's entire grant — and that
     // guard refuses any ancestor of the home directory, which the real TMPDIR is for this harness's fake
@@ -301,7 +307,7 @@ function captureDriver(spec) {
       let captured;
       try { captured = JSON.parse(lines[0].slice(CAPTURE_MARKER.length)); }
       catch (e) { finish(reject, new Error(`driver capture was not JSON: ${e.message}`)); return; }
-      const expectedHome = path.join(passwdHome, ".codex-delegate", "home");
+      const expectedHome = path.join(stateRoot, "home");
       if (captured.codexHome !== expectedHome)
         { finish(reject, new Error(`driver used CODEX_HOME ${JSON.stringify(captured.codexHome)}, expected ${JSON.stringify(expectedHome)}`)); return; }
       if (captured.threadMethod !== "thread/start")

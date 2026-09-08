@@ -21,6 +21,13 @@ import { SHIM, assertKnownScenarios, explicitTmp, flowState, laxSchemaFile, loos
 
 const shimDir = SHIM;
 
+// The two roots the state-directory cases below measure: one stands in for the plugin's own data
+// directory, the other for a home the run must leave untouched. Both live under the shim so the suite's
+// own cleanup reaches them.
+const pluginData = path.join(shimDir, "plugin-data");
+const decoyHome = path.join(shimDir, "decoy-home");
+fs.mkdirSync(decoyHome, { recursive: true });
+
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--model", "missing-model"],
@@ -80,6 +87,30 @@ const CASES = [
     env: { CODEX_DELEGATE_CODEX: "codex" },
     why: "a relative CODEX_DELEGATE_CODEX would resolve against the invocation cwd; only an absolute executable is accepted",
     assertStderr: (e) => /CODEX_DELEGATE_CODEX must be an absolute path/.test(e) || `the override was not validated: ${e.slice(0, 140)}` },
+  // --- the state directory: named by the environment, and by nothing else ---
+  { scenario: "happy",            expect: EXIT.USAGE, unsetEnv: ["CODEX_DELEGATE_STATE_DIR", "CLAUDE_PLUGIN_DATA"],
+    why: "there is no built-in state directory: a default under the home directory would hold answers, an isolated home and a worktree ledger that no plugin uninstall reaches and that nobody named, so a run with neither variable set is refused before the turn and told which two to set",
+    assertStderr: (e) => (/CODEX_DELEGATE_STATE_DIR/.test(e) && /CLAUDE_PLUGIN_DATA/.test(e))
+      || `the refusal named neither variable or only one: ${e.slice(0, 200)}` },
+  { scenario: "happy",            expect: EXIT.OK, unsetEnv: ["CODEX_DELEGATE_STATE_DIR"],
+    env: { CLAUDE_PLUGIN_DATA: pluginData, HOME: decoyHome },
+    why: "CLAUDE_PLUGIN_DATA is what the skill recipes pass, so a run carrying only it puts the whole of its state there and nothing under a home directory — the property the removed default used to break",
+    assert: () => {
+      const made = fs.existsSync(pluginData) ? fs.readdirSync(pluginData) : [];
+      if (!made.some((n) => ["locks", "answers", "home", "jobs", "tmp"].includes(n)))
+        return `the run left no state under CLAUDE_PLUGIN_DATA: ${JSON.stringify(made)}`;
+      const under = fs.readdirSync(decoyHome);
+      return under.length === 0 || `the run wrote under $HOME: ${under.join(", ")}`;
+    } },
+  { scenario: "happy",            expect: EXIT.USAGE, unsetEnv: ["CODEX_DELEGATE_STATE_DIR"],
+    env: { CLAUDE_PLUGIN_DATA: "plugin-data" },
+    why: "a relative state directory resolves against whatever cwd the caller happened to have; both variables take the same absolute-only rule, and the refusal names the one that supplied the value",
+    assertStderr: (e) => /CLAUDE_PLUGIN_DATA must be an absolute path/.test(e)
+      || `the relative value was not refused by name: ${e.slice(0, 160)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, env: { CODEX_DELEGATE_STATE_DIR: "state" },
+    why: "the same rule for the variable a harness sets, which is read first: a relative one used to be accepted, and the answer log and the turn diff then dropped their artefact in silence",
+    assertStderr: (e) => /CODEX_DELEGATE_STATE_DIR must be an absolute path/.test(e)
+      || `the relative value was not refused by name: ${e.slice(0, 160)}` },
   { scenario: "happy",            expect: EXIT.OK, env: { FAKE_CONFIG_FAIL: "1" },
     why: "a failed config probe must say so out loud — the silent path changed which model answers and made identical runs nondeterministic",
     assertStderr: (e) => /could not read the caller's Codex config/.test(e)
