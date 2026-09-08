@@ -359,10 +359,14 @@ const settle = (dir, problems) => {
 
 // --------------------------------------------------------------- the prompts
 
+// The CHECK names a Codex seat on purpose: the page lets a one-seat task run with no Codex seat at all
+// (measured, an Opus plan took a Sonnet implementer and verified under the redirect rule), and the gate
+// must exercise the Codex path, so the task states the allocation, which the page's composition rules
+// then hold unchanged.
 const SLUG_TASK =
   "/codex-delegate:orchestrate TASK: add a slug(title) helper to lib/slug.mjs that lowercases, trims and "
-  + "joins words with hyphens, with a test in test/slug.test.mjs. CHECK: node --test passes. RETURN: the "
-  + "files and the test count.";
+  + "joins words with hyphens, with a test in test/slug.test.mjs. CHECK: node --test passes, run by a Codex "
+  + "seat that did not write the code. RETURN: the files and the test count.";
 
 const DESIGN_TASK =
   "/codex-delegate:orchestrate TASK: compare two ways to give this repository's driver a --dry-run flag "
