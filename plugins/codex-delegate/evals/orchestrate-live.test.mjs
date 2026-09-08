@@ -523,8 +523,8 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
     if (report.model !== "gpt-6-astra") problems.push(`the report's model is ${JSON.stringify(report.model)}, not gpt-6-astra`);
     const commands = Array.isArray(report.commands) ? report.commands : [];
     if (!commands.length) problems.push("the report lists no command, so nothing ran on the thread that answered");
-    // The counters, not subagentThreads: on 0.153.4 a Codex child thread never registers as one, and
-    // these are what the delegating run showed instead ({subAgentActivity: 6, collabAgentToolCall: 2}).
+    // The counters beside subagentThreads: a delegating seat shows both, and the counters are the signal
+    // the first measurement saw ({subAgentActivity: 6, collabAgentToolCall: 2}) before children registered.
     const others = report.otherItemCounts ?? {};
     for (const k of ["subAgentActivity", "collabAgentToolCall"])
       if (others[k]) problems.push(`the seat delegated: otherItemCounts.${k} is ${JSON.stringify(others[k])}`);
@@ -566,8 +566,13 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
         // The delegating run's own verdict: the root ran nothing, which is exit 5, and the cause is where
         // the children are named rather than left as "no command ran" beside a working answer.
         if (p.code !== 5) problems.push(`the delegating probe exited ${p.code}, not 5 (${(pr.commands ?? []).length} root command(s))`);
-        else if (!/no command ran on the root thread/.test(String(pr.hint ?? "")) || !/liveness, not evidence/.test(String(pr.hint ?? "")))
-          problems.push(`the exit-5 cause does not name the subagent threads: ${JSON.stringify(pr.hint ?? null)}`);
+        else {
+          const hint = String(pr.hint ?? "");
+          // Every registered child by name (the cause lists up to six, then a count), not only the shape.
+          const unnamed = subs.slice(0, 6).map((t) => t.agentPath).filter((a) => a && !hint.includes(a));
+          if (!/no command ran on the root thread/.test(hint) || !/liveness, not evidence/.test(hint) || unnamed.length)
+            problems.push(`the exit-5 cause does not name the subagent threads${unnamed.length ? ` (${unnamed.join(", ")} missing)` : ""}: ${JSON.stringify(pr.hint ?? null)}`);
+        }
         note(`delegation probe: exit ${p.code}, ${(pr.commands ?? []).length} root command(s), otherItemCounts `
           + `${JSON.stringify(pr.otherItemCounts ?? null)}, subagentThreads ${JSON.stringify(subs)}`);
       }
