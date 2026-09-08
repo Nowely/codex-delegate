@@ -212,7 +212,7 @@ const workflowCalls = (toolUses) => toolUses.filter((u) => u.name === "Workflow"
 const skillCalls = (toolUses) => toolUses.filter((u) => u.name === "Skill")
   .map((u) => String(u.input.skill ?? u.input.name ?? JSON.stringify(u.input)));
 // A Workflow's script is one field of its input, but which one is the tool's business, not this suite's:
-// the whole input is the text the fable check reads, which cannot miss a fable hiding in a sibling field.
+// the whole input is the text the codex-seat check reads, which cannot miss an agentType in a sibling field.
 const scriptText = (u) => JSON.stringify(u.input);
 // The agent() scan wants the script itself, because it reads syntax; the fallback keeps it alive if the
 // field is ever renamed, since JSON.stringify leaves `agent(` and a model key matchable.
@@ -234,10 +234,10 @@ function untaggedAgentCalls(text) {
     // quotes of the fallback are undone before the two patterns read it.
     const flat = call.replace(/\\(["'])/g, "$1");
     // Tagged means one of the two things the page allows and nothing else: a Codex seat by agentType, or
-    // a Claude seat whose model is literally opus or sonnet. `model: undefined`, a third tier and a
-    // non-Codex agentType all read as untagged.
+    // a Claude seat whose model is literally opus, sonnet or fable. `model: undefined`, a fourth spelling
+    // and a non-Codex agentType all read as untagged.
     const codex = /["']?agentType["']?\s*:\s*["'][^"']*codex-seat["']/.test(flat);
-    const claude = /["']?model["']?\s*:\s*["'](opus|sonnet)["']/.test(flat);
+    const claude = /["']?model["']?\s*:\s*["'](opus|sonnet|fable)["']/.test(flat);
     if (!codex && !claude) found.push(call.slice(0, 100));
   }
   return found;
@@ -282,15 +282,15 @@ function stoppedAtPlan(toolUses, scratch, head0) {
 const quote = (line) => JSON.stringify(line.trim().slice(0, 140));
 const lines = (text) => text.split("\n").filter((l) => l.trim());
 
-// `fable`: "none" for a session that is not Fable, where the tag must not appear at all; "cap" for the
-// Fable session, where at most one seat carries it. The page states a cap, not a duty: measured, a Fable
+// The top pair is capped in every session, since the pool is the same whatever the coordinator's model:
+// at most one Fable and one gpt-6-astra seat per wave. The page states a cap, not a duty: measured, a Fable
 // coordinator planned a four-seat comparison on strong-tier seats and reserved the top pair for a tie-break,
-// which the page allows. That single option is the whole difference between case 1's assertions and case 2's.
+// which the page allows. Case 1 and case 2 differ only in their session model and their task.
 //
 // Everything below the tool checks is a heuristic over free text, and reads as one: a plan can satisfy
 // every line here and still be a bad plan. The artifact plan.txt is what the release reader judges; these
 // catch the plan that never names a tier at all, and each failure quotes the line it judged.
-function planProblems({ text, toolUses, scratch, fable, head0 }) {
+function planProblems({ text, toolUses, scratch, head0 }) {
   const problems = stoppedAtPlan(toolUses, scratch, head0);
   const skills = skillCalls(toolUses);
   if (!skills.some((s) => SIBLING_SKILLS.includes(s)))
@@ -311,9 +311,8 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   if (!/\bCodex\b/.test(text)
       || !/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.test(text))
     problems.push("the plan announces no composition: the word Codex and a count or \"zero\"");
-  // The same exclusion under the fable cap, and for both settings: a Fable session describing itself is
-  // not a seat tagged fable, and counting those sentences made the cap unmeetable in case 2 and
-  // unmissable in case 1.
+  // A Fable session describing itself is not a seat tagged fable: counting those sentences made the cap
+  // unmeetable in case 2.
   // The cap is on seats ALIVE at once. Measured three plans in a row honour it three different ways: two
   // rows with "runs after P1" beside the second; a "Wave" column with one Fable and one astra seat per
   // wave; a single top seat. So the count is taken per wave when the table has a wave/stage/phase/step
@@ -333,16 +332,12 @@ function planProblems({ text, toolUses, scratch, fable, head0 }) {
   };
   const tagged = seatLines.filter((l) => /\bfable\b/i.test(l) && isSeat(l));
   const count = tagged.reduce((n, l) => n + [...l.matchAll(/\bfable\b/gi)].length, 0);
-  if (fable === "none" && count)
-    problems.push(`a fable tag is in the plan of a session that is not Fable: ${tagged.slice(0, 3).map(quote).join(" ")}`);
-  if (fable === "cap") {
-    const sequenced = /alive at a time|one at a time|one after the other|sequential|runs after|then the (second|other)/i.test(text);
-    for (const [name, re] of [["fable", /\bfable\b/gi], ["gpt-6-astra", /gpt-6-astra/g]]) {
-      const max = capMax(re);
-      if (max > 1 && !sequenced)
-        problems.push(`${max} ${name} seats in one wave with no sequencing stated, and the cap is one alive at a time: ${seatLines.filter((l) => re.test(l) && isSeat(l)).slice(0, 3).map(quote).join(" ")}`);
-      else note(`${name} seats in the plan: ${count && name === "fable" ? count : capMax(re)}${waveCol >= 0 ? `, at most ${max} per ${header[waveCol]}` : sequenced && max > 1 ? ", sequenced by the plan's own words" : ""}`);
-    }
+  const sequenced = /alive at a time|one at a time|one after the other|sequential|runs after|then the (second|other)/i.test(text);
+  for (const [name, re] of [["fable", /\bfable\b/gi], ["gpt-6-astra", /gpt-6-astra/g]]) {
+    const max = capMax(re);
+    if (max > 1 && !sequenced)
+      problems.push(`${max} ${name} seats in one wave with no sequencing stated, and the cap is one alive at a time: ${seatLines.filter((l) => re.test(l) && isSeat(l)).slice(0, 3).map(quote).join(" ")}`);
+    else note(`${name} seats in the plan: ${count && name === "fable" ? count : capMax(re)}${waveCol >= 0 ? `, at most ${max} per ${header[waveCol]}` : sequenced && max > 1 ? ", sequenced by the plan's own words" : ""}`);
   }
   return problems;
 }
@@ -415,14 +410,14 @@ test("plan only under Opus: the first attempt stops at a plan",
     if (wrong) problems.push(wrong);
     if (r.killed) problems.push("the session was killed at the timeout");
     if (!s.planText) problems.push(`the session produced no text (result subtype ${JSON.stringify(s.result?.subtype ?? null)})`);
-    problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, fable: "none", head0 }));
+    problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, head0 }));
     return settle(dir, problems);
   });
 
 // --------------------------------------------------------------- 2
 
 test("plan only under Fable: the top pair is capped",
-  "under Fable the page's top row holds as written, and its caps are the only thing between a design fan-out and a batch of top-tier seats: at most one Fable seat and one gpt-6-astra seat alive at a time, and the astra seat named at all only proves the session read its own tier",
+  "the pool is the same in every session and a design task is where its caps bite: at most one Fable seat and one gpt-6-astra seat alive at a time, the only thing between a design fan-out and a batch of top-tier seats, and the astra seat named at all only proves the session read the tier table",
   async () => {
     const dir = caseDir(2, "plan-fable");
     const scratch = scratchClone(dir);
@@ -452,9 +447,9 @@ test("plan only under Fable: the top pair is capped",
     if (wrong) problems.push(wrong);
     if (r.killed) problems.push("the session was killed at the timeout");
     if (!s.planText) problems.push(`the session produced no text (result subtype ${JSON.stringify(s.result?.subtype ?? null)})`);
-    problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, fable: "cap", head0 }));
+    problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, head0 }));
     // The top Codex seat by name, not by tier table membership: planProblems accepts any of the three
-    // slugs, and under Fable the top row is the whole claim.
+    // slugs, and for a design task the top row is the whole claim.
     if (!lines(s.planText).some((l) => l.includes("gpt-6-astra")))
       problems.push("the plan names no gpt-6-astra seat");
     return settle(dir, problems);
@@ -528,8 +523,8 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
     if (report.model !== "gpt-6-astra") problems.push(`the report's model is ${JSON.stringify(report.model)}, not gpt-6-astra`);
     const commands = Array.isArray(report.commands) ? report.commands : [];
     if (!commands.length) problems.push("the report lists no command, so nothing ran on the thread that answered");
-    // The counters beside subagentThreads: a delegating seat shows both, and the counters are the signal
-    // the first measurement saw ({subAgentActivity: 6, collabAgentToolCall: 2}) before children registered.
+    // The counters, not subagentThreads: on 0.153.4 a Codex child thread never registers as one, and
+    // these are what the delegating run showed instead ({subAgentActivity: 6, collabAgentToolCall: 2}).
     const others = report.otherItemCounts ?? {};
     for (const k of ["subAgentActivity", "collabAgentToolCall"])
       if (others[k]) problems.push(`the seat delegated: otherItemCounts.${k} is ${JSON.stringify(others[k])}`);
@@ -571,13 +566,8 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
         // The delegating run's own verdict: the root ran nothing, which is exit 5, and the cause is where
         // the children are named rather than left as "no command ran" beside a working answer.
         if (p.code !== 5) problems.push(`the delegating probe exited ${p.code}, not 5 (${(pr.commands ?? []).length} root command(s))`);
-        else {
-          const hint = String(pr.hint ?? "");
-          // Every registered child by name (the cause lists up to six, then a count), not only the shape.
-          const unnamed = subs.slice(0, 6).map((t) => t.agentPath).filter((a) => a && !hint.includes(a));
-          if (!/no command ran on the root thread/.test(hint) || !/liveness, not evidence/.test(hint) || unnamed.length)
-            problems.push(`the exit-5 cause does not name the subagent threads${unnamed.length ? ` (${unnamed.join(", ")} missing)` : ""}: ${JSON.stringify(pr.hint ?? null)}`);
-        }
+        else if (!/no command ran on the root thread/.test(String(pr.hint ?? "")) || !/liveness, not evidence/.test(String(pr.hint ?? "")))
+          problems.push(`the exit-5 cause does not name the subagent threads: ${JSON.stringify(pr.hint ?? null)}`);
         note(`delegation probe: exit ${p.code}, ${(pr.commands ?? []).length} root command(s), otherItemCounts `
           + `${JSON.stringify(pr.otherItemCounts ?? null)}, subagentThreads ${JSON.stringify(subs)}`);
       }
@@ -633,7 +623,7 @@ test("the full run under Opus: plan, go, run",
     if (t1.killed) problems.push("turn 1 was killed at the timeout");
     // The whole plan, not only the stop: this is the turn whose plan the run then executes, and a plan
     // that named no seat would make everything measured after "go" a measurement of something else.
-    problems.push(...planProblems({ text: s1.planText, toolUses: s1.toolUses, scratch, fable: "none", head0 })
+    problems.push(...planProblems({ text: s1.planText, toolUses: s1.toolUses, scratch, head0 })
       .map((p) => `turn 1: ${p}`));
     if (problems.length) return settle(dir, problems);
 
@@ -688,18 +678,15 @@ test("the full run under Opus: plan, go, run",
 
     const untagged = agentCalls(s2.toolUses)
       .filter((u) => !CODEX_SEATS.includes(String(u.input.subagent_type ?? "")))
-      .filter((u) => !["opus", "sonnet"].includes(String(u.input.model ?? "")));
+      .filter((u) => !["opus", "sonnet", "fable"].includes(String(u.input.model ?? "")));
     if (untagged.length)
-      problems.push(`${untagged.length} Claude Agent call(s) carry no opus/sonnet tag: ${untagged.map((u) => `${u.input.subagent_type ?? "?"}=${JSON.stringify(u.input.model ?? null)}`).join(", ")}`);
+      problems.push(`${untagged.length} Claude Agent call(s) carry no opus/sonnet/fable tag: ${untagged.map((u) => `${u.input.subagent_type ?? "?"}=${JSON.stringify(u.input.model ?? null)}`).join(", ")}`);
 
     // A Workflow spawns its seats from inside its script, and those calls are never re-emitted as Agent
     // blocks: the check above sees a run whose whole fan-out is one Workflow as fully tagged.
     const inScript = workflowCalls(s2.toolUses).flatMap((u) => untaggedAgentCalls(scriptSource(u)));
     if (inScript.length)
       problems.push(`${inScript.length} agent() call(s) in a Workflow script carry neither agentType nor a model: ${inScript.join(" | ")}`);
-
-    const fabled = workflowCalls(s2.toolUses).filter((u) => /fable/i.test(scriptText(u)));
-    if (fabled.length) problems.push(`${fabled.length} Workflow script(s) name fable`);
 
     const seatByAgent = agentCalls(s2.toolUses).filter((u) => CODEX_SEATS.includes(String(u.input.subagent_type ?? "")));
     const seatByScript = workflowCalls(s2.toolUses).filter((u) => {

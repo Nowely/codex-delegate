@@ -17,9 +17,11 @@ moved.
   rights it needs, and delegates every verbose step to Claude and Codex seats. It is a delta over
   `codex-delegate` and repeats none of its seat mechanics.
 - What the mode fixes in one place: the Claude/Codex model gradation and which tier does which work, the
-  default half-Codex share for the judgement roles, the seat bounds (5 per side, one top seat per side,
-  one Codex write seat per directory), the five-field return template, the two-round cross-review loop,
-  and `.orchestrate/<run>/` as the run directory, self-ignoring through a `.gitignore` of `*`.
+  default half-Codex share for the judgement roles, the seat bounds (6 alive at once, one Fable and one
+  `gpt-6-astra` seat alive at a time, one Codex write seat per directory), the five-field return template,
+  the two-round cross-review loop, and `.orchestrate/<run>/` as the run directory, self-ignoring through
+  a `.gitignore` of `*`. The pool is the same whatever the orchestrator's own model, its top pair takes
+  the top-row roles in turn, and the bounds are defaults the plan states for the user to override in words.
 - `evals/orchestrate.test.mjs` pins that text and runs in `npm test`; `evals/package.test.mjs` now ships
   the new skill in the payload and holds its `metadata.version` to the same agreement as the old one.
 
@@ -66,9 +68,9 @@ moved.
   `result`, losing the seat's own fields inside it. A Codex seat takes the five fields as an
   `OUTPUT_SCHEMA:` file and the answer is read below the envelope's `--- answer` line; the `schema`
   option is for Claude seats.
-- Measured: `agent({model: 'fable'})` under a Fable session answers as Fable 5.1, so the one top Claude
-  seat is tagged like every other Agent call. Measured too: an Opus session can tag a subagent `fable`
-  and it answers as Fable, so the page's one top seat under Fable is policy, not a limit.
+- Measured: `agent({model: 'fable'})` answers as Fable 5.1 from a Fable session and from an Opus session
+  alike, so the one Fable seat is tagged like every other Agent call and is available to every
+  orchestrator; its cap of one alive is policy, not a limit.
 - The relay stays pinned to sonnet and the Agent tool's model option is still never passed to it.
 - `evals/orchestrate-live.test.mjs` is the mode's live release gate, behind
   `CODEX_DELEGATE_LIVE_ORCHESTRATE=1` and out of CI: it spends five headless claude sessions, the

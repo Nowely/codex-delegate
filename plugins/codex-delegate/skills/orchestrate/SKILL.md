@@ -21,7 +21,7 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 | --- | --- |
 | scout the work-list with cheap commands (`ls`, `git status`, targeted `grep`) before any fan-out | test output, greps over the tree, reading source files, diffs, logs |
 | a quick targeted edit that needs no exploration | any edit that needs exploring first |
-| plan; under Opus or Sonnet, design too | design under Fable |
+| plan | design: the Fable seat, whatever your own model |
 | synthesise, attributing every finding to the seat that produced it | verify: you never grade your own work, a fresh seat does |
 
 Scouting is the only exploration you do; report a failed seat and never backfill it. After "go" and before the first seat,
@@ -36,8 +36,10 @@ with the counts.
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
 2. Show the plan and stop: the tasks; every seat with its side (Claude or Codex) and its model; the run directory path; and every
    `SEAT: write`, `SEAT: worktree`, `NETWORK:`, `WRITABLE:` and `COMMIT:` a seat needs, a worktree seat named as such because
-   a worktree will be made. Announce the composition here. One plan when there is one; when several approaches are viable, show
-   them all with a recommendation and let the user pick.
+   a worktree will be made. Announce the composition here, and the pool beside it: your own model and the default caps below,
+   one Fable, one `gpt-6-astra`, six alive. A cap the user overrides in words ("two Fable") replaces the default for this run;
+   composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches
+   are viable, show them all with a recommendation and let the user pick.
 3. The user's "go" covers only what the plan listed. After it, live-tree implementers write in the live working directory and a
    seat the plan put in a worktree stays there; no commit to the live tree without a separate word from the user.
 4. A worktree is cut at `HEAD`, so a worktree seat suits only work that starts there: competing implementations, a suite on
@@ -59,16 +61,16 @@ with the counts.
 | cheap | Sonnet | `gpt-5.6-terra` | mechanical, hard-to-get-wrong work |
 | unused | Haiku | `gpt-5.6-luna` | not used |
 
-Your own model is in your system prompt ("You are powered by the model named ..."); nothing else carries it. Under Fable the top
-row holds as written, at most one Fable seat and one `gpt-6-astra` seat alive at a time. Under Opus or Sonnet you plan and design
-yourself, the top Claude seat is Opus with no cap of its own (Opus implementers are fine), a fresh Opus seat gives the final
-review, and `gpt-6-astra` stays the single top Codex seat with the top-row roles and its cap of one.
+Your own model is in your system prompt ("You are powered by the model named ..."); nothing else carries it. You are outside the
+pool, and the pool is the same whatever you are: at most one Fable seat and one `gpt-6-astra` seat alive at a time, each taking
+the top-row roles in turn, architect for one task and judge for the next, and the strong and cheap seats the alive cap admits.
 
-- Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one top seat under Fable;
+- Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat;
   untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line, and every Codex seat carries one
   with a slug from the table, never the config default: pass neither `model` nor `effort` to a `codex-seat` call, in the Agent
   tool or in a Workflow; those reshape the relay, not the seat.
-- Subagents may spawn subagents, but Fable never spawns Fable: a top-tier Claude seat tags its own Agent calls `opus` or `sonnet`.
+- Subagents may spawn subagents, but a Fable seat never spawns Fable: it tags its own Agent calls `opus` or `sonnet`; only you launch
+  the pool's Fable seat.
 - Send no `EFFORT:` line; the user's configured Codex effort is inherited by every `MODEL:`. In a Workflow, `effort: 'low'` is
   for mechanical Claude Sonnet stages only.
 
@@ -83,12 +85,12 @@ Cross-review runs the other way round, a Claude implementer's diff to a Codex se
 cross-review seat is a prompt seat with the diff's path in `TASK:`, not a `REVIEW:` seat, which takes no body and no
 `OUTPUT_SCHEMA:` and returns the server reviewer's own output instead of the template below.
 
-| Bound | Value |
+| Bound | Default |
 | --- | --- |
 | simple task | 1 seat |
 | comparison or design | 2 to 4 seats |
-| complex | 5 seats or more, launched in batches of 5 |
-| alive at once | 5 per side, 5 Claude and 5 Codex; the top pair is outside both counts |
+| complex | 5 seats or more, launched in batches inside the alive cap |
+| alive at once | 6, Claude and Codex together, the top pair counted in |
 | Fable seats, `gpt-6-astra` seats | 1 each, alive at a time |
 | Codex write seats per directory | 1: a second on the same directory exits 10 at once, before its turn runs |
 
@@ -116,8 +118,8 @@ in the brief.
 - Completeness critic at the end: what is missing, unverified, unread.
 - No silent caps: name every seat, check or item you dropped.
 
-Fix, then cross-review, at most two rounds; then escalate: under Fable to the Fable top seat; under Opus or Sonnet to the
-`gpt-6-astra` seat or a fresh top Opus seat, and to the user only when that round fails too.
+Fix, then cross-review, at most two rounds; then escalate to the Fable seat or the `gpt-6-astra` seat, and to the user only when
+that round fails too.
 
 | Result | What to do |
 | --- | --- |
