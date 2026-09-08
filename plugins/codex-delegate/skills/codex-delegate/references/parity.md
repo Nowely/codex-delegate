@@ -45,8 +45,10 @@ Browser tests need `--network`, the serial Chromium override in
 isolation choice: `npm install --cache "$PWD/.npm-cache"` keeps its cache in the tree, while
 `pnpm install --frozen-lockfile` works against a warm store.
 
-A seat cannot commit inside its own sandbox, so `worktreeCommitsRef` carries commits only where the
-caller's own `--verify` made them; a completed seat retains them even when the tree is otherwise clean.
+A seat cannot commit under the grant a `SEAT:` line makes, so `worktreeCommitsRef` carries commits only
+where the caller's own `--verify` made them; a completed seat retains them even when the tree is
+otherwise clean. `WRITABLE: <repo>/.git` re-grants the common dir a commit needs and is a widening to
+settle first ([Git-directory grant](environment-and-internals.md#git-directory-grant)).
 
 ### Isolation, MCP, and search
 

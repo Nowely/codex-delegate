@@ -47,7 +47,7 @@ with the counts.
    none of them and passes untouched code. When a plan needs both, the commit or stash that feeds the worktree is a live-tree
    commit and goes into the plan. Use one only where a fresh tree can run: dependencies installable inside it under the planned
    rights (the live checkout's are absent), no daemon or socket. You decide; ask when unsure. A Codex worktree seat cannot
-   commit: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
+   commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
    restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait,
    unless the plan said "land the winner".
 5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped.
@@ -100,9 +100,9 @@ code, or from you under the redirect rule.
 
 ## Mechanism
 
-A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true, its prompt file and
-its `--report-file` under `.orchestrate/<run>/`, and the task's exit notification is when you read that report. It is not an
-`agentType` and there is no other route to it. Stop one by stopping its task.
+A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true, with `<DIR>` = `.orchestrate/<run>/<seat>/`
+in place of the sibling's `mktemp`, so prompt, `report.json`, `out.json` and `err.txt` all land there, and the task's exit notification is when you
+read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task.
 Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated
 object when `schema` is given. `pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier for when
@@ -127,7 +127,8 @@ that round fails too.
 | a stderr file naming no driver | report it; no relaunch fixes an install |
 | `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:` |
 | `exitCode: 10` | a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry |
-| `ok: false` with an `error`, exit 2 or 4 | no turn ran: read the error and the stderr file |
+| `ok: false` with `turnStatus: null`, exit 2 or 4 | no turn ran, or it was aborted: read `error` and the stderr file |
+| exit 4 with a `turnStatus` | the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict |
 | any other non-zero `exitCode` with an answer | a gate verdict: do not retry, read the answer |
 | a Claude seat that returns `blocked` | do not retry, report it |
 

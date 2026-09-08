@@ -132,9 +132,10 @@ export function parseCount(out) {
   return all ? all[1] : "?";
 }
 
-// Which of those forms means the suite measured something. A bare number and the partial form did; a
+// Which of those forms means the suite measured something. A bare number and the partial form did, and
+// the number in front has to be above zero: "all 0 passed, 11 skipped" parses and measured nothing. A
 // whole suite that skipped, a summary line nobody could parse ("?") and "not run" did not, and they
 // have to leave the green numerator or "all 9 suites green" comes to mean "nothing was measured".
-export const measured = (count) => /^\d+( passed, \d+ skipped)?$/.test(count);
+export const measured = (count) => /^\d+( passed, \d+ skipped)?$/.test(count) && Number.parseInt(count, 10) > 0;
 
 export const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };

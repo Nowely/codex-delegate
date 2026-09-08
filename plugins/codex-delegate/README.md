@@ -124,8 +124,8 @@ is `codex-delegate:codex-delegate` (the clone-and-symlink spellings are under In
 background Bash call of that same driver: the prompt in a file named by `--seat-file`, the report at
 `--report-file`; add `SEAT: worktree <repo>` above `TASK:` for a managed writer. The
 driver parses that header, launches one seat, waits as long as the work takes, and publishes the report
-by rename: the coordinator reads the file when the call's exit notification arrives, and a missing file
-means unknown, never success.
+by hard link, never over an existing entry: the coordinator reads the file when the call's exit
+notification arrives, and a missing file means unknown, never success.
 
 ## Rights, per call
 
@@ -208,7 +208,8 @@ skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the codex-d
                                  prompt only
 .claude-plugin/                  plugin + marketplace manifests
 evals/                           the suites, one file each; run-all.mjs lists them and runs them
-                                 cheapest first, lib/harness.mjs is their shared machinery
+                                 cheapest first, lib/harness.mjs and lib/scenarios.mjs are their
+                                 shared machinery
 package.json                     private; the Node floor and `npm test`
 .github/workflows/ci.yml         the suites that need no `codex` binary, on its OS × Node matrix
 schema-<version>/                the files evals/conformance.test.mjs loads out of the pinned protocol

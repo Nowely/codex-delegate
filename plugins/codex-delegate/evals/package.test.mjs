@@ -208,6 +208,10 @@ test("parseCount tells a suite that ran from one that did not",
       ["\n3 skipped (codex binary absent)\nall 4 cases that ran agree\n", "4", true],
       ["orchestrate-live: NOT RUN (set ORCHESTRATE_LIVE=1)\n", "not run", false],
       ["\n2/76 failed\n", "?", false],
+      // Parseable and green-looking, having measured nothing: every case skipped, or a suite whose
+      // whole inventory was empty.
+      ["\nall 0 passed, 11 skipped: a\n", "0 passed, 11 skipped", false],
+      ["\nall 0 passed\n", "0", false],
     ];
     const wrong = forms.filter(([out, want, green]) => parseCount(out) !== want || measured(parseCount(out)) !== green)
       .map(([out, want]) => `${JSON.stringify(out.trim())} -> ${parseCount(out)}, expected ${want}`);

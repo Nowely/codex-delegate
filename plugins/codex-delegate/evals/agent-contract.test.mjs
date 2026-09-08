@@ -18,6 +18,10 @@ const ORCHESTRATE = path.join(ROOT, "skills", "orchestrate", "SKILL.md");
 const skill = fs.readFileSync(SKILL, "utf8");
 const orchestrate = fs.readFileSync(ORCHESTRATE, "utf8");
 const driver = fs.readFileSync(DRIVER, "utf8");
+// What the driver ADVERTISES, for the cases that ask whether a flag the page hands over still exists: a
+// `case "--x":` in the source can outlive every route a caller has to it, and the help is the route.
+const help = spawnSync(process.execPath, [DRIVER, "--help"], { encoding: "utf8" }).stdout ?? "";
+const helpFlat = help.replace(/\s+/g, " ");
 
 // The page in the pieces the cases read: the whole text collapsed for prose pins, the field table, and
 // the indented command lines a coordinator copies into a Bash call.
@@ -36,9 +40,10 @@ const documented = [...new Set([...table.matchAll(/^\| `([A-Z][A-Z_]+):` \|/gm)]
 // The knobs the driver parses only from the command line, out of the same table the parser reads.
 const cliOnly = FIELDS.filter((f) => f.kind === "cli-only").map((f) => [f.name, f.flag]);
 
-test("the driver's seat-file vocabulary is not empty (the reader below is sound)",
-  "every case here compares against SEAT_FIELDS; if the import stopped resolving, the whole suite would pass vacuously",
-  () => seatFields.length >= 10 || `read ${seatFields.length} fields out of the driver: ${JSON.stringify(seatFields)}`);
+test("the driver's seat-file vocabulary and its --help are both readable (the readers below are sound)",
+  "every case here compares against SEAT_FIELDS or against what --help advertises; if the import stopped resolving or --help stopped printing, the whole suite would pass vacuously",
+  () => (seatFields.length >= 10 && help.length > 500)
+    || `read ${seatFields.length} fields and ${help.length} bytes of --help out of the driver: ${JSON.stringify(seatFields)}`);
 
 test("FIELDS is the one table the vocabulary derives from, and every command-line-only name is refused in a seat file",
   "four hand-kept lists agreed only by accident: a name added to SEAT_FIELDS alone reached parseArgs as `unknown argument: undefined`, and a bound promoted back to a header field is a knob every wrapped seat would have to size",
@@ -109,9 +114,9 @@ test("the ONE call is --seat-file with --report-file, in a background task, and 
     if (/(^|[^&])&\s*$/.test(call)) problems.push("the call ends in an `&` of its own, which hides the run from the task");
     if (!/`run_in_background: true` and no `&` of your own/.test(flat))
       problems.push("the page does not say the call is a background task with no `&` of its own");
-    // And the driver has to take exactly those two flags.
+    // And the driver has to offer exactly those two flags.
     for (const flag of ["--seat-file", "--report-file"])
-      if (!driver.includes(`case "${flag}":`)) problems.push(`the driver has no ${flag}`);
+      if (!help.includes(flag)) problems.push(`--help does not offer ${flag}`);
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -121,7 +126,8 @@ test("the scratch directory comes from one mktemp call, not from an unexpandable
     const problems = [];
     if (!/mktemp -d "\$\{TMPDIR:-\/tmp\}\/codex-seat\.XXXXXXXX"/.test(skill)) problems.push("the mktemp -d pre-step is gone or reworded");
     if (/\$TMPDIR\/(prompt|seat|task|report|stderr)/.test(skill)) problems.push("a scratch path is written as $TMPDIR/..., which the Write and Read tools cannot expand");
-    if (!/--report-file must be an absolute path/.test(driver)) problems.push("the driver no longer refuses a relative --report-file");
+    if (!helpFlat.includes("an ABSOLUTE path that does not exist yet"))
+      problems.push("--help no longer promises that --report-file is absolute and unclaimed");
     return problems.length === 0 || problems.join("; ");
   });
 
@@ -161,7 +167,7 @@ test("the bounds, the transport and the injection fields are refused, and no tab
     for (const [f, flag] of cliOnly) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is back in the coordinator's field table as usable`);
-      if (!driver.includes(`case "${flag}":`)) problems.push(`${f} was removed as a field and ${flag} went with it`);
+      if (!help.includes(flag)) problems.push(`${f} was removed as a field and ${flag} went with it`);
     }
     if (!/--allow-seat-verify/.test(driver)) problems.push("the driver lost --allow-seat-verify");
     if (!/`VERIFY` is refused in a seat file without `--allow-seat-verify`/.test(table))
@@ -169,7 +175,7 @@ test("the bounds, the transport and the injection fields are refused, and no tab
     for (const [f, flag] of [["ATTACH", "--attach"]]) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is in the coordinator's field table as usable`);
-      if (!driver.includes(`case "${flag}":`)) problems.push(`${flag}, the command-line route ${f} is refused in favour of, is gone from the driver`);
+      if (!help.includes(flag)) problems.push(`${flag}, the command-line route ${f} is refused in favour of, is gone from --help`);
     }
     return problems.length === 0 || problems.join("; ");
   });
@@ -185,21 +191,26 @@ test("the report file is what the coordinator reads, and a missing one is unknow
       "with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed",
       "To stop a seat, stop its Bash task, or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`",
     ]) if (!flat.includes(phrase)) problems.push(`the page no longer says: ${JSON.stringify(phrase)}`);
-    // Each of those is a promise the driver has to keep.
+    // Each of those is a promise the driver has to keep. The mode, the no-clobber rule, the pid line and
+    // the signal handling are MEASURED elsewhere — cli.test.mjs's report-file flows and the lock suite's
+    // signal cases — so what is left here is the pair of routes the page names by function.
     if (!/publishReport/.test(driver)) problems.push("the driver no longer publishes the report to a file");
-    if (!/mode: 0o600, flag: "wx"/.test(driver)) problems.push("the report file is no longer written 0600, or no longer refuses an existing name");
     if (!/function preTurnReport/.test(driver)) problems.push("a refusal before the turn no longer reaches the report file");
-    if (!/pid=\$\{process\.pid\}/.test(driver)) problems.push("the driver no longer announces the pid the page tells the coordinator to signal");
-    if (!/for \(const sig of \["SIGINT", "SIGTERM", "SIGHUP"\]\)/.test(driver))
-      problems.push("the driver no longer handles the signal the page says stops a seat");
     return problems.length === 0 || problems.join("; ");
   });
 
-test("SEAT is first and required, and `read` with no directory is the current one",
-  "a seat file whose rights line is not first can have one supplied by an injected later line; and a header-less prompt has no SEAT line at all, which is the case the default is FOR",
+test("SEAT is first where it appears, and a header without one is a read seat in the current directory",
+  "a seat file whose rights line is not first can have one supplied by an injected later line; a header that declares no rights at all is the case the default is FOR, and it never widens anything — cli.test.mjs measures the accepted half against the fixture",
   () => {
     const problems = [];
-    if (!/first field must be SEAT/.test(driver)) problems.push("the driver no longer enforces SEAT-first");
+    // Run, not grepped: the refusal is the behaviour, and a source string can survive the code.
+    const dir = tempDir("codex-seat-first.");
+    const late = path.join(dir, "seat-late.txt");
+    fs.writeFileSync(late, `EFFORT: low\nSEAT: write ${dir}\nTASK: do nothing\n`);
+    const r = spawnSync(process.execPath, [DRIVER, "--seat-file", late], { encoding: "utf8", input: "" });
+    if (r.status !== 2) problems.push(`a SEAT below another field exited ${r.status}, not 2`);
+    else if (!String(r.stderr).includes("first field must be SEAT"))
+      problems.push(`the refusal does not say which field must come first: ${String(r.stderr).trim().slice(0, 140)}`);
     if (seatFields[0] !== "SEAT") problems.push(`SEAT is not the first entry of SEAT_FIELDS: ${seatFields[0]}`);
     if (!/`SEAT:` \| `read \[<dir>\]`/.test(table)) problems.push("the table's first row is not SEAT with `read [<dir>]`");
     if (!/no header is a read seat in the current directory/.test(table))

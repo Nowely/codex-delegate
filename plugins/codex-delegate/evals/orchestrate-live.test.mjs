@@ -261,20 +261,32 @@ const runDirs = (scratch) => {
 // SIGTERMed — the driver's own handler then interrupts the turn, writes its report and sweeps the codex
 // process group it started. Best-effort by construction: a seat whose stderr went somewhere this cannot
 // see is left to its own bounds, which is what --idle-timeout is for.
+// The layout it reads is the page's: `.orchestrate/<run>/<seat>/{prompt.txt,report.json,out.json,err.txt}`,
+// one directory per seat — so the scan descends one level. Files directly under `<run>/` are read too,
+// because a coordinator that put a seat's files there is a seat this must still be able to stop, and
+// readFileSync on a directory is EISDIR, which the old flat scan turned into `continue`.
 function stopSeats(scratch, dir) {
   const stopped = [];
+  const heads = [];
   for (const run of runDirs(scratch)) {
-    let names = [];
-    try { names = fs.readdirSync(run); } catch { continue; }
-    for (const n of names) {
-      let head = "";
-      try { head = fs.readFileSync(path.join(run, n), "utf8").slice(0, 8192); } catch { continue; }
-      const m = /^codex-delegate: pid=(\d+)\b/m.exec(head);
-      if (!m) continue;
-      const pid = Number(m[1]);
-      try { process.kill(pid, 0); } catch { continue; }     // already gone
-      try { process.kill(pid, "SIGTERM"); stopped.push(`${n}:${pid}`); } catch {}
+    let entries = [];
+    try { entries = fs.readdirSync(run, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const p = path.join(run, e.name);
+      if (!e.isDirectory()) { heads.push([e.name, p]); continue; }
+      let inner = [];
+      try { inner = fs.readdirSync(p, { withFileTypes: true }); } catch { continue; }
+      for (const f of inner) if (!f.isDirectory()) heads.push([`${e.name}/${f.name}`, path.join(p, f.name)]);
     }
+  }
+  for (const [label, p] of heads) {
+    let head = "";
+    try { head = fs.readFileSync(p, "utf8").slice(0, 8192); } catch { continue; }
+    const m = /^codex-delegate: pid=(\d+)\b/m.exec(head);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    try { process.kill(pid, 0); } catch { continue; }     // already gone
+    try { process.kill(pid, "SIGTERM"); stopped.push(`${label}:${pid}`); } catch {}
   }
   save(dir, "stopped.txt", stopped.join("\n"));
   return stopped.length;

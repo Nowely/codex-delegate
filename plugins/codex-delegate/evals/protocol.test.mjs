@@ -51,7 +51,14 @@ const CASES = [
   { scenario: "stale-turn",       expect: EXIT.NO_COMMANDS,         why: "the command and answer belong to an earlier turn on the same thread" },
   { scenario: "early-completion", expect: EXIT.OK,                  why: "events that overtake the turn/start response are held and replayed, not lost" },
   { scenario: "foreign-thread",   expect: EXIT.NO_COMMANDS,         why: "a subagent's work on another thread is not ours" },
-  { scenario: "command-failed",   expect: EXIT.NO_COMMANDS,         why: "`false` exits 1; a numeric exit code is not evidence of success" },
+  { scenario: "command-failed",   expect: EXIT.OK,
+    why: "`false` exits 1; a failed command is a report field, not a rung, and the floor asks only whether anything ran — reading it as 'nothing ran' also prints the recall-only hint at a turn that ran a command",
+    assert: (r) => (r.commandsFailed === 1 && r.commandsSucceeded === 0 && r.ok === true && r.hint === undefined)
+      || `an all-failed turn was judged by the command floor: ${JSON.stringify({ failed: r.commandsFailed, ok: r.ok, hint: r.hint })}` },
+  { scenario: "command-failed",   expect: EXIT.NO_COMMANDS,         args: ["--expect-command", "false"],
+    why: "a failed command never satisfies --expect-command: the expectation asks for proof, and an exit code of 1 is not it",
+    assert: (r) => r.commandsMatchingExpectation === 0
+      || `a failed command matched the expectation: ${JSON.stringify(r.commandsMatchingExpectation)}` },
   { scenario: "needs-user",       expect: EXIT.INTERACTION,         why: "a request no unattended client can answer is never a success" },
   { scenario: "elicitation",      expect: EXIT.INTERACTION,         why: "an MCP form needs a human, not a wider sandbox" },
   { scenario: "escalated",        expect: EXIT.ESCALATED,           why: "a refused approval outranks 'nothing ran' — it explains why" },
@@ -180,6 +187,10 @@ const CASES = [
   { scenario: "completion-foreign-thread", expect: EXIT.OK,       why: "a completion carrying our turn id on another thread is not ours" },
   { scenario: "turn-start-error", expect: EXIT.TRANSPORT,         why: "turn/start failed, so there is no turn and no possible success" },
   { scenario: "unknown-response-id", expect: EXIT.OK,             why: "a response with an id nobody sent is discarded, not matched to a pending request" },
+  { scenario: "null-frame",      expect: EXIT.OK,
+    why: "`null` parses as JSON and is no JSON-RPC frame: read as one it threw out of the stdout reader into abort(), which publishes the pre-turn shape and drops the command and the answer already collected",
+    assert: (r) => (r.unparsedLines === 1 && r.commandsSucceeded === 1 && r.answer === "the answer")
+      || `a non-object frame was not counted as unparsed: ${JSON.stringify({ unparsed: r.unparsedLines, cmds: r.commandsSucceeded, answer: r.answer })}` },
   { scenario: "wrong-command",   expect: EXIT.NO_COMMANDS,        args: ["--expect-command", "vitest", "--allow-no-commands"],
     why: "--allow-no-commands waives the command floor, never an expectation the caller declared" },
   { scenario: "wrong-command",    expect: EXIT.NO_COMMANDS,         args: ["--expect-command", "vitest"],
@@ -346,6 +357,11 @@ const CASES = [
     why: "the main transport must bound unterminated lines so one broken server write cannot exhaust memory",
     assertStderr: (e) => /with no newline/.test(e)
       || `an unterminated line was buffered without a bound: ${e.slice(0, 200)}` },
+  { scenario: "unterminated-line", expect: EXIT.TRANSPORT,
+    why: "an abort taken after the thread exists hands back what the turn already produced: the pre-turn shape would report a command that ran and an answer that arrived as `turnStatus: null, answer: \"\"`, which is a coordinator relaunching work that is finished",
+    assert: (r) => (r.turnStatus === "failed" && r.commandsSucceeded === 1 && r.answer === "the answer"
+      && !("error" in r) && r.turnError?.codexErrorInfo === "aborted")
+      || `the abort discarded the turn's evidence: ${JSON.stringify({ turnStatus: r.turnStatus, cmds: r.commandsSucceeded, answer: r.answer, err: r.turnError })}` },
 
   { scenario: "no-trailing-newline", expect: EXIT.OK,
     why: "EOF terminates a line as surely as a newline; the final turn/completed must still be processed when its trailing newline is missing",
@@ -683,7 +699,7 @@ const LADDER_OPTS = { expectRe: null, allowNoCommands: true, outputSchema: null 
 // A completed turn that ran a command, answered, and tripped nothing.
 const LADDER_BASE = { turnStatus: "completed", turnError: null, interactions: [], escalations: [],
   verifyResult: null, verifySkipped: null, verifyFailed: false,
-  expected: [{}], answer: "an answer", schemaErrs: [], failedCmds: [], failedPatches: [], blocked: [] };
+  expected: [{}], commandsRan: 1, answer: "an answer", schemaErrs: [], failedCmds: [], failedPatches: [], blocked: [] };
 const ladderCtx = ({ opts = {}, ...over } = {}) =>
   ({ ...LADDER_BASE, ...over, opts: { ...LADDER_OPTS, ...opts } });
 // First match wins: the ladder's own rule, and the whole of the driver's walk over it.
@@ -714,9 +730,12 @@ const RUNGS = [
   { at: 6, code: EXIT.VERIFY_FAILED, ctx: { verifyResult: { ok: false, measured: true }, verifyFailed: true },
     what: "a --verify that ran and failed",
     why: "the verifier is the gate this repository prefers over every command-shaped proxy below it; a failing one reaching exit 0 makes --verify decorative" },
-  { at: 7, code: EXIT.NO_COMMANDS, ctx: { expected: [], opts: { allowNoCommands: false } },
+  { at: 7, code: EXIT.NO_COMMANDS, ctx: { commandsRan: 0, expected: [], opts: { allowNoCommands: false } },
     what: "a turn that ran nothing",
     why: "an answer with no command behind it is recall, not evidence; the floor is what separates the two" },
+  { at: 7, code: EXIT.NO_COMMANDS, ctx: { commandsRan: 3, expected: [], opts: { expectRe: /vitest/, allowNoCommands: true } },
+    what: "a declared --expect-command with no successful match",
+    why: "the floor asks whether anything ran, but a declared expectation asks for a command that succeeded and matched; folding them into one question would let three failed commands satisfy the caller's claim" },
   { at: 8, code: EXIT.NO_ANSWER, ctx: { answer: "" },
     what: "a turn that produced no answer",
     why: "a run with no answer has nothing for its caller to read, and every gate below it grades the answer's content" },

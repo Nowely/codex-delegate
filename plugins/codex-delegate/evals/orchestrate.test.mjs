@@ -155,7 +155,7 @@ test("C4 a worktree is cut at HEAD and never used to test uncommitted live edits
     "A worktree is cut at `HEAD`",
     "Never use one to test uncommitted live edits",
     "dependencies installable inside it under the planned rights (the live checkout's are absent), no daemon or socket",
-    "A Codex worktree seat cannot commit: its sandbox ends at the tree, so its work comes back as a diff",
+    "A Codex worktree seat cannot commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff",
   ));
 
 test("C5 the harvest is landed by proposal, naming the three envelope handles",
@@ -270,6 +270,7 @@ test("F1 a Codex seat is a background Bash task and no agentType, and the Workfl
     const prose = says(
       "authorises Workflow",
       "A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true",
+      "with `<DIR>` = `.orchestrate/<run>/<seat>/` in place of the sibling's `mktemp`, so prompt, `report.json`, `out.json` and `err.txt` all land there",
       "the task's exit notification is when you read that report",
       "It is not an `agentType` and there is no other route to it",
       "Launch independent Claude seats as background Agent calls, one notification each",
@@ -305,7 +306,8 @@ test("F4 every row of the Result table",
     /^\| a stderr file naming no driver \| report it; no relaunch fixes an install \|$/m,
     /^\| `exitCode: 3`, a cut \| read the partial; if the work is unfinished, continue that thread once with `RESUME:` \|$/m,
     /^\| `exitCode: 10` \| a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry \|$/m,
-    /^\| `ok: false` with an `error`, exit 2 or 4 \| no turn ran: read the error and the stderr file \|$/m,
+    /^\| `ok: false` with `turnStatus: null`, exit 2 or 4 \| no turn ran, or it was aborted: read `error` and the stderr file \|$/m,
+    /^\| exit 4 with a `turnStatus` \| the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict \|$/m,
     /^\| any other non-zero `exitCode` with an answer \| a gate verdict: do not retry, read the answer \|$/m,
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,
   ));
