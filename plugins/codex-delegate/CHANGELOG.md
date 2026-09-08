@@ -62,8 +62,8 @@ Codex seat is now a direct background call of the driver, and the flags no live 
 - A header that declares no `SEAT` — with or without other fields — is a read seat in the current
   directory, which is the default `--relay` used to supply; `SEAT`, where it appears, must be first.
 - `schema-0.153.4/` tracks only the 12 files `evals/conformance.test.mjs` loads, down from 304. The full
-  generated tree is the annotated tag `schema-0.153.4-full`, and README › After a codex upgrade diffs the
-  next regeneration against that tag.
+  generated tree stays in history at commit 7364f7b, and README › After a codex upgrade diffs the next
+  regeneration against it.
 - The driver exports `EXIT`, `FIELDS`, `LADDER`, `PINNED_CODEX`, `SEAT_FIELDS`, `VERSION` and `lockKey`.
   `ATTACH_KINDS`, `EFFORTS`, `LEVELS`, `STATE_SUBDIRS`, `WEB_SEARCH` and `helpText` had no reader
   anywhere and are no longer exported.
