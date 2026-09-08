@@ -20,11 +20,13 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   notification arrives. A run no longer survives its caller and there is no collector; stop a seat by
   stopping its task, or by signalling the pid the driver announces on its first stderr line. `jobs/*.json`
   remains, private, as what `--resume last` and a worktree rebuild need, and loses its obsolete keys the
-  first time this driver rewrites it.
+  first time this driver rewrites it: it is resume metadata only (`JOB_FIELDS`, fourteen keys), and what a
+  run measured is in the report.
 - `--report-file FILE` is new, and is the delivery that counts: an absolute path whose parent exists and
   which does not exist yet, each of those exit 2 before anything is spawned, written to a sibling at 0600
-  and published by rename before stdout, so a broken pipe neither loses the report nor changes the
-  verdict. A refusal reached before the turn — a usage error, an abort, a signal — writes
+  and published by hard link before stdout, never over an existing entry, so a broken pipe neither loses
+  the report nor changes the verdict. A second run that named the same path and lost the race says so on
+  stderr, keeps the first run's file and exits 4 with its own report on stdout. A refusal reached before the turn — a usage error, an abort, a signal — writes
   `{ok:false, exitCode, threadId, turnStatus:null, answer:"", error, reportPath}` to the same path, so a
   missing file means unknown and never success. It is command-line-only: `REPORT_FILE:` in a header is
   exit 2 naming the flag.
@@ -35,9 +37,11 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   `review/start` are no longer sent, `thread/start` carries no `ephemeral` and `turn/start` no `summary`,
   and the report drops `forkedFrom` and `forkedThrough`. A retired flag is an unknown argument and a
   retired field an unknown header line; both are exit 2 naming the line or the flag.
-- A Codex seat cannot commit at all. `--commit` granted the git common dir that a linked worktree needs
-  to commit, and without it `git commit` inside the seat's sandbox fails at
-  `index.lock: Permission denied` (measured). A worktree seat's work comes back as `worktreeDiffPath`
+- A Codex seat cannot commit under the grant a `SEAT:` line makes: a commit needs the git common dir,
+  which no seat gets by default, and without it `git commit` inside the seat's sandbox fails at
+  `index.lock: Permission denied` (measured). `WRITABLE: <repo>/.git` re-grants it — the grant the
+  retired `--commit` made — and is settled with the user like any widening, because it hands the seat
+  config, hooks and every ref. A worktree seat's work comes back as `worktreeDiffPath`
   and `worktreeUntrackedPath`; `worktreeCommitsRef` is still harvested and is now populated only where
   the caller's own `--verify`, which runs unsandboxed, committed.
 - A seat that needs MCP tools uses `--host-home`, which brings the caller's whole configuration with
@@ -55,9 +59,9 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   before.
 - A relative `CODEX_DELEGATE_STATE_DIR` is exit 2 at parse time. It used to be accepted, and the answer
   log and turn diff answered a bad root by silently dropping the artefact.
-- A `--seat-file` with no header at all is a read seat in the current directory, which is the default
-  `--relay` used to supply. Where a header exists, `SEAT` is still required and still first.
-- `schema-0.153.4/` tracks only the 15 files `evals/conformance.test.mjs` loads, down from 304. The full
+- A header that declares no `SEAT` — with or without other fields — is a read seat in the current
+  directory, which is the default `--relay` used to supply; `SEAT`, where it appears, must be first.
+- `schema-0.153.4/` tracks only the 12 files `evals/conformance.test.mjs` loads, down from 304. The full
   generated tree is the annotated tag `schema-0.153.4-full`, and README › After a codex upgrade diffs the
   next regeneration against that tag.
 - The driver exports `EXIT`, `FIELDS`, `LADDER`, `PINNED_CODEX`, `SEAT_FIELDS`, `VERSION` and `lockKey`.
@@ -76,12 +80,11 @@ Codex seat is now a direct background call of the driver, and the flags no live 
 - The worktree ledger is written by temp+rename; an unparsable entry is quarantined as `<name>.json.bad`
   instead of deleted, so the tree it names survives; a ledger that cannot be written refuses the run
   before `git worktree add`; a re-harvest that takes nothing removes the previous turn's `.diff` and
-  `.untracked.tgz` and says so; harvest diffs go through temp+rename; and `ps`, `plutil` and the harvest
+  `.untracked.tgz` and says so, including a resumed seat that leaves the tree clean, whose record
+  pointers go null with them; harvest diffs go through temp+rename; and `ps`, `plutil` and the harvest
   `tar` now carry the timeout git already had.
 - A resumed thread kept the previous run's `endedAt`, which is what the busy-thread refusal reads, so a
   second seat could be waved onto a live thread. The closing fields are reset when a run starts.
-- A job record closed on the broken-pipe path keeps `receiptOk`, the command counts and the verify and
-  cut summaries.
 - `run-all` fails on a signal-killed suite (a killed child reports `code` null, and `process.exit(null)`
   exits 0) and no longer counts a skipped or unparsed suite as green; the harness has a `skip(reason)`
   sentinel that prints its reason and is named in the summary. `package.test.mjs` is green from an
@@ -100,7 +103,7 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   config probe and the main channel; every `LADDER` rung is a pure function of its own context; one
   `exitWith` funnel settles, closes the record, writes stdout under the drain watchdog and exits, so
   `process.exit` appears once; `main`, `parseArgs` and `handleMessage` are split into named units
-  (`main` 362 lines to 125); one `LIMITS` table holds 36 tuning numbers with a reason each. The driver
+  (`main` 362 lines to 125); one `LIMITS` table holds 39 tuning numbers with a reason each. The driver
   goes 4318 lines to 3819. Those refactors changed no byte the driver writes or prints; the removals
   above are what changed its help text.
 - Eleven suites, cheapest first: the protocol suite splits into `protocol` (what the driver does with the

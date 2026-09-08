@@ -16,8 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import { DRIVER, EXIT, FAKE, readJson, registry, runCases, summarize } from "./lib/harness.mjs";
 import { SHIM, assertKnownScenarios, explicitTmp, flowState, laxSchemaFile, looseNestedSchemaFile,
-         looseSchemaFile, mismatchSessions, notExec, optionalSchemaFile, protectedState, protectedTmp,
-         run, runTable, sessionsDir, survivorPidName, unknownModelLog } from "./lib/scenarios.mjs";
+         looseSchemaFile, mismatchSessions, notExec, oneOfSchemaFile, optionalSchemaFile, protectedState, protectedTmp,
+         run, runTable, sessionsDir, survivorPidName, unknownModelLog, until } from "./lib/scenarios.mjs";
 
 const shimDir = SHIM;
 
@@ -253,6 +253,16 @@ const CASES = [
     why: "the same field must distinguish the unhealthy case: a probe that failed with no last-known-good to keep means the turn ran on the account defaults",
     assert: (r) => (r.configInherited?.source === "none" && r.configInherited.keys.length === 0)
       || `a failed probe was reported as inheritance: ${JSON.stringify(r.configInherited)}` },
+  { scenario: "happy",            expect: EXIT.USAGE,
+    args: ["--output-schema", oneOfSchemaFile, "--cwd", "/nonexistent/pid-line-first"],
+    why: "the pid on the FIRST stderr line is what every page tells a coordinator to signal and what the live gate reads; a schema warning written from inside the argument parser put a line in front of it that a reader taking the first line would signal nothing at all",
+    assertStderr: (e) => (/^codex-delegate: pid=\d+ identity=/.test(e.split("\n")[0] ?? "") && /does not check \(oneOf\)/.test(e))
+      || `the pid line is not first, or the warning was lost: ${JSON.stringify(e.split("\n").slice(0, 3))}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    env: { FAKE_CONFIG_NULL: "1" },
+    why: "the probe channel has no message handler, so a bare `null` line reached the response resolver and threw there — an uncaught TypeError with no report at all, before the turn had started",
+    assert: (r) => (r.configInherited?.source === "probe" && r.configInherited.keys.includes("model"))
+      || `a non-object frame cost the probe its answer: ${JSON.stringify(r.configInherited)}` },
 
   // --- --expect-command is matched against the command, not the shell that ran it ---
   { scenario: "happy",            expect: EXIT.OK, args: ["--expect-command", "^echo"],
@@ -424,8 +434,8 @@ flow("--report-file publishes the whole report at 0600, byte for byte what stdou
     return problems.length === 0 || problems.join("; ");
   });
 
-flow("--report-file refuses a path it would overwrite, a relative one and a directory it cannot write, before anything is spawned",
-  "the report file is the run's whole delivery: a path already holding one is two seats' evidence in one file, and every one of these is knowable before a token is spent — refused after the turn it would cost the delegation",
+flow("--report-file refuses a path it would overwrite, a symbolic link, a relative one and a directory it cannot write, before anything is spawned",
+  "the report file is the run's whole delivery: a path already holding one is two seats' evidence in one file, a link is a path whose destination someone else chooses, and every one of these is knowable before a token is spent — refused after the turn it would cost the delegation",
   async () => {
     const state = flowState();
     const marker = path.join(state, "codex-ran");
@@ -434,11 +444,16 @@ flow("--report-file refuses a path it would overwrite, a relative one and a dire
     fs.writeFileSync(path.join(probeShim, "codex"), `#!/bin/sh\necho ran >> "${marker}"\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
     const taken = reportPath(state, "taken.json");
     fs.writeFileSync(taken, "{}\n");
+    // A DANGLING link: existsSync follows it and reads "absent", so only an lstat sees the entry.
+    const linkTarget = reportPath(state, "link-target.json");
+    const dangling = reportPath(state, "dangling.json");
+    fs.symlinkSync(linkTarget, dangling);
     const ro = path.join(state, "read-only");
     fs.mkdirSync(ro, { mode: 0o500 });
     const problems = [];
     try {
-      for (const [p, why] of [[taken, "already exists"], ["report.json", "must be an absolute path"],
+      for (const [p, why] of [[taken, "already exists"], [dangling, "already exists"],
+                              ["report.json", "must be an absolute path"],
                               [path.join(state, "no-such-dir", "r.json"), "cannot use"],
                               [path.join(ro, "r.json"), "cannot write into"]]) {
         const { code, out, err } = await run({ scenario: "happy", args: ["--report-file", p],
@@ -449,6 +464,8 @@ flow("--report-file refuses a path it would overwrite, a relative one and a dire
       }
     } finally { fs.chmodSync(ro, 0o700); }
     if (fs.readFileSync(taken, "utf8") !== "{}\n") problems.push("the refused run overwrote the file it was refused");
+    if (!fs.lstatSync(dangling).isSymbolicLink()) problems.push("the refused run replaced the link with a file of its own");
+    if (fs.existsSync(linkTarget)) problems.push("the refused run wrote through the link, creating its target");
     if (fs.existsSync(marker)) problems.push("a refused --report-file still spawned a codex");
     return problems.length === 0 || problems.join("; ");
   });
@@ -470,6 +487,55 @@ flow("a report that could not reach stdout is complete in --report-file, under t
     return true;
   });
 
+flow("two seats naming one --report-file: the first to publish keeps the file, the second exits 4 and says so",
+  "the pre-spawn check cannot see a run that starts after it, so the publication itself has to hold the no-clobber rule: a report written over a delivered one is two seats' evidence in one file with nothing saying whose, and the loser's own verdict must still reach it on stdout",
+  async () => {
+    const slowState = flowState(), fastState = flowState();
+    const p = reportPath(slowState);
+    // The slow seat opens the path first and publishes last, so its refusal is the race and not the
+    // pre-spawn check — which the two exit codes tell apart, 4 against 2.
+    const slow = run({ scenario: "slow-turn", args: ["--report-file", p],
+      env: { CODEX_DELEGATE_STATE_DIR: slowState } });
+    // Its state directory stays empty until readOpts returns, and openReportFile runs inside readOpts.
+    if (!await until(() => fs.readdirSync(slowState).some((n) => n !== "report.json")))
+      return "the slow seat never reached its state directory";
+    const fast = await run({ scenario: "happy", args: ["--report-file", p],
+      env: { CODEX_DELEGATE_STATE_DIR: fastState } });
+    const late = await slow;
+    const problems = [];
+    if (fast.code !== EXIT.OK) problems.push(`the first publisher exited ${fast.code}: ${fast.err.trim().slice(-160)}`);
+    if (late.code !== EXIT.TRANSPORT) problems.push(`the second publisher exited ${late.code}, not 4: ${late.err.trim().slice(-160)}`);
+    if (!late.err.includes(`the report could not be published at ${p}`))
+      problems.push(`the loser does not name the path it lost: ${late.err.trim().slice(-200)}`);
+    const onDisk = readJson(p);
+    if (!onDisk) problems.push(`no parseable report at ${p}`);
+    else if (onDisk.answer !== "the answer") problems.push(`the file holds the loser's report: ${JSON.stringify(String(onDisk.answer).slice(0, 60))}`);
+    let mine = null;
+    try { mine = JSON.parse(late.out); } catch {}
+    if (!mine) problems.push(`the loser's own report did not reach its stdout: ${late.out.slice(0, 120)}`);
+    else if (mine.answer !== "slow but fine") problems.push(`the loser's stdout report is not its own turn: ${JSON.stringify(String(mine.answer).slice(0, 60))}`);
+    if (fs.readdirSync(slowState).some((n) => n.startsWith("report.json.")))
+      problems.push("the failed publication left its temp file behind");
+    return problems.length === 0 || problems.join("; ");
+  });
+
+flow("a server that dies mid-turn publishes the collected report, not a pre-turn refusal",
+  "exit 4 is not 'no turn ran': the thread, the command and the partial answer are what the run already paid for, and a report that replaced them with an `error` key would send a coordinator to relaunch work that had happened",
+  async () => {
+    const state = flowState();
+    const p = reportPath(state);
+    const { code } = await run({ scenario: "server-crash", args: ["--report-file", p],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.TRANSPORT) return `a mid-turn crash exited ${code}, not 4`;
+    const r = readJson(p);
+    if (!r) return `no parseable report at ${p}`;
+    if ("error" in r) return `the collected report was replaced by a pre-turn refusal: ${JSON.stringify(r.error)}`;
+    if (r.turnStatus !== "failed") return `turnStatus is ${JSON.stringify(r.turnStatus)}, not "failed"`;
+    if (r.commandsSucceeded !== 1) return `the command the turn ran is gone: commandsSucceeded ${JSON.stringify(r.commandsSucceeded)}`;
+    return String(r.answer).includes("partial answer before the crash")
+      || `the answer the turn had already streamed was dropped: ${JSON.stringify(r.answer)}`;
+  });
+
 flow("a refusal reached before the thread is written to --report-file, as a report saying so",
   "the caller is woken by the task's exit and reads one path: a refusal that left the file empty is indistinguishable from a seat that is still starting, and inventing a receipt or a turn status for it would be worse",
   async () => {
@@ -486,7 +552,25 @@ flow("a refusal reached before the thread is written to --report-file, as a repo
     if (r.turnStatus !== null || r.answer !== "") return `a turn status or an answer was invented: ${JSON.stringify(r)}`;
     if (r.threadId !== null) return `a thread that never existed was named: ${JSON.stringify(r.threadId)}`;
     if (!/--cwd does not exist/.test(String(r.error))) return `the refusal does not carry the reason: ${JSON.stringify(r.error)}`;
-    return r.reportPath === p || `the report does not name itself: ${JSON.stringify(r.reportPath)}`;
+    if (r.reportPath !== p) return `the report does not name itself: ${JSON.stringify(r.reportPath)}`;
+    // The two refusals the argument scan raises before it has a seat file at all: they used to be
+    // decided above the line that opens the report, so the caller was woken by a path that was empty.
+    const problems = [];
+    const seatFile = path.join(state, "seat.txt");
+    fs.writeFileSync(seatFile, `SEAT: read ${shimDir}\nTASK: do it\n`);
+    for (const [name, file, extra] of [
+      ["a valueless --seat-file", "valueless.json", ["--seat-file"]],
+      ["--seat-file twice", "twice.json", ["--seat-file", seatFile, "--seat-file", seatFile]]]) {
+      const q = reportPath(state, file);
+      const res = await run({ scenario: "happy", noPrompt: true,
+        args: ["--report-file", q, ...extra], env: { CODEX_DELEGATE_STATE_DIR: state } });
+      if (res.code !== EXIT.USAGE) { problems.push(`${name}: exit ${res.code}, expected 2`); continue; }
+      const rq = readJson(q);
+      if (!rq) { problems.push(`${name}: no parseable report at ${q}`); continue; }
+      if (rq.ok !== false || rq.exitCode !== EXIT.USAGE) problems.push(`${name}: the refusal does not carry its own verdict: ${JSON.stringify(rq)}`);
+      if (!/--seat-file/.test(String(rq.error))) problems.push(`${name}: the refusal does not name the flag: ${JSON.stringify(rq.error)}`);
+    }
+    return problems.length === 0 || problems.join("; ");
   });
 
 flow("a resumed seat writes a report file of its own",

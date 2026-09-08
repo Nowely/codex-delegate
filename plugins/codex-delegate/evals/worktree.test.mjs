@@ -561,6 +561,52 @@ test("--worktree REPO --resume ID rebuilds that thread's tree and continues in i
     return true;
   });
 
+test("a resumed seat that reverted everything leaves nothing for the next resume to reapply",
+  "the record's pointers are what a rebuild reads: a resumed turn that ends on a clean tree harvested nothing, and keeping the previous turn's diff and archive would hand the third turn work the second one deliberately undid, at exit 0 and on a tree that is not the thread's",
+  async () => {
+    const repo = freshRepo("wt-resume-reverted");
+    if (!repo) return "git setup failed";
+    const first = await run(null, { args: ["--worktree", repo, "--verify",
+      "printf 'seat-line\\n' >> seed && printf 'scratch\\n' > scratch.txt"] });
+    let r1 = null; try { r1 = JSON.parse(first.out); } catch {}
+    if (first.code !== EXIT.OK) return `the first seat exited ${first.code}: ${first.err.trim().slice(0, 160)}`;
+    if (!r1?.worktreeDiffPath || !r1?.worktreeUntrackedPath)
+      return `the first seat harvested nothing to revert: ${JSON.stringify({ d: r1?.worktreeDiffPath, u: r1?.worktreeUntrackedPath })}`;
+    // The second turn puts the tree back exactly as it was created, so git calls it clean.
+    const second = await run(null, { args: ["--worktree", repo, "--resume", "last", "--verify",
+      "printf 'seed\\n' > seed && rm -f scratch.txt"] });
+    let r2 = null; try { r2 = JSON.parse(second.out); } catch {}
+    const third = await run(null, { args: ["--worktree", repo, "--resume", "last", "--verify", "cat seed; ls"] });
+    let r3 = null; try { r3 = JSON.parse(third.out); } catch {}
+    try {
+      if (second.code !== EXIT.OK) return `the reverting seat exited ${second.code}: ${second.err.trim().slice(0, 200)}`;
+      if (!r2) return "no JSON report from the reverting seat";
+      if (r2.worktreeRestored?.diff !== r1.worktreeDiffPath)
+        return `the reverting seat did not start from the first seat's work: ${JSON.stringify(r2.worktreeRestored)}`;
+      if (r2.worktreeDiffPath !== null || r2.worktreeUntrackedPath !== null)
+        return `a clean tree still reported harvested artefacts: ${JSON.stringify({ d: r2.worktreeDiffPath, u: r2.worktreeUntrackedPath })}`;
+      for (const art of [r1.worktreeDiffPath, r1.worktreeUntrackedPath]) {
+        if (fs.existsSync(art)) return `${art} survived the turn that harvested nothing`;
+        if (!second.err.includes(`this turn harvested nothing, so the earlier ${art} was removed`))
+          return `the removal was silent: ${second.err.trim().slice(-240)}`;
+      }
+      if (third.code !== EXIT.OK) return `the third seat exited ${third.code}: ${third.err.trim().slice(0, 200)}`;
+      if (!r3) return "no JSON report from the third seat";
+      if (r3.worktreeRestored?.diff !== null || r3.worktreeRestored?.untracked !== null)
+        return `the third seat rebuilt work the second one undid: ${JSON.stringify(r3.worktreeRestored)}`;
+      const saw = String(r3.verify?.stdout ?? "");
+      if (!/^seed$/m.test(saw) || /seat-line/.test(saw) || /scratch\.txt/.test(saw))
+        return `the third seat's tree is not the reverted one: ${JSON.stringify(saw.slice(0, 200))}`;
+    } finally {
+      for (const r of [r1, r2, r3]) {
+        if (r?.worktreePath && fs.existsSync(r.worktreePath))
+          spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+        for (const p of [r?.worktreeDiffPath, r?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+      }
+    }
+    return true;
+  });
+
 test("a crashed tree whose HEAD cannot be read is left in place, not removed",
   "an unreadable HEAD is not evidence of no commits; reconciliation must preserve a tree whose commit reachability cannot be determined",
   async () => {

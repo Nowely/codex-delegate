@@ -253,9 +253,13 @@ const LADDER = [
     when: (c) => c.verifyFailed },
   // --allow-no-commands waives the floor and must not waive a declared --expect-command; a passing
   // --verify does not waive it either, since the end state can be right while the work drifted.
+  // The floor asks only whether the turn RAN anything: with rung 11 retired, judging a command by its
+  // exit code here would reinstate it under another number, and the hint below would tell a turn whose
+  // commands all failed to re-run as if it had been recall-only. A declared --expect-command is the
+  // stricter question and still demands a SUCCESSFUL match.
   { code: EXIT.NO_COMMANDS,
     help: "no command ran (--allow-no-commands waives this, --expect-command does\n      not)",
-    when: (c) => c.expected.length === 0 && (c.opts.expectRe || !c.opts.allowNoCommands) },
+    when: (c) => c.opts.expectRe ? c.expected.length === 0 : (!c.opts.allowNoCommands && c.commandsRan === 0) },
   { code: EXIT.NO_ANSWER, help: "the turn produced no answer",
     when: (c) => !c.answer },
   { code: EXIT.SCHEMA, help: "the answer failed --output-schema",
@@ -326,8 +330,9 @@ const HELP = [
     text: `  --prompt TEXT      the task; omit to read it from stdin
   --seat-file F      read the seat from F: a HEADER of "FIELD: value" lines, each
                      value literal to end of line, then the BODY — the prompt —
-                     from the first line that is not one. SEAT is required and
-                     must come FIRST; explicit flags override the file. Fields:
+                     from the first line that is not one. SEAT, where present,
+                     must come FIRST; a file with none is a read seat in the
+                     current directory. Explicit flags override the file. Fields:
                      ${wrapJoined([...SEAT_FIELDS], "/", 21)}
   --attach FILE      attach a local image (${attachExts("localImage").join("/")}) or audio
                      file (${attachExts("localAudio").join("/")}) to the prompt; repeatable
@@ -423,8 +428,9 @@ const HELP = [
   { s: "Run",
     text: `  --report-file F    write the JSON report to F as well as to stdout, and make F
                      the delivery that counts: an ABSOLUTE path that does not
-                     exist yet, published by rename at 0600, so a reader finds
-                     either the whole report or no file at all. A caller that
+                     exist yet, published by hard link at 0600, never over an
+                     existing entry, so a reader finds either the whole report or
+                     no file at all. A caller that
                      stopped reading stdout then costs the run nothing — the file
                      carries the same bytes under the same exit code. A refusal
                      reached before the turn is written there too, as an object
@@ -513,7 +519,8 @@ ${ladderHelp()}
   pipe, or a consumer that never drained it within what was left of --timeout (at
   least ${LIMITS.STDOUT_DRAIN_MIN_MS / 1000} s, and exactly ${LIMITS.STDOUT_DRAIN_MIN_MS / 1000} s where no wall clock was set). So 2 means either, and
   the report tells them apart: an argument error prints none.
-  Codes decided after the turn can all carry executed work.` },
+  Codes decided after the turn can all carry executed work. 4 too, when the server
+  died mid-turn: turnStatus is then failed, never null.` },
 ];
 
 const HELP_HEAD = `codex-delegate ${VERSION} — run one Codex turn with rights declared per call.
@@ -791,10 +798,9 @@ function validateOutputSchema(file) {
     }
   })(schema);
   if (Array.isArray(schema.items)) unchecked.add("items(tuple form)");
-  const names = unchecked.size ? [...unchecked].sort() : null;
-  if (names)
-    process.stderr.write(`codex-delegate: --output-schema uses keywords the driver's validator does not check (${names.join(", ")}); the server still enforces them during generation, and the report lists them as schemaKeywordsUnchecked\n`);
-  return { schema, unchecked: names };
+  // Returned, never written here: this runs inside readOpts, and a line printed from there would come
+  // out ahead of the pid line every page tells a caller to read off stderr first. main() says it.
+  return { schema, unchecked: unchecked.size ? [...unchecked].sort() : null };
 }
 
 function resolveDir(p, what) {
@@ -880,7 +886,9 @@ function checkRoot(dir) {
 //
 // The path is the caller's, whole and absolute, and it must not exist yet: a report published over
 // another run's report is two seats' evidence in one file, with nothing saying which one it is. It is
-// published by rename at 0600, so a reader finds either the whole report or no file at all.
+// published by hard link at 0600, so a reader finds either the whole report or no file at all, and the
+// no-clobber rule survives the whole run: link(2) refuses every existing entry, symlinks included, while
+// rename(2) replaces one — and the pre-spawn check cannot see a second seat that starts after it.
 let reportFilePath = null;
 let reportFileWritten = false;
 // Checked BEFORE the seat file is expanded, so a refusal the seat file itself causes still reaches the
@@ -894,22 +902,32 @@ function openReportFile(p) {
   if (!st.isDirectory()) fail(EXIT.USAGE, `--report-file: ${dir} is not a directory`);
   try { fs.accessSync(dir, fs.constants.W_OK); }
   catch (e) { fail(EXIT.USAGE, `--report-file cannot write into ${dir}: ${e.message}`); }
-  if (fs.existsSync(p))
-    fail(EXIT.USAGE, `--report-file ${p} already exists; a report is never written over one already there, so name a path of this run's own`);
+  // lstat, not existsSync: existsSync FOLLOWS the link, so a dangling symlink at the path reads as
+  // absent and the publication would then decide what happens to it.
+  let there = false;
+  try { fs.lstatSync(p); there = true; } catch {}
+  if (there)
+    fail(EXIT.USAGE, `--report-file ${p} already exists, or is a symbolic link; a report is never written over an entry already there, so name a path of this run's own`);
   reportFilePath = p;
 }
-// Whole or not at all: the temp name is refused if it exists (wx) and the rename is what publishes.
+// Whole or not at all: the temp name is refused if it exists (wx) and the link is what publishes.
 // Returns whether the report is durable, which is what decides how much a broken stdout costs.
 function publishReport(text) {
   if (reportFilePath === null || reportFileWritten) return reportFileWritten;
   const tmp = `${reportFilePath}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
     fs.writeFileSync(tmp, text, { mode: 0o600, flag: "wx" });
-    fs.renameSync(tmp, reportFilePath);
+    fs.linkSync(tmp, reportFilePath);
     reportFileWritten = true;
   } catch (e) {
+    // EEXIST here is a second run that named this path and published first, which the pre-spawn check
+    // could not have seen. Its report stays; this one says where to find its own.
+    const why = e.code === "EEXIST"
+      ? "a report is already there (another run named the same path); this run's report is on stdout only"
+      : e.message;
+    process.stderr.write(`codex-delegate: the report could not be published at ${reportFilePath}: ${why}\n`);
+  } finally {
     try { fs.rmSync(tmp, { force: true }); } catch {}
-    process.stderr.write(`codex-delegate: the report could not be published at ${reportFilePath}: ${e.message}\n`);
   }
   return reportFileWritten;
 }
@@ -1747,6 +1765,23 @@ function disposeWorktree(turnDone) {
   const headNow = git(dir, ["rev-parse", "HEAD"]);
   const headSha = headNow.status === 0 ? headNow.stdout.trim() : null;
   const committed = Boolean(baseSha && headSha && headSha !== baseSha);
+  // `base` is the THREAD's name, so a --resume re-harvest writes over the artefacts the previous turn
+  // left. Two consequences, both handled here: the write must be whole-or-nothing, and a turn that
+  // takes NOTHING from the tree must not leave the previous turn's file behind — the record's pointer
+  // goes null while the file stays, and the next reader opens work this turn reverted. That covers the
+  // clean branch below as well as an empty harvest: a resumed seat that reverted everything ends on a
+  // tree git calls clean, and the earlier artefacts are exactly what it undid.
+  // Except the file the SERVER's turn/diff/updated landed in: persistTurnDiff names it
+  // `<threadId>.diff` too, so on a run that received one, `${base}.diff` is this turn's own artefact
+  // with the report pointing at it, not the previous turn's leftover.
+  const base = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}`);
+  const dropStale = (art) => {
+    if (art === turnDiffPath || !fs.existsSync(art)) return;
+    try { fs.rmSync(art, { force: true }); }
+    catch (e) { return process.stderr.write(`codex-delegate: this turn harvested nothing and the earlier ${art} ` +
+      `could not be removed (${e.message}); it is stale — do not read it as this turn's work\n`); }
+    process.stderr.write(`codex-delegate: this turn harvested nothing, so the earlier ${art} was removed\n`);
+  };
   if (!turnDone) res.worktreePreserved = `turn ${turnStatus ?? "never started"} — the tree may be mid-write`;
   else if (st.status !== 0) res.worktreePreserved = "git status failed in the worktree";
   else if (!clean || committed) {
@@ -1766,22 +1801,7 @@ function disposeWorktree(turnDone) {
     if (ds.status === 0 && ds.stdout.trim()) res.worktreeDiffStat = ds.stdout.trim().slice(0, 2000);
     // Return null on success, or a reason to preserve the tree when the harvest cannot be trusted.
     const harvest = () => {
-      const base = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}`);
       fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 });
-      // `base` is the THREAD's name, so a --resume re-harvest writes over the artefacts the previous turn
-      // left. Two consequences, both handled here: the write must be whole-or-nothing, and a turn that
-      // harvests NOTHING must not leave the previous turn's file behind — the record's pointer goes null
-      // while the file stays, and the next reader opens work this turn reverted.
-      // Except the file the SERVER's turn/diff/updated landed in: persistTurnDiff names it
-      // `<threadId>.diff` too, so on a run that received one, `${base}.diff` is this turn's own artefact
-      // with the report pointing at it, not the previous turn's leftover.
-      const dropStale = (art) => {
-        if (art === turnDiffPath || !fs.existsSync(art)) return;
-        try { fs.rmSync(art, { force: true }); }
-        catch (e) { return process.stderr.write(`codex-delegate: this turn harvested nothing and the earlier ${art} ` +
-          `could not be removed (${e.message}); it is stale — do not read it as this turn's work\n`); }
-        process.stderr.write(`codex-delegate: this turn harvested nothing, so the earlier ${art} was removed\n`);
-      };
       const full = diffVs(["--binary"]);
       if (full.status !== 0) return `the diff could not be taken (${String(full.stderr).trim().slice(0, 120)})`;
       if (full.stdout.length) {
@@ -1830,8 +1850,11 @@ function disposeWorktree(turnDone) {
   } else {
     // A clean tree needs no force, and anything git refuses to remove here is worth looking at.
     const rm = git(repo, ["worktree", "remove", dir]);
-    if (rm.status === 0) res.worktreeRemoved = true;
-    else res.worktreePreserved = `git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
+    if (rm.status === 0) {
+      res.worktreeRemoved = true;
+      dropStale(`${base}.diff`);
+      dropStale(`${base}.untracked.tgz`);
+    } else res.worktreePreserved = `git worktree remove refused: ${String(rm.stderr).trim().slice(0, 160)}`;
   }
   // Quote both paths in the published removal command with the standard '\'' escape:
   // spaces and shell syntax in a path must not change what the command removes.
@@ -1962,6 +1985,12 @@ function readOpts() {
   // Scanned for the flag alone, not parsed: a full parse first would reject the command line for
   // missing exactly what the seat file is about to supply (--cwd).
   const argv = process.argv.slice(2);
+  // Opened FIRST, before any other refusal this function can raise, and off the raw command line: the
+  // file the caller waits on has to exist for every refusal, including the ones the --seat-file checks
+  // below raise and the ones the seat file itself causes. A missing or flag-like value is left to
+  // need() below, which is the one place that message is written.
+  const rf = argv.lastIndexOf("--report-file");
+  if (rf >= 0 && argv[rf + 1] !== undefined && !argv[rf + 1].startsWith("--")) openReportFile(argv[rf + 1]);
   const at = argv.indexOf("--seat-file");
   // Refuse multiple seat files rather than silently choosing which declaration supplies the run.
   if (at >= 0 && argv.indexOf("--seat-file", at + 2) >= 0)
@@ -1970,11 +1999,6 @@ function readOpts() {
     fail(EXIT.USAGE, "--seat-file requires a non-empty value");
   // Scanned off the raw command line on purpose: a seat file must not be able to authorise itself.
   const allowSeatVerify = argv.includes("--allow-seat-verify");
-  // Opened before the seat file is read, and off the raw command line for the same reason: the file the
-  // caller waits on has to exist for a refusal the seat file itself caused. A missing or flag-like value
-  // is left to need() below, which is the one place that message is written.
-  const rf = argv.lastIndexOf("--report-file");
-  if (rf >= 0 && argv[rf + 1] !== undefined && !argv[rf + 1].startsWith("--")) openReportFile(argv[rf + 1]);
   const o = at >= 0
     ? parseArgs([...argvFromSeatFile(argv[at + 1], allowSeatVerify),
                  ...argv.filter((_, i) => i !== at && i !== at + 1)])
@@ -2151,6 +2175,11 @@ function jsonRpcConn(proc, { maxLine, onMessage = null, onUnparsed = () => {}, o
   const dispatch = (line) => {
     let msg;
     try { msg = JSON.parse(line); } catch { return onUnparsed(line); }
+    // `null`, a number, a string and an array are all valid JSON and none of them is a JSON-RPC frame.
+    // Every reader below asks for `.id` or `.method`, and on `null` that throws — on the turn channel
+    // into abort(), which discards the commands and the answer already collected. Unparseable is what
+    // it is, so it takes the unparsed route the malformed lines take.
+    if (msg === null || typeof msg !== "object" || Array.isArray(msg)) return onUnparsed(line);
     if (onMessage) return onMessage(msg, line.length);
     resolveResponse(msg);
   };
@@ -2294,14 +2323,25 @@ function exitWith(code, { stdout = null, durable = false } = {}) {
 
 function abort(code, msg) {
   if (settled) return;
-  settled = true;
   process.stderr.write(`codex-delegate: ${msg}\n`);
   if (stderrBuf.trim()) {
     if (stderrDropped) process.stderr.write(`[${stderrDropped} earlier bytes of stderr dropped]\n`);
     process.stderr.write(`${stderrBuf.trim()}\n`);
   }
-  // Like fail(): an abort prints no report, and a caller reading the file has to be told that rather
-  // than left to time out on a path that never appears.
+  // Once a thread exists there is evidence in memory — commands, file changes, an answer — and the
+  // reason for the abort is no reason to throw it away. The same choice the child-exit handler makes,
+  // and the code is unchanged: it rides as codeOverride, above the ladder. The reason reaches the report
+  // through turnError, since a collected report carries no `error` key.
+  // classifyEvidence() runs synchronously here, inside a stdout handler where a throw would be uncaught
+  // and take the whole report with it: on that one failure the pre-turn shape below is still written.
+  if (rootThreadId) {
+    turnError = turnError ?? { codexErrorInfo: "aborted", message: msg };
+    try { finish("failed", code); return; }
+    catch (e) { process.stderr.write(`codex-delegate: the collected report could not be produced (${e.message})\n`); }
+  }
+  settled = true;
+  // Like fail(): an abort with no turn behind it prints no report, and a caller reading the file has to
+  // be told that rather than left to time out on a path that never appears.
   preTurnReport(code, msg);
   process.exitCode = code;
   // The deadline can fire while still reading the prompt from stdin, before any child exists. Without
@@ -2993,6 +3033,9 @@ function bareCommand(c) {
 
 // Classify the evidence once from event streams and opts; persisting the answer log is its only side effect.
 function classifyEvidence() {
+  // Every root command item, whatever its verdict: the floor rung asks whether the turn ran anything,
+  // and a declined one is already a higher rung.
+  const commandsRan = commands.length;
   // Require a command that actually succeeded; an exit code alone is not evidence of success.
   const ran = commands.filter((c) => c.status === "completed" && c.exitCode === 0);
   // CommandExecutionStatus can be failed even with a null exitCode, so classify both fields:
@@ -3054,7 +3097,7 @@ function classifyEvidence() {
   const commentaryPath = commentaryOnly
     ? persistAnswer(messages.map((m) => `## ${m.phase ?? "unphased"}\n\n${m.text}`).join("\n\n"), ".commentary")
     : null;
-  return { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
+  return { ran, commandsRan, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
            fullAnswer, schemaErrs, answerPath, answer, commentaryOnly, commentaryPath,
            answerPartial, answerPartialPath: answerPartial ? answerPartialPath : null };
 }
@@ -3382,10 +3425,13 @@ function writeReport(ev, verifySkipped, codeOverride) {
   // report is delivered — to a file when one was named, to stdout otherwise — so a second copy of the
   // gates here would be a second answer about one run for whoever found it first.
   closingFields = { turnStatus, answerPath,
-    // Only a successful harvest updates the rebuild pointers: on a preserved tree the work is still in
-    // the tree, and overwriting them with null would throw away the last state that CAN be rebuilt. The
-    // commits ref is kept when this turn made none — the earlier ref still names that thread's history.
-    ...(worktree?.worktreeHarvested
+    // A tree DISPOSED of normally — harvested, or clean and removed — updates the rebuild pointers, null
+    // included: a resumed seat that reverted everything harvests nothing, and leaving the previous turn's
+    // pointers in place would rebuild the next resume's tree out of the work this turn undid. A PRESERVED
+    // tree keeps them: the work is still in the tree, and null would throw away the last state that CAN
+    // be rebuilt. The commits ref is kept when this turn made none — the earlier ref still names that
+    // thread's history.
+    ...(worktree && (worktree.worktreeHarvested || (worktree.worktreeRemoved && !worktree.worktreePreserved))
       ? { worktreeDiffPath: worktree.worktreeDiffPath, worktreeUntrackedPath: worktree.worktreeUntrackedPath,
           ...(worktree.worktreeCommitsRef ? { worktreeCommitsRef: worktree.worktreeCommitsRef } : {}) }
       : {}) };
@@ -3616,6 +3662,8 @@ async function main() {
   // config probe has to be identifiable too, and this line is all its caller has until the thread exists.
   process.stderr.write(`codex-delegate: pid=${process.pid} identity=${selfIdentity() ?? "unknown"}`
     + `${reportFilePath === null ? "" : ` reportPath=${reportFilePath}`}\n`);
+  if (opts.schemaUnchecked)
+    process.stderr.write(`codex-delegate: --output-schema uses keywords the driver's validator does not check (${opts.schemaUnchecked.join(", ")}); the server still enforces them during generation, and the report lists them as schemaKeywordsUnchecked\n`);
   await setup();
   setupDoneMs = Date.now();
   armWallClock();

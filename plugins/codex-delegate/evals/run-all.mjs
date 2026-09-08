@@ -51,7 +51,6 @@ for (const name of SUITES) {
   console.log(`\n=== ${name} ===`);
   const { code, signal, out, ms } = await runSuite(name);
   const count = parseCount(out);
-  if (!measured(count)) notRun++;
   results.push(`${name} ${count}`);
   // A suite killed by a signal reports `code` null, and `process.exit(null)` exits 0: a killed suite
   // used to end the run green.
@@ -61,11 +60,15 @@ for (const name of SUITES) {
     failedWhy = signal ? `killed by ${signal}` : `exit ${code}`;
     break;
   }
+  // Counted below the break, so the red suite is subtracted once — as the red one — and not again here.
+  if (!measured(count)) notRun++;
   results[results.length - 1] += ` (${(ms / 1000).toFixed(0)}s)`;
 }
 
 console.log(failedName
-  ? `\nrun-all: ${failedName} FAILED (${failedWhy}); ${results.length - 1}/${SUITES.length} suites green: ${results.slice(0, -1).join(", ")}`
+  // notRun is subtracted on this branch too: a suite that measured nothing is not green whether the run
+  // reached the end or stopped at a red one.
+  ? `\nrun-all: ${failedName} FAILED (${failedWhy}); ${results.length - 1 - notRun}/${SUITES.length} suites green: ${results.slice(0, -1).join(", ")}`
   : notRun
     ? `\nrun-all: ${SUITES.length - notRun}/${SUITES.length} suites green, ${notRun} not run — ${results.join(", ")}`
     : `\nrun-all: all ${SUITES.length} suites green — ${results.join(", ")}`);

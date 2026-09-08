@@ -556,7 +556,8 @@ async function liveTurns() {
         `the file is ${fs.statSync(reportFile).size} bytes and stdout ${Buffer.byteLength(out)}`);
     else if ((fs.statSync(reportFile).mode & 0o777) !== 0o600)
       report("live turn: --report-file is 0600", `mode ${(fs.statSync(reportFile).mode & 0o777).toString(8)}`);
-    else if (!/^codex-delegate: pid=\d+ identity=/m.test(err))
+    // The FIRST line, not any line: a warning printed above it is a pid the page's reader never finds.
+    else if (!/^codex-delegate: pid=\d+ identity=/.test(err.split("\n")[0] ?? ""))
       report("live turn: the pid a caller signals is announced first", err.trim().slice(0, 200));
     else {
       const items = completedItems(log);

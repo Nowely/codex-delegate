@@ -41,7 +41,9 @@ if (!override && schemaDir !== `schema-${PINNED_CODEX}`) {
 if (schemaDirs.length > 1)
   console.log(`note  ${schemaDirs.length} schema directories present; validating against ${schemaDir} (also: ${schemaDirs.filter((d) => d !== schemaDir).join(", ")})`);
 const SCHEMAS = path.join(ROOT, schemaDir);
-const load = (rel) => JSON.parse(fs.readFileSync(path.join(SCHEMAS, rel), "utf8"));
+// Recorded as they are loaded, so the check below reads the same list the cases do rather than a copy.
+const loaded = new Set();
+const load = (rel) => { loaded.add(rel); return JSON.parse(fs.readFileSync(path.join(SCHEMAS, rel), "utf8")); };
 
 const SERVER_NOTIFICATION = load("ServerNotification.json");
 const SERVER_REQUEST = load("ServerRequest.json");
@@ -61,6 +63,17 @@ const RESPONSE_SCHEMAS = {
 // An error reply matches none of the three shapes above, and used to fall through every branch while
 // still counting itself validated. It has a schema of its own.
 const JSONRPC_ERROR = load("JSONRPCError.json");
+
+// The directory tracks what this suite loads and nothing else. A schema no case reads is validated
+// against nothing, goes stale at the next codex upgrade unnoticed, and makes the tracked count a number
+// nobody can act on. The regeneration recipe in README copies the whole tree; this is what prunes it.
+const unloaded = fs.readdirSync(SCHEMAS, { recursive: true })
+  .map((p) => String(p).split(path.sep).join("/"))
+  .filter((p) => p.endsWith(".json") && !loaded.has(p));
+if (unloaded.length) {
+  console.log(`FAIL  ${schemaDir} tracks ${unloaded.length} schema(s) this suite never loads: ${unloaded.join(", ")}`);
+  process.exit(1);
+}
 
 const unchecked = new Set();
 const KNOWN = new Set(["$ref", "oneOf", "anyOf", "allOf", "type", "enum", "const", "required", "properties",

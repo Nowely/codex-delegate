@@ -95,10 +95,10 @@ size and exits 2 past it, naming the byte count. The header grammar — where it
 body, what an unknown name costs — is in `--help`; everything below the header is the body, verbatim, even
 when a later line looks like a field.
 
-`SEAT` is required and must be first, except that a file with no header at all is a read seat in the
-current directory. A file with no body leaves the prompt to stdin or `--prompt`; providing both is exit
-2. Explicit command-line flags override file fields, and `seatFileFields` reports the declared fields in
-their original order. The complete field list is in `--help`.
+`SEAT`, where it appears, must be first; a header that declares none — with or without other fields — is
+a read seat in the current directory. A file with no body leaves the prompt to stdin or `--prompt`;
+providing both is exit 2. Explicit command-line flags override file fields, and `seatFileFields` reports
+the declared fields in their original order. The complete field list is in `--help`.
 
 The format avoids constructing a shell command from relayed values: an injected quote stays literal
 instead of becoming flags. Attachments, the bounds and `--report-file` remain command-line-only because
@@ -216,11 +216,16 @@ from under a run by other work on the machine; give every concurrent run its own
 
 ## Git-directory grant
 
-There is none, so a sandboxed seat cannot commit: committing needs the main clone's common dir, and no
-flag grants it. Measured in a linked worktree whose main `.git` was read-only, `git commit` fails at
-`Unable to create '.../worktrees/<name>/index.lock': Permission denied`. A seat's work comes back as
-`worktreeDiffPath` and its untracked archive; `worktreeCommitsRef` is populated only where the caller's
-own `--verify`, which runs unsandboxed, committed.
+There is none by default, so a seat cannot commit under the grant a `SEAT:` line makes: committing needs
+the main clone's common dir. Measured in a linked worktree whose main `.git` was read-only, `git commit`
+fails at `Unable to create '.../worktrees/<name>/index.lock': Permission denied`. A seat's work comes
+back as `worktreeDiffPath` and its untracked archive; `worktreeCommitsRef` is populated only where the
+caller's own `--verify`, which runs unsandboxed, committed.
+
+`WRITABLE: <repo>/.git` re-grants the common dir — it is the grant the retired `--commit` made, and
+`checkRoot` accepts it — so it is a widening to settle with the user like any other, because it hands the
+seat config, hooks and every ref. That a commit then succeeds is unmeasured on the 0.153.4 pin: 0.10.0
+measured it under `--commit`, and nothing since.
 
 A narrower grant was measured and **rejected** before that, so do not reach for one. Whitelisting
 `{worktrees/<name>, objects, refs, logs/refs}` does let `git add` + `git commit` through for a linked

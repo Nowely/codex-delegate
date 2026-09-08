@@ -45,6 +45,8 @@ export const SCENARIOS = {
   // Two unbounded growth paths in the main transport: notifications with no turn/start response to
   // attribute them to, and a line that never ends.
   "early-flood": {}, "unterminated-line": {},
+  // A line that is valid JSON and no JSON-RPC frame at all, between two well-formed ones.
+  "null-frame": {},
   // A single-action parse over a MULTI-LINE script: the server's own parse, taken at face value, would
   // read "probe, then the real work" as a probe answering no.
   "probe-laundered": {},
@@ -384,6 +386,9 @@ function onLine(line) {
       personality: unquote(CFG["personality"]) || "pragmatic",
       service_tier: unquote(CFG["service_tier"]) || "auto",
     }, origins: {} }));
+    // The same bare `null` on the PROBE channel, where nothing listens for messages and the reader
+    // reached for `.id` on it. Raw, for the reason "null-frame" is raw.
+    if (process.env.FAKE_CONFIG_NULL) process.stdout.write("null\n");
     return;
   }
 
@@ -1050,10 +1055,20 @@ function onLine(line) {
         break;
       }
 
+      // A bare `null` between the command and the answer: valid JSON, no JSON-RPC frame. Written raw,
+      // so the emit log — and with it the conformance suite — never sees a line the real server would
+      // not send. The turn around it is the happy shape, and every part of it must still arrive.
+      case "null-frame":
+        w(R, cmd(TURN, THREAD));
+        process.stdout.write("null\n");
+        w(msg(TURN, THREAD, "the answer"), done(TURN, THREAD));
+        break;
+
       // A line that never ends. readline buffers it whole; the bound is what keeps one broken write from
-      // costing the driver its memory.
+      // costing the driver its memory. A command and an answer arrive FIRST, so the case can also ask
+      // what the abort does with the evidence the turn had already produced.
       case "unterminated-line":
-        w(R);
+        w(R, cmd(TURN, THREAD), msg(TURN, THREAD, "the answer"));
         for (let i = 0; i < 34; i++) process.stdout.write("x".repeat(1024 * 1024));
         break;
 

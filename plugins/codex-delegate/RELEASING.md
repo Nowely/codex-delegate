@@ -26,13 +26,16 @@ notes; never move or recreate a published tag.
 5. Run the local live fidelity gate separately:
 
    ```bash
-   node evals/fidelity.test.mjs --require-live
+   CODEX_DELEGATE_LIVE_TURN=1 node evals/fidelity.test.mjs --require-live
    ```
 
    Verify the authenticated Codex build, inspect every fixture/live difference, and after a CLI change
-   confirm the dated parity figures still hold as an order of magnitude. Add `CODEX_DELEGATE_LIVE_TURN=1`
-   when item-shape or probe classification changes warrant spending one real turn. Do not make the
-   fixture convenient; it must emit what the live server emits.
+   confirm the dated parity figures still hold as an order of magnitude. `CODEX_DELEGATE_LIVE_TURN=1`
+   spends one real turn and is what makes the delivery route measured: the `--report-file` assertions —
+   the file written, byte-identical to stdout, at 0600, with the pid on the first stderr line — live only
+   in that case, so a run without it checks none of them against a real server. For 0.11.0 it is
+   mandatory; record its lines in the release notes. Do not make the fixture convenient; it must emit
+   what the live server emits.
 6. Run the live orchestrate gate. It is not in CI: it spends real sessions and a Codex turn.
 
    ```bash

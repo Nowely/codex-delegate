@@ -108,7 +108,7 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 | `MODEL:` | `<slug>` | this seat needs a model other than the configured default |
 | `EFFORT:` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | the task is worth more or less thinking |
 | `WEB_SEARCH:` | `cached`, `indexed`, `live` | the seat needs sources it cannot read locally |
-| `BRIEF:` | `yes` | a short answer is enough; never beside an output schema, which needs a whole JSON object |
+| `BRIEF:` | `yes` | a short answer is enough; omit it beside an output schema — it clips only the inline `answer` (`answerJson` is parsed from the whole one) yet still asks the model for 20 lines |
 | `ALLOW_NO_COMMANDS:` | `yes` | the seat is recall-only and will run nothing |
 
 ## Worktree lifecycle
@@ -116,7 +116,9 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 - A worktree seat starts from repository `HEAD`, not the live working tree.
 - Commit or stash relevant work first; staged, unstaged, untracked, ignored, and installed files are absent.
 - A completed turn harvests tracked work to `worktreeDiffPath`.
-- It archives non-ignored untracked files at `worktreeUntrackedPath` and commits at `worktreeCommitsRef`.
+- It archives non-ignored untracked files at `worktreeUntrackedPath`; `worktreeCommitsRef` is populated
+  only where the caller's own `--verify` committed — a seat cannot commit without `WRITABLE: <repo>/.git`,
+  a widening to settle first.
 - After a successful harvest the driver removes the worktree.
 - When the turn failed or harvest failed, the driver preserves it and reports `worktreePreserved`.
 
@@ -129,7 +131,13 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 - `exitCode: 3` is a cut; read the retained answer or partial and the `RESUME:` hint.
 - `exitCode: 10` is a held lock or a busy resumed thread: the report says `ok: false` and carries the
   refusal in `error`, and `<DIR>/err.txt` has it in full.
-- Exit 2 and 4 the same way: no turn ran, so there is an `error` and no receipt to read.
+- Exit 2 is always a refusal before the turn: `ok: false`, `turnStatus: null`, the reason in `error`,
+  no receipt.
+- Exit 4 has two shapes. With `turnStatus: null` it is a refusal or an abort (a sandbox assertion, a
+  signal before the thread, a transport failure): read `error` and `<DIR>/err.txt`; a `threadId` beside
+  it means the thread had started and its rollout is the only record. With any other `turnStatus` — the
+  server died mid-turn, or the report could not be published — the report is complete: read it like any
+  post-turn code (commands, `answer`, `answerPath`, receipt).
 - Any other non-zero is a gate verdict on the run; read the answer before deciding what to do.
 - `receiptOk: false` on a run that claims success is a red flag; what the receipt proves and does not
   prove is in
