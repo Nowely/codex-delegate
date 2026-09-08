@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { DRIVER, ROOT, SEAT_FIELDS, registry, runCases, summarize } from "./lib/harness.mjs";
+import { DRIVER, FIELDS, ROOT, SEAT_FIELDS, registry, runCases, summarize, tempDir } from "./lib/harness.mjs";
 
 const SKILL = path.join(ROOT, "skills", "codex-delegate", "SKILL.md");
 const ORCHESTRATE = path.join(ROOT, "skills", "orchestrate", "SKILL.md");
@@ -33,13 +33,45 @@ const seatFields = [...SEAT_FIELDS];
 // What the table documents: the first cell of every row, which is the one place a coordinator reads a
 // field name. A refused name is written `LIKE_THIS`, with no colon and never in that cell.
 const documented = [...new Set([...table.matchAll(/^\| `([A-Z][A-Z_]+):` \|/gm)].map((m) => m[1]))];
-// The knobs the driver parses only from the command line, read out of its own map.
-const cliOnly = [...driver.matchAll(/const CLI_ONLY_FIELDS = \{([\s\S]*?)\};/g)]
-  .flatMap((m) => [...m[1].matchAll(/([A-Z_]+): "(--[a-z-]+)"/g)].map((x) => [x[1], x[2]]));
+// The knobs the driver parses only from the command line, out of the same table the parser reads.
+const cliOnly = FIELDS.filter((f) => f.kind === "cli-only").map((f) => [f.name, f.flag]);
 
 test("the driver's seat-file vocabulary is not empty (the reader below is sound)",
   "every case here compares against SEAT_FIELDS; if the import stopped resolving, the whole suite would pass vacuously",
   () => seatFields.length >= 10 || `read ${seatFields.length} fields out of the driver: ${JSON.stringify(seatFields)}`);
+
+test("FIELDS is the one table the vocabulary derives from, and every command-line-only name is refused in a seat file",
+  "four hand-kept lists agreed only by accident: a name added to SEAT_FIELDS alone reached parseArgs as `unknown argument: undefined`, and a bound promoted back to a header field is a knob every wrapped seat would have to size",
+  () => {
+    const problems = [];
+    const names = FIELDS.map((f) => f.name);
+    if (new Set(names).size !== names.length) problems.push("a name is listed twice");
+    if (FIELDS.filter((f) => f.kind === "seat").length !== 1 || FIELDS[0].kind !== "seat")
+      problems.push("SEAT is not the single, first seat-kind row");
+    for (const f of FIELDS) {
+      if (!["seat", "bool", "value", "cli-only"].includes(f.kind)) problems.push(`${f.name}: kind ${JSON.stringify(f.kind)}`);
+      if (f.kind !== "seat" && !/^--[a-z-]+$/.test(f.flag ?? "")) problems.push(`${f.name}: no flag`);
+    }
+    const flags = FIELDS.map((f) => f.flag).filter(Boolean);
+    if (new Set(flags).size !== flags.length) problems.push("two names map to one flag");
+    // SEAT_FIELDS is what the parser ADMITS; the bool and value rows are what it EMITS. A name in one
+    // and not the other is exactly the shape that reached parseArgs as an undefined flag.
+    const expected = FIELDS.filter((f) => f.kind !== "cli-only").map((f) => f.name);
+    if (JSON.stringify(seatFields) !== JSON.stringify(expected))
+      problems.push(`SEAT_FIELDS is ${JSON.stringify(seatFields)}, not the seat, bool and value rows in table order`);
+    // The refusal itself, run: the table can only say a name is command-line-only, and the parser is
+    // what has to act on it.
+    const dir = tempDir("codex-fields.");
+    for (const [f, flag] of cliOnly) {
+      const p = path.join(dir, `${f}.txt`);
+      fs.writeFileSync(p, `SEAT: read ${dir}\n${f}: 1\nTASK: do nothing\n`);
+      const r = spawnSync(process.execPath, [DRIVER, "--seat-file", p], { encoding: "utf8", input: "" });
+      if (r.status !== 2) problems.push(`${f} in a header exited ${r.status}, not 2`);
+      else if (!String(r.stderr).includes(`${f} is command-line-only; pass ${flag}`))
+        problems.push(`${f}'s refusal does not name ${flag}: ${String(r.stderr).trim().slice(0, 120)}`);
+    }
+    return problems.length === 0 || problems.join("; ");
+  });
 
 test("SKILL.md's table names every field the driver accepts, and the driver accepts every field it names",
   "a field absent from the coordinator's table is a capability it cannot use; a field the driver rejects fails the seat before any work",
@@ -123,11 +155,13 @@ test("the bounds, the transport and the injection fields are refused, and no tab
     const problems = [];
     // Named by the driver's own map, so a knob quietly promoted back to a field fails here rather than in
     // a live seat: the message the refusal prints is what tells a caller to use the flag instead.
-    if (cliOnly.length !== 4) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 4`);
+    // A count, not a number: the literal 4 went stale twice, while an empty list is the one reading that
+    // would make every check below it pass having compared nothing.
+    if (!cliOnly.length) problems.push("the driver's table names no command-line-only field at all");
     for (const [f, flag] of cliOnly) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is back in the coordinator's field table as usable`);
-      if (!driver.includes(`"${flag}"`)) problems.push(`${f} was removed as a field and ${flag} went with it`);
+      if (!driver.includes(`case "${flag}":`)) problems.push(`${f} was removed as a field and ${flag} went with it`);
     }
     if (!/--allow-seat-verify/.test(driver)) problems.push("the driver lost --allow-seat-verify");
     if (!/`VERIFY` is refused in a seat file without `--allow-seat-verify`/.test(table))
@@ -135,7 +169,7 @@ test("the bounds, the transport and the injection fields are refused, and no tab
     for (const [f, flag] of [["ATTACH", "--attach"]]) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is in the coordinator's field table as usable`);
-      if (!driver.includes(`"${flag}"`)) problems.push(`${flag}, the command-line route ${f} is refused in favour of, is gone from the driver`);
+      if (!driver.includes(`case "${flag}":`)) problems.push(`${flag}, the command-line route ${f} is refused in favour of, is gone from the driver`);
     }
     return problems.length === 0 || problems.join("; ");
   });

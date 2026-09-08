@@ -373,6 +373,13 @@ const CASES = [
     why: "a failed config probe must say so out loud — the silent path changed which model answers and made identical runs nondeterministic",
     assertStderr: (e) => /could not read the caller's Codex config/.test(e)
       || `the downgrade was silent: ${e.slice(0, 160)}` },
+  // A probe that never replies, under the shortest budget the clamp allows: --timeout 1 is the seam, and
+  // no thread is ever started, so the run ends on the wall clock rather than racing the fixture's answer.
+  { scenario: "no-thread",        expect: EXIT.TIMEOUT, args: ["--timeout", "1"],
+    env: { FAKE_CONFIG_HANG: "1" },
+    why: "the probe carries a bell of its own, clamped between CONFIG_PROBE_MIN_MS and CONFIG_PROBE_MAX_MS: without it a config request that never answers holds the run open before the turn, and no other case drives that bound at all",
+    assertStderr: (e) => /could not read the caller's Codex config \(no reply in 1000ms\)/.test(e)
+      || `the probe's own budget did not end it: ${e.slice(0, 200)}` },
   { scenario: "policy-clamped",   expect: EXIT.TRANSPORT,
     why: "an MDM profile clamps a policy it does not permit, after which every command is denied while the run still looks healthy — the exact failure this driver exists to route around, and invisible in every other field" },
   { scenario: "workspace-elsewhere", expect: EXIT.TRANSPORT,
@@ -1464,27 +1471,31 @@ const RUNGS = [
   { at: 5, code: EXIT.VERIFY_UNMEASURABLE, ctx: { verifySkipped: "budget-exhausted" },
     what: "a --verify the budget left no room for",
     why: "a declared check that never ran leaves verifyResult null, which every gate below reads as 'nothing to complain about' — the run would reach 0 with its verifier unrun" },
-  { at: 6, code: EXIT.VERIFY_UNMEASURABLE, ctx: { verifyResult: { ok: false, measured: false }, verifyFailed: true },
+  { at: 5, code: EXIT.VERIFY_UNMEASURABLE, ctx: { verifyResult: { ok: false, measured: false }, verifyFailed: true },
     what: "a --verify that ran and measured nothing",
     why: "'the check could not be measured' and 'the check said no' are different findings, and the unmeasurable one must not be reported as a failure the seat caused" },
-  { at: 7, code: EXIT.VERIFY_FAILED, ctx: { verifyResult: { ok: false, measured: true }, verifyFailed: true },
+  { at: 6, code: EXIT.VERIFY_FAILED, ctx: { verifyResult: { ok: false, measured: true }, verifyFailed: true },
     what: "a --verify that ran and failed",
     why: "the verifier is the gate this repository prefers over every command-shaped proxy below it; a failing one reaching exit 0 makes --verify decorative" },
-  { at: 8, code: EXIT.NO_COMMANDS, ctx: { expected: [], opts: { allowNoCommands: false } },
+  { at: 7, code: EXIT.NO_COMMANDS, ctx: { expected: [], opts: { allowNoCommands: false } },
     what: "a turn that ran nothing",
     why: "an answer with no command behind it is recall, not evidence; the floor is what separates the two" },
-  { at: 9, code: EXIT.NO_ANSWER, ctx: { answer: "" },
+  { at: 8, code: EXIT.NO_ANSWER, ctx: { answer: "" },
     what: "a turn that produced no answer",
     why: "a run with no answer has nothing for its caller to read, and every gate below it grades the answer's content" },
-  { at: 10, code: EXIT.SCHEMA, ctx: { opts: { outputSchema: {} }, schemaErrs: ["/: missing 'verdict'"] },
+  { at: 9, code: EXIT.SCHEMA, ctx: { opts: { outputSchema: {} }, schemaErrs: ["/: missing 'verdict'"] },
     what: "an answer that failed --output-schema",
     why: "an unusable answer is what a caller parsing it fails on, and it is the LAST rung: a failed command is a report field and no exit at all" },
 ];
 
-flow("the ladder's contexts and its rungs are the same eleven",
+flow("the ladder's contexts and its rungs are the same ten",
   "a rung added to the driver without a case here is a rung nothing measures, and the ladder is the whole of what an exit code means",
-  async () => (LADDER.length === RUNGS.length
-    || `the driver has ${LADDER.length} rungs and this suite names ${RUNGS.length}`));
+  async () => {
+    // Counted by POSITION, not by case: two contexts reach the one VERIFY_UNMEASURABLE rung, and each
+    // still has to be shown reaching it rather than something above it.
+    const named = new Set(RUNGS.map((r) => r.at)).size;
+    return LADDER.length === named || `the driver has ${LADDER.length} rungs and this suite names ${named}`;
+  });
 
 flow("a completed turn that tripped no rung exits 0",
   "the ladder decides every exit this driver takes; a base context that matched something would make every case below it agree for the wrong reason",
