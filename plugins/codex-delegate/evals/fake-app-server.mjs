@@ -70,6 +70,10 @@ export const SCENARIOS = {
   // The work is all on a SUBAGENT thread the server started under ours: the root says nothing for
   // seconds while the turn is plainly alive. Cut here on --idle-timeout 1 and the guard is a bug.
   "idle-subagent": { timeout: 1 },
+  // The same two facts in the shape 0.153.4 actually emits, where a child announces itself through the
+  // ROOT and never sends a thread/started of its own: a delegating turn, and a delegating turn whose
+  // child works past the idle budget.
+  delegation: {}, "idle-delegation": { timeout: 1 },
   // thread/start is never answered, so the deadline fires with no thread to report.
   "no-thread": { timeout: 0.5 },
   "resume-active": { resume: "thr_root" },
@@ -264,6 +268,31 @@ const reasoningItem = (turnId, threadId, summary) =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
     item: { id: `item_${seq}`, type: "reasoning", summary, content: [] } });
 
+// The ROOT's announcement of a child thread, as item/started and item/completed of ONE item. Measured on
+// 0.153.4 this is the only place the client ever learns a child exists: the child itself sends no
+// thread/started, and everything it does afterwards arrives under its own threadId.
+const subAgentItem = (turnId, threadId, id, kind, agentThreadId, agentPath) =>
+  ["item/started", "item/completed"].map((method) => note(method, {
+    threadId, turnId, ...(method === "item/started" ? { startedAtMs: now() } : { completedAtMs: now() }),
+    item: { id, type: "subAgentActivity", kind, agentThreadId, agentPath } }));
+
+// One command in flight and then complete, under one item id: what a child emits, and the half of it a
+// driver counting only completions would miss while the command is still running.
+const cmdPair = (turnId, threadId, opts = {}) => {
+  const startedAtMs = now();   // before the completion's clock, or the pair runs backwards
+  const end = cmd(turnId, threadId, opts);
+  return [note("item/started", { threadId, turnId, startedAtMs,
+      item: { ...end.params.item, status: "inProgress", exitCode: null, aggregatedOutput: null, durationMs: null } }),
+    end];
+};
+
+// A child thread waking up: the status change and the turn it opens, both under its own id.
+const childTurnStart = (turnId, threadId) => [
+  note("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } }),
+  note("turn/started", { threadId, turn: { id: turnId, items: [], itemsView: "notLoaded",
+    status: "inProgress", error: null, startedAt: 1780000000, completedAt: null, durationMs: null } }),
+];
+
 // One item of every type this fixture builds, from the same helpers the scenarios use, so a live
 // differential can diff KEY SETS against the real server without driving a scenario per type.
 export const sampleItems = () => [
@@ -337,7 +366,8 @@ function onLine(line) {
       w(msg(TURN, THREAD, "flushed at the interrupt"), done(TURN, THREAD, "interrupted"));
     // A turn that CLOSES on the interrupt without flushing anything: the cut is recorded and the report
     // lands inside the grace. cut-partial deliberately does neither, so the grace expires there.
-    if (SCENARIO === "idle-silence" || SCENARIO === "idle-subagent" || SCENARIO === "many-commands")
+    if (SCENARIO === "idle-silence" || SCENARIO === "idle-subagent" || SCENARIO === "idle-delegation"
+        || SCENARIO === "many-commands")
       w(done(TURN, THREAD, "interrupted"));
     return;
   }
@@ -704,6 +734,54 @@ function onLine(line) {
         const iv = setInterval(() => {
           w(reasoningItem("turn_child", "thr_child", [`child thinking ${n}`]));
           if (++n >= 12) { clearInterval(iv); w(msg(TURN, THREAD, "root answered after the subagent"), done(TURN, THREAD)); }
+        }, 300);
+        break;
+      }
+
+      // The delegating turn as 0.153.4 emits it: the root announces the child, the child does all the
+      // work under its own threadId, the root announces the child's completion and answers out of what
+      // the child found. No thread/started for the child anywhere, and no command on the root: exactly
+      // the run that used to report subagentThreads [] and read as a dead turn.
+      case "delegation": {
+        const [annStart, annStartEnd] = subAgentItem(TURN, THREAD, "call_sub", "started", "thr_child", "/root/count_readme");
+        const [annDone, annDoneEnd] = subAgentItem(TURN, THREAD, "subagent-completed-1", "completed", "thr_child", "/root/count_readme");
+        w(R,
+          // The child's first sign of life precedes its announcement (capture line 34): an idle status
+          // under an id nobody has registered yet, which has to be harmless.
+          note("thread/status/changed", { threadId: "thr_child", status: { type: "idle" } }),
+          annStart, annStartEnd,
+          ...childTurnStart("turn_child", "thr_child"),
+          ...cmdPair("turn_child", "thr_child", { command: "wc -l README.md" }),
+          usage("turn_child", "thr_child", 15428, 15428),
+          msg("turn_child", "thr_child", "README.md: 248"),
+          note("thread/status/changed", { threadId: "thr_child", status: { type: "idle" } }),
+          // The completion announcement opens before the child's turn/completed and closes after it
+          // (capture lines 66 to 68).
+          annDone, done("turn_child", "thr_child"), annDoneEnd,
+          // The root's own accounting, arriving after the child's and smaller than it: the report's
+          // tokenUsage is the ROOT's, and a delegating turn is where that filter earns its keep.
+          usage(TURN, THREAD, 87832, 14871),
+          msg(TURN, THREAD, "README.md: 248"), done(TURN, THREAD));
+        break;
+      }
+
+      // The same announcement, and then the root goes quiet for well past a 1 s idle budget while the
+      // announced child works: twelve commands 300 ms apart. Nothing on the root rearms the guard, so a
+      // driver that treats only root events as liveness cuts a turn that is plainly alive.
+      case "idle-delegation": {
+        w(R, cmd(TURN, THREAD), usage(TURN, THREAD, 100, 100),
+          ...subAgentItem(TURN, THREAD, "call_sub", "started", "thr_child", "/root/counter"),
+          ...childTurnStart("turn_child", "thr_child"));
+        let n = 0;
+        const iv = setInterval(() => {
+          if (interrupted) { clearInterval(iv); return; }
+          w(...cmdPair("turn_child", "thr_child", { command: `wc -l file${n}.md` }));
+          if (++n >= 12) {
+            clearInterval(iv);
+            w(done("turn_child", "thr_child"),
+              ...subAgentItem(TURN, THREAD, "subagent-completed-1", "completed", "thr_child", "/root/counter"),
+              msg(TURN, THREAD, "the root answered after its child"), done(TURN, THREAD));
+          }
         }, 300);
         break;
       }

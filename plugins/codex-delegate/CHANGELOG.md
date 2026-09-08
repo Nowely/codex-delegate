@@ -40,6 +40,13 @@ moved.
   (exit 7, `item/agentMessage/questions: <title>`) and never selected as the answer.
 - `--mcp` carries package-style server names (`@scope/pkg`, legal since 0.152.0) as quoted TOML keys
   instead of skipping the server.
+- A Codex subagent thread is registered from the root's `subAgentActivity` announcement. Measured on
+  0.153.4, a child never sends `thread/started`, so the old registration never fired: a delegating turn
+  reported `subagentThreads: []` and no child's work at all, and the idle guard, blind while the children
+  worked, could cut a long delegation as silence. The report now lists them as
+  `{threadId, agentPath, status, items, commands}`, their events prove liveness, and a root that ran
+  nothing still exits 5 with a cause that names them: "no command ran on the root thread; N subagent
+  thread(s) ran (…, n commands): liveness, not evidence". Evidence and token accounting stay root-only.
 
 ### Notes
 
@@ -50,8 +57,8 @@ moved.
   the thread the driver started. The mode therefore sets no `EFFORT:` line for any seat, and every
   `MODEL:` inherits the configured effort. A seat that delegates comes back exit 5, "no command ran",
   carrying its answer: only the root thread is evidence, and the answer is still the seat's. The report's
-  `subagentThreads` is blind to those children on 0.153.4, which never arrive as a `thread/started` with
-  a `parentThreadId`; a follow-up, and no case asserts on the field.
+  `subagentThreads` was blind to those children, which never arrive as a `thread/started` with a
+  `parentThreadId`; fixed in this release, and the exit-5 cause now names them.
 - The run directory is `.orchestrate/<run>/` at the repository root, not under `.claude/`: a write
   anywhere under `.claude/` is refused as a sensitive file, measured even with an explicit
   `Write(./.claude/**)` allow rule.

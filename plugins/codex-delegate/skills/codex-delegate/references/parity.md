@@ -84,7 +84,7 @@ driver refuses a forbidden mode with exit 2 instead of accepting a silent substi
 | `low` | fact lookup |
 | `medium` | ordinary review |
 | `high`, `xhigh` | refutation, competing designs, a second implementation |
-| `max`, `ultra` | the hardest problems; `ultra` delegates to its own subagent threads |
+| `max`, `ultra` | the hardest problems; delegating to its own subagent threads is the model's choice at any effort, measured on 0.153.4 |
 
 ### Attachments and pasted images
 

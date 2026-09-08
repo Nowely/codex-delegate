@@ -323,7 +323,10 @@ const CASES = [
     assert: (r) => (/Weighed A/.test(r.reasoningSummary ?? "") && r.otherItemCounts?.webSearch === 1
         && r.otherItems?.some((x) => x.type === "webSearch" && x.detail === "node atomics")
         && r.subagentThreads?.length === 1 && r.subagentThreads[0].threadId === "thr_child"
-        && r.subagentThreads[0].commands === 1 && r.commandsSucceeded === 1)
+        && r.subagentThreads[0].commands === 1 && r.commandsSucceeded === 1
+        // A thread/started with a parentThreadId carries neither of the two fields the root's own
+        // announcement does, and null is the honest answer for both rather than a guess.
+        && r.subagentThreads[0].agentPath === null && r.subagentThreads[0].status === null)
       || `visibility fields wrong: ${JSON.stringify({ reasoning: r.reasoningSummary, other: r.otherItemCounts, items: r.otherItems, sub: r.subagentThreads, cmds: r.commandsSucceeded })}` },
   { scenario: "progress",         expect: EXIT.OK, args: ["--progress"],
     why: "--progress announces each item start on stderr, so a long seat is watchable live — a native subagent's progress visibility, without the delta firehose",
@@ -979,6 +982,35 @@ const CASES = [
       // The root ran exactly one command; the child's is counted for the child and for nothing else.
       return (r.commandsSucceeded === 1 && r.tokenUsage?.total?.totalTokens === 100)
         || `a child thread's work leaked into the root's evidence: ${JSON.stringify({ cmds: r.commandsSucceeded, usage: r.tokenUsage?.total })}`;
+    } },
+  { scenario: "idle-delegation",  expect: EXIT.OK, args: ["--idle-timeout", "1", "--timeout", "20"],
+    why: "the liveness rule has to hold for the shape 0.153.4 emits: the child is known only from the root's announcement, and every event it then sends under its own threadId (turn/started, its status changes, its usage, its items) rearms the guard",
+    assert: (r) => {
+      if (r.cut !== null) return `a turn whose announced child was working throughout was cut: ${JSON.stringify(r.cut)}`;
+      const t = (r.subagentThreads ?? [])[0];
+      if (t?.threadId !== "thr_child" || t.agentPath !== "/root/counter")
+        return `the announced child was not registered: ${JSON.stringify(r.subagentThreads)}`;
+      // The child ran twelve; the root ran one, and that one is the whole of this run's evidence.
+      return (t.commands === 12 && r.commandsSucceeded === 1)
+        || `the child's work and the root's were confused: ${JSON.stringify({ child: t, root: r.commandsSucceeded })}`;
+    } },
+  { scenario: "delegation",       expect: EXIT.NO_COMMANDS,
+    why: "on 0.153.4 a child thread never sends thread/started, so the root's subAgentActivity item is the registration: it names the child, its agentPath and, on the second announcement, that it completed; and the item arrives twice without registering the child twice",
+    assert: (r) => {
+      const s = r.subagentThreads ?? [];
+      if (s.length !== 1) return `the announced child was not registered exactly once: ${JSON.stringify(s)}`;
+      const t = s[0];
+      return (t.threadId === "thr_child" && t.agentPath === "/root/count_readme" && t.status === "completed"
+          && t.items === 2 && t.commands === 1 && r.commandsSucceeded === 0)
+        || `the child's registration is wrong: ${JSON.stringify({ child: t, root: r.commandsSucceeded })}`;
+    } },
+  { scenario: "delegation",       expect: EXIT.NO_COMMANDS,
+    why: "the evidence rule is unchanged by a child's work: the root ran nothing, so this is exit 5. But the cause has to say the children ran, or 'no command ran' reads as a dead turn beside an answer that is plainly the product of work",
+    assert: (r) => {
+      const h = String(r.hint ?? "");
+      return (/^no command ran on the root thread; 1 subagent thread\(s\) ran /.test(h)
+          && h.includes("/root/count_readme") && /1 commands/.test(h) && h.endsWith("liveness, not evidence"))
+        || `the exit-5 cause does not name the children: ${JSON.stringify(r.hint)}`;
     } },
   { scenario: "idle-silence",     expect: EXIT.TIMEOUT, args: ["--idle-timeout", "0", "--timeout", "2"],
     why: "0 disables it, and a disabled guard must be OFF rather than instant: the same silent turn then runs to the wall clock and is cut with cut.kind wall",

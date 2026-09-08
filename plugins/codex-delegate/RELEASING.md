@@ -38,9 +38,10 @@ notes; never move or recreate a published tag.
    ```
 
    Add `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` after a codex upgrade: it spends a second Codex turn
-   on an informational probe that invites the seat to delegate and prints what came back. The probe
-   judges nothing; it fails only when the driver prints no report, and its line beside the case is what to
-   read.
+   on a probe that invites the seat to delegate. Whether the seat delegates is the model's choice, but
+   when it does the probe checks what the driver made of it: every announced child in `subagentThreads`
+   with an `agentPath`, `status: "completed"` and at least one command, and exit 5 whose cause names
+   them. Its line beside the case prints the list.
 
    - Keep the artifact directory the last line prints, plans and session output and reports together,
      with the release notes.
@@ -50,7 +51,8 @@ notes; never move or recreate a published tag.
      obeyed, read back out of each subagent's own system prompt (the model-tag case) and over the whole
      fan-out of a real run (the full-run case); and a `gpt-6-astra` seat answers on its own thread when
      it is not invited to delegate, with the commands in its report (the case of that name). Delegation
-     is the model's choice, not effort-gated, so no case asserts on `subagentThreads`.
+     is the model's choice, not effort-gated, so no case asserts that it happens; the probe behind
+     `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` is what checks `subagentThreads` when it does.
    - Record the codex-cli and Claude Code builds used, as the fidelity gate does.
 
 7. Review the complete release diff, confirm no generated scratch files or credentials are tracked, and

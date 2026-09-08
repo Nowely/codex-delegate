@@ -2676,7 +2676,7 @@ const interactions = [];    // requests that needed a human: no sandbox change c
 const reasoningSummaries = [];  // root-thread reasoning item summaries — the inspectable thinking a Claude subagent's transcript has
 const otherItemCounts = {}; // root-thread item types the evidence gates ignore (mcpToolCall, webSearch, plan, …), counted so the report does not silently drop them
 const otherItems = [];      // a bounded descriptor per such item — enough to see WHAT was searched or called without a full transcript
-const subagentThreads = new Map();  // threads the server started under ours: id -> {items, commands}
+const subagentThreads = new Map();  // threads the server started under ours: id -> {agentPath, status, items, commands}
 let turnStatus = null;
 let turnError = null;
 let selectedModel = null;   // what the server resolved, which may not be what was asked for
@@ -2910,9 +2910,28 @@ function handleMessage(msg, bytes = 0) {
   // report rather than invisibly filtered. Evidence attribution stays root-only — a child's command is
   // never proof of OUR work — but a coordinator deserves to know the children existed and how busy
   // they were.
+  // Measured on 0.153.4: a child NEVER sends thread/started to the client. The root announces it first,
+  // as a subAgentActivity item naming the child's agentThreadId and agentPath, and the child then sends
+  // everything else under its own threadId. That announcement is the registration, and it arrives twice
+  // (item/started and item/completed of one item), so the thread id, not the item, is the key.
+  if ((msg.method === "item/started" || msg.method === "item/completed")
+      && p?.item?.type === "subAgentActivity" && p.item.agentThreadId && isRoot(p)) {
+    const id = String(p.item.agentThreadId);
+    const t = subagentThreads.get(id) ?? { agentPath: null, status: null, items: 0, commands: 0 };
+    subagentThreads.set(id, t);
+    // The announcement fills what a thread/started could not: a server that sends both registers the
+    // child first by thread and names it here, in either order.
+    if (t.agentPath == null && p.item.agentPath) t.agentPath = p.item.agentPath;
+    if (t.status == null && p.item.kind) t.status = p.item.kind;
+    // A child that ends says so on the root: the last kind wins, so an interrupted child is not
+    // reported as one that finished.
+    if (p.item.kind === "completed" || p.item.kind === "interrupted") t.status = p.item.kind;
+  }
+  // The older shape, kept because a server that announces children as threads of their own is the one
+  // this driver was written against: agentPath and status are things only the announcement carries.
   if (msg.method === "thread/started" && p?.thread?.parentThreadId && rootThreadId !== null
-      && p.thread.parentThreadId === rootThreadId)
-    subagentThreads.set(p.thread.id, { items: 0, commands: 0 });
+      && p.thread.parentThreadId === rootThreadId && !subagentThreads.has(p.thread.id))
+    subagentThreads.set(p.thread.id, { agentPath: null, status: null, items: 0, commands: 0 });
   if (msg.method === "item/completed" && subagentThreads.has(p?.threadId ?? "")) {
     const t = subagentThreads.get(p.threadId);
     t.items++;
@@ -3575,6 +3594,18 @@ async function runVerifier() {
   return verifySkipped;
 }
 
+// Why a delegating turn exits 5: the root ran nothing and the children did the work. Naming them keeps
+// "no command ran" from reading as a dead turn, and says in the same breath that their commands are not
+// this seat's evidence. The path list is capped: a wide fan-out must not turn the cause into a page.
+function subagentCause() {
+  const ts = [...subagentThreads.values()];
+  const paths = ts.map((t) => t.agentPath).filter(Boolean);
+  const shown = paths.slice(0, 6).join(", ") + (paths.length > 6 ? `, +${paths.length - 6} more` : "");
+  const cmds = ts.reduce((n, t) => n + t.commands, 0);
+  return `no command ran on the root thread; ${ts.length} subagent thread(s) ran `
+    + `(${shown ? `${shown}, ` : ""}${cmds} commands): liveness, not evidence`;
+}
+
 // The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
 // sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
 function decideExitCode(ev, verifySkipped) {
@@ -3771,10 +3802,12 @@ function writeReport(ev, verifySkipped, codeOverride) {
     receiptOriginator: receipt?.originator ?? null, receiptModelProvider: receipt?.modelProvider ?? null,
     receiptCwd: receipt?.cwd ?? null,
     ...(worktree ?? {}),
-    // A completed turn that ran nothing exits 5; when no expectation was declared, the one legitimate
-    // shape of that run (a recall-only follow-up) has a flag, and the report should name it.
+    // A completed turn that ran nothing exits 5; when no expectation was declared, the two legitimate
+    // shapes of that run are a recall-only follow-up, which has a flag, and a delegation, whose work was
+    // the children's. The report names whichever one this was.
     ...(code === EXIT.NO_COMMANDS && !opts.expectRe
-      ? { hint: "if running nothing was the point, re-run with --allow-no-commands" } : {}),
+      ? { hint: subagentThreads.size ? subagentCause()
+                                     : "if running nothing was the point, re-run with --allow-no-commands" } : {}),
     // Exit 3 is a budget the CALLER set, so the caller is the one who can change the outcome. Resuming is
     // named first because the thread is still there; the caveat is real, not hedging — a thread whose turn
     // is still closing refuses with exit 10.
