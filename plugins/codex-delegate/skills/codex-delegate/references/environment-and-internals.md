@@ -8,8 +8,9 @@ explains environment, state, wrappers, operational bounds, and lifecycle details
 
 ## Environment
 
-The variables, the state subdirectories `CODEX_DELEGATE_STATE_DIR` moves, and what `TMPDIR` grants a read
-seat are all under `--help-all`. What it does not carry: the seat's shell also receives `TMPPREFIX` under
+The variables, the subdirectories of the state directory `<state>` stands for below, the order the driver
+resolves it in, and what `TMPDIR` grants a read seat are all under `--help-all`. There is no default: the
+intended value is the plugin's own data directory, which the skill recipes pass on every call. What it does not carry: the seat's shell also receives `TMPPREFIX` under
 the run's `$TMPDIR`, because zsh keeps here-document temp files at `$TMPPREFIX*`, default `/tmp/zsh`,
 which no grant covers ([incidents](incidents.md#here-documents-under-the-grant)).
 
@@ -39,9 +40,8 @@ root thread; N subagent thread(s) ran (<agentPath list>, <n> commands): liveness
 
 ## The answer log, and what --brief does not deliver
 
-The full answer of every run is written to the state dir's `answers/<threadId>.md` (default
-`~/.codex-delegate/answers/`), pruned on the same age and count bounds as the rest of the state
-directory (14 days, 400 entries); `--brief` clips the inline copy at the driver's `BRIEF_LINES` and
+The full answer of every run is written to `<state>/answers/<threadId>.md`, pruned on the same age and
+count bounds as the rest of the state directory (14 days, 400 entries); `--brief` clips the inline copy at the driver's `BRIEF_LINES` and
 `BRIEF_BYTES` limits, 20 lines and 4000 bytes, **including** the "clipped" marker. `answerPath` is null
 when there was no answer or the write failed, and `answerTruncated: true` beside `answerPath: null`
 means the full text survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to park
@@ -54,9 +54,8 @@ checked before the turn, so a typo costs nothing.
 ## What is protected, and what is not
 
 Every write-level root — `--cwd`, `--writable`, and the destination a `--worktree` lands in — and the
-read level's `$TMPDIR` refuse `~/.codex`, `~/.codex-delegate` and the
-resolved `CODEX_DELEGATE_STATE_DIR` (when it was moved elsewhere) and anything inside them, by inode
-identity: the first holds the receipts a seat is verified by, the others this driver's locks and
+read level's `$TMPDIR` refuse `~/.codex` and the resolved state directory, and anything inside them, by
+inode identity: the first holds the receipts a seat is verified by, the second this driver's locks and
 answer log. The private `<state>/tmp/<runId>` created by the driver is the narrow exception: its owner
 record binds it to that run. The driver also refuses your home directory itself and every
 ancestor of it, up to `/`.
@@ -67,7 +66,7 @@ it does not curate what inside your home is precious. Choose the blast radius de
 
 ## The isolated home
 
-Unless `--host-home` is given, a run uses a private `CODEX_HOME` at `~/.codex-delegate/home` — one
+Unless `--host-home` is given, a run uses a private `CODEX_HOME` at `<state>/home` — one
 directory shared by every run on the machine, not a fresh one per turn, because the caches and
 databases codex keeps there are what make an isolated run faster than a host-home one. The caller's
 plugins, skills and MCP servers stay out of the turn, and no trust records are written back.
@@ -155,7 +154,7 @@ receipt is false, the delegation machinery itself is under audit, or the user ne
 ## Worktree ledger and destination
 
 Each `--worktree` run creates a unique tree under `<repo>/.claude/worktrees/` and writes its ledger entry
-in `~/.codex-delegate/worktrees/` before `git worktree add`; a ledger it cannot write refuses the run
+in `<state>/worktrees/` before `git worktree add`; a ledger it cannot write refuses the run
 before the tree exists. It rewrites the entry with the base commit, and an unreadable base refuses the
 run before Codex starts. The next worktree run reconciles crashed entries oldest first, at most fifty: a
 gone tree drops its entry, a dirty one remains and is named, a clean one is removed only after commits at
@@ -176,8 +175,8 @@ exits 10 rather than racing the first one's edits, tests and cleanup. Resuming a
 open exits 10 as well: its old events would otherwise satisfy the new invocation while the new prompt was
 never consumed.
 
-The lock lives in `~/.codex-delegate/locks/` (or under `$CODEX_DELEGATE_STATE_DIR`, which relocates all
-of this driver's state — two runs under different values therefore do NOT exclude each other), **not**
+The lock lives in `<state>/locks/` (a state directory moved elsewhere relocates all of this driver's
+state, so two runs under different values do NOT exclude each other), **not**
 in the directory it protects — a lock inside the cwd
 gets staged by a turn running `git add -A`. It is keyed on the directory's
 identity (`dev:ino`), not on how the path was spelled, so a symlink, a rename or a case-variant cannot

@@ -35,8 +35,12 @@
 //     writing lib/x.mjs and creating .orchestrate/probe/.gitignore under a scratch root;
 //   - --allowedTools is variadic and swallows a trailing prompt argument as one more rule, so the prompt
 //     goes in on stdin (runProc's `input`) rather than on the command line;
-//   - a write anywhere under .claude/ is refused as "a sensitive file" even with Write(./.claude/**)
-//     allowed, which is why the page's run directory is .orchestrate/<run>/ at the repository root.
+//   - a write anywhere under .claude/ prompts however the allow rules are set, which is one reason the
+//     page's run directory is under the plugin's own data directory instead. The other is that the data
+//     directory is outside every repository, so a run leaves the tree it works in untouched. Which id
+//     Claude Code gives a plugin loaded with --plugin-dir is UNMEASURED: runDirs below therefore scans
+//     every id under <config>/plugins/data/ and identifies the run by the project slug, and the owner
+//     running this gate is what settles the id.
 //
 // Two things outlive a run on purpose. Case 5's session file stays under ~/.claude/projects: --resume
 // reads it, and the CLI has no delete for it. And a FAILING case keeps its scratch tree, which its
@@ -250,9 +254,24 @@ function untaggedAgentCalls(text) {
   return found;
 }
 
+// `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`, where the slug is the working directory's
+// absolute path with every character that is not a letter or a digit replaced by `-`. Both spellings of
+// that path are tried: a macOS temp directory is reached through /var and resolves to /private/var, and
+// the session's own cwd decides which one the slug was built from.
+const projectSlug = (dir) => dir.replace(/[^A-Za-z0-9]/g, "-");
 const runDirs = (scratch) => {
-  const d = path.join(scratch, ".orchestrate");
-  try { return fs.readdirSync(d).map((n) => path.join(d, n)); } catch { return []; }
+  const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "plugins", "data");
+  const slugs = new Set([projectSlug(scratch)]);
+  try { slugs.add(projectSlug(fs.realpathSync(scratch))); } catch {}
+  let ids = [];
+  try { ids = fs.readdirSync(base).map((n) => path.join(base, n)); } catch { return []; }
+  const out = [];
+  for (const id of ids)
+    for (const slug of slugs) {
+      const d = path.join(id, "orchestrate", slug);
+      try { for (const n of fs.readdirSync(d)) out.push(path.join(d, n)); } catch {}
+    }
+  return out;
 };
 
 // A seat is a background task of the session's, and a task can outlive the SIGKILL aimed at the session's
@@ -261,7 +280,7 @@ const runDirs = (scratch) => {
 // SIGTERMed — the driver's own handler then interrupts the turn, writes its report and sweeps the codex
 // process group it started. Best-effort by construction: a seat whose stderr went somewhere this cannot
 // see is left to its own bounds, which is what --idle-timeout is for.
-// The layout it reads is the page's: `.orchestrate/<run>/<seat>/{prompt.txt,report.json,out.json,err.txt}`,
+// The layout it reads is the page's: `<run>/<seat>/{prompt.txt,report.json,out.json,err.txt}`,
 // one directory per seat — so the scan descends one level. Files directly under `<run>/` are read too,
 // because a coordinator that put a seat's files there is a seat this must still be able to stop, and
 // readFileSync on a directory is EISDIR, which the old flat scan turned into `continue`.
@@ -308,7 +327,7 @@ function stoppedAtPlan(toolUses, scratch, head0) {
   const head1 = git(scratch, "rev-parse", "HEAD").trim();
   if (head0 && head1 !== head0) problems.push(`HEAD moved from ${head0.slice(0, 12)} to ${head1.slice(0, 12) || "nothing"} before "go"`);
   const made = runDirs(scratch);
-  if (made.length) problems.push(`.orchestrate exists before "go": ${made.map((p) => path.basename(p)).join(", ")}`);
+  if (made.length) problems.push(`a run directory exists before "go": ${made.join(", ")}`);
   return problems;
 }
 
@@ -328,8 +347,13 @@ function planProblems({ text, toolUses, scratch, head0 }) {
   const skills = skillCalls(toolUses);
   if (!skills.some((s) => SIBLING_SKILLS.includes(s)))
     problems.push(`the sibling skill was never loaded; Skill calls: ${skills.join(", ") || "none"}`);
-  if (!text.includes(".orchestrate/"))
-    problems.push("the plan names no `.orchestrate/` run directory");
+  // The plan states the run directory it will create; the resolved path is what the coordinator prints,
+  // so `orchestrate/` under a data directory is what is asked for, and the retired in-repository one is
+  // named as a failure of its own.
+  if (!/orchestrate\/[^\s`]*[/-]/.test(text))
+    problems.push("the plan names no `orchestrate/<project-slug>/<run>/` run directory");
+  if (text.includes(".orchestrate/"))
+    problems.push("the plan puts the run directory back inside the repository as `.orchestrate/`");
   if (!CODEX_MODELS.some((m) => text.includes(m)))
     problems.push(`no seat carries a Codex slug from the tier table (${CODEX_MODELS.join(", ")})`);
   // Where the plan has a seat table, the rows ARE the seats and everything else is commentary about them:
@@ -675,15 +699,11 @@ test("the full run under Opus: plan, go, run",
     if (!s2.msgs.length) return kept(dir, `turn 2 produced no stream (exit ${t2.code}${t2.killed ? ", killed at the timeout" : ""}): ${t2.err.trim().slice(-400)}`);
 
     const dirs = runDirs(scratch);
-    if (!dirs.length) problems.push("no `.orchestrate/<run>/` was created");
-    for (const d of dirs) {
-      const p = path.join(d, ".gitignore");
-      if (!fs.existsSync(p)) { problems.push(`${path.basename(d)} has no .gitignore`); continue; }
-      const body = fs.readFileSync(p, "utf8");
-      // "*" and nothing else: an ignore file that does not ignore itself leaves the run's artifacts, and
-      // itself, in the `git status` of the tree the run was made in.
-      if (body !== "*" && body !== "*\n") problems.push(`${path.basename(d)}/.gitignore is ${JSON.stringify(body)}, not "*"`);
-    }
+    if (!dirs.length) problems.push("no `orchestrate/<project-slug>/<run>/` was created under any plugin data directory");
+    // Nothing to ignore any more, and that is the property: the run directory is outside the tree, so no
+    // artifact of it can reach the scratch's `git status` and no ignore file has to keep it out.
+    if (fs.existsSync(path.join(scratch, ".orchestrate")))
+      problems.push("the run wrote `.orchestrate/` into the tree instead of the plugin's data directory");
 
     const commits = git(scratch, "log", "--format=%H").trim().split("\n").filter(Boolean);
     if (commits.length !== 1) problems.push(`${commits.length} commits in the scratch, not the one it started with`);

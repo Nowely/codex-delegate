@@ -24,11 +24,11 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 | plan | design: the Fable seat, whatever your own model |
 | synthesise, attributing every finding to the seat that produced it | verify: you never grade your own work, a fresh seat does |
 
-Scouting is the only exploration you do; report a failed seat and never backfill it. After "go" and before the first seat,
-create `.orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it
-ignores itself; not under `.claude/`, where every write is refused as a sensitive file. Claude seats write their artifacts
-there and every brief names the path; Codex artifacts are the paths the seat's own report names; the directory is kept after
-the task and the user deletes it. Redirect a check you run yourself into that directory and read back only a 5-line tail
+Scouting is the only exploration you do; report a failed seat and never backfill it. After "go" and before the first seat, create
+`${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`, `<run>` unique and `<project-slug>` the working directory's absolute path with every character that is not a letter or
+a digit replaced by `-`, the name Claude Code gives it under `~/.claude/projects/`. It is outside every repository, so no `.gitignore`; not the repository root, not the project's
+`.claude/`, whose writes prompt whatever the allow rules say. Claude seats write their artifacts there and every brief names the path; Codex artifacts are the paths the seat's
+own report names, under the same data directory; it is kept after the task and the user deletes it. Redirect a check you run yourself into it and read back only a 5-line tail
 with the counts.
 
 ## The plan
@@ -100,7 +100,7 @@ code, or from you under the redirect rule.
 
 ## Mechanism
 
-A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true, with `<DIR>` = `.orchestrate/<run>/<seat>/`
+A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true, with `<DIR>` = `<run>/<seat>/` under the run directory above
 in place of the sibling's `mktemp`, so prompt, `report.json`, `out.json` and `err.txt` all land there, and the task's exit notification is when you
 read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task.
 Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.

@@ -27,7 +27,9 @@ const helpFlat = help.replace(/\s+/g, " ");
 // the indented command lines a coordinator copies into a Bash call.
 const table = skill.split(/^## /m).find((s) => s.startsWith("Header fields")) ?? "";
 const flat = skill.replace(/\s+/g, " ");
-const commands = [...skill.matchAll(/^ {4}(node "[^\n]+)$/gm)].map((m) => m[1]);
+// A leading VAR="..." assignment is part of the line a coordinator copies: the state directory rides in
+// on one, so a pattern that only matched `node "` would read the recipe as absent.
+const commands = [...skill.matchAll(/^ {4}((?:[A-Z_]+="[^"\n]*" )*node "[^\n]+)$/gm)].map((m) => m[1]);
 const inlineShell = [...skill.matchAll(/`(mktemp -d [^`]*)`/g)].map((m) => m[1]);
 
 const { cases: CASES, test } = registry();
@@ -131,19 +133,30 @@ test("the scratch directory comes from one mktemp call, not from an unexpandable
     return problems.length === 0 || problems.join("; ");
   });
 
-test("every driver path on both pages is the exact ${CLAUDE_SKILL_DIR} placeholder",
-  "Claude Code substitutes that exact form inline in a skill body and exports nothing to the Bash tool, so a ${VAR:-default} is never substituted, expands to the default, and makes every plugin-installed seat fail to find the driver at all",
+test("every driver path and every state directory on both pages is the exact ${...} placeholder",
+  "Claude Code substitutes that exact form inline in a skill body and exports nothing to the Bash tool, so a ${VAR:-default} is never substituted, expands to the default, and makes every plugin-installed seat fail to find the driver at all — and the same form is what carries the state directory the driver now has no default for: a seat that lost it exits 2 before its turn",
   () => {
     const REL = "skills/codex-delegate/scripts/driver.mjs";
     if (path.relative(ROOT, DRIVER).split(path.sep).join("/") !== REL) return `the shipped layout moved: ${path.relative(ROOT, DRIVER)}`;
     const problems = [];
     for (const [label, text] of [["SKILL.md", skill], ["orchestrate/SKILL.md", orchestrate]]) {
-      if (/CLAUDE_SKILL_DIR\s*:-/.test(text))
-        problems.push(`${label} writes \${CLAUDE_SKILL_DIR:-...}, which Claude Code does not substitute: the seat would run the default, not the installed driver`);
+      for (const v of ["CLAUDE_SKILL_DIR", "CLAUDE_PLUGIN_DATA"])
+        if (new RegExp(`${v}\\s*:-`).test(text))
+          problems.push(`${label} writes \${${v}:-...}, which Claude Code does not substitute: the seat would run on the default, not on what the install resolved`);
       for (const p of [...text.matchAll(/"([^"\n]*driver\.mjs)"/g)].map((m) => m[1]))
         if (p !== `\${CLAUDE_SKILL_DIR}/scripts/driver.mjs`)
           problems.push(`${label} names the driver as ${JSON.stringify(p)}, not "\${CLAUDE_SKILL_DIR}/scripts/driver.mjs"`);
+      // Every mention of the variable, in a recipe or in prose, is the exact placeholder: the substituted
+      // form is what a plugin install replaces, and anything else reaches the shell as a literal.
+      for (const m of text.matchAll(/CLAUDE_PLUGIN_DATA/g)) {
+        const at = m.index;
+        if (text.slice(at - 2, at) !== "${" || text[at + m[0].length] !== "}")
+          problems.push(`${label} names CLAUDE_PLUGIN_DATA outside the exact \${CLAUDE_PLUGIN_DATA} form: ${JSON.stringify(text.slice(Math.max(0, at - 30), at + 40))}`);
+      }
     }
+    // The one call every seat is launched by carries the state directory: without it the driver exits 2.
+    if (!/CODEX_DELEGATE_STATE_DIR="\$\{CLAUDE_PLUGIN_DATA\}" node "\$\{CLAUDE_SKILL_DIR\}\/scripts\/driver\.mjs"/.test(skill))
+      problems.push("the One call recipe no longer passes CODEX_DELEGATE_STATE_DIR=\"${CLAUDE_PLUGIN_DATA}\" ahead of the driver");
     // The placeholder resolves to the skill directory, so the path below it is the shipped layout's.
     if (!fs.existsSync(path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs")))
       problems.push("scripts/driver.mjs is not where ${CLAUDE_SKILL_DIR} would resolve it");

@@ -300,7 +300,7 @@ const HELP = [
                      root is a grant, and a defaulted grant is one nobody made
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
                      there at write level, harvest the work to
-                     ~/.codex-delegate/answers/ (paths in the report) and remove
+                     <state>/answers/ (paths in the report) and remove
                      the tree. It is cut at HEAD — the LAST COMMIT — so
                      uncommitted changes, untracked and ignored files and
                      installed dependencies are NOT in it: a seat asked about work
@@ -310,7 +310,7 @@ const HELP = [
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
   every write-level root — --cwd and --writable — refuses ~/.codex and
-  ~/.codex-delegate: they hold the receipts and this driver's state`,
+  <state>, which hold the receipts and this driver's own state`,
     more: `  $TMPDIR IS the read-level grant. An explicit one is honoured and takes the
   same protected-root guard every writable root takes; where the caller exported
   none the driver makes a private 0700 one at <state>/tmp/<runId> and reports it
@@ -345,7 +345,7 @@ const HELP = [
                      schema only — see --help-all
   --brief            ask for a summary, not a working note, and cap what comes
                      back inline. The full answer is at answerPath either way:
-                     ~/.codex-delegate/answers/<threadId>.md
+                     <state>/answers/<threadId>.md
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
   --resume THREAD    continue a thread; "--resume last" continues the run most
@@ -472,7 +472,7 @@ const HELP = [
   never promoted to answer, written beside it as answerPartialPath;
   commentaryPath is where a turn that produced no answer at all had its messages
   written; rateLimits is the setup-time account snapshot; and turnDiffPath is the
-  last streamed turn diff at ~/.codex-delegate/answers/<threadId>.diff.
+  last streamed turn diff at <state>/answers/<threadId>.diff.
   On a signal, either way, the child process group is waited out before the lock is
   released.` },
 
@@ -491,10 +491,19 @@ const HELP = [
   process start` },
 
   { s: "Environment", all: true,
-    text: `  CODEX_DELEGATE_STATE_DIR      where everything this driver owns lives; must be
+    text: `  CODEX_DELEGATE_STATE_DIR      where everything this driver owns lives, and the
+                                first place <state> is read from; must be
                                 absolute. For test harnesses: two runs under
                                 different values do NOT exclude each other
 ${stateSubdirHelp()}
+  CLAUDE_PLUGIN_DATA            <state> where the variable above is unset: the
+                                plugin's own data directory, \${CLAUDE_PLUGIN_DATA}
+                                in a skill body, which Claude Code substitutes and
+                                the skill recipes pass on the command line; must be
+                                absolute. There is NO built-in default: with
+                                neither variable set the run is exit 2, because a
+                                default under your home would be state no
+                                uninstall reaches
   CODEX_DELEGATE_SESSIONS_DIR   where to look for the rollout receipt
   CODEX_DELEGATE_CODEX          absolute path to the codex executable; without
                                 it the driver searches PATH, then
@@ -526,7 +535,10 @@ ${ladderHelp()}
 const HELP_HEAD = `codex-delegate ${VERSION} — run one Codex turn with rights declared per call.
 
   node driver.mjs [--level ${[...LEVELS].join("|")}] --cwd DIR [options] --prompt TEXT
-  node driver.mjs --cwd DIR < task.txt`;
+  node driver.mjs --cwd DIR < task.txt
+
+  <state> below is this driver's state directory; Environment, under --help-all,
+  says where it is and that a run without it is exit 2`;
 // --help ends on this line and nothing else; the pin in evals/protocol.test.mjs reads it verbatim.
 const HELP_POINTER = "Rarely needed flags, environment variables and internals: --help-all";
 
@@ -838,17 +850,16 @@ function checkRoot(dir) {
   const envHome = process.env.HOME;
   if (envHome && path.isAbsolute(envHome)) hit(canon(envHome), `the directory $HOME points at (${envHome})`);
   // The receipt story and the driver's own state must never become writable roots: a writable
-  // ~/.codex/sessions makes the "unforgeable" receipt forgeable, and ~/.codex-delegate holds the locks,
-  // the answer log and the isolated home.
+  // ~/.codex/sessions makes the "unforgeable" receipt forgeable, and the state directory holds the
+  // locks, the answer log and the isolated home.
   // Compared by IDENTITY, like every other guard here — a string-prefix compare is bypassed by a
   // case-variant spelling on a case-insensitive volume — and by walking the TARGET's ancestors against
   // the protected inode, which is the "inside" semantics a single stat cannot give.
-  // The state directory is listed by its RESOLVED path, so the guarantee follows
-  // $CODEX_DELEGATE_STATE_DIR wherever it points rather than following the name `.codex-delegate`.
+  // The state directory is listed by its RESOLVED path, so the guarantee follows wherever the caller
+  // pointed it rather than following a name.
   const home = canon(passwdHome("the home-directory guard"));
   const protectedRoots = [
     [path.join(home, ".codex"), "~/.codex"],
-    [path.join(home, ".codex-delegate"), "~/.codex-delegate"],
     [stateDir(), "this driver's state directory"],
   ];
   for (const [target, label] of protectedRoots) {
@@ -947,22 +958,32 @@ function passwdHome(what) {
   catch (e) { fail(EXIT.USAGE, `cannot resolve your home directory from the passwd database, which ${what} needs (${e.code ?? e.message}); this happens for a uid with no passwd entry`); }
 }
 
-// One base for everything in STATE_SUBDIRS, moved by $CODEX_DELEGATE_STATE_DIR so a test harness cannot
-// reach production state. The price: two runs under different values do not exclude each other — per
-// harness, never per user. Absolute only, so it cannot resolve against a caller's cwd.
+// One base for everything in STATE_SUBDIRS, named by $CODEX_DELEGATE_STATE_DIR, else by
+// $CLAUDE_PLUGIN_DATA — the plugin's own data directory, which the skill recipes pass — and by nothing
+// else: a default under the home directory would be answers, an isolated home and a worktree ledger
+// that no uninstall reaches and that the caller never named. A harness that points the first variable
+// somewhere private therefore cannot reach the state a real delegation uses; the price is that two runs
+// under different values do not exclude each other — per harness, never per user. Absolute only, so it
+// cannot resolve against a caller's cwd.
 //
 // Resolved ONCE, in readOpts, and a VALUE at every site that used to re-derive it from the environment.
 // A root that can still be refused after the turn is a root that refuses it once the tokens are spent —
 // and the two sites that could not fail() there (the answer log, the turn diff) answered a bad root by
-// silently dropping the artefact instead. A relative $CODEX_DELEGATE_STATE_DIR is therefore exit 2 at
-// parse time, before a lock, a home or a worktree exists.
+// silently dropping the artefact instead. A missing or relative value is therefore exit 2 at parse
+// time, naming the variable it came from, before a lock, a home or a worktree exists.
 let stateRoot = null;
 function stateDir() {
   if (stateRoot !== null) return stateRoot;
-  const override = process.env.CODEX_DELEGATE_STATE_DIR;
-  if (override && !path.isAbsolute(override))
-    fail(EXIT.USAGE, `CODEX_DELEGATE_STATE_DIR must be an absolute path, got ${JSON.stringify(override)}`);
-  return (stateRoot = override || path.join(passwdHome("this driver's state directory"), ".codex-delegate"));
+  const named = process.env.CODEX_DELEGATE_STATE_DIR ? "CODEX_DELEGATE_STATE_DIR"
+    : process.env.CLAUDE_PLUGIN_DATA ? "CLAUDE_PLUGIN_DATA" : null;
+  if (named === null)
+    fail(EXIT.USAGE, "no state directory: set CODEX_DELEGATE_STATE_DIR, or pass CLAUDE_PLUGIN_DATA, "
+      + "the plugin's data directory ${CLAUDE_PLUGIN_DATA}, which the skill recipes carry; "
+      + "this driver keeps no default of its own");
+  const dir = process.env[named];
+  if (!path.isAbsolute(dir))
+    fail(EXIT.USAGE, `${named} must be an absolute path, got ${JSON.stringify(dir)}`);
+  return (stateRoot = dir);
 }
 const lockDir = () => path.join(stateDir(), "locks");
 
@@ -1467,7 +1488,7 @@ function git(dir, args, extra = {}) {
 let worktreeInfo = null;
 const answersDir = () => path.join(stateDir(), "answers");
 
-// One JSON record per run, keyed by threadId, under ~/.codex-delegate/jobs/ — the registry that lets a
+// One JSON record per run, keyed by threadId, under the state directory's jobs/ — the registry that lets a
 // coordinator list what ran and resume the newest thread without having kept the id itself
 // (--resume last). Best-effort on the same terms as the answer log: losing a record costs the record,
 // never the run. Pruned with the same bounds as the answers.

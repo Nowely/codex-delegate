@@ -270,7 +270,7 @@ test("F1 a Codex seat is a background Bash task and no agentType, and the Workfl
     const prose = says(
       "authorises Workflow",
       "A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true",
-      "with `<DIR>` = `.orchestrate/<run>/<seat>/` in place of the sibling's `mktemp`, so prompt, `report.json`, `out.json` and `err.txt` all land there",
+      "with `<DIR>` = `<run>/<seat>/` under the run directory above in place of the sibling's `mktemp`, so prompt, `report.json`, `out.json` and `err.txt` all land there",
       "the task's exit notification is when you read that report",
       "It is not an `agentType` and there is no other route to it",
       "Launch independent Claude seats as background Agent calls, one notification each",
@@ -332,12 +332,14 @@ test("G1 the five template lines, their indentation, the inline schema, and no B
     return problems.length === 0 || problems.join("; ");
   });
 
-test("G3 the run directory: its path, its self-ignoring .gitignore, kept after the task, and what a Codex seat's artifacts are",
-  "one directory per run is what keeps a seat's artifacts findable and out of the payload; `.claude/` is tracked in some checkouts, which is why the ignore file has to ignore itself",
+test("G3 the run directory: its path, why it needs no .gitignore, kept after the task, and what a Codex seat's artifacts are",
+  "one directory per run is what keeps a seat's artifacts findable and out of the tree the run works in; the plugin's data directory is outside every repository, so nothing has to be ignored and nothing lands in a payload, and `.claude/` is the one path whose writes prompt however the permissions are set",
   () => says(
-    "create `.orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it ignores itself",
-    "not under `.claude/`, where every write is refused as a sensitive file",
-    "the directory is kept after the task and the user deletes it",
+    "create `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`",
+    "the working directory's absolute path with every character that is not a letter or a digit replaced by `-`",
+    "It is outside every repository, so no `.gitignore`",
+    "not the repository root, not the project's `.claude/`, whose writes prompt whatever the allow rules say",
+    "it is kept after the task and the user deletes it",
     "Codex artifacts are the paths the seat's own report names",
   ));
 
