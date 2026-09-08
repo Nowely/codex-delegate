@@ -171,6 +171,21 @@ test("C6 the plan states the pool and the user overrides it in words",
     "A cap the user overrides in words (\"two Fable\") replaces the default for this run; composition words (\"only codex\", \"no codex\") follow the sibling's table.",
   ));
 
+test("C7 every seat's return is retold to the user in one short paragraph, the same shape for both sides",
+  "the five fields are the orchestrator's input, not the user's: pasted whole they read in the transcript as the coordinator's own words (observed on 0.10.0), and a Codex seat, whose only visible row is a Bash call and an exit code, otherwise reaches the user having said nothing at all",
+  () => says("After any seat returns, Claude or Codex, tell the user in one short paragraph what that seat found, naming the seat and its model, in the same shape for both sides; never paste a five-field block into user-facing text."));
+
+test("C8 browser and end-to-end runs go to a Claude seat or a write seat with the browser grants",
+  "Chromium needs rights a read seat does not have, so a browser task sent to one buys a refused approval and exit 6 (measured 2026-09-08) instead of a result; the grants that do work are one section of parity.md and not something to rediscover per run",
+  () => {
+    const prose = says(
+      "Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's",
+      "section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).",
+    );
+    const link = shows(/\[Browser-mode sandbox\]\(\.\.\/codex-delegate\/references\/parity\.md#browser-mode-sandbox\)/);
+    return prose === true && link === true || [prose, link].filter((r) => r !== true).join("; ");
+  });
+
 // ------------------------------------------------------------------ D: models, tags and effort
 
 test("D2 the orchestrator's own model is read out of the system prompt",
@@ -312,6 +327,10 @@ test("F4 every row of the Result table",
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,
   ));
 
+test("F5 the Bash call's description names the seat and its model",
+  "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming the seat there",
+  () => says("The Bash call carries a `description` of the form \"Codex seat <id>, <model>: <task in a few words>\", so the row the user sees names the seat, not the command line."));
+
 // ------------------------------------------------------------------ G: the seat's return, the run directory
 
 test("G1 the five template lines, their indentation, the inline schema, and no BRIEF: line",
@@ -341,6 +360,21 @@ test("G3 the run directory: its path, why it needs no .gitignore, kept after the
     "not the repository root, not the project's `.claude/`, whose writes prompt whatever the allow rules say",
     "it is kept after the task and the user deletes it",
     "Codex artifacts are the paths the seat's own report names",
+  ));
+
+test("G4 the first line of `result` is one human sentence: the seat, its model, its status, what it did",
+  "both the synthesis and the paragraph the user reads are built out of returns; a `result` that opens mid-analysis has to be read whole before it can be retold, and the five-field shape alone is not something a human reads",
+  () => says(
+    "The first line of `result` is one sentence a human can read on its own: the seat's id and model, its status and what it did",
+    "(\"Seat W5, Sonnet: done, four flaky width checks replaced by threshold checks\")",
+    "the rest of the fields follow unchanged",
+  ));
+
+test("G5 a read seat is never asked to write: its artifact is its report",
+  "a read seat handed a brief that demands a file spends its whole turn asking for an approval the driver refuses, and the run ends at exit 6 with nothing written and nothing answered (measured 2026-09-08)",
+  () => says(
+    "A read seat is never asked to write, not under the repository and not in the run directory: its artifact is its report",
+    "costs a refused write and exit 6 (measured 2026-09-08)",
   ));
 
 // ------------------------------------------------------------------ the schema, and the links

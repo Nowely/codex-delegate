@@ -111,6 +111,13 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   reports nothing until its last agent returns (measured 2026-09-08: a seat's exit at minute 9 surfaced
   only when the user asked, while its sibling ran 18 minutes). Workflow stays for a chain a script must
   decide.
+- A Codex seat and a Claude seat now read the same to the user, on both skill pages: the Bash call carries a `description`
+  naming the seat and its model, every seat's return is retold in one short paragraph of the
+  orchestrator's own instead of a pasted five-field block, and the first line of `result` is one human
+  sentence with the seat's id, model, status and what it did. Two refusals measured 2026-09-08 are named
+  beside the rights they belong to: a read seat is never asked to write, its artifact is its report, and
+  browser or end-to-end runs go to a Claude seat or to a write seat with `NETWORK:` and the grants
+  `references/parity.md` names, because a read seat asked for either is refused and exits 6.
 - Driver structure: one `FIELDS` table derives the seat-field vocabulary; one `jsonRpcConn` serves the
   config probe and the main channel; every `LADDER` rung is a pure function of its own context; one
   `exitWith` funnel settles, closes the record, writes stdout under the drain watchdog and exits, so
