@@ -25,7 +25,7 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 | synthesise, attributing every finding to the seat that produced it | verify: you never grade your own work, a fresh seat does |
 
 Scouting is the only exploration you do; report a failed seat and never backfill it. After "go" and before the first seat, create
-`${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`, `<run>` unique and `<project-slug>` the working directory's absolute path with every character that is not a letter or
+`<state>/orchestrate/<project-slug>/<run>/`, `<state>` the driver's state directory (`${CLAUDE_PLUGIN_DATA}` on a plugin install, the exported `CODEX_DELEGATE_STATE_DIR` on the clone route), `<run>` unique and `<project-slug>` the working directory's absolute path with every character that is not a letter or
 a digit replaced by `-`, the name Claude Code gives it under `~/.claude/projects/`. It is outside every repository, so no `.gitignore`; not the repository root, not the project's
 `.claude/`, whose writes prompt whatever the allow rules say. Claude seats write their artifacts there and every brief names the path; Codex artifacts are the paths the seat's
 own report names, under the same data directory; it is kept after the task and the user deletes it. A read seat is never asked to write, not under the repository and not in the

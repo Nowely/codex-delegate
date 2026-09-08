@@ -354,7 +354,7 @@ test("G1 the five template lines, their indentation, the inline schema, and no B
 test("G3 the run directory: its path, why it needs no .gitignore, kept after the task, and what a Codex seat's artifacts are",
   "one directory per run is what keeps a seat's artifacts findable and out of the tree the run works in; the plugin's data directory is outside every repository, so nothing has to be ignored and nothing lands in a payload, and `.claude/` is the one path whose writes prompt however the permissions are set",
   () => says(
-    "create `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`",
+    "create `<state>/orchestrate/<project-slug>/<run>/`, `<state>` the driver's state directory (`${CLAUDE_PLUGIN_DATA}` on a plugin install, the exported `CODEX_DELEGATE_STATE_DIR` on the clone route)",
     "the working directory's absolute path with every character that is not a letter or a digit replaced by `-`",
     "It is outside every repository, so no `.gitignore`",
     "not the repository root, not the project's `.claude/`, whose writes prompt whatever the allow rules say",

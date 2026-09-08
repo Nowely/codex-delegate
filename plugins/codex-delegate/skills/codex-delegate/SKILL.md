@@ -23,17 +23,19 @@ The **user** requests the work; the **coordinator** chooses and synthesises the 
 One background Bash task per seat. Write the prompt to a file with the Write tool, then run this, with
 `run_in_background: true` and no `&` of your own:
 
-    CODEX_DELEGATE_STATE_DIR="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<DIR>/report.json" > "<DIR>/out.json" 2> "<DIR>/err.txt"
+    CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<DIR>/report.json" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
 The call's `description` is `Codex seat <id>, <model>: <task in a few words>`, so the row the user sees names the
 seat and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
 so they need the absolute path it prints. The task's exit notification is the seat's completion, and
 `<DIR>/report.json` is what to read then.
 
-Every driver call carries that variable — the plugin's own data directory, where the driver's state and
-every Codex artifact the report names (`answerPath`, a worktree harvest) live; without it the driver
-exits 2. Only `--help` needs none. A clone-and-symlink install substitutes nothing for the placeholder,
-so there the user exports `CODEX_DELEGATE_STATE_DIR` themselves ([README](../../README.md) says where).
+Every driver call forwards that variable under its own name — the plugin's own data directory, where the
+driver's state and every Codex artifact the report names (`answerPath`, a worktree harvest) live. The
+driver reads `CODEX_DELEGATE_STATE_DIR` first and that variable second, and with neither it exits 2; only
+`--help` needs none. A clone-and-symlink install substitutes nothing for the placeholder, so the forwarded
+value is empty there and the `CODEX_DELEGATE_STATE_DIR` the user exports decides ([README](../../README.md)
+says where).
 
 A read seat's prompt needs no header at all:
 

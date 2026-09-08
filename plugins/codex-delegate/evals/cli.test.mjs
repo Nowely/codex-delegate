@@ -111,6 +111,14 @@ const CASES = [
     why: "the same rule for the variable a harness sets, which is read first: a relative one used to be accepted, and the answer log and the turn diff then dropped their artefact in silence",
     assertStderr: (e) => /CODEX_DELEGATE_STATE_DIR must be an absolute path/.test(e)
       || `the relative value was not refused by name: ${e.slice(0, 160)}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { CLAUDE_PLUGIN_DATA: "" },
+    why: "the recipe forwards CLAUDE_PLUGIN_DATA under its own name, and on a clone-and-symlink install nothing substitutes the placeholder, so the shell hands the driver an empty value beside the CODEX_DELEGATE_STATE_DIR the user exported; empty reads as unset, never as a path",
+    assert: (r, ms, stateRoot) => fs.existsSync(path.join(stateRoot, "answers"))
+      || "the run left no answers/ under CODEX_DELEGATE_STATE_DIR beside an empty CLAUDE_PLUGIN_DATA" },
+  { scenario: "happy",            expect: EXIT.USAGE, unsetEnv: ["CODEX_DELEGATE_STATE_DIR"], env: { CLAUDE_PLUGIN_DATA: "" },
+    why: "the same empty value with nothing exported is the clone route before the user set anything: the refusal names both variables instead of taking \"\" for a directory",
+    assertStderr: (e) => (/CODEX_DELEGATE_STATE_DIR/.test(e) && /CLAUDE_PLUGIN_DATA/.test(e))
+      || `the refusal named neither variable or only one: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.OK, env: { FAKE_CONFIG_FAIL: "1" },
     why: "a failed config probe must say so out loud — the silent path changed which model answers and made identical runs nondeterministic",
     assertStderr: (e) => /could not read the caller's Codex config/.test(e)

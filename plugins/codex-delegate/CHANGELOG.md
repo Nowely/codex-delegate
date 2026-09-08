@@ -59,10 +59,12 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   before.
 - There is no built-in state directory any more. The state root is `CODEX_DELEGATE_STATE_DIR`, read
   first, else `CLAUDE_PLUGIN_DATA` — `${CLAUDE_PLUGIN_DATA}`, the plugin's own data directory, which the
-  skill recipes now pass on every driver call; with neither set the run exits 2 naming both. The old
-  default under the home directory held answers, an isolated Codex home and a worktree ledger that no
-  plugin uninstall reached. Existing state under `~/.codex-delegate` is NOT migrated: threads started
-  before this release cannot be resumed, and the directory can be deleted. README › Install says where
+  skill recipes forward on every driver call under its own name, so an exported
+  `CODEX_DELEGATE_STATE_DIR` still wins; with neither set the run exits 2 naming both. The old default
+  under the home directory held answers, an isolated Codex home and a worktree ledger that no plugin
+  uninstall reached. Existing state under `~/.codex-delegate` is NOT migrated: `--resume last` and a
+  worktree rebuild no longer find the runs recorded there, while `--resume <threadId>` still works because
+  the rollout lives under `~/.codex/sessions`; the directory can be deleted. README › Install says where
   the state now lives, and what to add to `permissions.additionalDirectories` for it.
 - A relative `CODEX_DELEGATE_STATE_DIR`, or a relative `CLAUDE_PLUGIN_DATA`, is exit 2 at parse time
   naming the variable. It used to be accepted, and the answer log and turn diff answered a bad root by
