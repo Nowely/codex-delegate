@@ -229,7 +229,9 @@ const cmd = (turnId, threadId, { exitCode = 0, status = "completed", command = "
 // so the completion that supersedes those deltas has to carry the same id.
 const msg = (turnId, threadId, text, phase = "final_answer", id = null) =>
   note("item/completed", { threadId, turnId, completedAtMs: now(),
-    item: { id: id ?? `item_${seq}`, type: "agentMessage", text, phase, delivery: null, memoryCitation: null } });
+    // questions: what request_user_input_async fills on 0.153.4 (an asked question rides an agentMessage);
+    // null on every ordinary message, and the live turn compares key sets, so it is never omitted.
+    item: { id: id ?? `item_${seq}`, type: "agentMessage", text, phase, delivery: null, memoryCitation: null, questions: null } });
 
 // One chunk of an answer as it is generated. AgentMessageDeltaNotification carries no phase — an
 // in-flight message is unphased until its item/completed says otherwise — and that is the whole
