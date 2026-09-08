@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 // Straight out of the driver, never restated: a suite holding its own copy of EXIT, of the seat-file
 // vocabulary or of the lock's key has a copy that can disagree with the thing it is testing. Importing
 // is safe because driver.mjs runs main() only as an entry point.
-export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, VERSION,
-         WEB_SEARCH, lockKey, renderEnvelope } from "../../skills/codex-delegate/scripts/driver.mjs";
+export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, PINNED_CODEX, SEAT_FIELDS, STATE_SUBDIRS,
+         VERSION, WEB_SEARCH, lockKey, renderEnvelope } from "../../skills/codex-delegate/scripts/driver.mjs";
 
 export const EVALS = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const ROOT = path.dirname(EVALS);
@@ -76,11 +76,20 @@ export function spawnNode(args, { env = {}, unsetEnv = [], cwd, stdio = ["ignore
 }
 
 // The shape every suite's case has: a name, the reason the case exists, and a function returning
-// `true` or the reason it did not.
+// `true`, skip(why), or the reason it did not.
 export function registry() {
   const cases = [];
   return { cases, test: (name, why, fn) => cases.push({ name, why, fn }) };
 }
+
+// What a case returns when the machine it is on cannot answer its question: no git repository, no
+// mkfifo, a case-sensitive volume. `return true` there is a pass that measured nothing, which is the
+// shape these suites exist to refuse — so a skip says so in its own line and leaves the passed count.
+const SKIP = Symbol("skip");
+export const skip = (why) => ({ [SKIP]: why });
+// Written by runCases and read by summarize, which is handed a count and not the cases: the two are
+// always called as a pair, once per suite process.
+const skipped = [];
 
 // A THROWING case is a failed case, not a dead suite: without the per-case guard one bad property access
 // aborts every case after it and skips the cleanup.
@@ -91,6 +100,10 @@ export async function runCases(cases) {
     try { verdict = await c.fn(); }
     catch (e) { verdict = `threw: ${e.message}`; }
     if (verdict === true) console.log(`ok    ${c.name}`);
+    else if (verdict && verdict[SKIP] !== undefined) {
+      skipped.push(c.name);
+      console.log(`skip  ${c.name}: ${verdict[SKIP]}`);
+    }
     else { failed++; console.log(`FAIL  ${c.name}: ${verdict}\n      ${c.why}`); }
   }
   return failed;
@@ -98,7 +111,9 @@ export async function runCases(cases) {
 
 // The line run-all.mjs parses a suite's count out of; returns the process exit code.
 export function summarize(failed, total) {
-  console.log(failed ? `\n${failed}/${total} failed` : `\nall ${total} passed`);
+  console.log(failed ? `\n${failed}/${total} failed`
+    : skipped.length ? `\nall ${total - skipped.length} passed, ${skipped.length} skipped: ${skipped.join("; ")}`
+      : `\nall ${total} passed`);
   return failed ? 1 : 0;
 }
 
@@ -106,12 +121,20 @@ export function summarize(failed, total) {
 // run-all: a second place to count is a second thing that can disagree with the suite it is counting.
 // A live-only suite exits 0 having run nothing and says so in its own words; those are repeated as
 // "skipped" or "not run" so that "all N suites green" cannot come to mean "nothing was measured".
+// A suite that ran with some cases announced reports both numbers, which run-all counts as green.
 export function parseCount(out) {
   const all = out.match(/^all (\d+)\b/m);
-  const skipped = out.match(/^(\d+) skipped \(codex binary absent\)/m);
-  if (skipped && !/\ball \d+ cases that ran agree/.test(out)) return `${skipped[1]} skipped`;
+  const partial = out.match(/^all (\d+) passed, (\d+) skipped/m);
+  const absent = out.match(/^(\d+) skipped \(codex binary absent\)/m);
+  if (absent && !/\ball \d+ cases that ran agree/.test(out)) return `${absent[1]} skipped`;
   if (!all && /NOT RUN/.test(out)) return "not run";
+  if (partial) return `${partial[1]} passed, ${partial[2]} skipped`;
   return all ? all[1] : "?";
 }
+
+// Which of those forms means the suite measured something. A bare number and the partial form did; a
+// whole suite that skipped, a summary line nobody could parse ("?") and "not run" did not, and they
+// have to leave the green numerator or "all 9 suites green" comes to mean "nothing was measured".
+export const measured = (count) => /^\d+( passed, \d+ skipped)?$/.test(count);
 
 export const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };

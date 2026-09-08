@@ -140,7 +140,7 @@ test("C2 the plan is shown and the run stops, with every right a seat needs",
   "rights declared per call are the sibling's guarantee, and they are worth nothing if the user first sees them in the transcript of a seat that already wrote",
   () => says(
     "Show the plan and stop",
-    "`SEAT: write`, `SEAT: worktree`, `NETWORK:`, `WRITABLE:` and `COMMIT:` a seat needs",
+    "`SEAT: write`, `SEAT: worktree`, `NETWORK:` and `WRITABLE:` a seat needs",
   ));
 
 test("C3 \"go\" covers the plan and nothing else, and never a live-tree commit",
@@ -156,7 +156,7 @@ test("C4 a worktree is cut at HEAD and never used to test uncommitted live edits
     "A worktree is cut at `HEAD`",
     "Never use one to test uncommitted live edits",
     "dependencies installable inside it under the planned rights (the live checkout's are absent), no daemon or socket",
-    "A seat may commit freely inside its own worktree, a Codex worktree seat needs `COMMIT: yes`",
+    "A Codex worktree seat cannot commit: its sandbox ends at the tree, so its work comes back as a diff",
   ));
 
 test("C5 the harvest is landed by proposal, naming the three envelope handles",
@@ -229,11 +229,11 @@ test("E1 the mode replaces the sibling's \"nothing\" row: half beyond the implem
     "Implementers are not duplicated: one per task",
   ));
 
-test("E2 cross-review runs both directions, and a cross-review seat is not a REVIEW: seat",
-  "one-directional cross-review checks only one side's bias, and a `REVIEW:` seat takes no body and no `OUTPUT_SCHEMA:`, so a cross-review sent as one returns the server reviewer's output and not the five fields",
+test("E2 cross-review runs both directions, and each seat is a prompt seat with the schema",
+  "one-directional cross-review checks only one side's bias, and a reviewer given no schema answers in prose, which is not the five fields the synthesis reads",
   () => says(
     "a Claude implementer's diff to a Codex seat and a Codex seat's diff to a Claude seat",
-    "a cross-review seat is a prompt seat with the diff's path in `TASK:`, not a `REVIEW:` seat",
+    "a cross-review seat is a prompt seat with the diff's path in `TASK:` and the template below in `OUTPUT_SCHEMA:`",
   ));
 
 test("E3 the composition table is linked at its anchor",
@@ -266,9 +266,10 @@ test("E6 the writer may run the suite, but the deciding evidence comes from else
 // ------------------------------------------------------------------ F: mechanism and verification
 
 test("F1 the invocation authorises Workflow, names the agent signature, both agentType spellings, pipeline and parallel, and the return convention",
-  "Workflow is what makes a five-seat batch one decision instead of five; the bare agentType is the clone-and-symlink install, and a subagent told nothing about its final text writes a message to a human that no script reads",
+  "Workflow is for the chain a script must decide; a batch of independent seats runs as Agent calls so each seat's end reaches the orchestrator (measured 2026-09-08: a Workflow hid a seat's exit for nine minutes); the bare agentType is the clone-and-symlink install, and a subagent told nothing about its final text writes a message to a human that no script reads",
   () => says(
     "authorises Workflow",
+    "Launch independent seats as background Agent calls, one notification each",
     "Load the `workflow-authoring` skill before writing the script when the session lists it.",
     "`agent(prompt, {label, phase, schema, model, effort, agentType, isolation})`",
     "`agentType: 'codex-delegate:codex-seat'` (bare `codex-seat` on a clone-and-symlink install) makes it a Codex seat",

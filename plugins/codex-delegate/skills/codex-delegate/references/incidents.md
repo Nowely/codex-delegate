@@ -199,3 +199,11 @@ GitHub issue #1 (2026-09-02) measured five of seven seats hitting a 540-second r
 commands used only 6–16% of the clock and the cut returned zero bytes. The driver gained a wrap-up steer,
 interrupt grace, partial capture, and detached transport. Native defaults now impose no wall clock;
 silence, command, and caller-declared clock bounds remain explicit.
+
+## Here-documents under the grant
+
+Every `<<EOF` in a seat's zsh failed with "can't create temp file for here document": zsh keeps the
+document in a file under `$TMPPREFIX`, default `/tmp/zsh`, and no seat may write `/tmp`. Measured in
+15 rollouts between 2026-08-31 and 2026-09-08 and reproduced under the read profile with `codex sandbox
+--log-denials` (`(zsh) file-write-create /private/tmp/zsh…`). The driver now hands the app-server
+`TMPPREFIX` under the run's `$TMPDIR`, which every level may write; `/bin/sh` was never affected.

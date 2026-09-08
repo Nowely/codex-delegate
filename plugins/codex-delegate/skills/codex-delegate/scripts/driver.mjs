@@ -28,7 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, COMMAND_FAILED: 11, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
+const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
 const LEVELS = new Set(["read", "write"]);
 const READ_PROFILE = "codex_delegate_read";
 // The codex-cli release the protocol facts were measured against, matching schema-<version>/.
@@ -44,7 +44,6 @@ const EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "m
 // The server's accepted web-search modes, learned from its rejection message.
 // Search stays disabled by default because it makes repository work depend on today's index.
 const WEB_SEARCH = new Set(["cached", "indexed", "live"]);
-const REASONING_SUMMARIES = new Set(["auto", "concise", "detailed"]);
 // --brief is about the coordinator's context, not the seat's thoroughness: the full answer is always
 // written to disk, so capping what comes back inline costs nothing but a second read when it matters.
 const BRIEF_LINES = 20;
@@ -72,7 +71,6 @@ const WALL_RESERVE_MAX_MS = 300000;
 const CUT_GRACE_MIN_MS = 50;
 const CUT_GRACE_MAX_MS = 10000;
 const TRANSIENT_TURN_MIN_MS = 10000;
-const STEER_POLL_MS = 1000;
 // --relay / --relay-collect: stdout is the ENVELOPE and nothing else, from the first byte, so the flag
 // is read off the raw command line before any parser can refuse it.
 let relayMode = false;
@@ -125,14 +123,13 @@ class Bail extends Error {}
 
 // The seat-file vocabulary lives above --help because the help interpolates it.
 const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
-                             "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "ALLOW_FAILED_COMMANDS", "BRIEF", "COMMIT",
-                             "WRITABLE", "REVIEW", "RESUME"]);
+                             "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF",
+                             "WRITABLE", "RESUME"]);
 // Accepted on the command line and refused as fields: each bounds or transports the run rather than
 // declaring its rights, and each has a default a seat launched with nothing configured can live with.
 // A header able to set one is a knob every relayed seat would have to size.
 const CLI_ONLY_FIELDS = { TIMEOUT: "--timeout", IDLE_TIMEOUT: "--idle-timeout", MAX_COMMANDS: "--max-commands",
-                          DETACH: "--detach", WAIT_TIMEOUT: "--wait-timeout", COLLECT: "--wait",
-                          PROGRESS: "--progress" };
+                          DETACH: "--detach", WAIT_TIMEOUT: "--wait-timeout", COLLECT: "--wait" };
 // The extensions the server takes, and which item kind each becomes.
 const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
                        webp: "localImage", bmp: "localImage",
@@ -143,7 +140,6 @@ const STATE_SUBDIRS = [
   ["locks/", "per-directory write locks"],
   ["answers/", "answers, partials, turn diffs"],
   ["home/", "the isolated Codex home"],
-  ["homes/", "one private home per --mcp run"],
   ["jobs/", "--jobs, --wait, `--resume last`"],
   ["runs/", "a --detach run's transport"],
   ["tmp/", "the private $TMPDIR of a run whose caller exported none"],
@@ -153,49 +149,49 @@ const STATE_SUBDIRS = [
 
 // The post-turn exit ladder, first match wins. decideExitCode() walks it and --help renders it, so a rung
 // cannot exist in one and not the other. `help: null` shares the line above.
+//
+// Every `when` is a function of its ARGUMENT and of nothing else. Rungs that read the run's module state
+// directly could only be exercised by running a whole turn that produced it; decideExitCode gathers that
+// state into the ctx once, so a rung can be asked its question with a context built by hand.
 const LADDER = [
   { code: EXIT.TIMEOUT,
     help: "cut on a declared budget — idle silence, commands, or the wall clock\n      when one was set (cut.kind says which); the report holds the answer or\n      the partial the turn reached, plus a hint naming --resume <threadId>",
-    when: () => turnStatus === "timedOut" || turnStatus === "maxCommands" },
+    when: (c) => c.turnStatus === "timedOut" || c.turnStatus === "maxCommands" },
   // A parameter the SERVER rejected is the caller's to fix, not a transport failure to retry: the set of
   // reasoning efforts is per-model and knowable only at runtime, and the cause line carries the server's
   // own list verbatim.
   { code: EXIT.USAGE, help: "the server refused the request",
-    when: () => turnStatus !== "completed" && invalidRequest(turnError) },
+    when: (c) => c.turnStatus !== "completed" && invalidRequest(c.turnError) },
   { code: EXIT.TURN_NOT_COMPLETED, help: "the turn did not complete",
-    when: () => turnStatus !== "completed" },
+    when: (c) => c.turnStatus !== "completed" },
   // Not an escalation: no sandbox change answers a question that needed a human.
   { code: EXIT.INTERACTION, help: "the turn wanted input no sandbox change can supply",
-    when: () => interactions.length > 0 },
+    when: (c) => c.interactions.length > 0 },
   // Above NO_COMMANDS: a refused approval explains the missing command, and "nothing ran" would hide why.
   { code: EXIT.ESCALATED, help: "an approval was refused: the sandbox was sized too small",
-    when: () => escalations.length > 0 },
+    when: (c) => c.escalations.length > 0 },
   // Above every proxy below it, and distinct from "the check said no": a declared check that was not
   // measured leaves verifyResult null, which both verify rungs test for, so the ladder would fall
   // through to the weaker gates and a run with an unrun --verify could reach 0.
   { code: EXIT.VERIFY_UNMEASURABLE, help: "--verify was declared and could not be measured",
     when: (c) => c.verifySkipped === "budget-exhausted" },
   { code: EXIT.VERIFY_UNMEASURABLE, help: null,
-    when: () => verifyResult != null && !verifyResult.measured },
+    when: (c) => c.verifyResult != null && !c.verifyResult.measured },
   { code: EXIT.VERIFY_FAILED, help: "--verify ran and failed",
     when: (c) => c.verifyFailed },
   // --allow-no-commands waives the floor and must not waive a declared --expect-command; a passing
   // --verify does not waive it either, since the end state can be right while the work drifted.
   { code: EXIT.NO_COMMANDS,
     help: "no command ran (--allow-no-commands waives this, --expect-command does\n      not)",
-    when: (c) => c.expected.length === 0 && (opts.expectRe || !opts.allowNoCommands) },
+    when: (c) => c.expected.length === 0 && (c.opts.expectRe || !c.opts.allowNoCommands) },
   { code: EXIT.NO_ANSWER, help: "the turn produced no answer",
     when: (c) => !c.answer },
-  // Above COMMAND_FAILED: an unusable answer is the more actionable complaint, and 11 stays in the report.
   { code: EXIT.SCHEMA, help: "the answer failed --output-schema",
-    when: (c) => Boolean(opts.outputSchema) && c.schemaErrs.length > 0 },
-  // Waived by a PASSING --verify — iterative work normally contains failed commands — and by a review that
-  // ARRIVED, never by --review alone: `--review branch:nonexistent` fails its git commands, produces no
-  // payload, and must not exit 0.
-  { code: EXIT.COMMAND_FAILED,
-    help: "a command or a file change failed, or a command reached the client with\n      no verdict at all (no exit code, neither failed nor declined) — its\n      outcome is unknown, and exit 0 claims it is not\n      (--allow-failed-commands waives this rung, and only this rung)",
-    when: (c) => (c.failedCmds.length || c.failedPatches.length || c.blocked.length) && !c.verifyPassed
-                 && !opts.allowFailedCommands && !(opts.review && reviewResult != null) },
+    when: (c) => Boolean(c.opts.outputSchema) && c.schemaErrs.length > 0 },
+  // No rung for a failed command. Both records of one were harm: a turn whose work had succeeded was
+  // announced as a failure, and a ten-finding answer was discarded on it. commandsFailed,
+  // commandsBlocked, fileChangesFailed and commandsProbeNegative stay in the report, where a caller
+  // reads them; --expect-command (exit 5) and --verify (exit 9) are the gates that judge.
 ];
 const ladderHelp = () => LADDER.filter((r) => r.help)
   .map((r) => `  ${String(r.code).padStart(2)}  ${r.help}`).join("\n");
@@ -238,9 +234,8 @@ const HELP = [
                      --level write --cwd REPO
   --writable DIR     grant one more root (write level only, repeatable)
   --network          allow egress (write level only)
-  --commit           also grant the git common dir, for a turn that commits
-  every write-level root — --cwd, --writable, the --commit git dir — refuses
-  ~/.codex and ~/.codex-delegate: they hold the receipts and this driver's state`,
+  every write-level root — --cwd and --writable — refuses ~/.codex and
+  ~/.codex-delegate: they hold the receipts and this driver's state`,
     more: `  $TMPDIR IS the read-level grant. An explicit one is honoured and takes the
   same protected-root guard every writable root takes; where the caller exported
   none the driver makes a private 0700 one at <state>/tmp/<runId> and reports it
@@ -265,10 +260,6 @@ const HELP = [
                      ${wrapJoined([...SEAT_FIELDS], "/", 21)}
   --attach FILE      attach a local image (${attachExts("localImage").join("/")}) or audio
                      file (${attachExts("localAudio").join("/")}) to the prompt; repeatable
-  --review T         uncommitted | branch:<ref> | commit:<sha> — the server's
-                     native reviewer instead of a prompt. Implies
-                     --allow-no-commands; excludes --prompt, --resume, the
-                     answer-shape flags, and (for uncommitted) --worktree
   --answer-json      demand one bare JSON object as the answer; the report then
                      carries answerJson and answerJsonError
   --output-schema F  demand a JSON object matching the schema in file F: the
@@ -281,12 +272,13 @@ const HELP = [
                      ~/.codex-delegate/answers/<threadId>.md
   --model NAME       omit to use whatever config.toml chose
   --effort ${[...EFFORTS].join("|")}
-  --resume THREAD    continue a thread; "--resume last" continues the newest run
-                     recorded for this --cwd or, with --worktree, this repository.
-                     The report names it as resumedFrom — check it after "last"
-  --fork THREAD      branch a new thread from THREAD before the turn: same cwd,
-                     model, sandbox, approval policy and developer instructions
-                     as a fresh thread. Excludes --resume and --worktree`,
+  --resume THREAD    continue a thread; "--resume last" continues the run most
+                     recently STARTED for this --cwd or, with --worktree, this
+                     repository — not the one most recently active, so a long seat
+                     still running does not outrank a shorter one begun after it
+                     and already finished; that thread still refuses a resume with
+                     exit 10 while its turn is open.
+                     The report names it as resumedFrom — check it after "last"`,
     more: `  --output-schema: the server takes a STRICT schema only — every object must
   carry "additionalProperties": false and list every one of its properties in
   "required" (use "type": ["string","null"] where you wanted optional). Both are
@@ -296,11 +288,10 @@ const HELP = [
   a field. A TASK:, CHECK: or RETURN: line always opens the body. An ALL-CAPS
   name above the body that is not a field is exit 2 naming its line, never a
   silently ignored one. A file with no body leaves the prompt to stdin or
-  --prompt; both at once is exit 2, and so is a body beside REVIEW. --attach,
-  --steer-file and --mcp are NOT fields: an injected line would upload a file
-  nobody named, consume a file nobody named, or grant tool servers nobody
-  granted. Neither are the bounds and the transport, whose defaults are chosen so
-  a seat needs no header to size them, and naming one is exit 2:
+  --prompt; both at once is exit 2. --attach is NOT a field: an injected line
+  would upload a file nobody named. Neither are the bounds and the transport,
+  whose defaults are chosen so a seat needs no header to size them, and naming
+  one is exit 2:
                      ${wrapJoined(Object.keys(CLI_ONLY_FIELDS), "/", 21)}
   A NEWLINE inside a value ends that value and starts a new field — a wrapper
   handed caller-supplied text cannot prevent that. For a wrapper: write the
@@ -312,16 +303,7 @@ const HELP = [
                      introduce one. Pass --verify on the command line instead
   --web-search ${[...WEB_SEARCH].join("|")}
                      off by default: a search makes the turn depend on what the
-                     index says today
-  --reasoning-summary ${[...REASONING_SUMMARIES].join("|")}
-                     request that density for the per-turn reasoning summary;
-                     omitted leaves the model or config default unchanged
-  --fork-through TURN
-                     with --fork, include history only through TURN (inclusive)
-  --compact          with --resume, run thread/compact/start before the turn; use
-                     for a long continuation nearing its context window
-  --ephemeral        leave no thread behind: no job record, so --jobs, --wait and
-                     \`--resume last\` cannot reach it. Excludes --resume` },
+                     index says today` },
 
   { s: "Gate — what counts as the turn having done the work",
     text: `  --expect-command RE   a command matching RE must have run. RE is matched
@@ -333,19 +315,19 @@ const HELP = [
   --verify-sandboxed run --verify through \`codex sandbox\` under the read-only
                      profile --level read uses: the tree is readable, \$TMPDIR is
                      writable, nothing else is, so a verifier that must WRITE fails
-  --allow-no-commands   accept a turn that ran nothing
-  --allow-failed-commands  accept a turn in which a command, a patch or an
-                     unresolved command failed — for a read-only seat whose probe
-                     is expected to fail. THAT RUNG ONLY: an unmatched
-                     --expect-command is still exit 5, a failed --verify still 9`,
+  --allow-no-commands   accept a turn that ran nothing. A command that FAILED is
+                     no rung at all: the report counts it, and --expect-command
+                     (exit 5) or --verify (exit 9) is what judges the work`,
     more: `  --verify: prefer a command that does not execute anything out of the tree the
   seat just wrote (\`npm test\` runs the seat's own package.json script). The report
   carries verify.budgetMs, verify.timedOut and verify.sandboxed, and the last ${VERIFY_TAIL_CHARS}
   characters of each stream; the output is streamed, never buffered whole, and the
   last ${VERIFY_BUFFER_CHARS} characters are kept in memory. Most build and test runners write, so most fail
   under --verify-sandboxed; it passes the exit code through,
-  and is a usage error where this codex has no \`sandbox\` subcommand. A waived rung
-  still leaves its counts in the report.` },
+  and is a usage error where this codex has no \`sandbox\` subcommand.
+  commandsFailed, commandsBlocked (a command that reached the client with no verdict
+  at all, neither failed nor declined), fileChangesFailed and commandsProbeNegative
+  are report fields and no exit code: read them before acting on the answer.` },
 
   { s: "Bounds",
     text: `  --timeout SECONDS  none by default (0): the turn runs as long as the work takes,
@@ -372,11 +354,11 @@ const HELP = [
                      threadId, pid, runId and the paths its report and stderr will
                      land at. The run survives this process, its shell and the
                      session, under the same bounds; --wait collects it
-  --wait ID          collect a detached run: a threadId, or "last" for the newest
-                     run recorded for --cwd. It polls once a second, then copies
-                     that run's report and stderr byte for byte, exiting with the
-                     code the run itself decided. A run whose process is gone
-                     without a report is exit 4
+  --wait ID          collect a detached run: a threadId, or "last" for the run
+                     most recently STARTED for --cwd. It polls once a second,
+                     then copies that run's report and stderr byte for byte,
+                     exiting with the code the run itself decided. A run whose
+                     process is gone without a report is exit 4
   --wait-timeout S   how long to wait before handing back the handle instead: ${DEFAULT_DETACH_WAIT_S}
                      (the default under --detach) returns at once; with --wait
                      the default is ${DEFAULT_WAIT_TIMEOUT_S}, and giving up is the handle, exit 10
@@ -385,20 +367,14 @@ const HELP = [
                      running, crashed or ended. --cwd narrows it to one directory
   --cancel ID        SIGTERM a running seat by threadId: the run's own handler
                      writes the full interrupted report at its report path. Exit
-                     0 when the signal went out, 2 when it is not cancellable
-  --progress         one line per item start on stderr (run/edit/search), so a
-                     long seat can be watched live without tailing the rollout
-  --steer-file F     poll F once a second: new text is CLAIMED by renaming F
-                     aside and sent to the RUNNING turn as a steer message — how
-                     to correct a long seat without killing it. Input, not rights`,
-    more: `  \`--wait last\` takes the newest run recorded for --cwd, else for this process's
-  own directory. Each --jobs record carries threadId, cwd, repo, level, pid,
+                     0 when the signal went out, 2 when it is not cancellable`,
+    more: `  \`--wait last\` takes the run most recently STARTED for --cwd, else for this
+  process's own directory. Each --jobs record carries threadId, cwd, repo, level, pid,
   status, exitCode, startedAt, endedAt, answerPath, reportPath and runId, plus the
   mid-flight lastEventAt, tokensSpent, commandsSeen and phase a running seat
   records as it goes; --cwd narrows it to a repository as well as a directory.
   --cancel is exit 2 on a run already ended, already dead, or older than its own
-  budget, where the pid may have been recycled. Append to a --steer-file again and
-  the next tick picks it up: nothing appended during a send is lost. Under --detach
+  budget, where the pid may have been recycled. Under --detach
   the run directory (<state>/runs/<runId>/) IS the transport, so a state directory
   that cannot be written is a usage error.` },
   { s: "Run", all: true,
@@ -409,8 +385,8 @@ const HELP = [
   { s: "Report",
     text: `  the JSON report on stdout is the only report: beyond the flags above it
   carries receiptPath/receiptOk, tokenUsage, timing, cut — null, or the budget
-  that ended the turn — answerPath, answerPartialPath and the command and file
-  counts the exit ladder reads. --help-all lists the rest
+  that ended the turn — answerPath, answerPartialPath, the command and file counts
+  the exit ladder reads and the ones it does not. --help-all lists the rest
   threadId is announced on stderr as soon as the thread exists, so a long turn's
   rollout can be tailed; SIGINT/SIGTERM/SIGHUP after that report what the turn did
   so far and exit 1, and before it they exit 4
@@ -446,16 +422,6 @@ const HELP = [
   databases codex keeps there persist between runs, which is what makes an
   isolated run faster than a host-home one rather than slower
   --host-home        use the caller's ~/.codex instead, plugins and all
-  --mcp              carry the caller's [mcp_servers] — and ONLY them — into a
-                     PRIVATE per-run home (0600, removed at exit, so tokens in a
-                     server's env table never reach argv or shared state): the
-                     seat gets your MCP tools without your plugins, skills and
-                     trust records, at the cost of the shared home's warm caches.
-                     The servers run with your rights, as under --host-home
-  --mcp-server NAME  with --mcp, copy only this named server; repeatable and
-                     command-line-only. An unknown name is a usage error.
-                     This filters MCP servers, not built-in tools: filesystem
-                     and network restrictions remain the enforceable controls
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
   ${CONFIG_PROBE_MAX_MS / 1000} s, or min(${CONFIG_PROBE_MAX_MS / 1000} s, max(${CONFIG_PROBE_MIN_MS / 1000} s, --timeout)) where a wall clock was declared, and
@@ -570,11 +536,9 @@ function helpText(full) {
 //   * SEAT must be the FIRST field, so an injected SEAT is always a duplicate and already a usage error.
 //   * VERIFY runs an unsandboxed /bin/sh with the caller's own rights, so from a seat file it needs
 //     --allow-seat-verify on the COMMAND LINE — the one place no relayed value can reach.
-// Four flags are deliberately NOT fields, each because an injected line would be a grant nobody made:
-// ATTACH uploads a local file, STEER-FILE renames a path away and consumes it while the turn runs, MCP
-// grants tool servers that reach outside the sandbox, and --run-dir would point another run's transport
-// at a file of its choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a
-// shell. CLI_ONLY_FIELDS above are refused for a different reason: they are bounds and transport, not
+// Two flags are deliberately NOT fields, each because an injected line would be a grant nobody made:
+// ATTACH uploads a local file, and --run-dir would point another run's transport at a file of its
+// choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a shell. CLI_ONLY_FIELDS above are refused for a different reason: they are bounds and transport, not
 // rights, and the driver's own defaults are what let a seat run with nothing configured.
 let seatFileFields = null;   // what the file actually declared, for the report
 let seatFileBody = null;     // the prompt the file carried under its header, or null when it carried none
@@ -624,8 +588,7 @@ function argvFromSeatFile(file, allowSeatVerify, defaultSeat = false) {
       continue;
     }
     const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands",
-                    ALLOW_FAILED_COMMANDS: "--allow-failed-commands", BRIEF: "--brief",
-                    COMMIT: "--commit" };
+                    BRIEF: "--brief" };
     if (BOOLS[field]) {
       // A negative header value omits the flag, just as omitting the line does.
       if (/^(no|false|0)$/i.test(value)) continue;
@@ -636,7 +599,7 @@ function argvFromSeatFile(file, allowSeatVerify, defaultSeat = false) {
     if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
     const FLAGS = { EFFORT: "--effort", EXPECT: "--expect-command", VERIFY: "--verify",
                     MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
-                    WRITABLE: "--writable", REVIEW: "--review", RESUME: "--resume" };
+                    WRITABLE: "--writable", RESUME: "--resume" };
     out.push(FLAGS[field], value);
   }
   // A header-only file leaves the prompt to stdin or --prompt.
@@ -663,7 +626,7 @@ function parseArgs(argv) {
   // No effort override by default: config.toml chooses the model and effort.
   // No wall clock by default: --idle-timeout bounds silence and --max-commands bounds volume;
   // --timeout is a budget the caller opts into.
-  const o = { level: "read", timeout: 0, idleTimeout: DEFAULT_IDLE_TIMEOUT_S, maxCommands: DEFAULT_MAX_COMMANDS, writable: [], attach: [], mcpServers: [] };
+  const o = { level: "read", timeout: 0, idleTimeout: DEFAULT_IDLE_TIMEOUT_S, maxCommands: DEFAULT_MAX_COMMANDS, writable: [], attach: [] };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -683,7 +646,6 @@ function parseArgs(argv) {
       case "--worktree": o.worktree = need(++i, a); break;
       case "--effort": o.effort = need(++i, a); break;
       case "--model": o.model = need(++i, a); break;
-      case "--reasoning-summary": o.reasoningSummary = need(++i, a); break;
       case "--timeout": o.timeout = Number(need(++i, a)); break;
       case "--detach": o.detach = true; break;
       // Command-line only, and never a seat field: it names where a detached run's transport lives.
@@ -698,16 +660,8 @@ function parseArgs(argv) {
       case "--prompt": o.prompt = need(++i, a); break;
       case "--writable": o.writable.push(need(++i, a)); break;
       case "--attach": o.attach.push(need(++i, a)); break;
-      case "--review": o.review = need(++i, a); break;
-      case "--steer-file": o.steerFile = need(++i, a); break;
-      case "--commit": o.commit = true; break;
       case "--resume": o.resume = need(++i, a); break;
-      case "--fork": o.fork = need(++i, a); break;
-      case "--fork-through": o.forkThrough = need(++i, a); break;
-      case "--compact": o.compact = true; break;
-      case "--ephemeral": o.ephemeral = true; break;
       case "--allow-no-commands": o.allowNoCommands = true; break;
-      case "--allow-failed-commands": o.allowFailedCommands = true; break;
       case "--expect-command": o.expect = need(++i, a); break;
       case "--verify": o.verify = need(++i, a); break;
       case "--verify-sandboxed": o.verifySandboxed = true; break;
@@ -716,11 +670,7 @@ function parseArgs(argv) {
       case "--answer-json": o.answerJson = true; break;
       case "--output-schema": o.outputSchemaFile = need(++i, a); break;
       case "--brief": o.brief = true; break;
-      case "--progress": o.progress = true; break;
       case "--host-home": o.hostHome = true; break;
-      case "--mcp": o.mcp = true; break;
-      // Command-line only: like --mcp itself, a seat file must not be able to grant an external tool.
-      case "--mcp-server": o.mcpServers.push(need(++i, a)); break;
       // Asking for help is not a usage error: it goes to stdout and exits 0, so `--help | head` works.
       // No process.exit() behind the write: on an asynchronous pipe (macOS) that truncates the text.
       case "-h": case "--help": case "--help-all":
@@ -765,8 +715,6 @@ function parseArgs(argv) {
     fail(EXIT.USAGE, `--web-search must be one of ${[...WEB_SEARCH].join("|")}`);
   if (o.effort !== undefined && !EFFORTS.has(o.effort))
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
-  if (o.reasoningSummary !== undefined && !REASONING_SUMMARIES.has(o.reasoningSummary))
-    fail(EXIT.USAGE, `--reasoning-summary must be one of ${[...REASONING_SUMMARIES].join("|")}`);
   // 0 is the documented "no wall clock" default; MAX_TIMEOUT_S caps only a declared budget.
   if (!Number.isFinite(o.timeout) || o.timeout < 0 || o.timeout > MAX_TIMEOUT_S)
     fail(EXIT.USAGE, `--timeout must be a number of seconds, 0 for no wall clock, at most ${MAX_TIMEOUT_S}`);
@@ -794,36 +742,9 @@ function parseArgs(argv) {
     return { type: kind, path: real };
   });
 
-  // --review maps to the server's own review/start. It builds its own prompt and returns its own
-  // shape, so the prompt- and answer-shape flags beside it are contradictions, not extras.
-  if (o.review !== undefined) {
-    if (o.review === "uncommitted") o.reviewTarget = { type: "uncommittedChanges" };
-    else if (o.review.startsWith("branch:") && o.review.length > 7) o.reviewTarget = { type: "baseBranch", branch: o.review.slice(7) };
-    else if (o.review.startsWith("commit:") && o.review.length > 7) o.reviewTarget = { type: "commit", sha: o.review.slice(7) };
-    else fail(EXIT.USAGE, "--review must be uncommitted | branch:<ref> | commit:<sha>");
-    if (o.prompt !== undefined) fail(EXIT.USAGE, "--review builds its own prompt; --prompt cannot be combined with it");
-    if (o.resume) fail(EXIT.USAGE, "--review starts its own turn; --resume cannot be combined with it");
-    if (o.outputSchemaFile || o.answerJson) fail(EXIT.USAGE, "--review returns the server's review shape; --output-schema and --answer-json cannot be combined with it");
-    // review/start carries no input items and returns before turn/start, so attachments must be refused.
-    if (o.attach.length) fail(EXIT.USAGE, "--review runs the server's own reviewer, which takes no input items; an --attach beside it would be dropped silently");
-    // A --worktree is detached at HEAD and has no uncommitted changes to review.
-    // Only branch:/commit: targets are meaningful in that fresh tree.
-    if (o.worktree && o.review === "uncommitted")
-      fail(EXIT.USAGE, "--review uncommitted and --worktree are contradictory: a fresh worktree is created detached at HEAD and has no uncommitted changes, so the reviewer would examine an empty diff and report success; review the tree that holds the changes with --cwd, or review a ref with --review branch:<ref>");
-    // The reviewer works through the protocol, not the shell, so a turn with no commands is its
-    // ordinary success.
-    o.allowNoCommands = true;
-  }
-
   // --worktree owns the cwd it creates, and it is a write-level shape by construction: the whole point
   // is a tree the turn may edit. An explicit --level read beside it is a contradiction, not a hint.
   if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
-  if (o.fork && o.resume) fail(EXIT.USAGE, "--fork and --resume are contradictory: one branches a new thread and the other continues the existing thread");
-  if (o.fork && o.worktree) fail(EXIT.USAGE, "--fork and --worktree are contradictory: a fork keeps the declared cwd and cannot create a detached worktree");
-  if (o.forkThrough && !o.fork) fail(EXIT.USAGE, "--fork-through requires --fork");
-  if (o.compact && !o.resume) fail(EXIT.USAGE, "--compact requires --resume");
-  if (o.mcpServers.length && !o.mcp) fail(EXIT.USAGE, "--mcp-server requires --mcp");
-  if (o.mcpServers.length && o.hostHome) fail(EXIT.USAGE, "--mcp-server cannot filter --host-home; use --mcp without --host-home");
   if (o.worktree && o.levelExplicit && o.level === "read") fail(EXIT.USAGE, "--worktree requires --level write");
   if (o.worktree) o.level = "write";
   // The three registry modes read records that already name their own directory, so a --cwd would be a
@@ -834,11 +755,6 @@ function parseArgs(argv) {
     if (o.level !== "read") fail(EXIT.USAGE, "--cwd is required at --level write: the writable root is a grant, and a defaulted grant is one nobody made");
     o.cwd = canonPath(process.cwd()) ?? process.cwd();
   }
-  if (o.commit && o.level !== "write") fail(EXIT.USAGE, "--commit requires --level write");
-  if (o.ephemeral && o.resume) fail(EXIT.USAGE, "--ephemeral and --resume are contradictory");
-  // An ephemeral run writes no job record, and the record is what --wait, --jobs and --cancel act on:
-  // the handle would name a jobPath that never appears.
-  if (o.detach && o.ephemeral) fail(EXIT.USAGE, "--detach and --ephemeral are contradictory: an ephemeral run writes no job record, so nothing could collect the run");
   if (o.verifySandboxed && o.verify === undefined) fail(EXIT.USAGE, "--verify-sandboxed sandboxes --verify, which was not given");
   // Compile it now: an invalid pattern thrown from inside the report handler kills the run long after
   // the work is done, and costs the whole delegation.
@@ -955,7 +871,7 @@ function checkRoot(dir) {
   const protectedRoots = [
     [path.join(home, ".codex"), "~/.codex"],
     [path.join(home, ".codex-delegate"), "~/.codex-delegate"],
-    [stateDir("the home-directory guard"), "this driver's state directory"],
+    [stateDir(), "this driver's state directory"],
   ];
   for (const [target, label] of protectedRoots) {
     let prot = null;
@@ -978,7 +894,7 @@ function checkRoot(dir) {
 // both proceed.
 //
 // So the anchor is the PASSWD entry, not $HOME and not the protected directory itself. Inside the
-// directory, `git add -A --commit` stages the lock. Under $TMPDIR, that is a mutable variable AND the one
+// directory, a seat's `git add -A` stages the lock. Under $TMPDIR, that is a mutable variable AND the one
 // place --level read may write. Through os.homedir(), which prefers $HOME, two HOME values are two homes,
 // and HOME="" makes the path RELATIVE to the invocation directory. os.userInfo() reads passwd and ignores
 // the environment.
@@ -993,23 +909,21 @@ function passwdHome(what) {
 // One base for everything in STATE_SUBDIRS, moved by $CODEX_DELEGATE_STATE_DIR so a test harness cannot
 // reach production state. The price: two runs under different values do not exclude each other — per
 // harness, never per user. Absolute only, so it cannot resolve against a caller's cwd.
-function stateDir(what) {
+//
+// Resolved ONCE, in readOpts, and a VALUE at every site that used to re-derive it from the environment.
+// A root that can still be refused after the turn is a root that refuses it once the tokens are spent —
+// and the two sites that could not fail() there (the answer log, the turn diff) answered a bad root by
+// silently dropping the artefact instead. A relative $CODEX_DELEGATE_STATE_DIR is therefore exit 2 at
+// parse time, before a lock, a home or a worktree exists.
+let stateRoot = null;
+function stateDir() {
+  if (stateRoot !== null) return stateRoot;
   const override = process.env.CODEX_DELEGATE_STATE_DIR;
-  if (override) {
-    if (!path.isAbsolute(override))
-      fail(EXIT.USAGE, `CODEX_DELEGATE_STATE_DIR must be an absolute path, got ${JSON.stringify(override)}`);
-    return override;
-  }
-  return path.join(passwdHome(what), ".codex-delegate");
+  if (override && !path.isAbsolute(override))
+    fail(EXIT.USAGE, `CODEX_DELEGATE_STATE_DIR must be an absolute path, got ${JSON.stringify(override)}`);
+  return (stateRoot = override || path.join(passwdHome("this driver's state directory"), ".codex-delegate"));
 }
-// Return the same state root, or null if unavailable; side writes on a finished turn must not call fail(),
-// which settles the run and prints a refusal.
-function stateDirOrNull() {
-  const override = process.env.CODEX_DELEGATE_STATE_DIR;
-  if (override) return path.isAbsolute(override) ? override : null;
-  try { return path.join(os.userInfo().homedir, ".codex-delegate"); } catch { return null; }
-}
-const lockDir = () => path.join(stateDir("the cwd lock"), "locks");
+const lockDir = () => path.join(stateDir(), "locks");
 
 // Codex reads its plugins, skills, memories and project-trust records out of CODEX_HOME, so a turn run
 // in the caller's own home is a function of whatever they happen to have installed, and each run appends
@@ -1049,61 +963,7 @@ function resolveCodexBin() {
 }
 
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
-let mcpFromProbe = null;   // the caller's mcp_servers table, captured by the probe under --mcp only
 
-// Serialise the probe's mcp_servers object into TOML for a PRIVATE per-run home's config.toml.
-//
-// Neither obvious home works. The SHARED isolated config leaks a per-invocation grant into concurrent
-// runs that never asked for it. `-c` spawn args keep the grant per-run and put an MCP server's `env`
-// table — routinely tokens — into world-readable argv (`ps`, /proc/<pid>/cmdline). A per-run home is
-// per-run AND keeps the secrets in a 0600 file, at the cost of the shared home's warm caches.
-//
-// Only shapes the driver can carry FAITHFULLY are emitted — strings, finite numbers, booleans, string
-// arrays, and a string-valued env table; a server using anything richer, or a name outside the charset
-// codex itself accepts, is skipped OUT LOUD rather than mangled.
-function tomlMcpServers(servers) {
-  const bare = (k) => /^[A-Za-z0-9_-]+$/.test(k);
-  // Since codex 0.152.0 a server name may also carry `:`, `@`, `/` and `.` (package-style names such as
-  // `@scope/pkg`); those are legal TOML only as a quoted key, so the table header quotes them.
-  const serverName = (k) => /^[A-Za-z0-9_@:/.-]+$/.test(k);
-  const key = (k) => (bare(k) ? k : tomlString(k));
-  const lines = [];
-  for (const [name, cfg] of Object.entries(servers ?? {})) {
-    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg) || !serverName(name)) {
-      process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} has a shape or name the driver cannot carry faithfully; skipped\n`);
-      continue;
-    }
-    const scalars = [], env = [];
-    let carriable = true;
-    const value = (v) =>
-      typeof v === "string" ? tomlString(v)
-      : typeof v === "number" && Number.isFinite(v) ? String(v)
-      : typeof v === "boolean" ? String(v)
-      : Array.isArray(v) && v.every((x) => typeof x === "string") ? `[${v.map(tomlString).join(", ")}]`
-      : null;
-    for (const [k, v] of Object.entries(cfg)) {
-      if (v === null || v === undefined) continue;
-      if (k === "env" && typeof v === "object" && !Array.isArray(v)) {
-        for (const [ek, ev] of Object.entries(v)) {
-          const val = typeof ev === "string" && bare(ek) ? tomlString(ev) : null;
-          if (val === null) { carriable = false; break; }
-          env.push(`${ek} = ${val}`);
-        }
-      } else {
-        const val = bare(k) ? value(v) : null;
-        if (val === null) { carriable = false; break; }
-        scalars.push(`${k} = ${val}`);
-      }
-    }
-    if (!carriable) {
-      process.stderr.write(`codex-delegate: --mcp: server ${JSON.stringify(name)} uses a config shape the driver cannot carry faithfully; skipped\n`);
-      continue;
-    }
-    lines.push(`[mcp_servers.${key(name)}]`, ...scalars);
-    if (env.length) lines.push(`[mcp_servers.${key(name)}.env]`, ...env);
-  }
-  return lines;
-}
 // Resolve { entries, failed } so a failed config request cannot be mistaken for an empty config.
 function inheritedConfig() {
   return new Promise((resolve) => {
@@ -1165,9 +1025,6 @@ function inheritedConfig() {
         const wrong = INHERITED.filter((k) => cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== "string");
         if (wrong.length)
           process.stderr.write(`codex-delegate: the caller's Codex config reports ${wrong.join(", ")} as something other than text; those are not carried across\n`);
-        // `{}` and null are different answers: "you have no MCP servers configured" versus "the probe
-        // never told us", and --mcp refuses to run blind on the second.
-        if (opts?.mcp) mcpFromProbe = (cfg.mcp_servers && typeof cfg.mcp_servers === "object") ? cfg.mcp_servers : {};
         return finish(INHERITED.filter((k) => typeof cfg[k] === "string").map((k) => [k, tomlString(cfg[k])]));
       }
     });
@@ -1188,7 +1045,7 @@ const MANAGED_PREFS = "/Library/Managed Preferences/com.openai.codex.plist";
 function managedWebSearchModes() {
   if (!fs.existsSync(MANAGED_PREFS)) return null;
   const r = spawnSync("plutil", ["-extract", "requirements_toml_base64", "raw", "-o", "-", MANAGED_PREFS],
-    { encoding: "utf8" });
+    { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
   // No such key is a real answer: the profile constrains other things and says nothing about search.
   if (r.status !== 0) return /does not exist|Could not extract/i.test(String(r.stderr ?? "")) ? null : undefined;
   if (!r.stdout) return undefined;
@@ -1204,7 +1061,6 @@ function managedWebSearchModes() {
   return modes.length ? modes : undefined;   // an empty list permits nothing, which is not "unrestricted"
 }
 
-let perRunHome = null;   // removed at shutdown; only --mcp creates one
 // A $TMPDIR of this run's own, made only when the caller exported none, 0700 so no other user can read
 // what the seat writes there. It lives under the driver's own state and OUTLIVES the run: --brief tells
 // the seat to leave long output in a file there, so a directory removed at exit takes with it every path
@@ -1213,7 +1069,7 @@ let perRunHome = null;   // removed at shutdown; only --mcp creates one
 let privateTmp = null;
 const TMP_OWNER = "owner.json";
 function privateTmpDir() {
-  const base = path.join(stateDir("the private $TMPDIR"), "tmp");
+  const base = path.join(stateDir(), "tmp");
   // The detached child names its directory after its own run, so the two halves of one seat's state
   // share a name; a blocking run has no runId and gets the same shape the run directory uses.
   const id = opts.runDir ? path.basename(opts.runDir) : `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
@@ -1223,7 +1079,7 @@ function privateTmpDir() {
     pruneAnswers(base, true, TMP_OWNER);
     fs.mkdirSync(dir, { mode: 0o700 });
     // Whose it is, so the pruner never removes a live seat's scratch directory. A seat may delete this
-    // file — it owns the tree — and the age bound is what decides then, as it is for a crashed --mcp home.
+    // file — it owns the tree — and the age bound is what decides then.
     fs.writeFileSync(path.join(dir, TMP_OWNER),
       JSON.stringify({ pid: process.pid, identity: processIdentity(process.pid), startedAt: new Date().toISOString() }),
       { mode: 0o600 });
@@ -1249,21 +1105,49 @@ const keysInConfig = (cfg) => {
   catch { return []; }
 };
 
-// Age decides abandonment when no owner file exists; otherwise reap only after the owner is gone.
-// HOME_BACKSTOP_MS exceeds MAX_TIMEOUT_S in milliseconds to allow time for the owner record to be written.
-const HOME_BACKSTOP_MS = 3 * 3600000;
-function reapPerRunHomes(dir) {
+// One reader for every JSON file this driver keeps: locks, job records, ledger entries, owner records.
+// Absent, unreadable and unparsable are one answer — null — because every caller below treats them
+// alike, and a second spelling of this try/catch is a second place the rule can drift.
+const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
+// One writer for every 0600 artefact this driver replaces: the job record, the worktree ledger entry
+// and the harvested diff. Written under a random name and renamed over the target, because an in-place
+// write is a window in which the file is TRUNCATED — and every reader of these treats an unparsable or
+// short body as absent, so that window costs the record, the tree's only name, or a whole patch. The
+// name is random rather than the pid: two runs in different PID namespaces over one mounted state
+// directory share a pid and would write the same temp file.
+function renameOver(p, body) {
+  const tmp = `${p}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    for (const n of fs.readdirSync(dir).sort().slice(0, 50)) {
-      const home = path.join(dir, n);
-      if (home === perRunHome) continue;
-      let owner = null;
-      try { owner = JSON.parse(fs.readFileSync(path.join(home, "owner.json"), "utf8")); } catch {}
-      if (owner ? holderAlive(owner) : Date.now() - fs.statSync(home).mtimeMs < HOME_BACKSTOP_MS) continue;
-      fs.rmSync(home, { recursive: true, force: true });
-      process.stderr.write(`codex-delegate: reaped a crashed --mcp run's private home ${home}\n`);
+    fs.writeFileSync(tmp, body, { mode: 0o600 });
+    fs.renameSync(tmp, p);
+  } finally { fs.rmSync(tmp, { force: true }); }
+  return p;
+}
+
+// What the shared home's link points at: {target} for a symlink, {target: null} when there is nothing
+// there yet, {notLink} for a real file or directory in the way.
+//
+// readlink(2) is asked more than once because a PEER replacing the same link with rename(2) makes it
+// answer EINVAL for a moment while the entry is a symbolic link the whole time: measured on macOS with
+// 64 concurrent first runs against one fresh home, 12 of 30 rounds produced at least one EINVAL whose
+// lstat said "symbolic link" and whose next readlink returned the right target. Believing that answer
+// refused a healthy run with "exists but is not a symbolic link" (exit 2). So the refusal now needs
+// lstat to agree, and a transient failure falls through to the atomic re-link below, which is
+// idempotent: the loser of the race writes the same link the winner did.
+const LINK_READ_ATTEMPTS = 8;
+function linkTarget(p) {
+  for (let i = 0; i < LINK_READ_ATTEMPTS; i++) {
+    try { return { target: fs.readlinkSync(p) }; }
+    catch (e) {
+      if (e.code === "ENOENT") return { target: null };
+      let isLink = false;
+      try { isLink = fs.lstatSync(p).isSymbolicLink(); } catch { return { target: null }; }
+      if (!isLink) return { target: null, notLink: true, code: e.code };
     }
-  } catch {}
+  }
+  // Still churning after every attempt. Not a verdict of "not a symlink": say nothing is there and let
+  // the caller's rename settle it.
+  return { target: null };
 }
 
 async function isolatedHome() {
@@ -1271,25 +1155,10 @@ async function isolatedHome() {
   // sessions from does not, and must not — a test harness redirecting state has no business inventing
   // an auth.json, and the rollout receipt has to land where the published verification recipe looks.
   const base = passwdHome("the isolated Codex home");
-  // --mcp gets a home of its OWN, for the two reasons in the comment on tomlMcpServers: the grant must
-  // not outlive this run in shared state, and its secrets must sit in a 0600 file rather than in argv.
-  // Everything else keeps the shared home, whose warm caches are what make an isolated run fast.
-  const home = opts.mcp
-    ? path.join(stateDir("the isolated Codex home"), "homes", crypto.randomBytes(8).toString("hex"))
-    : path.join(stateDir("the isolated Codex home"), "home");
-  if (opts.mcp) perRunHome = home;
+  // One home shared by every run: its warm caches are what make an isolated run fast.
+  const home = path.join(stateDir(), "home");
   try { fs.mkdirSync(home, { recursive: true, mode: 0o700 }); }
   catch (e) { fail(EXIT.USAGE, `cannot create the isolated Codex home ${home}: ${e.message}`); }
-  if (opts.mcp) {
-    // Record the private home's owner before sweeping, so the next --mcp run can reap secrets left by
-    // SIGKILL without mistaking this run's new home for an abandoned one.
-    try {
-      fs.writeFileSync(path.join(home, "owner.json"),
-        JSON.stringify({ pid: process.pid, identity: processIdentity(process.pid), started: new Date().toISOString() }),
-        { mode: 0o600 });
-    } catch {}
-    reapPerRunHomes(path.dirname(home));
-  }
   for (const name of ["auth.json", "sessions"]) {
     const link = path.join(home, name), target = path.join(base, ".codex", name);
     // Create sessions when absent so the linked rollout remains at ~/.codex/sessions for verification.
@@ -1298,14 +1167,12 @@ async function isolatedHome() {
       try { fs.mkdirSync(target, { recursive: true, mode: 0o700 }); } catch { /* fall through to the skip */ }
     }
     if (!fs.existsSync(target)) continue;   // nothing to share yet; codex creates its own
-    let current = null;
-    try { current = fs.readlinkSync(link); } catch (e) {
-      // Anything that is not a symlink is a real file someone put there, possibly holding real state.
-      // Replacing it silently is how a token or a session archive disappears, so stop and say which.
-      if (e.code !== "ENOENT")
-        fail(EXIT.USAGE, `${link} exists but is not a symbolic link; move it aside or pass --host-home`);
-    }
-    if (current === target) continue;
+    const current = linkTarget(link);
+    // Anything that is not a symlink is a real file someone put there, possibly holding real state.
+    // Replacing it silently is how a token or a session archive disappears, so stop and say which.
+    if (current.notLink)
+      fail(EXIT.USAGE, `${link} exists but is not a symbolic link (${current.code}); move it aside or pass --host-home`);
+    if (current.target === target) continue;
     // Created under a random name and RENAMED over the link: rename(2) is atomic, while unlink-then-
     // symlink is a window two fresh seats lose against each other — both read ENOENT, both symlink, and
     // the loser fails EEXIST on a link the winner has just made correctly. An EEXIST that still gets
@@ -1316,9 +1183,7 @@ async function isolatedHome() {
       fs.renameSync(tmpLink, link);
     } catch (e) {
       try { fs.unlinkSync(tmpLink); } catch {}
-      let now = null;
-      try { now = fs.readlinkSync(link); } catch {}
-      if (now !== target) fail(EXIT.USAGE, `cannot link ${link} -> ${target}: ${e.message}`);
+      if (linkTarget(link).target !== target) fail(EXIT.USAGE, `cannot link ${link} -> ${target}: ${e.message}`);
     }
   }
   // Write inherited values into the home so omitting --effort sends no -c override, as the protocol cases pin.
@@ -1336,26 +1201,17 @@ async function isolatedHome() {
   if (settled) { configInherited = { source: "none", keys: [] }; return home; }
   // Keep the last-known-good shared config on probe failure; concurrent healthy runs write the same bytes.
   // A private per-run home has no prior config or peer, so it always writes.
-  if (probe.failed && !opts.mcp && fs.existsSync(cfg)) {
+  if (probe.failed && fs.existsSync(cfg)) {
     process.stderr.write(`codex-delegate: keeping the previously inherited config (last known good) at ${cfg}\n`);
     configInherited = { source: "last-known-good", keys: keysInConfig(cfg) };
     return home;
   }
   configInherited = { source: probe.failed ? "none" : "probe", keys: probe.entries.map(([k]) => k) };
-  let carriedMcp = mcpFromProbe;
-  if (opts.mcpServers.length && mcpFromProbe) {
-    const wanted = [...new Set(opts.mcpServers)];
-    const missing = wanted.filter((name) => !Object.hasOwn(mcpFromProbe, name));
-    if (missing.length)
-      fail(EXIT.USAGE, `--mcp-server: unknown server${missing.length === 1 ? "" : "s"} ${missing.map((name) => JSON.stringify(name)).join(", ")}; configured servers: ${Object.keys(mcpFromProbe).sort().join(", ") || "none"}`);
-    carriedMcp = Object.fromEntries(wanted.map((name) => [name, mcpFromProbe[name]]));
-  }
   // Use a random temp name because different PID namespaces can share a pid on one mounted home.
   // "wx" refuses an existing name instead of following a symlink onto another file.
   const tmp = `${cfg}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    const body = probe.entries.map(([k, v]) => `${k} = ${v}\n`).join("")
-      + (opts.mcp && carriedMcp ? `${tomlMcpServers(carriedMcp).join("\n")}\n` : "");
+    const body = probe.entries.map(([k, v]) => `${k} = ${v}\n`).join("");
     fs.writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
     fs.renameSync(tmp, cfg);    // atomic, so a concurrent seat never reads a half-written file
   } catch (e) {
@@ -1404,7 +1260,8 @@ function processIdentity(pid) {
   // Pin TZ and LC_ALL because ps renders lstart through the caller's timezone and locale;
   // the same process must retain the same identity across shells.
   const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)],
-    { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+    { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+      timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
   const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
   return t ? `lstart:${t}` : null;
 }
@@ -1547,8 +1404,8 @@ function acquireLock(dir) {
 function updateLock(fields) {
   if (!lockPath) return;
   try {
-    const cur = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-    if (cur.pid !== process.pid) return;
+    const cur = readJson(lockPath);
+    if (cur?.pid !== process.pid) return;
     const tmp = `${lockPath}.${crypto.randomBytes(8).toString("hex")}.tmp`;
     try {
       fs.writeFileSync(tmp, JSON.stringify({ ...cur, ...fields }));
@@ -1558,25 +1415,28 @@ function updateLock(fields) {
 }
 function releaseLock() {
   if (!lockPath) return;
-  try { if (JSON.parse(fs.readFileSync(lockPath, "utf8")).pid === process.pid) fs.rmSync(lockPath, { force: true }); } catch {}
+  try { if (readJson(lockPath)?.pid === process.pid) fs.rmSync(lockPath, { force: true }); } catch {}
   lockPath = null;
 }
 
 // ---------------------------------------------------------------- git
-// Every git this driver spawns runs with the CALLER's rights over a tree a seat may have written: with
-// --commit the seat holds the git common dir, where config, hooks and external diff drivers are all code
-// that the harvest, the removal and the NEXT run's `worktree add` would execute before anyone reads the
-// report. A command-line -c outranks every config file, so the three execution paths are disarmed in one
-// place that no call site can forget, and a hook that survives anyway is bounded rather than
-// unsignalable.
-const GIT_TIMEOUT_MS = 120_000;
+// Every git this driver spawns runs with the CALLER's rights over a tree a seat may have written, where
+// config, hooks and external diff drivers are all code that the harvest, the removal and the NEXT run's
+// `worktree add` would execute before anyone reads the report. A command-line -c outranks every config
+// file, so the three execution paths are disarmed in one place that no call site can forget, and a hook
+// that survives anyway is bounded rather than unsignalable.
+//
+// One bound for every command this driver spawns and WAITS on, git or not: a `ps`, a `plutil` or a
+// `tar` that never returns hangs the run exactly as a hook-driven git does, and only the git calls had
+// it.
+const SPAWN_TIMEOUT_MS = 120_000;
 const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external="];
 // --no-ext-diff and --no-textconv on every diff: `diff.external` is only one of the two ways a repository
 // asks git to run a program, the other being a gitattributes driver, and textconv output is not appliable.
 const GIT_DIFF_SAFE = ["--no-ext-diff", "--no-textconv"];
 function git(dir, args, extra = {}) {
   return spawnSync("git", [...GIT_SAFE, "-C", dir, ...args],
-    { encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL", ...extra });
+    { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL", ...extra });
 }
 
 // ---------------------------------------------------------------- worktree
@@ -1584,56 +1444,52 @@ function git(dir, args, extra = {}) {
 // incomplete turns and failed harvests preserve the tree.
 // Write the ledger before creation so a crashed run leaves a trace reconciliation can find.
 let worktreeInfo = null;
-const answersDir = () => path.join(stateDir("the answer log"), "answers");
-// The answer log is written from paths that must not refuse: null means "no answer log", never an exit
-// code and a refusal on a turn that has already succeeded.
-const answersDirOrNull = () => { const root = stateDirOrNull(); return root === null ? null : path.join(root, "answers"); };
+const answersDir = () => path.join(stateDir(), "answers");
 
 // One JSON record per run, keyed by threadId, under ~/.codex-delegate/jobs/ — the registry that lets a
 // coordinator list what ran and resume the newest thread without having kept the id itself
 // (--resume last). Best-effort on the same terms as the answer log: losing a record costs the record,
 // never the run. Pruned with the same bounds as the answers.
-const jobsDir = () => path.join(stateDir("the job registry"), "jobs");
+const jobsDir = () => path.join(stateDir(), "jobs");
 function writeJob(fields) {
-  // Ephemeral threads cannot be resumed, so a registry whose purpose is resume must not offer them.
-  if (!rootThreadId || opts?.ephemeral) return;
+  if (!rootThreadId) return;
   try {
     const dir = jobsDir();
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const p = path.join(dir, `${rootThreadId}.json`);
-    let prev = {};
-    try { prev = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
-    // Replaced by rename(2), not rewritten in place: an in-place write is a window in which the record is
-    // truncated, and a concurrent `--resume last` that fails to parse it discards it and continues an
-    // OLDER thread. A reader sees one whole version or the other.
-    const tmp = `${p}.${crypto.randomBytes(8).toString("hex")}.tmp`;
-    try {
-      fs.writeFileSync(tmp, JSON.stringify({ ...prev, ...fields }), { mode: 0o600 });
-      fs.renameSync(tmp, p);
-    } finally { fs.rmSync(tmp, { force: true }); }
+    const prev = readJson(p) ?? {};
+    // Whole or not at all, or a concurrent `--resume last` that fails to parse this discards it and
+    // continues an OLDER thread.
+    renameOver(p, JSON.stringify({ ...prev, ...fields }));
     pruneAnswers(dir);
   } catch {}
 }
-// `--resume last`: the newest job record FOR THIS CWD, ended or not — a still-running seat's thread
-// refuses the resume anyway (exit 10), which is the honest answer for "the last seat is still
-// working". Scoped by cwd because the registry is machine-wide and a fan-out is the headline use: with
-// seats in two repositories the newest record is routinely the other repository's, and resuming it
-// would answer a follow-up about repo2 from a conversation entirely about repo1 — a mix-up no sandbox
-// assert can catch, since the resumed thread is handed the cwd it was asked for.
+// Does a job record belong to the directory being asked about? Matched by IDENTITY, and by the seat's
+// surviving repository as well as its cwd, which a removed worktree no longer has. Empty fields never
+// match: path.resolve("") would otherwise substitute the driver's own cwd.
+const recordIsIn = (rec, forCwd) =>
+  [rec?.cwd, rec?.repo].some((v) => typeof v === "string" && v !== "" && canonPath(v) === forCwd);
+
+// `--resume last`: the record FOR THIS CWD that was STARTED most recently, ended or not — a
+// still-running seat's thread refuses the resume anyway (exit 10), which is the honest answer for "the
+// last seat is still working". Ordered by the record's own `started`, never by mtime: a long seat
+// rewrites its record on every mid-flight heartbeat, so mtime made a run started hours ago outrank a
+// shorter one started after it and already finished. Scoped by cwd because the registry is machine-wide
+// and a fan-out is the headline use: with seats in two repositories the newest record is routinely the
+// other repository's, and resuming it would answer a follow-up about repo2 from a conversation entirely
+// about repo1 — a mix-up no sandbox assert can catch, since the resumed thread is handed the cwd it was
+// asked for.
 function resolveResumeLast(forCwd, what = "--resume last") {
   let names = [];
   try { names = fs.readdirSync(jobsDir()).filter((n) => n.endsWith(".json")); } catch {}
-  // Match a worktree seat by its surviving repository path as well as its cwd, which may have been removed.
-  // Empty fields never match: path.resolve("") would otherwise substitute the driver's own cwd.
-  const isHere = (v) => typeof v === "string" && v !== "" && canonPath(v) === forCwd;
   const here = names.map((n) => {
-    const p = path.join(jobsDir(), n);
-    try {
-      const rec = JSON.parse(fs.readFileSync(p, "utf8"));
-      if (!isHere(rec?.cwd) && !isHere(rec?.repo)) return null;
-      return { n, t: fs.statSync(p).mtimeMs };
-    } catch { return null; }
-  }).filter(Boolean).sort((a, b) => b.t - a.t)[0];
+    const rec = readJson(path.join(jobsDir(), n));
+    if (!rec || !recordIsIn(rec, forCwd)) return null;
+    // A record with no usable `started` never outranks one that has it, and the name breaks a tie so
+    // two records written in the same millisecond resolve the same way on every run.
+    const t = Date.parse(rec.started ?? "");
+    return { n, t: Number.isFinite(t) ? t : 0 };
+  }).filter(Boolean).sort((a, b) => (b.t - a.t) || (a.n < b.n ? 1 : -1))[0];
   if (!here) fail(EXIT.USAGE, `${what}: no previous run in ${forCwd} is recorded in the job registry`);
   const id = here.n.replace(/\.json$/, "");
   process.stderr.write(`codex-delegate: ${what} -> ${id}\n`);
@@ -1648,7 +1504,7 @@ function resolveResumeLast(forCwd, what = "--resume last") {
 // Nothing about the turn changes — the lock, the worktree ledger and the job record are all the child's
 // and name the pid that dies with the run — so the front holds no lock, no tree and no pipe, and its
 // own death costs nothing but the wait.
-const runsDir = () => path.join(stateDir("the detached run transport"), "runs");
+const runsDir = () => path.join(stateDir(), "runs");
 // One run directory holds the transport: whatever a collector is handed, it can find the rest.
 const runFiles = (dir) => ({
   runDir: dir, runId: path.basename(dir),
@@ -1656,7 +1512,6 @@ const runFiles = (dir) => ({
   stderrPath: path.join(dir, "stderr.txt"), launchPath: path.join(dir, "launch.json")
 });
 const DRIVER_PATH = fileURLToPath(import.meta.url);
-const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
 // Canonicalised like the run directory: under a symlinked state dir the raw path and the resolved one
 // are two spellings of one file, and a handle carrying both is a collector comparing them for equality.
 const jobRecordPath = (id) => path.join(canonPath(jobsDir()) ?? jobsDir(), `${id}.json`);
@@ -1805,7 +1660,7 @@ async function detachFront() {
   // Spooled, so the child reads its task the way every other run does — from stdin — and the front can
   // die at any moment after the spawn without taking the prompt with it.
   let prompt = opts.prompt ?? "";
-  if (opts.prompt === undefined && !opts.review) {
+  if (opts.prompt === undefined) {
     if (process.stdin.isTTY) fail(EXIT.USAGE, "no prompt: pass --prompt or pipe one on stdin");
     process.stdin.setEncoding("utf8");
     let s = "";
@@ -1949,7 +1804,6 @@ function listJobs() {
   // resolveDir, not canonPath: a --cwd that does not exist would silently canonicalise to null and
   // list every run on the machine as if no filter had been asked for.
   const forCwd = opts.cwd ? resolveDir(opts.cwd, "--cwd") : null;
-  const isHere = (v) => typeof v === "string" && v !== "" && canonPath(v) === forCwd;
   let names = [];
   try { names = fs.readdirSync(jobsDir()).filter((n) => n.endsWith(".json")); } catch {}
   const rows = [];
@@ -1957,7 +1811,7 @@ function listJobs() {
     const p = path.join(jobsDir(), n);
     const rec = readJson(p);
     if (!rec) continue;
-    if (forCwd && !isHere(rec.cwd) && !isHere(rec.repo)) continue;
+    if (forCwd && !recordIsIn(rec, forCwd)) continue;
     let t = 0;
     try { t = fs.statSync(p).mtimeMs; } catch {}
     rows.push({ t, row: {
@@ -2012,25 +1866,26 @@ function refuseLiveResume(id) {
     + `${rec.detached ? `, detached run ${rec.runId}` : ""}; wait for it with --wait ${id}, or stop it with --cancel ${id}`);
 }
 
-const ledgerDir = () => path.join(stateDir("the worktree ledger"), "worktrees");
-// Write the ledger BEFORE git worktree add so an interrupted checkout is already named, then record its base commit.
-// Best-effort: a missing trace must not refuse a run.
+const ledgerDir = () => path.join(stateDir(), "worktrees");
+// Write the ledger BEFORE git worktree add so an interrupted checkout is already named, then record its
+// base commit. Returns the entry's path, or null when it could not be written — createWorktree REFUSES
+// on that rather than proceeding: a run refused costs the run, while an add that proceeds unnamed costs
+// a tree nothing points at, and 22 of 64 such trees held uncommitted work (references/incidents.md).
 function writeLedger(name, fields) {
   try {
     const dir = ledgerDir();
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const p = path.join(dir, `${name}.json`);
-    fs.writeFileSync(p, JSON.stringify(fields), { mode: 0o600 });
-    return p;
+    return renameOver(path.join(dir, `${name}.json`), JSON.stringify(fields));
   } catch { return null; }
 }
 // Merges into an existing entry, for a field that only exists later in the run: the app-server's
-// process group. Best-effort on the same terms as writeLedger.
+// process group. Best-effort — the tree is named by then — and an entry that is gone or unparsable is
+// left alone rather than replaced by a body that has lost every field this call is not writing.
 function updateLedger(name, fields) {
   try {
     const p = path.join(ledgerDir(), `${name}.json`);
-    const cur = JSON.parse(fs.readFileSync(p, "utf8"));
-    fs.writeFileSync(p, JSON.stringify({ ...cur, ...fields }), { mode: 0o600 });
+    const cur = readJson(p);
+    if (cur !== null) renameOver(p, JSON.stringify({ ...cur, ...fields }));
   } catch {}
 }
 
@@ -2045,8 +1900,7 @@ function reachableFromAnyRef(repo, sha) {
 // tree started is a refusal rather than a silent fresh tree at HEAD: a seat handed a tree that is not
 // the one its thread worked in reviews the wrong files and exits 0.
 function priorWorktreeJob(id, repo) {
-  let rec = null;
-  try { rec = JSON.parse(fs.readFileSync(path.join(jobsDir(), `${id}.json`), "utf8")); } catch {}
+  const rec = readJson(path.join(jobsDir(), `${id}.json`));
   if (!rec?.baseSha)
     fail(EXIT.USAGE, `--worktree with --resume ${id}: the job registry holds ${rec ? "no base commit for that thread" : "no record of that thread"}, ` +
       `so the tree it ran in cannot be rebuilt; resume it with --level write --cwd on a tree you restore yourself`);
@@ -2065,11 +1919,19 @@ function reconcileWorktreeLedgers() {
     // base36 timestamp, so ascending is oldest first.
     for (const n of fs.readdirSync(dir).filter((x) => x.endsWith(".json")).sort().slice(0, 50)) {
       const p = path.join(dir, n);
-      let e = null;
-      try { e = JSON.parse(fs.readFileSync(p, "utf8")); } catch { fs.rmSync(p, { force: true }); continue; }
+      const e = readJson(p);
+      // An entry that cannot be read is the one entry whose tree has no other name; deleting it deletes
+      // the only pointer to a checkout that may hold work. Renamed aside, out loud: the next run stops
+      // re-reading it and the bytes are still there for whoever looks.
+      if (e === null) {
+        try { fs.renameSync(p, `${p}.bad`); } catch { continue; }
+        process.stderr.write(`codex-delegate: the worktree ledger entry ${p} could not be parsed; it is kept at ${p}.bad ` +
+          `and no tree was touched — list the trees with: git -C <repo> worktree list\n`);
+        continue;
+      }
       // Same rule as the lock: a dead driver whose codex group is still alive has not abandoned its tree.
       if (!reclaimable(e)) continue;
-      if (!e?.path || !fs.existsSync(e.path)) { fs.rmSync(p, { force: true }); continue; }
+      if (!e.path || !fs.existsSync(e.path)) { fs.rmSync(p, { force: true }); continue; }
       const repo = e.repo ?? e.path;
       const how = e.state === "preserved" ? "an earlier run preserved" : "a crashed run left";
       const st = git(e.path, ["status", "--porcelain"]);
@@ -2132,8 +1994,12 @@ function createWorktree(repo, prior = null) {
   checkRoot(created);
   const owner = { pid: process.pid, identity: processIdentity(process.pid), started: new Date().toISOString() };
   // Write the ledger before the add so every interrupted checkout is named; reconciliation drops entries
-  // whose trees were never created.
+  // whose trees were never created. An entry that cannot be written stops the run HERE, before git
+  // creates anything, for the reason writeLedger states.
   let ledger = writeLedger(name, { path: dir, repo, ...owner, state: "creating" });
+  if (ledger === null)
+    fail(EXIT.USAGE, `the worktree ledger under ${ledgerDir()} could not be written, so a tree created now could not be named ` +
+      `after a crash and would be orphaned; fix that directory, or run with --level write --cwd on a tree you manage yourself`);
   // --resume rebuilds the tree its thread ran in, so it starts where that tree started, not at today's
   // HEAD; a fresh seat starts at HEAD.
   const at = prior?.baseSha ? [prior.baseSha] : [];
@@ -2143,8 +2009,8 @@ function createWorktree(repo, prior = null) {
     if (ledger && !fs.existsSync(dir)) { try { fs.rmSync(ledger, { force: true }); } catch {} }
     fail(EXIT.USAGE, `git worktree add failed: ${String(add.stderr).trim().slice(0, 200)}`);
   }
-  // The commit the tree started at. The harvest diffs against THIS, not against HEAD: a seat with
-  // --commit moves HEAD, and `git diff HEAD` then reports nothing while the work sits in commits that
+  // The commit the tree started at. The harvest diffs against THIS, not against HEAD: a seat that
+  // committed moves HEAD, and `git diff HEAD` then reports nothing while the work sits in commits that
   // a detached worktree's removal makes unreachable. Recorded at creation because afterwards there is
   // no way to ask what the base was.
   const base = git(dir, ["rev-parse", "HEAD"]);
@@ -2194,7 +2060,7 @@ function restorePriorWork(dir, prior) {
   if (prior.worktreeUntrackedPath) {
     if (!fs.existsSync(prior.worktreeUntrackedPath)) gone("untracked archive", prior.worktreeUntrackedPath);
     const tar = spawnSync("tar", ["-xzf", prior.worktreeUntrackedPath, "-C", dir],
-      { encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL" });
+      { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
     if (tar.status !== 0) {
       abandon();
       fail(EXIT.USAGE, `--resume: the untracked archive ${prior.worktreeUntrackedPath} could not be unpacked ` +
@@ -2225,7 +2091,7 @@ function disposeWorktree(turnDone) {
                 worktreeIgnoredDropped: null, worktreeCommitsRef: null, worktreeFleet: null };
   const st = git(dir, ["status", "--porcelain"]);
   const clean = st.status === 0 && st.stdout.trim() === "";
-  // Harvest when the tree is dirty OR HEAD moved: a spotless --commit seat still has commits to preserve.
+  // Harvest when the tree is dirty OR HEAD moved: a spotless seat that committed still has commits to preserve.
   const headNow = git(dir, ["rev-parse", "HEAD"]);
   const headSha = headNow.status === 0 ? headNow.stdout.trim() : null;
   const committed = Boolean(baseSha && headSha && headSha !== baseSha);
@@ -2234,7 +2100,7 @@ function disposeWorktree(turnDone) {
   else if (!clean || committed) {
     // Diffed against the commit the tree STARTED at, not against HEAD. Dirtiness is decided by
     // `status --porcelain`, which sees staged changes, so the harvest must see them too — and a seat
-    // with --commit moves HEAD, where `git diff HEAD` reports nothing at all while the work sits in
+    // that committed moves HEAD, where `git diff HEAD` reports nothing at all while the work sits in
     // commits that removing a detached worktree makes unreachable. Against the base, one patch carries
     // committed, staged and unstaged work alike. HEAD and the bare form remain as fallbacks.
     const diffVs = (extra) => {
@@ -2250,21 +2116,35 @@ function disposeWorktree(turnDone) {
     const harvest = () => {
       const base = path.join(answersDir(), `${rootThreadId ?? `no-thread-${process.pid}`}`);
       fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 });
+      // `base` is the THREAD's name, so a --resume re-harvest writes over the artefacts the previous turn
+      // left. Two consequences, both handled here: the write must be whole-or-nothing, and a turn that
+      // harvests NOTHING must not leave the previous turn's file behind — the record's pointer goes null
+      // while the file stays, and the next reader opens work this turn reverted.
+      // Except the file the SERVER's turn/diff/updated landed in: persistTurnDiff names it
+      // `<threadId>.diff` too, so on a run that received one, `${base}.diff` is this turn's own artefact
+      // with the report pointing at it, not the previous turn's leftover.
+      const dropStale = (art) => {
+        if (art === turnDiffPath || !fs.existsSync(art)) return;
+        try { fs.rmSync(art, { force: true }); }
+        catch (e) { return process.stderr.write(`codex-delegate: this turn harvested nothing and the earlier ${art} ` +
+          `could not be removed (${e.message}); it is stale — do not read it as this turn's work\n`); }
+        process.stderr.write(`codex-delegate: this turn harvested nothing, so the earlier ${art} was removed\n`);
+      };
       const full = diffVs(["--binary"]);
       if (full.status !== 0) return `the diff could not be taken (${String(full.stderr).trim().slice(0, 120)})`;
       if (full.stdout.length) {
-        fs.writeFileSync(`${base}.diff`, full.stdout, { mode: 0o600 });
+        renameOver(`${base}.diff`, full.stdout);
         res.worktreeDiffPath = `${base}.diff`;
-      }
+      } else dropStale(`${base}.diff`);
       const ls = git(dir, ["ls-files", "--others", "--exclude-standard", "-z"],
         { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 });
       if (ls.status !== 0) return "the untracked list could not be taken";
       if (ls.stdout.length) {
         const tar = spawnSync("tar", ["-czf", `${base}.untracked.tgz`, "-C", dir, "--null", "-T", "-"],
-          { input: ls.stdout, encoding: "utf8" });
+          { input: ls.stdout, encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
         if (tar.status !== 0) return `untracked files could not be archived (${String(tar.stderr).trim().slice(0, 120)})`;
         res.worktreeUntrackedPath = `${base}.untracked.tgz`;
-      }
+      } else dropStale(`${base}.untracked.tgz`);
       // IGNORED files are in neither the diff nor that archive — `status --porcelain` cannot see them,
       // which is why they never block removal, and `--exclude-standard` deliberately leaves them out
       // (a harvest that swept node_modules would be useless). They are still deleted by the removal
@@ -2353,7 +2233,7 @@ function assertSandbox(thread) {
 
 // At write level the server reports the grant differently, measured against the live binary: the cwd is
 // NOT in writableRoots — it is implied by workspaceWrite and appears in runtimeWorkspaceRoots — so
-// writableRoots holds exactly the EXTRA roots from --writable/--commit and is empty without them. The
+// writableRoots holds exactly the EXTRA roots from --writable and is empty without them. The
 // permission profile is null here, because sending `sandbox` at all suppresses it.
 function assertWriteSandbox(thread) {
   const refuse = (why) => fail(EXIT.TRANSPORT,
@@ -2447,10 +2327,11 @@ function readOpts() {
     // and --prompt is the command line's, and neither is obviously the caller's intent.
     if (opts.prompt !== undefined)
       fail(EXIT.USAGE, "the seat file carries a body below its header and --prompt was given too; pass one prompt, not two");
-    if (opts.review !== undefined)
-      fail(EXIT.USAGE, "the seat file carries a body below its header beside REVIEW, which builds its own prompt: the body would be discarded");
     opts.prompt = seatFileBody;
   }
+  // The one place the state root is resolved. Here rather than at each use, so a root this driver cannot
+  // work with is refused at parse time rather than halfway through the run that needs it.
+  stateDir();
 }
 
 async function setup() {
@@ -2468,7 +2349,7 @@ async function setup() {
   //         and /tmp all stay unwritable; the temp dir is what tools need to start at all. Without it a
   //         reader cannot run the test suite, which Claude's own read-only subagent can — that gap is the
   //         whole reason the profile is here rather than a plain sandbox: "read-only".
-  // write : workspace-write with cwd as the writable root, plus --commit / --writable / --network.
+  // write : workspace-write with cwd as the writable root, plus --writable / --network.
   sandbox = opts.level === "read" ? null : "workspace-write";
 
   if (opts.level === "read" && (opts.network || opts.writable.length))
@@ -2518,38 +2399,12 @@ async function setup() {
   // Probe the caller's settings before taking the write lock so a stalled config request does not occupy the directory.
   codexHome = opts.hostHome ? null : await isolatedHome();
 
-  // --mcp is a capability request, and a capability silently not granted is the failure mode this
-  // driver refuses everywhere else (a clamped approval policy, a substituted web-search mode). If the
-  // probe never reported the table — it failed, or the last-known-good path skipped it — say so and
-  // stop, rather than running a seat that quietly has no tools.
-  if (opts.mcp && !opts.hostHome && mcpFromProbe === null)
-    fail(EXIT.TRANSPORT, "--mcp was asked for but the caller's config could not be read, so no MCP servers can be carried; retry, or use --host-home");
-  if (opts.mcp && mcpFromProbe && Object.keys(mcpFromProbe).length === 0)
-    process.stderr.write("codex-delegate: --mcp: the caller's Codex config declares no MCP servers; the seat has none\n");
-
   if (opts.level !== "read") acquireLock(cwd);
 
   // The server deduplicates writable roots and subtracts cwd, which workspaceWrite implies and
   // runtimeWorkspaceRoots reports; normalise the request the same way before asserting the response.
   roots = [...new Set(opts.writable.map((d) => checkRoot(resolveDir(d, "--writable"))))]
     .filter((r) => r !== cwd);
-  if (opts.commit) {
-    // The COMMON dir, not the per-worktree one. A narrower whitelist was measured and rejected: granting
-    // {worktrees/<name>, objects, refs, logs/refs} does let add+commit through for a LINKED worktree on the
-    // `files` ref backend, but `git branch -D` and `git tag -d` fail (packed-refs.lock is at the .git
-    // root), `git gc` fails, every commit prints a packed-refs.lock error, and a reftable repo or a MAIN
-    // worktree — where index.lock and COMMIT_EDITMSG live at the root — cannot be narrowed at all.
-    // workspace-write has no deny-list, so "grant .git except hooks and config" is unexpressible here;
-    // expressing it needs a permissions profile, which is a larger change than this flag.
-    const r = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    if (r.status !== 0) fail(EXIT.USAGE, "--commit needs a git repository at --cwd");
-    const resolved = checkRoot(resolveDir(r.stdout.trim(), "the repository git directory"));
-    // From a linked worktree the common dir is the MAIN clone's .git — config, hooks and every ref.
-    // Granting it is sometimes necessary but never incidental, so say so out loud.
-    process.stderr.write(`codex-delegate: --commit grants write access to ${resolved} (config, hooks, all refs)\n`);
-    if (resolved !== cwd && !roots.includes(resolved)) roots.push(resolved);
-  }
-
   if (opts.webSearch) {
     const allowed = managedWebSearchModes();
     if (allowed === undefined)
@@ -2631,12 +2486,6 @@ function shutdown() {
       }
     }
     releaseLock();
-    // A claimed steer that never reached the server is the coordinator's text: it is echoed to stderr on
-    // rejection, and its file must not be left beside the inbox for the next run to wonder about.
-    if (steerClaim) { try { fs.rmSync(steerClaim, { force: true }); } catch {} steerClaim = null; }
-    // A --mcp run's private home holds the caller's MCP secrets in a 0600 file; it exists for this run
-    // only, so it goes with the run rather than accumulating under the state dir.
-    if (perRunHome) { try { fs.rmSync(perRunHome, { recursive: true, force: true }); } catch {} perRunHome = null; }
   })();
   return shutdownDone;
 }
@@ -2664,10 +2513,6 @@ function rejectAllPending(err) {
 // ---------------------------------------------------------------- state
 
 let rootThreadId = null, rootTurnId = null;
-// An inline review can attribute its items to the reviewThreadId the response names; events on it are
-// OURS. Aliases extend attribution, never replace the root id the report and receipt are keyed on.
-const rootAliases = new Set();
-let reviewResult = null;    // the exitedReviewMode payload — the review itself
 const commands = [];        // root-thread commandExecution items only
 const messages = [];        // root-thread agentMessage items only
 const fileChanges = [];     // root-thread fileChange items: what the turn actually wrote
@@ -2726,14 +2571,13 @@ const ownedTurns = new Set();
 // Reading `turnId` for both silently rejects every real completion.
 const turnIdOf = (p) => p?.turnId ?? p?.turn?.id ?? null;
 const isRoot = (p) =>
-  rootThreadId !== null &&
-  ((p?.threadId ?? null) === rootThreadId || rootAliases.has(p?.threadId ?? "")) &&
+  rootThreadId !== null && (p?.threadId ?? null) === rootThreadId &&
   turnIdOf(p) !== null && ownedTurns.has(turnIdOf(p));
 // The idle guard accepts activity on the root and its subagent threads, while evidence of success stays root-only.
 // A child's thread/started uses thread.id rather than threadId, so that event does not rearm the guard;
 // the root item that spawned it precedes it.
 const onRootThread = (p) =>
-  rootThreadId !== null && ((p?.threadId ?? null) === rootThreadId || rootAliases.has(p?.threadId ?? "")
+  rootThreadId !== null && ((p?.threadId ?? null) === rootThreadId
     || subagentThreads.has(p?.threadId ?? ""));
 
 // The turn is cut when the thread has been silent for --idle-timeout, so every event rearms the timer.
@@ -2841,17 +2685,14 @@ function handleMessage(msg, bytes = 0) {
     // line of one stdout chunk in a single synchronous burst, so notifications sharing a chunk with this
     // response would otherwise be handled while the id is still null — and the filters would let a
     // foreign thread's events through.
-    if (msg.result && (p.method === "thread/start" || p.method === "thread/resume" || p.method === "thread/fork")) {
+    if (msg.result && (p.method === "thread/start" || p.method === "thread/resume")) {
       rootThreadId = msg.result.thread?.id ?? null;
       selectedModel = msg.result.model ?? null;
       selectedEffort = msg.result.reasoningEffort ?? null;
     }
-    if (msg.result && (p.method === "turn/start" || p.method === "review/start")) {
+    if (msg.result && p.method === "turn/start") {
       rootTurnId = msg.result.turn?.id ?? null;
       if (rootTurnId !== null) ownedTurns.add(rootTurnId);
-      if (p.method === "review/start" && typeof msg.result.reviewThreadId === "string"
-          && msg.result.reviewThreadId !== rootThreadId)
-        rootAliases.add(msg.result.reviewThreadId);
       replayEarly();          // anything that shared this chunk can now be attributed
     }
     if (msg.error) {
@@ -2893,18 +2734,6 @@ function handleMessage(msg, bytes = 0) {
   if ((msg.method === "item/started" || msg.method === "item/completed") && isRoot(p)
       && p?.item?.type && p.item.type !== "userMessage")
     lastPhase = p.item.type;
-
-  // Live progress, opt-in: one line per item START, so a coordinator tailing a long seat sees the
-  // phase it is in — without re-enabling the delta firehose, which stays opted out. Best-effort: an
-  // item racing the turn/start response is simply not announced.
-  if (opts.progress && msg.method === "item/started" && isRoot(p)) {
-    const it = p.item;
-    const line = it?.type === "commandExecution" ? `run: ${String(it.command ?? "").slice(0, 120)}`
-      : it?.type === "fileChange" ? `edit: ${(it.changes ?? []).map((c) => c.path).join(", ").slice(0, 120)}`
-      : it?.type === "webSearch" ? `search: ${String(it.query ?? "").slice(0, 120)}`
-      : null;
-    if (line) process.stderr.write(`codex-delegate: > ${line}\n`);
-  }
 
   // A subagent thread the server started under ours: registered so its activity is visible in the
   // report rather than invisibly filtered. Evidence attribution stays root-only — a child's command is
@@ -2979,8 +2808,6 @@ function handleMessage(msg, bytes = 0) {
       const s = Array.isArray(it.summary) ? it.summary.join("\n") : String(it.summary ?? "");
       if (s.trim() && reasoningSummaries.length < 40) reasoningSummaries.push(s.slice(0, 2000));
     }
-    // The review itself, under --review: the server hands it back as the exitedReviewMode item.
-    if (it?.type === "exitedReviewMode" && it.review != null) reviewResult = it.review;
     // Count other item types so tool and subagent activity stays visible.
     // Exclude userMessage: it echoes the caller's prompt and must not count as work or suppress a transient retry.
     if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning", "userMessage"].includes(it.type)) {
@@ -3172,7 +2999,7 @@ function startCorrectiveTurn(errs) {
       `Your final answer did not match the required JSON schema. Errors:\n- ${errs.slice(0, 8).join("\n- ")}\n` +
       "Reply again with ONE corrected JSON object and nothing else — no prose before or after, no code fence.",
       text_elements: [] }],
-    model: opts.model ?? null, effort: null, summary: opts.reasoningSummary ?? null,
+    model: opts.model ?? null, effort: null,
     outputSchema: opts.outputSchema
   }).catch((e) => {
     // If corrective turn/start is refused, report the first turn's answer and schemaErrors with exit 13;
@@ -3270,10 +3097,7 @@ function findRollout(threadId) {
 function persistAnswer(text, suffix = "") {
   if (!text) return null;
   try {
-    // Everything below is inside the try, and the directory is resolved best-effort: this runs while the
-    // report of a turn that already succeeded is being built, where a refusal-and-exit is the wrong shape.
-    const dir = answersDirOrNull();
-    if (dir === null) return null;
+    const dir = answersDir();
     const name = `${rootThreadId ?? `no-thread-${process.pid}`}${suffix}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
@@ -3285,8 +3109,7 @@ function persistAnswer(text, suffix = "") {
 function persistTurnDiff(payload) {
   if (typeof payload?.diff !== "string" || !rootThreadId) return;
   try {
-    const dir = answersDirOrNull();
-    if (dir === null) { turnDiffPath = null; return; }
+    const dir = answersDir();
     const target = path.join(dir, `${rootThreadId}.diff`);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(target, payload.diff, { mode: 0o600 });
@@ -3445,9 +3268,7 @@ function classifyEvidence() {
   // The schema permits phase: null, and older servers omit it. Prefer an explicit final_answer; fall back
   // to the last non-blank unphased message only when nothing was phased at all.
   const final = currentFinalMsg();
-  // Under --review use the review payload unless an agentMessage supplies an answer.
-  // ExitedReviewModeThreadItem.review is a STRING in the pinned schema and in every live review measured.
-  const fullAnswer = final?.text ?? (reviewResult != null ? String(reviewResult) : "");
+  const fullAnswer = final?.text ?? "";
   // Recomputed here rather than trusted from the retry path: a timeout or failed turn never reached
   // that path, and the verdict must describe the answer this report actually carries.
   const schemaErrs = opts.outputSchema && fullAnswer ? answerSchemaErrors(fullAnswer) : opts.outputSchema ? ["no answer arrived"] : null;
@@ -3461,7 +3282,7 @@ function classifyEvidence() {
   // Capped only when asked. A caller who did not ask for --brief gets exactly what the model said, because
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
   const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
-  const commentaryOnly = !final && reviewResult == null && messages.length > 0;
+  const commentaryOnly = !final && messages.length > 0;
   // A turn that said things but answered nothing: the rollout at receiptPath holds every message, and
   // this is the same text one open away. Convenience, not recovery.
   const commentaryPath = commentaryOnly
@@ -3609,17 +3430,15 @@ function subagentCause() {
 // The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
 // sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
 function decideExitCode(ev, verifySkipped) {
-  const verifyPassed = verifyResult?.ok === true;
-  const ctx = { ...ev, verifySkipped, verifyPassed, verifyFailed: verifyResult != null && !verifyPassed };
+  // Everything any rung reads, in one object: the turn's outcome (ev), the verifier's, and the module
+  // state the rungs used to reach around their argument for.
+  const ctx = { ...ev, verifySkipped, verifyFailed: verifyResult != null && verifyResult.ok !== true,
+                turnStatus, turnError, interactions, escalations, verifyResult, opts };
   for (const rung of LADDER) if (rung.when(ctx)) return rung.code;
   return EXIT.OK;
 }
 
-// Poll the coordinator's steer file every STEER_POLL_MS and send new text as turn/steer on the live turn.
-// The channel carries input only, never rights.
-let steerClaim = null;   // an in-flight claim, removed at shutdown so a killed run leaves no orphan
-// One steer at a time, whatever the trigger: the poll and the wrap-up rung share this guard, so a slow
-// server cannot make two sends overlap on one turn.
+// One steer at a time: the guard is what keeps a slow server from overlapping two sends on one turn.
 let steerInFlight = false;
 // The one place a turn/steer is sent. Returns false when nothing was sent — there is no live turn to
 // steer, a send is already out, or the turn is being cut, in which case steering it is pointless.
@@ -3632,46 +3451,6 @@ function steerOnce(text, { onSent = () => {}, onRejected = () => {} } = {}) {
     .then(() => { steerInFlight = false; onSent(); })
     .catch((e) => { steerInFlight = false; onRejected(e); });
   return true;
-}
-
-// The one steer the DRIVER invents — the wrap-up rung — and the one place
-// they are refused: under --review the server runs its own reviewer against its own prompt and returns
-// a fixed shape, so "write your final answer now" names nothing it can act on. A --steer-file
-// correction is the coordinator's own text and is not gated here.
-const autoSteer = (text, handlers) => !opts.review && steerOnce(text, handlers);
-
-function startSteerPoll() {
-  if (!opts.steerFile) return;
-  const timer = setInterval(() => {
-    if (settled) { clearInterval(timer); return; }
-    if (steerInFlight || pendingCut || rootThreadId === null || rootTurnId === null || !requestFn) return;
-    // Claim by rename so appends during the send land in a fresh inbox file and are delivered on the next tick.
-    const claim = `${opts.steerFile}.${crypto.randomBytes(8).toString("hex")}.claimed`;
-    try { fs.renameSync(opts.steerFile, claim); } catch { return; }
-    let text = "";
-    try { text = fs.readFileSync(claim, "utf8"); } catch {}
-    const release = () => { try { fs.rmSync(claim, { force: true }); } catch {} if (steerClaim === claim) steerClaim = null; };
-    if (!text.trim()) { release(); return; }
-    steerClaim = claim;
-    process.stderr.write(`codex-delegate: steering the turn (${Buffer.byteLength(text)} bytes)\n`);
-    // The claim is dropped once the server has taken the message. A rejected steer is echoed to stderr
-    // and dropped too: leaving it would resend the same rejected text every second forever, and the
-    // coordinator can read the copy back off the log.
-    const sent = steerOnce(text, {
-      onSent: release,
-      onRejected: (e) => {
-        process.stderr.write(`codex-delegate: steer REJECTED (${e.message}); the text was not delivered:\n${text.trim()}\n`);
-        // Drained even on rejection: leaving it would resend the same rejected text every second, and
-        // the line above is the copy the coordinator can read back.
-        release();
-      }
-    });
-    // Unreachable while the guards above and inside steerOnce agree, and a rename BACK would be worse
-    // than the drop it prevents: text appended after the claim is in the inbox path already, and moving
-    // the claim over it would overwrite exactly the correction this channel exists to deliver.
-    if (!sent) release();
-  }, STEER_POLL_MS);
-  timer.unref?.();
 }
 
 // codeOverride keeps a rung the ladder cannot reach on its own: a server that DIED mid-turn is a
@@ -3745,7 +3524,6 @@ function writeReport(ev, verifySkipped, codeOverride) {
     tmpDir,
     // Report which thread was continued after resolving "last", so a relay can identify the conversation.
     resumedFrom: opts.resume ?? null,
-    forkedFrom: opts.fork ?? null, forkedThrough: opts.forkThrough ?? null,
     // Report the server version parsed from initialize.userAgent; null means the version could not be read.
     driverVersion: VERSION, codexHome, codexVersion, codexVersionPinned: PINNED_CODEX,
     // Report whether model and effort came from a fresh probe, stale config or account defaults;
@@ -3843,6 +3621,13 @@ function writeReport(ev, verifySkipped, codeOverride) {
 
   const out = `${JSON.stringify({ ...report, commands }, null, 2)}\n`;
   closingFields = { turnStatus, answerPath,
+    // The gates, copied field for field out of the report that was just built. The record is the ONLY
+    // thing a run leaves when its report cannot reach stdout (the EPIPE path closes it), and it is what
+    // `--relay --wait` renders an envelope from — where a missing gate prints as `receiptOk: null`, which
+    // reads as "the run computed nothing" about a run that computed all of it.
+    receiptOk: report.receiptOk, commandsSucceeded: report.commandsSucceeded,
+    commandsFailed: report.commandsFailed,
+    verify: report.verify, verifySkipped: report.verifySkipped, cut: report.cut,
     // The last mid-flight snapshot, on the record for good: the rate limit means a run shorter than
     // MIDFLIGHT_EVERY_MS would otherwise end with none of it, which is exactly the run a poller misses.
     lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: tokensSoFar(),
@@ -3910,7 +3695,7 @@ async function main() {
   if (endAtMs - reserveMs > Date.now() + 1000) at(endAtMs - reserveMs, () => {
     if (settled) return;
     const left = Math.max(0, Math.round((endAtMs - Date.now()) / 1000));
-    const sent = autoSteer(`About ${left} seconds of wall clock remain. Stop investigating now; write your final answer `
+    const sent = steerOnce(`About ${left} seconds of wall clock remain. Stop investigating now; write your final answer `
       + `with what you have and say what you did not get to.`,
       { onRejected: (e) => process.stderr.write(`codex-delegate: the wrap-up steer was rejected (${e.message})\n`) });
     // Announced because it changes what the turn does: a coordinator reading stderr should know the seat
@@ -3934,7 +3719,7 @@ async function main() {
   }
 
   let prompt = opts.prompt;
-  if (prompt === undefined && !opts.review) {
+  if (prompt === undefined) {
     if (process.stdin.isTTY) fail(EXIT.USAGE, "no prompt: pass --prompt or pipe one on stdin");
     process.stdin.setEncoding("utf8");   // raw Buffers split multi-byte chars at chunk boundaries
     // With no wall clock, nothing else bounds a stdin that never closes — a pipe left open by a caller
@@ -3953,14 +3738,17 @@ async function main() {
     prompt = s;
   }
   if (settled) throw new Bail();   // aborted while reading stdin; the exit code is already set
-  if (!opts.review) {
-    prompt = prompt.trim();
-    if (!prompt) fail(EXIT.USAGE, "empty prompt");
-  }
+  prompt = prompt.trim();
+  if (!prompt) fail(EXIT.USAGE, "empty prompt");
 
+  // The seat's shell is zsh, which keeps every here-document in a file under $TMPPREFIX, default
+  // /tmp/zsh: outside the grant, so every `<<EOF` failed ("can't create temp file for here document",
+  // measured in 15 rollouts, 2026-08-31 to 2026-09-08). Under $TMPDIR it is inside the grant at every
+  // level; where TMPDIR is unset the fallback equals zsh's own default, so nothing changes.
   child = spawn(codexBin, spawnArgs, {
     cwd, stdio: ["pipe", "pipe", "pipe"], detached: true,
-    env: codexHome === null ? process.env : { ...process.env, CODEX_HOME: codexHome },
+    env: { ...process.env, ...(codexHome === null ? {} : { CODEX_HOME: codexHome }),
+           TMPPREFIX: path.join(process.env.TMPDIR ?? os.tmpdir(), "zsh") },
   });
   child.stderr.setEncoding("utf8");
   // Keep a bounded stderr tail because runs can be long and abort() prints it; report how much was dropped.
@@ -4092,16 +3880,14 @@ async function main() {
     "You are being driven by a Claude Code coordinator, unattended. Nobody will answer a question.",
     // Advisory: the model has no clock unless it runs `date`. It costs one sentence and it is the only
     // thing that makes the wall clock something the turn can plan against rather than be surprised by.
-    // Withheld under --review, where the server builds the reviewer's whole prompt and this driver's
-    // budgets are not the reviewer's to plan against.
     // Without a wall clock the sentence has to say so: told "you have about N seconds" when nothing is
     // counting, the model plans against a deadline that does not exist and rushes work it had time for.
-    ...(opts.review ? [] : [opts.timeout > 0
+    opts.timeout > 0
       ? `You have about ${budgetLeftS} seconds of wall clock`
         + ` for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`
       : `There is no wall-clock limit on this turn`
         + `; it is cut only ${opts.idleTimeout ? `after ${opts.idleTimeout} seconds of silence or ` : ""}by the coordinator. `
-        + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`]),
+        + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`,
     opts.webSearch
       ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
       : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
@@ -4129,7 +3915,6 @@ async function main() {
   // because an unapplied profile must never pass as if it had applied.
   const sandboxParam = sandbox === null ? {} : { sandbox };
   const resuming = Boolean(opts.resume);
-  const forking = Boolean(opts.fork);
   // WHO may approve is as load-bearing as what the sandbox permits, and it is a separate axis. With
   // approvalsReviewer "auto_review" the server hands approvals to its own subagent, so they never reach
   // this driver: escalations stay empty, the refusal policy is silently disarmed, and a sandbox escape can
@@ -4140,16 +3925,12 @@ async function main() {
   const threadBase = { cwd, model: opts.model ?? null, approvalPolicy: "on-request", approvalsReviewer,
     ...sandboxParam, developerInstructions };
   // excludeTurns: the driver never reads thread.turns off the response, and every thread created under
-  // 0.153.4 is paginated — for those full-history hydration is deprecated, and an EPHEMERAL fork without
-  // the flag is refused outright (-32600). Measured: a resume shrank from 1.5 MB to 58 KB with it.
+  // 0.153.4 is paginated — for those full-history hydration is deprecated. Measured: a resume shrank
+  // from 1.5 MB to 58 KB with it.
   const threadReq = resuming
     ? ["thread/resume", { threadId: opts.resume, excludeTurns: true, ...threadBase }]
-    : forking
-      ? ["thread/fork", { threadId: opts.fork, lastTurnId: opts.forkThrough ?? null, excludeTurns: true,
-          ...threadBase, ephemeral: Boolean(opts.ephemeral) }]
     // Keep threads resumable by default because the caller may discover a need to continue only after reading the answer.
-    : ["thread/start", { ...threadBase,
-        serviceName: "claude-code-codex-delegate", ephemeral: Boolean(opts.ephemeral) }];
+    : ["thread/start", { ...threadBase, serviceName: "claude-code-codex-delegate" }];
   const thread = await request(threadReq[0], threadReq[1]);
   // Asked for above, asserted here, at BOTH levels — write level's writable-root boundary is escapable the
   // same way. The field is `required` on the response in the pinned schema, so a server that stops sending
@@ -4173,7 +3954,6 @@ async function main() {
   const st = thread.thread?.status?.type ?? null;
   if (resuming && st === "active") fail(EXIT.BUSY, `thread ${opts.resume} still has a turn running; wait for it to finish`);
   if (resuming && st && st !== "idle") fail(EXIT.TRANSPORT, `thread ${opts.resume} is ${st} and cannot be resumed`);
-  if (opts.compact) await request("thread/compact/start", { threadId: rootThreadId });
 
   // Announced BEFORE the turn, not in the report: a delegation runs for minutes, and the thread id is
   // the key to tailing its live rollout under ~/.codex/sessions — a coordinator watching a long seat
@@ -4201,7 +3981,7 @@ async function main() {
                         reportPath: detachedRun.reportPath, stderrPath: detachedRun.stderrPath,
                         promptPath: detachedRun.promptPath } : {}) });
   if (detachedRun) {
-    const jobPath = opts.ephemeral ? null : jobRecordPath(rootThreadId);
+    const jobPath = jobRecordPath(rootThreadId);
     writeLaunch(detachedRun, { threadId: rootThreadId, pid: process.pid,
       identity: processIdentity(process.pid), jobPath, startedAt });
     // One line, all three facts: a relay whose front was killed before it could print the handle reads
@@ -4210,16 +3990,8 @@ async function main() {
       + `reportPath=${detachedRun.reportPath} runId=${detachedRun.runId}\n`);
   }
   // Armed here, where the thread exists and there is something to cut: before it, a silent server is
-  // the wall clock's business. Applies under --review too — the reviewer can hang like any other turn.
+  // the wall clock's business.
   touchIdle();
-  startSteerPoll();
-
-  if (opts.review) {
-    // The server's own reviewer, on this thread. No lastTurnParams: a transient retry cannot replay a
-    // review (the guard on the retry checks for exactly this).
-    await request("review/start", { threadId: rootThreadId, target: opts.reviewTarget, delivery: "inline" });
-    return;
-  }
 
   if (opts.outputSchema) outputAttempts = 1;   // attempts count turns STARTED, this being the first
   lastTurnParams = {
@@ -4229,7 +4001,7 @@ async function main() {
     // A seat asked about "the first screenshot" should be looking at the same arrangement its
     // coordinator saw.
     input: [...(opts.attachments ?? []), { type: "text", text: prompt, text_elements: [] }],
-    model: opts.model ?? null, effort: null, summary: opts.reasoningSummary ?? null,
+    model: opts.model ?? null, effort: null,
     ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
   };
   await request("turn/start", lastTurnParams);
@@ -4255,8 +4027,8 @@ const RUN_AS_MAIN = (() => {
   if (import.meta.url === pathToFileURL(entry).href) return true;
   try { return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href; } catch { return false; }
 })();
-export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, SEAT_FIELDS, STATE_SUBDIRS, VERSION,
-         WEB_SEARCH, helpText, lockKey, renderEnvelope };
+export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, PINNED_CODEX, SEAT_FIELDS, STATE_SUBDIRS,
+         VERSION, WEB_SEARCH, helpText, lockKey, renderEnvelope };
 
 if (RUN_AS_MAIN) {
   process.stdout.on("error", stdoutFailed);

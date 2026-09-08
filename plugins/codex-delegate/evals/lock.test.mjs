@@ -13,7 +13,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DRIVER, EXIT, FAKE, codexShim, lockKey, registry, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
+import { DRIVER, EXIT, FAKE, codexShim, lockKey, registry, runCases, skip, spawnNode, summarize,
+         tempDir } from "./lib/harness.mjs";
 
 // Use a private state directory so planted locks, inherited config and pruning cannot affect real
 // delegations. The moving-HOME case still detects a driver that ignores this override.
@@ -47,8 +48,6 @@ const { cases: CASES, test } = registry();
 test("parseArgs rejects the listed invalid arguments before the turn starts",
   "each usage guard is part of the CLI contract; letting any one through either starts a turn with unintended rights or fails later for a misleading reason",
   async () => {
-    // A real repository makes the --commit/--level check independent of the later
-    // "--commit needs a git repository" guard.
     const d = freshDir("invalid-args");
     const init = spawnSync("git", ["init", "-q", d], { encoding: "utf8" });
     if (init.status !== 0) return "git init failed: " + String(init.stderr).trim();
@@ -62,8 +61,6 @@ test("parseArgs rejects the listed invalid arguments before the turn starts",
       { label: "non-integer --max-commands", dir: d, args: ["--max-commands", "2.5"], flags: ["--max-commands"], message: "--max-commands must be a whole number" },
       { label: "negative --max-commands", dir: d, args: ["--max-commands", "-1"], flags: ["--max-commands"], message: "--max-commands must be a whole number" },
       { label: "unknown --effort", dir: d, args: ["--effort", "heroic"], flags: ["--effort"], message: "--effort must be one of" },
-      { label: "--commit at read level", dir: d, args: ["--level", "read", "--commit"], flags: ["--commit", "--level"], message: "--commit requires --level write" },
-      { label: "--ephemeral with --resume", dir: d, args: ["--ephemeral", "--resume", "thr_existing"], flags: ["--ephemeral", "--resume"], message: "--ephemeral and --resume are contradictory" },
       { label: "invalid --expect-command regexp", dir: d, args: ["--expect-command", "["], flags: ["--expect-command"], message: "--expect-command is not a valid regular expression" },
       { label: "unknown --web-search", dir: d, args: ["--web-search", "fresh"], flags: ["--web-search"], message: "--web-search must be one of" },
       { label: "empty flag value", dir: d, args: ["--model", ""], flags: ["--model"], message: "--model requires a non-empty value" },
@@ -81,7 +78,7 @@ test("parseArgs rejects the listed invalid arguments before the turn starts",
   });
 
 test("lock is not written into the protected directory, at any moment during the run",
-  "at --level write with --commit a turn's `git add -A` stages and commits the driver's own lock file — so it is the presence DURING the turn that matters, not what survives it",
+  "at --level write a turn's `git add -A` stages the driver's own lock file — so it is the presence DURING the turn that matters, not what survives it",
   async () => {
     const d = freshDir("clean");
     // `late-item` keeps the turn open past its first events, so there is a live window to observe.
@@ -217,7 +214,7 @@ test("a FIFO at the lock path does not hang the run",
     fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
     fs.rmSync(lockFor(d), { force: true });
     const mk = spawnSync("mkfifo", [lockFor(d)]);
-    if (mk.status !== 0) return true;   // no mkfifo on this platform; nothing to assert
+    if (mk.status !== 0) return skip("no mkfifo on this platform, so no fifo to plant at the lock path");
     const started = process.hrtime.bigint();
     const { code } = await run(d, { timeout: 5 });
     const secs = Number(process.hrtime.bigint() - started) / 1e9;
@@ -385,62 +382,6 @@ test("the write sandbox is exactly what the flags asked for, echoed back",
     return true;
   });
 
-test("--commit applies the protected-root guard to the resolved git common dir",
-  "the common dir becomes an extra writable root, so resolving it must not bypass checkRoot",
-  async () => {
-    const d = freshDir("commit-guard-cwd");
-    const bin = freshDir("commit-guard-bin");
-    fs.writeFileSync(path.join(bin, "git"),
-      "#!/bin/sh\nprintf '%s\\n' \"$FAKE_GIT_COMMON_DIR\"\n", { mode: 0o755 });
-    const root = fs.realpathSync(os.userInfo().homedir);
-    const { code, err } = await run(d, {
-      args: ["--commit"],
-      env: {
-        PATH: bin + ":" + shimDir + ":" + process.env.PATH,
-        FAKE_GIT_COMMON_DIR: root,
-      },
-    });
-    if (code !== EXIT.USAGE)
-      return "--commit with protected common dir " + root + " returned " + code + ", expected 2";
-    return err.includes("refusing to grant write access to " + root + ":") ? true : "the refusal did not name " + root + ": " + err.trim().slice(0, 160);
-  });
-
-test("--commit sends the main clone's common dir from a linked worktree as writable",
-  "using the per-worktree git dir, or resolving the common dir without pushing it into roots, prevents commits from a linked worktree",
-  async () => {
-    const main = freshDir("commit-main");
-    let g = spawnSync("git", ["init", "-q", main], { encoding: "utf8" });
-    if (g.status !== 0) return "git init failed: " + String(g.stderr).trim();
-    fs.writeFileSync(path.join(main, "seed"), "seed\n");
-    g = spawnSync("git", ["-C", main, "add", "seed"], { encoding: "utf8" });
-    if (g.status !== 0) return "git add failed: " + String(g.stderr).trim();
-    g = spawnSync("git", ["-C", main, "-c", "user.name=Lock Eval", "-c", "user.email=lock@example.invalid",
-      "commit", "-qm", "seed"], { encoding: "utf8" });
-    if (g.status !== 0) return "git commit failed: " + String(g.stderr).trim();
-    const linked = path.join(freshDir("commit-linked-parent"), "worktree");
-    g = spawnSync("git", ["-C", main, "worktree", "add", "--detach", linked, "HEAD"], { encoding: "utf8" });
-    if (g.status !== 0) return "git worktree add failed: " + String(g.stderr).trim();
-    g = spawnSync("git", ["-C", linked, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { encoding: "utf8" });
-    if (g.status !== 0) return "git common-dir query failed: " + String(g.stderr).trim();
-    const common = fs.realpathSync(g.stdout.trim());
-    const mainGit = fs.realpathSync(path.join(main, ".git"));
-    if (common !== mainGit)
-      return "test setup expected " + mainGit + " as the linked common dir, got " + common;
-    const { code, out, err } = await run(linked, { args: ["--commit"] });
-    if (code !== EXIT.OK)
-      return "linked-worktree --commit exited " + code + ": " + err.trim().slice(0, 180);
-    let report = null;
-    try { report = JSON.parse(out); } catch {}
-    if (!report) return "linked-worktree --commit produced no JSON report";
-    const sent = report.sandbox?.writableRoots;
-    if (JSON.stringify(sent) !== JSON.stringify([common]))
-      return "writable roots were " + JSON.stringify(sent) + ", expected the main common dir " + common;
-    return err.includes(common)
-      ? true
-      : "the --commit notice did not name " + common + ": " + err.trim().slice(0, 160);
-  });
-
 test("a write run whose workspace is not the cwd is refused",
   "the workspace root decides where everything the turn writes actually lands, and nothing in the sandbox object reveals that the server put us elsewhere",
   async () => {
@@ -524,7 +465,7 @@ test("a case-variant --cwd is the same directory",
     fs.mkdirSync(upper);
     let sameDir = false;
     try { sameDir = fs.statSync(upper).ino === fs.statSync(lower).ino; } catch {}
-    if (!sameDir) return true;   // case-sensitive filesystem: the aliasing does not exist here
+    if (!sameDir) return skip("a case-sensitive filesystem: the two spellings are different directories here");
     fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
     fs.writeFileSync(lockFor(upper), JSON.stringify({ pid: process.pid, cwd: upper, started: "now" }));
     const { code } = await run(lower);
@@ -598,6 +539,62 @@ test("--worktree harvests a completed turn's work and removes the tree",
       if (r?.worktreePath && fs.existsSync(r.worktreePath))
         spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
       for (const p of [r?.worktreeDiffPath, r?.worktreeUntrackedPath]) if (p) fs.rmSync(p, { force: true });
+    }
+    return true;
+  });
+
+test("a harvest that takes no tracked diff removes the one an earlier turn left under the same name",
+  "the harvest names its artefacts after the THREAD, so a resumed seat writes over the previous turn's: a turn whose tracked work is gone reports worktreeDiffPath null while the old .diff stays on disk, and the next reader opens work this turn does not have as if it were this turn's",
+  async () => {
+    const repo = freshRepo("wt-reharvest");
+    if (!repo) return "git setup failed";
+    // A private state root: this case is about a file named after the fixture's one thread id, which
+    // every other harvest case here writes too.
+    const state = path.join(STATE_DIR, "reharvest-state");
+    const stale = path.join(state, "answers", "thr_root.diff");
+    fs.mkdirSync(path.dirname(stale), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(stale, "diff --git a/seed b/seed\n+an earlier turn's work\n");
+    // Untracked work only: `status --porcelain` calls the tree dirty so the harvest runs, and the diff
+    // against the base is empty — the shape a re-harvest has when the tracked work is no longer there.
+    const { code, out, err } = await run(null, { args: ["--worktree", repo, "--verify",
+      "printf 'untracked-only\\n' > untracked-only.txt"], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    let r = null; try { r = JSON.parse(out); } catch {}
+    try {
+      if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(0, 200)}`;
+      if (!r) return "no JSON report";
+      if (r.worktreeHarvested !== true) return `the untracked work was not harvested: ${JSON.stringify(r.worktreePreserved)}`;
+      if (r.worktreeDiffPath !== null) return `a tracked diff was reported that this turn did not take: ${JSON.stringify(r.worktreeDiffPath)}`;
+      if (!r.worktreeUntrackedPath) return "the untracked archive was dropped along with the diff";
+      if (fs.existsSync(stale)) return "the earlier turn's .diff outlived a harvest that took none";
+      if (!/harvested nothing, so the earlier .*\.diff was removed/.test(err))
+        return `the removal was silent: ${err.trim().slice(0, 200)}`;
+    } finally {
+      if (r?.worktreePath && fs.existsSync(r.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
+    }
+    return true;
+  });
+
+test("a harvest that takes no diff does not remove the turn diff the same run persisted",
+  "the server's turn/diff/updated and the worktree harvest write ONE path, `<threadId>.diff`: a harvest that clears the previous turn's artefact there would delete this run's own turn diff and leave turnDiffPath in the report naming a file that is gone",
+  async () => {
+    const repo = freshRepo("wt-turndiff");
+    if (!repo) return "git setup failed";
+    const state = path.join(STATE_DIR, "turndiff-state");
+    // `turn-diff` sends two turn/diff/updated notifications; the verifier leaves untracked work only, so
+    // the harvest takes no tracked diff and reaches the removal this case is about.
+    const { code, out, err } = await run(null, { scenario: "turn-diff", args: ["--worktree", repo, "--verify",
+      "printf 'untracked-only\\n' > untracked-only.txt"], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    let r = null; try { r = JSON.parse(out); } catch {}
+    try {
+      if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(0, 200)}`;
+      if (!r) return "no JSON report";
+      if (!r.turnDiffPath) return "the run persisted no turn diff, so this case measured nothing";
+      if (r.worktreeDiffPath !== null) return `the harvest took a tracked diff, so the removal was never reached: ${JSON.stringify(r.worktreeDiffPath)}`;
+      if (!fs.existsSync(r.turnDiffPath)) return `the report names a turn diff the harvest deleted: ${r.turnDiffPath}`;
+    } finally {
+      if (r?.worktreePath && fs.existsSync(r.worktreePath))
+        spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
     }
     return true;
   });
@@ -798,62 +795,41 @@ test("every run is recorded in the job registry, and --resume last finds the new
     return /no previous run in/.test(elsewhere.err) || `the refusal did not say why: ${elsewhere.err.trim().slice(0, 160)}`;
   });
 
-test("--mcp uses a private per-run home: not the shared config, and never argv",
-  "two homes are wrong for it. The SHARED isolated config leaks the grant into concurrent runs that never asked for it; -c spawn args fix that and put an MCP server's env tokens into a world-readable argv, where a read seat in another repository could `ps` them. A per-run 0600 home is neither, and it must not survive the run",
+test("`--resume last` names the run started most recently, not the one most recently written to",
+  "a long seat rewrites its own record on every mid-flight heartbeat, so ordering the registry by mtime made a run started hours ago outrank a shorter one begun after it and already finished: `--resume last` then continued the WRONG conversation, and nothing in the report said so",
   async () => {
-    const shared = path.join(STATE_DIR, "home", "config.toml");
-    const onLog = path.join(freshDir("mcp-log"), "on.log");
-    const withMcp = await run(freshDir("mcp-on"), { args: ["--mcp"], env: { FAKE_MCP: "1", FAKE_RPC_LOG: onLog } });
-    if (withMcp.code !== EXIT.OK) return `the --mcp run exited ${withMcp.code}: ${withMcp.err.trim().slice(0, 160)}`;
-    let r = null; try { r = JSON.parse(withMcp.out); } catch { return "no JSON report"; }
-    const home = r.codexHome;
-    if (!home || !/\/homes\//.test(home)) return `the run did not use a per-run home: ${JSON.stringify(home)}`;
-    if (fs.existsSync(home)) return "the per-run home (which holds the caller's MCP secrets) outlived the run";
-    let log = "";
-    try { log = fs.readFileSync(onLog, "utf8"); } catch { return "the fixture logged nothing"; }
-    if (/cfg:mcp_servers/.test(log)) return "MCP config — including env secrets — reached argv";
-    if (!/exotic.*cannot carry/.test(withMcp.err)) return `the uncarriable server's skip was silent: ${withMcp.err.trim().slice(0, 200)}`;
-    if (fs.existsSync(shared) && /mcp_servers/.test(fs.readFileSync(shared, "utf8")))
-      return "the grant leaked into the SHARED config file";
-    const without = await run(freshDir("mcp-off"), { env: { FAKE_MCP: "1" } });
-    if (without.code !== EXIT.OK) return `the follow-up run exited ${without.code}`;
-    let r2 = null; try { r2 = JSON.parse(without.out); } catch { return "no JSON report from the second run" }
-    if (/\/homes\//.test(r2.codexHome ?? "")) return "a run WITHOUT --mcp was given a per-run home";
-    return !/mcp_servers/.test(fs.readFileSync(shared, "utf8")) || "a run WITHOUT --mcp received an MCP grant";
-  });
-
-test("--mcp refuses to run blind when the config probe never reported the table",
-  "a capability asked for and silently not granted is the failure mode this driver refuses everywhere else; the last-known-good path could otherwise hand back a seat with no tools and no warning",
-  async () => {
-    const { code, err } = await run(freshDir("mcp-blind"), { args: ["--mcp"], env: { FAKE_CONFIG_FAIL: "1" } });
-    if (code !== EXIT.TRANSPORT) return `expected exit 4, got ${code}`;
-    return /--mcp was asked for but the caller's config could not be read/.test(err)
-      || `the refusal did not say why: ${err.trim().slice(0, 200)}`;
-  });
-
-test("--steer-file reaches the running turn as turn/steer",
-  "text appended to the steer file must reach the LIVE turn and be drained so the same correction is not sent twice",
-  async () => {
-    const d = freshDir("steer");
-    const steer = path.join(d, "steer.txt");
-    const rpcLog = path.join(d, "rpc.log");
-    const { p, done, stderrSoFar } = spawnRun(d, { shim: shimDir, args: ["--steer-file", steer], env: { FAKE_RPC_LOG: rpcLog } });
-    if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); return "the run never announced a thread"; }
-    if (!await waitFor(() => { try { return /turn\/start/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }))
-      { p.kill("SIGKILL"); return "the turn never started"; }
-    await new Promise((r) => setTimeout(r, 150));
-    fs.writeFileSync(steer, "focus on the lock path only\n");
-    const steered = await waitFor(() => { try { return /turn\/steer/.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } }, 8000);
-    // Claimed, not emptied: the inbox is renamed aside, so "drained" is an absent file or an empty one.
-    const drained = await waitFor(() => { try { return !fs.existsSync(steer) || fs.readFileSync(steer, "utf8") === ""; } catch { return false; } }, 3000);
-    p.kill("SIGTERM");
-    await done;
-    if (!steered) return "the steer never reached the server";
-    if (!drained) return "the steer file was not drained after sending";
-    // The claim is the driver's own scratch file, not something to leave in the caller's directory.
-    const leftovers = fs.readdirSync(d).filter((f) => f.startsWith("steer.txt.") && f.endsWith(".claimed"));
-    if (leftovers.length) return `the run left claimed steer files behind: ${leftovers.join(", ")}`;
-    return true;
+    const dir = freshDir("resume-order");
+    const jobs = path.join(STATE_DIR, "jobs");
+    fs.mkdirSync(jobs, { recursive: true, mode: 0o700 });
+    const at = (ms) => new Date(Date.now() - ms).toISOString();
+    const plant = (id, rec) => {
+      const p = path.join(jobs, `${id}.json`);
+      fs.writeFileSync(p, JSON.stringify({ threadId: id, cwd: dir, level: "write", ...rec }), { mode: 0o600 });
+      return p;
+    };
+    // B is written FIRST and A second, so A is the mtime-newest record while B is the newest by start:
+    // exactly the shape a running seat's heartbeat produces.
+    const bPath = plant("thr_b_finished", { started: at(60000), endedAt: at(30000), exitCode: 0, pid: 2147483646 });
+    // A is older, still open, and its pid is this suite's own process, which is certainly alive.
+    const aPath = plant("thr_a_running", { started: at(600000), pid: process.pid });
+    if (!(fs.statSync(aPath).mtimeMs >= fs.statSync(bPath).mtimeMs))
+      return "the planted records do not have the mtime order this case is about, so it would prove nothing";
+    const { code, err } = await run(dir, { args: ["--resume", "last"] });
+    if (!/--resume last -> thr_b_finished/.test(err))
+      return `\`last\` did not name the most recently STARTED run: ${err.trim().slice(0, 240)}`;
+    if (code !== EXIT.OK) return `resuming the newest finished run exited ${code}: ${err.trim().slice(0, 200)}`;
+    // And the newest by start being the one still running is still exit 10, not a silent fall back to
+    // an older thread: a caller asking for "last" here must be told to wait for it, never handed another
+    // conversation. In a directory of its own, because the resumed run above recorded itself in this one.
+    const live2 = freshDir("resume-order-live");
+    fs.writeFileSync(path.join(jobs, "thr_c_running.json"),
+      JSON.stringify({ threadId: "thr_c_running", cwd: live2, level: "write", started: at(1000), pid: process.pid }),
+      { mode: 0o600 });
+    const live = await run(live2, { args: ["--resume", "last"] });
+    if (live.code !== EXIT.BUSY)
+      return `a still-running newest run exited ${live.code}, expected ${EXIT.BUSY}: ${live.err.trim().slice(0, 200)}`;
+    return /thr_c_running is still running/.test(live.err)
+      || `the refusal did not name the live thread: ${live.err.trim().slice(0, 200)}`;
   });
 
 test("the answer log is pruned by age",
@@ -1164,8 +1140,10 @@ test("concurrent first runs against a fresh state directory do not race on the s
         p.stderr.on("data", (x) => { err += x; });
         p.on("close", (code) => res({ code, err }));
       }));
+      // The WHOLE last line: a 110-character slice of these refusals stops inside the path, so a failure
+      // here could not say which of the two link refusals fired, and the finding could not be chased.
       for (const { code, err } of await Promise.all(seats))
-        if (code !== EXIT.OK) bad.push(`exit ${code}: ${err.trim().split("\n").pop()?.slice(0, 110)}`);
+        if (code !== EXIT.OK) bad.push(`exit ${code}: ${err.trim().split("\n").pop()}`);
     }
     return bad.length
       ? `${bad.length} of ${rounds * width} concurrent first runs failed — ${[...new Set(bad)].slice(0, 3).join(" | ")}`
@@ -1265,30 +1243,6 @@ test("the answer reaches the answer log before the turn ends, so a SIGKILL canno
     return code === 0 ? "the run exited cleanly, so the kill never happened" : true;
   });
 
-test("a correction appended while a steer is in flight is not overwritten",
-  "claiming the steer file by rename frees the inbox immediately; appends while the send awaits acceptance must survive for the next steer",
-  async () => {
-    const d = freshDir("steer-window");
-    const steer = path.join(d, "steer.txt");
-    const rpcLog = path.join(d, "rpc.log");
-    const { p, done, stderrSoFar } = spawnRun(d, { shim: shimDir, args: ["--steer-file", steer],
-      // A slow acceptance IS the window: without it the send and the drain are indistinguishable.
-      env: { FAKE_RPC_LOG: rpcLog, FAKE_STEER_DELAY_MS: "1500" } });
-    const logHas = (re) => { try { return re.test(fs.readFileSync(rpcLog, "utf8")); } catch { return false; } };
-    if (!await waitFor(() => /threadId=/.test(stderrSoFar()))) { p.kill("SIGKILL"); return "the run never announced a thread"; }
-    if (!await waitFor(() => logHas(/turn\/start/))) { p.kill("SIGKILL"); return "the turn never started"; }
-    fs.writeFileSync(steer, "first correction\n");
-    if (!await waitFor(() => logHas(/turn\/steer:first correction/), 8000)) { p.kill("SIGKILL"); return "the first steer never reached the server"; }
-    // Append before the server accepts the steer to exercise concurrent inbox writes.
-    const stillInInbox = fs.existsSync(steer) && fs.readFileSync(steer, "utf8").includes("first correction");
-    fs.appendFileSync(steer, "second correction\n");
-    const second = await waitFor(() => logHas(/turn\/steer:second correction/), 12000);
-    p.kill("SIGTERM");
-    await done;
-    if (stillInInbox) return "the delivered text was still in the inbox while its send was in flight";
-    return second ? true : "a correction appended during the send never arrived";
-  });
-
 
 // The git the DRIVER spawns, observed from outside: a shim that logs its own argv and execs the real
 // binary. Resolved before the shim exists, or `command -v git` would find the shim.
@@ -1298,7 +1252,7 @@ const REAL_GIT = (() => {
 })();
 
 test("no git the driver spawns runs the repository's hooks, fsmonitor or external diff",
-  "--commit grants the seat access to git configuration; harvest, removal and later worktree creation must not execute seat-authored hooks or helpers with the caller's rights",
+  "a seat can leave hooks, an fsmonitor or an external diff driver in the tree it worked in; harvest, removal and later worktree creation must not execute seat-authored code with the caller's rights",
   async () => {
     const repo = freshRepo("wt-hooks");
     if (!repo) return "git setup failed";
@@ -1315,7 +1269,7 @@ test("no git the driver spawns runs the repository's hooks, fsmonitor or externa
     fs.writeFileSync(path.join(bin, "git"),
       `#!/bin/sh\nprintf '%s\\n' "$*" >> ${argvLog}\nexec ${REAL_GIT} "$@"\n`, { mode: 0o755 });
     const { code, out, err } = await run(null, {
-      args: ["--worktree", repo, "--commit", "--verify", "printf 'seat-work\\n' >> seed"],
+      args: ["--worktree", repo, "--verify", "printf 'seat-work\\n' >> seed"],
       env: { PATH: `${bin}:${shimDir}:${process.env.PATH}` } });
     let r = null; try { r = JSON.parse(out); } catch {}
     try {
@@ -1411,6 +1365,55 @@ test("the ledger entry exists before `git worktree add` creates anything",
       || `the tree was created before its ledger entry existed; the directory then held: ${JSON.stringify(listing.trim().slice(0, 200))}`;
   });
 
+test("a ledger entry that cannot be parsed is quarantined, and the tree it names survives",
+  "an entry the reconciler cannot read is the ONLY name a crashed seat's tree has left: deleting it deletes the pointer to a checkout that may hold uncommitted work, and the tree then survives as an orphan nobody can find",
+  async () => {
+    const repo = freshRepo("wt-bad-entry");
+    if (!repo) return "git setup failed";
+    const planted = plantCrashedTree(repo, "codex-crash-unparsable", { commit: true });
+    if (!planted) return "planting the crashed tree failed";
+    const entry = path.join(STATE_DIR, "worktrees", "codex-crash-unparsable.json");
+    // A truncated body is what an interrupted in-place write leaves; the reconciler cannot tell that
+    // from corruption, and must not act on either.
+    const torn = '{"path":"' + planted.dir + '","repo":';
+    fs.writeFileSync(entry, torn);
+    const { code, err } = await run(null, { args: ["--worktree", repo] });
+    try {
+      if (code !== EXIT.OK) return `the reconciling run exited ${code}: ${err.trim().slice(0, 200)}`;
+      if (!fs.existsSync(planted.dir)) return "the tree named by the unparsable entry was removed";
+      if (fs.existsSync(entry)) return "the unparsable entry was left in place, so every later run re-reads it";
+      if (!fs.existsSync(`${entry}.bad`)) return `the unparsable entry was deleted rather than kept: ${err.trim().slice(0, 200)}`;
+      if (fs.readFileSync(`${entry}.bad`, "utf8") !== torn) return "the quarantined entry is not the bytes that were there";
+      if (!/could not be parsed; it is kept at/.test(err)) return `the quarantine was silent: ${err.trim().slice(0, 200)}`;
+    } finally {
+      spawnSync("git", ["-C", repo, "worktree", "remove", "--force", planted.dir]);
+      fs.rmSync(`${entry}.bad`, { force: true });
+      fs.rmSync(entry, { force: true });
+    }
+    return true;
+  });
+
+test("a ledger that cannot be written stops the run before `git worktree add`",
+  "the ledger entry is what names a tree after a crash; writing it best-effort and adding anyway creates a checkout nothing points at, and 22 of 64 such orphans held uncommitted work",
+  async () => {
+    const repo = freshRepo("wt-ledger-unwritable");
+    if (!repo) return "git setup failed";
+    // A private state root, so obstructing the ledger cannot reach any other case's entries.
+    const state = path.join(STATE_DIR, "ledger-unwritable-state");
+    fs.mkdirSync(state, { recursive: true, mode: 0o700 });
+    // A regular FILE where the ledger directory belongs: mkdir and the write both fail, and no
+    // permission bit has to be trusted for the case to mean the same thing as root and as a user.
+    fs.writeFileSync(path.join(state, "worktrees"), "not a directory\n");
+    const { code, err } = await run(null, { args: ["--worktree", repo], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.USAGE) return `an unwritable ledger did not refuse the run: exit ${code} (${err.trim().slice(0, 200)})`;
+    if (!/worktree ledger under .* could not be written/.test(err))
+      return `the refusal did not name the ledger: ${err.trim().slice(0, 200)}`;
+    let trees = [];
+    try { trees = fs.readdirSync(path.join(repo, ".claude", "worktrees")); } catch {}
+    if (trees.length) return `a tree was created although its ledger entry could not be: ${JSON.stringify(trees)}`;
+    return true;
+  });
+
 test("the reconciler's bound reaches the OLDEST entries, not whichever fifty the filesystem lists first",
   "a bounded sweep must rotate through ledger entries; repeatedly taking the same unsorted prefix starves later entries forever",
   async () => {
@@ -1493,22 +1496,6 @@ test("--worktree REPO --resume ID rebuilds that thread's tree and continues in i
     }
     return true;
   });
-
-test("a crashed --mcp run's private home is reaped by the next one",
-  "a SIGKILL bypasses shutdown and can leave a private home containing MCP tokens; later runs must reconcile those abandoned homes",
-  async () => {
-    const homes = path.join(STATE_DIR, "homes");
-    const dead = path.join(homes, "00000000deadbeef");
-    fs.mkdirSync(dead, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(dead, "config.toml"), 'TOKEN = "secret"\n', { mode: 0o600 });
-    fs.writeFileSync(path.join(dead, "owner.json"), JSON.stringify({ pid: 2147483646, started: "old" }), { mode: 0o600 });
-    const { code, err } = await run(freshDir("mcp-reap"), { args: ["--mcp"], env: { FAKE_MCP: "1" } });
-    if (code !== EXIT.OK) return `the --mcp run exited ${code}: ${err.trim().slice(0, 200)}`;
-    if (fs.existsSync(dead)) return "a dead owner's private home, holding its MCP secrets, survived the next --mcp run";
-    if (!/reaped a crashed --mcp run's private home/.test(err)) return `the reaping was silent: ${err.trim().slice(0, 200)}`;
-    return true;
-  });
-
 
 test("a crashed tree whose HEAD cannot be read is left in place, not removed",
   "an unreadable HEAD is not evidence of no commits; reconciliation must preserve a tree whose commit reachability cannot be determined",
@@ -1676,6 +1663,34 @@ test("a lock is reclaimed only when the driver AND its app-server group are both
         return `a lock whose driver and group are both gone was not reclaimed (exit ${free.code}): ${free.err.trim().slice(0, 200)}`;
     } finally {
       try { process.kill(-group.pid, "SIGKILL"); } catch {}
+      fs.rmSync(lockFor(d), { force: true });
+    }
+    return true;
+  });
+
+test("a lock whose app-server group was recycled by an unrelated process refuses the run",
+  "the pgid half of the reclaim rule cannot tell a live codex group from a stranger the OS handed the same number, and the safe answer to that ambiguity is BUSY: guessing the other way admits a second writer into a directory a live seat may be editing",
+  async () => {
+    const d = freshDir("pgid-recycled");
+    fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+    // Its own group leader, and nothing to do with codex — which is exactly what a recycled pgid names.
+    const stranger = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"],
+      { detached: true, stdio: "ignore" });
+    stranger.unref();
+    const body = JSON.stringify({
+      // Above the system maximum: the driver that took this lock is gone and cannot come back.
+      pid: 2147483646, cwd: fs.realpathSync(d), started: "old", appServerPgid: stranger.pid });
+    fs.writeFileSync(lockFor(d), body);
+    try {
+      const { code, err } = await run(d);
+      if (code !== EXIT.BUSY)
+        return `a recycled group number was resolved by taking the lock: exit ${code} (${err.trim().slice(0, 200)})`;
+      if (fs.readFileSync(lockFor(d), "utf8") !== body)
+        return "the refused run rewrote the lock it did not take, so the next run reads it as its own";
+      const wrote = fs.readdirSync(d);
+      if (wrote.length) return `the refused run wrote into the protected directory: ${JSON.stringify(wrote)}`;
+    } finally {
+      try { process.kill(-stranger.pid, "SIGKILL"); } catch {}
       fs.rmSync(lockFor(d), { force: true });
     }
     return true;
