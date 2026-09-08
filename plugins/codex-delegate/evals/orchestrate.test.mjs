@@ -165,16 +165,23 @@ test("C5 the harvest is landed by proposal, naming the three envelope handles",
     "Land the harvest by proposal: apply `worktreeDiffPath` and restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait, unless the plan said \"land the winner\"",
   ));
 
+test("C6 the plan states the pool and the user overrides it in words",
+  "the caps are settings the user owns: a plan that launched under the page's defaults without showing them gave the user nothing to overrule, and \"two Fable\" or \"only codex\" said after the first seat is a word too late",
+  () => says(
+    "Announce the composition here, and the pool beside it: your own model and the default caps below, one Fable, one `gpt-6-astra`, six alive.",
+    "A cap the user overrides in words (\"two Fable\") replaces the default for this run; composition words (\"only codex\", \"no codex\") follow the sibling's table.",
+  ));
+
 // ------------------------------------------------------------------ D: models, tags and effort
 
 test("D2 the orchestrator's own model is read out of the system prompt",
-  "every rule below branches on which model is orchestrating, and nothing else in the session states it: a coordinator that guesses applies the wrong branch for the whole run",
+  "the plan states it beside the pool and an untagged subagent inherits it, and nothing else in the session says which it is: a coordinator that guesses announces the wrong model and cannot tell an inherited tier from a chosen one",
   () => says("Your own model is in your system prompt (\"You are powered by the model named ...\"); nothing else carries it."));
 
-test("D3 every Claude Agent call is tagged, fable only for the one top seat, and a codex-seat call carries neither model nor effort",
+test("D3 every Claude Agent call is tagged, fable only for the one Fable seat, and a codex-seat call carries neither model nor effort",
   "an untagged subagent silently inherits the session model, so a fan-out meant to be cheap runs at the top tier; and model or effort passed to a codex-seat call reshapes the relay instead of the seat",
   () => says(
-    "Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one top seat under Fable",
+    "Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat",
     "every Codex seat carries one with a slug from the table, never the config default",
     "pass neither `model` nor `effort` to a `codex-seat` call",
   ));
@@ -183,17 +190,20 @@ test("D4 one Fable seat and one gpt-6-astra seat alive at a time",
   "the top tier is the expensive one and it is the one a fan-out multiplies fastest; the cap is the only thing between a five-seat batch and five top-tier seats",
   () => says("at most one Fable seat and one `gpt-6-astra` seat alive at a time"));
 
-test("D5 under Opus or Sonnet the top Claude seat is Opus, the final review is a fresh Opus, and astra keeps its cap of one",
-  "without this branch the tier table reads as unusable for the sessions that are not Fable, and the final review lands on the seat that wrote the code",
-  () => says(
-    "the top Claude seat is Opus with no cap of its own",
-    "a fresh Opus seat gives the final review",
-    "`gpt-6-astra` stays the single top Codex seat with the top-row roles and its cap of one",
-  ));
+test("D5 the pool does not depend on the orchestrator's model, and the top pair takes its roles in turn",
+  "the pool is the user's, not the session's: an Opus orchestrator that designed for itself and reviewed with a fresh Opus spent the strong tier on the top tier's work while a Fable seat sat unused; one Fable seat, one role at a time, is available to every orchestrator",
+  () => {
+    const prose = says(
+      "You are outside the pool, and the pool is the same whatever you are",
+      "each taking the top-row roles in turn, architect for one task and judge for the next",
+    );
+    const row = shows(/^\| plan \| design: the Fable seat, whatever your own model \|$/m);
+    return prose === true && row === true || [prose, row].filter((r) => r !== true).join("; ");
+  });
 
-test("D7 Fable never spawns Fable",
-  "a top seat that may spawn its own top seat makes the cap of one unenforceable one level down, where nothing is counting",
-  () => says("Fable never spawns Fable"));
+test("D7 a Fable seat never spawns Fable, and only the orchestrator launches the pool's Fable seat",
+  "a top seat that may spawn its own top seat makes the cap of one unenforceable one level down, where nothing is counting; stated without \"seat\" the rule also read as forbidding a Fable orchestrator the one Fable seat the pool promises it",
+  () => says("a Fable seat never spawns Fable", "only you launch the pool's Fable seat"));
 
 test("D8 no EFFORT line, and low effort only for mechanical Sonnet stages",
   "the user's configured effort is the default every seat inherits; measured on codex-cli 0.153.4, gpt-6-astra delegates to its own subagent threads at xhigh as readily as at ultra when invited, so no effort line buys the evidence guarantee an exception once claimed",
@@ -233,7 +243,7 @@ test("E3 the composition table is linked at its anchor",
 test("E4 the three bound rows: alive at once, the top pair, the Codex write seat per directory",
   "these are the numbers that decide whether a fan-out runs or deadlocks: a second Codex write seat on one directory exits 10 before its turn ever runs",
   () => shows(
-    /^\| alive at once \| 5 per side, 5 Claude and 5 Codex; the top pair is outside both counts \|$/m,
+    /^\| alive at once \| 6, Claude and Codex together, the top pair counted in \|$/m,
     /^\| Fable seats, `gpt-6-astra` seats \| 1 each, alive at a time \|$/m,
     /^\| Codex write seats per directory \| 1: a second on the same directory exits 10 at once, before its turn runs \|$/m,
   ));
@@ -243,7 +253,7 @@ test("E5 the three scaling rows: simple, comparison, complex",
   () => shows(
     /^\| simple task \| 1 seat \|$/m,
     /^\| comparison or design \| 2 to 4 seats \|$/m,
-    /^\| complex \| 5 seats or more, launched in batches of 5 \|$/m,
+    /^\| complex \| 5 seats or more, launched in batches inside the alive cap \|$/m,
   ));
 
 test("E6 the writer may run the suite, but the deciding evidence comes from elsewhere",
@@ -278,8 +288,8 @@ test("F2 the six verification bullets, one line each",
   ));
 
 test("F3 two rounds of fix and cross-review, then escalate",
-  "without a bound the fix loop is where a run spends its budget; the escalation names where the round after the second one goes on each side, and the user last",
-  () => says("Fix, then cross-review, at most two rounds; then escalate: under Fable to the Fable top seat; under Opus or Sonnet to the `gpt-6-astra` seat or a fresh top Opus seat, and to the user only when that round fails too."));
+  "without a bound the fix loop is where a run spends its budget; the escalation names where the round after the second one goes, the top pair first and the user last",
+  () => says("Fix, then cross-review, at most two rounds; then escalate to the Fable seat or the `gpt-6-astra` seat, and to the user only when that round fails too."));
 
 test("F4 every row of the Result table",
   "this table is read at the one moment judgement is worst, when a seat has just failed; a missing row is a relaunch that duplicates a live run, or a gate verdict retried until it costs real money",
