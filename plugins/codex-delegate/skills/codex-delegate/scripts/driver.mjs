@@ -44,30 +44,87 @@ const EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "m
 // The server's accepted web-search modes, learned from its rejection message.
 // Search stays disabled by default because it makes repository work depend on today's index.
 const WEB_SEARCH = new Set(["cached", "indexed", "live"]);
-// --brief is about the coordinator's context, not the seat's thoroughness: the full answer is always
-// written to disk, so capping what comes back inline costs nothing but a second read when it matters.
-const BRIEF_LINES = 20;
-const BRIEF_BYTES = 4000;
-const MAX_PROMPT_BYTES = 512 * 1024;
-const DEFAULT_IDLE_TIMEOUT_S = 900;
-const DEFAULT_MAX_COMMANDS = 1000;
-const MAX_TIMEOUT_S = 7200;
-const VERIFY_TIMEOUT_S = 300;
-const VERIFY_TAIL_CHARS = 2000;
-const VERIFY_BUFFER_CHARS = 65536;
-const VERIFY_FLOOR_MS = 100;
-const PRUNE_DAYS = 14;
-const PRUNE_MAX_ENTRIES = 400;
-const STDOUT_DRAIN_MIN_MS = 5000;
-const CONFIG_PROBE_MAX_MS = 5000;
-const CONFIG_PROBE_MIN_MS = 1000;
-const RECEIPT_LOOKBACK_DAYS = 2;
+// Every tuning number this driver runs on, in one table, each with the reason it is that number. They
+// were scattered over the file beside whichever line first needed one, so "what does this bound, and
+// why that value" was a question only a full read could answer.
+const LIMITS = {
+  // --brief is about the coordinator's context, not the seat's thoroughness: the full answer is always
+  // written to disk, so capping what comes back inline costs nothing but a second read when it matters.
+  BRIEF_LINES: 20,
+  BRIEF_BYTES: 4000,
+  // The prompt cap, over --prompt, over stdin and over the whole seat file including its header.
+  MAX_PROMPT_BYTES: 512 * 1024,
+  // The bound on an unterminated line, per connection: a turn's item can carry a whole test run, while
+  // an oversized reply with no newline is not a config.
+  MAX_LINE_BYTES: 32 * 1024 * 1024,
+  PROBE_MAX_LINE_BYTES: 256 * 1024,
+  // A JSON-RPC error body reaches stderr; a server that answers with a large object must not flood it.
+  RPC_ERROR_CHARS: 120,
+  // The config probe's stderr tail: a diagnostic quotes its last line and nothing reads more.
+  PROBE_STDERR_KEEP: 8192,
+  // What bounds a seat whose caller sized nothing: silence, then volume. Neither is a wall clock.
+  DEFAULT_IDLE_TIMEOUT_S: 900,
+  DEFAULT_MAX_COMMANDS: 1000,
+  // Caps a DECLARED wall clock only; the default, 0, is no wall clock at all.
+  MAX_TIMEOUT_S: 7200,
+  // The verifier is the caller's own command, bounded by what is left of --timeout and by this.
+  VERIFY_TIMEOUT_S: 300,
+  // How much of each verifier stream the report carries, and how much is held in memory: how much a
+  // verifier prints says nothing about the work, so neither bound may fail the check.
+  VERIFY_TAIL_CHARS: 2000,
+  VERIFY_BUFFER_CHARS: 65536,
+  // Too little of the budget left to start the verifier in at all; CODEX_DELEGATE_VERIFY_FLOOR_MS
+  // overrides it, which is also the only way to reach that branch without racing the clock.
+  VERIFY_FLOOR_MS: 100,
+  // Retention for the directories this driver keeps: age first, then count, never the newest entry and
+  // never a directory a live seat still owns.
+  PRUNE_DAYS: 14,
+  PRUNE_MAX_ENTRIES: 400,
+  // What a report gets to drain in where no wall clock was set, and the floor where one was.
+  STDOUT_DRAIN_MIN_MS: 5000,
+  // The config probe runs before the turn's timers are armed and comes out of the same budget, so it is
+  // clamped: normally ~120 ms, at most this, and no less than the minimum under a short --timeout.
+  CONFIG_PROBE_MAX_MS: 5000,
+  CONFIG_PROBE_MIN_MS: 1000,
+  // How many date directories the receipt search walks, so a run that crossed midnight is still found,
+  // and how much of the rollout it reads: everything it needs is in the opening record.
+  RECEIPT_LOOKBACK_DAYS: 2,
+  RECEIPT_HEAD_BYTES: 64 * 1024,
+  // A budget the model cannot plan against is spent entirely on investigation: a quarter of the clock is
+  // reserved for writing the answer, bounded both ways, and the cut keeps a grace of the same shape for
+  // the server to close the turn in.
+  WALL_RESERVE_MIN_MS: 60000,
+  WALL_RESERVE_MAX_MS: 300000,
+  CUT_GRACE_MIN_MS: 50,
+  CUT_GRACE_MAX_MS: 10000,
+  // A transient failure is retried only where the clock still leaves the backoff plus a turn worth having.
+  TRANSIENT_TURN_MIN_MS: 10000,
+  // A peer replacing the shared home's link with rename(2) makes readlink answer EINVAL while the entry
+  // is a symbolic link the whole time; ask again rather than refuse a healthy run.
+  LINK_READ_ATTEMPTS: 8,
+  // A lock retry requires a peer state transition — a stale lock reclaimed, or the lock vanishing — so
+  // this bounds CONTENTION rather than a spin loop.
+  LOCK_ATTEMPTS: 10,
+  LOCK_RETRY_MS: 20,
+  // Only a backstop for a recycled pid: owner liveness is what decides that a reclaim marker is abandoned.
+  RECLAIM_BACKSTOP_MS: 3600000,
+  // One bound for every command this driver spawns and WAITS on, git or not: a `ps`, a `plutil` or a
+  // `tar` that never returns hangs the run exactly as a hook-driven git does.
+  SPAWN_TIMEOUT_MS: 120_000,
+  // The app-server stderr tail abort() prints: a run can be long, and how much was dropped is reported.
+  STDERR_KEEP: 64 * 1024,
+  // The in-flight answer rebuilt from the deltas — the only copy of a cut turn's message — bounded on
+  // both axes, because it grows with a turn that is already going wrong.
+  PARTIAL_MAX_CHARS: 256 * 1024,
+  PARTIAL_MAX_ITEMS: 64,
+  // Turn-scoped notifications held until the turn id arrives. Generous, because a legitimate burst is a
+  // handful of items sharing one stdout chunk; bounded, because a server that holds the turn/start
+  // response while streaming them has nothing to drain them.
+  EARLY_MAX_ITEMS: 1000,
+  EARLY_MAX_BYTES: 8 * 1024 * 1024,
+};
+// Not a limit: where to look for codex when PATH does not have it.
 const CODEX_FALLBACK_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin"];
-const WALL_RESERVE_MIN_MS = 60000;
-const WALL_RESERVE_MAX_MS = 300000;
-const CUT_GRACE_MIN_MS = 50;
-const CUT_GRACE_MAX_MS = 10000;
-const TRANSIENT_TURN_MIN_MS = 10000;
 // --timeout is the caller's whole budget, so anything the driver spends after the turn — the verifier —
 // has to come out of what is left of it rather than out of a private allowance.
 const startedAtMs = Date.now();
@@ -104,15 +161,43 @@ function fail(code, msg) {
 }
 class Bail extends Error {}
 
-// The seat-file vocabulary lives above --help because the help interpolates it.
-const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "EXPECT", "VERIFY", "NETWORK", "MODEL", "WEB_SEARCH",
-                             "OUTPUT_SCHEMA", "ALLOW_NO_COMMANDS", "BRIEF",
-                             "WRITABLE", "RESUME"]);
-// Accepted on the command line and refused as fields: each bounds or transports the run rather than
-// declaring its rights, and each has a default a seat launched with nothing configured can live with.
-// A header able to set one is a knob every wrapped seat would have to size.
-const CLI_ONLY_FIELDS = { TIMEOUT: "--timeout", IDLE_TIMEOUT: "--idle-timeout", MAX_COMMANDS: "--max-commands",
-                          REPORT_FILE: "--report-file" };
+// The seat-file vocabulary, ONE table: what a header may name, what each name becomes on the command
+// line, and which names are refused as fields. It lives above --help because the help interpolates it,
+// and every list below derives from it, so a name cannot be in one and missing from another — which
+// once reached the parser as `unknown argument: undefined`.
+//
+// The kinds are trust boundaries rather than a rendering hint. `seat` is the rights declaration, and the
+// only field that expands to more than one flag. `bool` and `value` are what a header may set. A
+// `cli-only` name is accepted on the command line and refused as a field: each bounds or transports the
+// run rather than declaring its rights, and each has a default a seat launched with nothing configured
+// can live with, so a header able to set one is a knob every wrapped seat would have to size.
+//
+// SEAT is first because the parser refuses a header that does not open with it, and because --help
+// prints this order.
+const FIELDS = [
+  { name: "SEAT", kind: "seat", flag: null },
+  { name: "EFFORT", kind: "value", flag: "--effort" },
+  { name: "EXPECT", kind: "value", flag: "--expect-command" },
+  { name: "VERIFY", kind: "value", flag: "--verify" },
+  { name: "NETWORK", kind: "bool", flag: "--network" },
+  { name: "MODEL", kind: "value", flag: "--model" },
+  { name: "WEB_SEARCH", kind: "value", flag: "--web-search" },
+  { name: "OUTPUT_SCHEMA", kind: "value", flag: "--output-schema" },
+  { name: "ALLOW_NO_COMMANDS", kind: "bool", flag: "--allow-no-commands" },
+  { name: "BRIEF", kind: "bool", flag: "--brief" },
+  { name: "WRITABLE", kind: "value", flag: "--writable" },
+  { name: "RESUME", kind: "value", flag: "--resume" },
+  { name: "TIMEOUT", kind: "cli-only", flag: "--timeout" },
+  { name: "IDLE_TIMEOUT", kind: "cli-only", flag: "--idle-timeout" },
+  { name: "MAX_COMMANDS", kind: "cli-only", flag: "--max-commands" },
+  { name: "REPORT_FILE", kind: "cli-only", flag: "--report-file" },
+];
+const flagsOfKind = (k) => Object.fromEntries(FIELDS.filter((f) => f.kind === k).map((f) => [f.name, f.flag]));
+const SEAT_FIELDS = new Set(FIELDS.filter((f) => f.kind !== "cli-only").map((f) => f.name));
+const CLI_ONLY_FIELDS = flagsOfKind("cli-only");
+// Hoisted out of argvFromSeatFile's per-line loop, where they were rebuilt for every header line.
+const BOOLS = flagsOfKind("bool");
+const FLAGS = flagsOfKind("value");
 // The extensions the server takes, and which item kind each becomes.
 const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
                        webp: "localImage", bmp: "localImage",
@@ -130,7 +215,7 @@ const STATE_SUBDIRS = [
 ];
 
 // The post-turn exit ladder, first match wins. decideExitCode() walks it and --help renders it, so a rung
-// cannot exist in one and not the other. `help: null` shares the line above.
+// cannot exist in one and not the other, and every rung states its own line.
 //
 // Every `when` is a function of its ARGUMENT and of nothing else. Rungs that read the run's module state
 // directly could only be exercised by running a whole turn that produced it; decideExitCode gathers that
@@ -152,13 +237,13 @@ const LADDER = [
   // Above NO_COMMANDS: a refused approval explains the missing command, and "nothing ran" would hide why.
   { code: EXIT.ESCALATED, help: "an approval was refused: the sandbox was sized too small",
     when: (c) => c.escalations.length > 0 },
-  // Above every proxy below it, and distinct from "the check said no": a declared check that was not
-  // measured leaves verifyResult null, which both verify rungs test for, so the ladder would fall
-  // through to the weaker gates and a run with an unrun --verify could reach 0.
+  // Above every proxy below it, and distinct from "the check said no". Two shapes of the same finding,
+  // so one rung: a check the budget left no room for never ran, and a check that ran without an
+  // observable exit status measured nothing. Either leaves verifyResult null or unmeasured, which every
+  // gate below reads as "nothing to complain about" — so the ladder would fall through to the weaker
+  // gates and a run with an unrun --verify could reach 0.
   { code: EXIT.VERIFY_UNMEASURABLE, help: "--verify was declared and could not be measured",
-    when: (c) => c.verifySkipped === "budget-exhausted" },
-  { code: EXIT.VERIFY_UNMEASURABLE, help: null,
-    when: (c) => c.verifyResult != null && !c.verifyResult.measured },
+    when: (c) => c.verifySkipped === "budget-exhausted" || (c.verifyResult != null && !c.verifyResult.measured) },
   { code: EXIT.VERIFY_FAILED, help: "--verify ran and failed",
     when: (c) => c.verifyFailed },
   // --allow-no-commands waives the floor and must not waive a declared --expect-command; a passing
@@ -175,8 +260,7 @@ const LADDER = [
   // commandsBlocked, fileChangesFailed and commandsProbeNegative stay in the report, where a caller
   // reads them; --expect-command (exit 5) and --verify (exit 9) are the gates that judge.
 ];
-const ladderHelp = () => LADDER.filter((r) => r.help)
-  .map((r) => `  ${String(r.code).padStart(2)}  ${r.help}`).join("\n");
+const ladderHelp = () => LADDER.map((r) => `  ${String(r.code).padStart(2)}  ${r.help}`).join("\n");
 const stateSubdirHelp = () => STATE_SUBDIRS
   .map(([d, what]) => `                                  ${d.padEnd(11)}${what}`).join("\n");
 // Wraps a joined list to the help's right margin, so a name added to a table reflows instead of running
@@ -224,7 +308,7 @@ const HELP = [
   as tmpDir. It is exported for the turn AND the verifier, and it OUTLIVES the
   run, because
   --brief tells the seat to leave long output in a file there. It is pruned on
-  the run-directory bounds (${PRUNE_DAYS} days or ${PRUNE_MAX_ENTRIES} directories, never one still running).
+  the run-directory bounds (${LIMITS.PRUNE_DAYS} days or ${LIMITS.PRUNE_MAX_ENTRIES} directories, never one still running).
   A worktree turn that did not complete, or a harvest
   that failed, PRESERVES the tree and the report says why and how to remove it; a
   clean tree whose turn never started is removed too. With --resume the tree is
@@ -294,7 +378,7 @@ const HELP = [
                      string it reports (\`/bin/zsh -lc '...'\`), so \`^pnpm\` works
   --verify CMD       run CMD after the turn, in the seat's tree; its exit code
                      decides. CMD is a shell command with YOUR rights, env and
-                     network, bounded by what is left of --timeout, at most ${VERIFY_TIMEOUT_S} s
+                     network, bounded by what is left of --timeout, at most ${LIMITS.VERIFY_TIMEOUT_S} s
   --verify-sandboxed run --verify through \`codex sandbox\` under the read-only
                      profile --level read uses: the tree is readable, \$TMPDIR is
                      writable, nothing else is, so a verifier that must WRITE fails
@@ -303,9 +387,9 @@ const HELP = [
                      (exit 5) or --verify (exit 9) is what judges the work`,
     more: `  --verify: prefer a command that does not execute anything out of the tree the
   seat just wrote (\`npm test\` runs the seat's own package.json script). The report
-  carries verify.budgetMs, verify.timedOut and verify.sandboxed, and the last ${VERIFY_TAIL_CHARS}
+  carries verify.budgetMs, verify.timedOut and verify.sandboxed, and the last ${LIMITS.VERIFY_TAIL_CHARS}
   characters of each stream; the output is streamed, never buffered whole, and the
-  last ${VERIFY_BUFFER_CHARS} characters are kept in memory. Most build and test runners write, so most fail
+  last ${LIMITS.VERIFY_BUFFER_CHARS} characters are kept in memory. Most build and test runners write, so most fail
   under --verify-sandboxed; it passes the exit code through,
   and is a usage error where this codex has no \`sandbox\` subcommand.
   commandsFailed, commandsBlocked (a command that reached the client with no verdict
@@ -318,14 +402,14 @@ const HELP = [
                      budget is anchored at process start: at T minus a reserve the
                      turn is STEERED to answer now, at T minus a grace it is CUT
                      (exit 3, cut.kind wall), at T the report is written anyway
-  --idle-timeout S   default ${DEFAULT_IDLE_TIMEOUT_S}, 0 disables — how long the thread may say NOTHING
+  --idle-timeout S   default ${LIMITS.DEFAULT_IDLE_TIMEOUT_S}, 0 disables — how long the thread may say NOTHING
                      before the turn is cut with cut.kind idle. Every notification
                      resets it. This, not --timeout, is the hang guard
-  --max-commands N   default ${DEFAULT_MAX_COMMANDS}, 0 disables — how many commands the turn may run
+  --max-commands N   default ${LIMITS.DEFAULT_MAX_COMMANDS}, 0 disables — how many commands the turn may run
                      before it is cut with cut.kind commands (exit 3, the report
                      holding the answer so far): the bound that catches a loop`,
-    more: `  --timeout is at most ${MAX_TIMEOUT_S}. The reserve is a quarter of the budget, at least
-  ${WALL_RESERVE_MIN_MS / 1000} s and at most ${WALL_RESERVE_MAX_MS / 1000} s, and only where that fits; the grace is ${CUT_GRACE_MAX_MS / 1000} s, at most a
+    more: `  --timeout is at most ${LIMITS.MAX_TIMEOUT_S}. The reserve is a quarter of the budget, at least
+  ${LIMITS.WALL_RESERVE_MIN_MS / 1000} s and at most ${LIMITS.WALL_RESERVE_MAX_MS / 1000} s, and only where that fits; the grace is ${LIMITS.CUT_GRACE_MAX_MS / 1000} s, at most a
   quarter of the budget — turn/interrupt, then that long for the server to close
   the turn, and the report says whether it did. --idle-timeout is reset by every
   notification AND server request on the thread (item starts and completions,
@@ -391,7 +475,7 @@ const HELP = [
   --host-home        use the caller's ~/.codex instead, plugins and all
   the private home is filled by asking the caller's own codex what its settings
   resolve to, which costs one short process before the turn: bounded by
-  ${CONFIG_PROBE_MAX_MS / 1000} s, or min(${CONFIG_PROBE_MAX_MS / 1000} s, max(${CONFIG_PROBE_MIN_MS / 1000} s, --timeout)) where a wall clock was declared, and
+  ${LIMITS.CONFIG_PROBE_MAX_MS / 1000} s, or min(${LIMITS.CONFIG_PROBE_MAX_MS / 1000} s, max(${LIMITS.CONFIG_PROBE_MIN_MS / 1000} s, --timeout)) where a wall clock was declared, and
   normally ~120 ms. It counts against that one budget, which is anchored at
   process start` },
 
@@ -405,9 +489,9 @@ ${stateSubdirHelp()}
                                 it the driver searches PATH, then
                                 ${CODEX_FALLBACK_DIRS.join(", ")}
   CODEX_DELEGATE_VERIFY_FLOOR_MS  how little of the --timeout budget is too
-                                little to start --verify in (default ${VERIFY_FLOOR_MS}).
+                                little to start --verify in (default ${LIMITS.VERIFY_FLOOR_MS}).
                                 Also a test seam: the branch is otherwise
-                                reachable only by landing inside a ${VERIFY_FLOOR_MS} ms window` },
+                                reachable only by landing inside a ${LIMITS.VERIFY_FLOOR_MS} ms window` },
 
   { s: "Exit codes. Raised the moment they happen, before any turn could run:",
     text: `  2  bad arguments
@@ -422,7 +506,7 @@ ${ladderHelp()}
 
   and 4 once more at the very end, if the report could not reach stdout — a closed
   pipe, or a consumer that never drained it within what was left of --timeout (at
-  least ${STDOUT_DRAIN_MIN_MS / 1000} s, and exactly ${STDOUT_DRAIN_MIN_MS / 1000} s where no wall clock was set). So 2 means either, and
+  least ${LIMITS.STDOUT_DRAIN_MIN_MS / 1000} s, and exactly ${LIMITS.STDOUT_DRAIN_MIN_MS / 1000} s where no wall clock was set). So 2 means either, and
   the report tells them apart: an argument error prints none.
   Codes decided after the turn can all carry executed work.` },
 ];
@@ -477,8 +561,8 @@ function argvFromSeatFile(file, allowSeatVerify) {
   try { raw = fs.readFileSync(file, "utf8"); }
   catch (e) { fail(EXIT.USAGE, `--seat-file cannot read ${file}: ${e.message}`); }
   // MAX_PROMPT_BYTES bounds the whole seat file, including its prompt and header.
-  if (Buffer.byteLength(raw) > MAX_PROMPT_BYTES)
-    fail(EXIT.USAGE, `--seat-file exceeds ${MAX_PROMPT_BYTES} bytes, the prompt cap: the file carries the body as well as the header`);
+  if (Buffer.byteLength(raw) > LIMITS.MAX_PROMPT_BYTES)
+    fail(EXIT.USAGE, `--seat-file exceeds ${LIMITS.MAX_PROMPT_BYTES} bytes, the prompt cap: the file carries the body as well as the header`);
   const out = [], seen = new Set(), declared = [];
   const lines = raw.split("\n");
   let bodyAt = 0;
@@ -512,8 +596,6 @@ function argvFromSeatFile(file, allowSeatVerify) {
       else fail(EXIT.USAGE, `--seat-file: SEAT must be read | worktree <repo> | write <dir>, got ${JSON.stringify(value)}`);
       continue;
     }
-    const BOOLS = { NETWORK: "--network", ALLOW_NO_COMMANDS: "--allow-no-commands",
-                    BRIEF: "--brief" };
     if (BOOLS[field]) {
       // A negative header value omits the flag, just as omitting the line does.
       if (/^(no|false|0)$/i.test(value)) continue;
@@ -522,9 +604,6 @@ function argvFromSeatFile(file, allowSeatVerify) {
       continue;
     }
     if (!value) fail(EXIT.USAGE, `--seat-file: ${field} has an empty value`);
-    const FLAGS = { EFFORT: "--effort", EXPECT: "--expect-command", VERIFY: "--verify",
-                    MODEL: "--model", WEB_SEARCH: "--web-search", OUTPUT_SCHEMA: "--output-schema",
-                    WRITABLE: "--writable", RESUME: "--resume" };
     out.push(FLAGS[field], value);
   }
   // A header-only file leaves the prompt to stdin or --prompt.
@@ -549,7 +628,7 @@ function parseArgs(argv) {
   // No effort override by default: config.toml chooses the model and effort.
   // No wall clock by default: --idle-timeout bounds silence and --max-commands bounds volume;
   // --timeout is a budget the caller opts into.
-  const o = { level: "read", timeout: 0, idleTimeout: DEFAULT_IDLE_TIMEOUT_S, maxCommands: DEFAULT_MAX_COMMANDS, writable: [], attach: [] };
+  const o = { level: "read", timeout: 0, idleTimeout: LIMITS.DEFAULT_IDLE_TIMEOUT_S, maxCommands: LIMITS.DEFAULT_MAX_COMMANDS, writable: [], attach: [] };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -601,8 +680,8 @@ function parseArgs(argv) {
   if (o.effort !== undefined && !EFFORTS.has(o.effort))
     fail(EXIT.USAGE, `--effort must be one of ${[...EFFORTS].join("|")}`);
   // 0 is the documented "no wall clock" default; MAX_TIMEOUT_S caps only a declared budget.
-  if (!Number.isFinite(o.timeout) || o.timeout < 0 || o.timeout > MAX_TIMEOUT_S)
-    fail(EXIT.USAGE, `--timeout must be a number of seconds, 0 for no wall clock, at most ${MAX_TIMEOUT_S}`);
+  if (!Number.isFinite(o.timeout) || o.timeout < 0 || o.timeout > LIMITS.MAX_TIMEOUT_S)
+    fail(EXIT.USAGE, `--timeout must be a number of seconds, 0 for no wall clock, at most ${LIMITS.MAX_TIMEOUT_S}`);
   // 0 is the documented "off", like --idle-timeout's.
   if (!Number.isInteger(o.maxCommands) || o.maxCommands < 0)
     fail(EXIT.USAGE, "--max-commands must be a whole number of commands, 0 to disable");
@@ -610,8 +689,8 @@ function parseArgs(argv) {
   if (!Number.isFinite(o.idleTimeout) || o.idleTimeout < 0)
     fail(EXIT.USAGE, "--idle-timeout must be a number of seconds, 0 to disable");
   // MAX_PROMPT_BYTES caps --prompt, stdin and the seat file before the server sees them.
-  if (o.prompt !== undefined && Buffer.byteLength(o.prompt) > MAX_PROMPT_BYTES)
-    fail(EXIT.USAGE, `--prompt exceeds ${MAX_PROMPT_BYTES} bytes; pipe a long prompt on stdin instead`);
+  if (o.prompt !== undefined && Buffer.byteLength(o.prompt) > LIMITS.MAX_PROMPT_BYTES)
+    fail(EXIT.USAGE, `--prompt exceeds ${LIMITS.MAX_PROMPT_BYTES} bytes; pipe a long prompt on stdin instead`);
   // --attach maps a local file into the turn's input as the protocol's own item kind — the parity a
   // native subagent has when a screenshot is pasted into its prompt. Checked here so a typo costs
   // nothing: the server would otherwise refuse it mid-turn, after the delegation was already paid for.
@@ -896,75 +975,59 @@ function resolveCodexBin() {
 const INHERITED = ["model", "model_reasoning_effort", "personality", "service_tier"];
 
 // Resolve { entries, failed } so a failed config request cannot be mistaken for an empty config.
-function inheritedConfig() {
-  return new Promise((resolve) => {
-    let child;
-    // Read the caller's config without overriding CODEX_HOME, starting a thread or calling a model.
-    // Kill the detached process group so descendants cannot keep the probe's stdio pipes open.
-    try { child = spawn(codexBin, ["--strict-config", "app-server"], { stdio: ["pipe", "pipe", "pipe"], detached: true }); }
-    catch (e) {
-      // Warn on synchronous spawn failures as well as asynchronous ones before falling back to account defaults.
-      process.stderr.write(`codex-delegate: could not read the caller's Codex config (spawn failed: ${e.message}); model and effort fall back to the account default\n`);
-      return resolve({ entries: [], failed: true });
-    }
-    probeChild = child;
-    let buf = "", done = false;
-    const finish = (v, why, cancelled = false) => {
-      if (done) return;
-      done = true;
-      clearTimeout(bell);
-      try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch {} }
-      // The pipes outlive the kill for as long as anything still holds the write end, and an open pipe
-      // keeps the event loop alive on its own.
-      for (const st of [child.stdout, child.stderr, child.stdin]) { try { st?.destroy(); } catch {} }
-      // Warn when asking for config fails, but stay quiet for an empty config or a shutdown cancellation.
-      // Cancellation settles the probe once so its close handler cannot kill the group or warn again.
-      if (why) process.stderr.write(`codex-delegate: could not read the caller's Codex config (${why}); model and effort fall back to the account default\n`);
-      probeChild = null;
-      probeCancel = null;
-      // Cancellation is a failed config request, so it must not replace the last-known-good config with an empty one.
-      resolve({ entries: v, failed: Boolean(why) || cancelled });
-    };
-    probeCancel = () => finish([], undefined, true);
-    // Clamp a declared timeout between CONFIG_PROBE_MIN_MS and CONFIG_PROBE_MAX_MS.
-    // Without a wall clock, use CONFIG_PROBE_MAX_MS; this probe runs before the turn timers are armed.
-    const budget = opts?.timeout > 0 ? Math.min(CONFIG_PROBE_MAX_MS, Math.max(CONFIG_PROBE_MIN_MS, opts.timeout * 1000)) : CONFIG_PROBE_MAX_MS;
-    // Cap both buffers: diagnostics use only the stderr tail, and an oversized unterminated reply is not a config.
-    let err = "";
-    child.stderr.on("data", (d) => { err = (err + d).slice(-8192); });
-    const why = (base) => {
-      const tail = err.trim().replace(/\s+/g, " ").slice(-160);
-      return tail ? `${base}: ${tail}` : base;
-    };
-    const bell = setTimeout(() => finish([], why(`no reply in ${budget}ms`)), budget);
-    child.on("error", (e) => finish([], why(e.message)));
-    child.on("close", () => finish([], why("the config probe exited before replying")));
-    child.stdin.on("error", () => {});
-    child.stdout.on("data", (d) => {
-      buf += d;
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      if (buf.length > 262144) return finish([], why("config/read reply exceeds 256KB without a newline"));
-      for (const line of lines) {
-        let m; try { m = JSON.parse(line); } catch { continue; }
-        if (m.id !== 2) continue;
-        if (m.error) return finish([], `config/read: ${JSON.stringify(m.error).slice(0, 120)}`);
-        // Report an unusable reply as a failed request, not as an empty config.
-        const cfg = m.result?.config;
-        if (cfg === null || typeof cfg !== "object")
-          return finish([], `config/read returned no usable config (${JSON.stringify(m.result).slice(0, 80)})`);
-        const wrong = INHERITED.filter((k) => cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== "string");
-        if (wrong.length)
-          process.stderr.write(`codex-delegate: the caller's Codex config reports ${wrong.join(", ")} as something other than text; those are not carried across\n`);
-        return finish(INHERITED.filter((k) => typeof cfg[k] === "string").map((k) => [k, tomlString(cfg[k])]));
-      }
-    });
-    for (const msg of [
-      { jsonrpc: "2.0", id: 1, method: "initialize", params: initializeParams() },
-      { jsonrpc: "2.0", method: "initialized" },
-      { jsonrpc: "2.0", id: 2, method: "config/read", params: {} },
-    ]) { try { child.stdin.write(`${JSON.stringify(msg)}\n`); } catch {} }
-  });
+async function inheritedConfig() {
+  const warn = (why) => process.stderr.write(
+    `codex-delegate: could not read the caller's Codex config (${why}); model and effort fall back to the account default\n`);
+  let probe;
+  // Read the caller's config without overriding CODEX_HOME, starting a thread or calling a model.
+  // Detached so the whole process group can be killed: descendants cannot then keep its pipes open.
+  try { probe = spawn(codexBin, ["--strict-config", "app-server"], { stdio: ["pipe", "pipe", "pipe"], detached: true }); }
+  catch (e) {
+    // Warn on synchronous spawn failures as well as asynchronous ones before falling back to account defaults.
+    warn(`spawn failed: ${e.message}`);
+    return { entries: [], failed: true };
+  }
+  // Clamp a declared timeout between CONFIG_PROBE_MIN_MS and CONFIG_PROBE_MAX_MS.
+  // Without a wall clock, use CONFIG_PROBE_MAX_MS; this probe runs before the turn timers are armed.
+  const budget = opts.timeout > 0 ? Math.min(LIMITS.CONFIG_PROBE_MAX_MS, Math.max(LIMITS.CONFIG_PROBE_MIN_MS, opts.timeout * 1000)) : LIMITS.CONFIG_PROBE_MAX_MS;
+  // Cap the stderr buffer: diagnostics use only its tail.
+  let err = "";
+  probe.stderr.on("data", (d) => { err = (err + d).slice(-LIMITS.PROBE_STDERR_KEEP); });
+  const why = (base) => {
+    const tail = err.trim().replace(/\s+/g, " ").slice(-160);
+    return tail ? `${base}: ${tail}` : base;
+  };
+  const conn = jsonRpcConn(probe, { maxLine: LIMITS.PROBE_MAX_LINE_BYTES,
+    onOverflow: () => conn.rejectAll(new Error(why("config/read reply exceeds 256KB without a newline"))) });
+  // The one way to end the probe from outside: shutdown() and the exit handler close it, which settles
+  // the awaited request as a cancellation rather than as a failure with a misleading warning.
+  probeConn = conn;
+  probe.on("error", (e) => conn.rejectAll(new Error(why(e.message))));
+  probe.on("close", () => conn.rejectAll(new Error(why("the config probe exited before replying"))));
+  try {
+    // Never awaited, and its rejection is swallowed: close() would otherwise turn the handshake into an
+    // unhandled rejection after the config had been read perfectly well.
+    conn.request("initialize", initializeParams()).catch(() => {});
+    conn.notify("initialized");
+    const res = await conn.request("config/read", {}, { timeoutMs: budget });
+    // Report an unusable reply as a failed request, not as an empty config.
+    const cfg = res?.config;
+    if (cfg === null || typeof cfg !== "object")
+      throw new Error(`config/read returned no usable config (${JSON.stringify(res).slice(0, 80)})`);
+    const wrong = INHERITED.filter((k) => cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== "string");
+    if (wrong.length)
+      process.stderr.write(`codex-delegate: the caller's Codex config reports ${wrong.join(", ")} as something other than text; those are not carried across\n`);
+    return { entries: INHERITED.filter((k) => typeof cfg[k] === "string").map((k) => [k, tomlString(cfg[k])]), failed: false };
+  } catch (e) {
+    // Warn when asking for config fails, but stay quiet for an empty config or a shutdown cancellation.
+    // A cancellation is still a failed config request, so it must not replace the last-known-good config
+    // with an empty one.
+    if (!e.cancelled) warn(e.timedOut ? why(e.message) : e.message);
+    return { entries: [], failed: true };
+  } finally {
+    conn.close({ kill: "SIGKILL" });
+    probeConn = null;
+  }
 }
 
 // thread/start echoes approvalPolicy but not the effective web-search mode; measured live,
@@ -976,7 +1039,7 @@ const MANAGED_PREFS = "/Library/Managed Preferences/com.openai.codex.plist";
 function managedWebSearchModes() {
   if (!fs.existsSync(MANAGED_PREFS)) return null;
   const r = spawnSync("plutil", ["-extract", "requirements_toml_base64", "raw", "-o", "-", MANAGED_PREFS],
-    { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
+    { encoding: "utf8", timeout: LIMITS.SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
   // No such key is a real answer: the profile constrains other things and says nothing about search.
   if (r.status !== 0) return /does not exist|Could not extract/i.test(String(r.stderr ?? "")) ? null : undefined;
   if (!r.stdout) return undefined;
@@ -1005,7 +1068,7 @@ function privateTmpDir() {
   const dir = path.join(base, id);
   try {
     fs.mkdirSync(base, { recursive: true, mode: 0o700 });
-    pruneAnswers(base, true);
+    pruneDir(base, true);
     fs.mkdirSync(dir, { mode: 0o700 });
     // Whose it is, so the pruner never removes a live seat's scratch directory. A seat may delete this
     // file — it owns the tree — and the age bound is what decides then.
@@ -1063,9 +1126,8 @@ function renameOver(p, body) {
 // refused a healthy run with "exists but is not a symbolic link" (exit 2). So the refusal now needs
 // lstat to agree, and a transient failure falls through to the atomic re-link below, which is
 // idempotent: the loser of the race writes the same link the winner did.
-const LINK_READ_ATTEMPTS = 8;
 function linkTarget(p) {
-  for (let i = 0; i < LINK_READ_ATTEMPTS; i++) {
+  for (let i = 0; i < LIMITS.LINK_READ_ATTEMPTS; i++) {
     try { return { target: fs.readlinkSync(p) }; }
     catch (e) {
       if (e.code === "ENOENT") return { target: null };
@@ -1122,7 +1184,7 @@ async function isolatedHome() {
   // A transient hiccup gets ONE retry before its silence becomes nondeterminism, and only when the wall
   // clock still leaves room for the probe's own budget plus a turn.
   if (probe.failed && !settled
-      && (!(opts?.timeout > 0) || startedAtMs + opts.timeout * 1000 - Date.now() > 6000)) {
+      && (!(opts.timeout > 0) || startedAtMs + opts.timeout * 1000 - Date.now() > 6000)) {
     probe = await inheritedConfig();
   }
   // A run that is already ending writes nothing here. The probe it cancelled has no entries, and the
@@ -1149,9 +1211,6 @@ async function isolatedHome() {
   }
   return home;
 }
-// A lock retry requires a peer state transition: reclaiming a stale lock or seeing the lock vanish.
-// LOCK_ATTEMPTS bounds contention rather than a spin loop.
-const LOCK_ATTEMPTS = 10, LOCK_RETRY_MS = 20;
 const sleepSync = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
 
 // Classify the lock without trusting its type: O_NOFOLLOW rejects symlinks, O_NONBLOCK avoids FIFO
@@ -1190,7 +1249,7 @@ function processIdentity(pid) {
   // the same process must retain the same identity across shells.
   const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)],
     { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
-      timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
+      timeout: LIMITS.SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
   const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
   return t ? `lstart:${t}` : null;
 }
@@ -1234,7 +1293,6 @@ const reclaimable = (held) => !holderAlive(held) && !holderGroupAlive(held);
 // Remove a still-stale lock under an exclusive reclaim marker; another marker owner means retry acquisition.
 // Owner liveness decides abandonment, with RECLAIM_BACKSTOP_MS only as a backstop for a recycled pid:
 // a stalled live owner keeps its marker, while a dead owner's marker can be reclaimed immediately.
-const RECLAIM_BACKSTOP_MS = 3600000;
 function reclaimStale(p, dir) {
   const rp = `${p}.reclaim`;
   // Random, not the pid, for the reason the config temp is: two runs in different PID namespaces over one
@@ -1248,7 +1306,7 @@ function reclaimStale(p, dir) {
       // Someone is reclaiming right now — unless the process named in their marker is gone.
       try {
         const owner = Number(fs.readFileSync(rp, "utf8").trim());
-        const abandoned = !holderAlive({ pid: owner }) || Date.now() - fs.statSync(rp).mtimeMs > RECLAIM_BACKSTOP_MS;
+        const abandoned = !holderAlive({ pid: owner }) || Date.now() - fs.statSync(rp).mtimeMs > LIMITS.RECLAIM_BACKSTOP_MS;
         if (abandoned) fs.rmSync(rp, { force: true });
       } catch {}
       return false;
@@ -1289,7 +1347,7 @@ function acquireLock(dir) {
   // Publish a fully written private temp file with link(2), which fails EEXIST if a peer won.
   // Creating an empty lock before writing its body would expose it as abandoned and admit another writer.
   const tmp = `${p}.${crypto.randomBytes(8).toString("hex")}.tmp`;
-  for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < LIMITS.LOCK_ATTEMPTS; attempt++) {
     let linked = false;
     try {
       fs.writeFileSync(tmp, body);
@@ -1304,7 +1362,7 @@ function acquireLock(dir) {
     {
       const seen = inspectLock(p, dir);
       // A lock that vanished between create and read was released by a peer; retry acquisition.
-      if (seen.gone) { sleepSync(LOCK_RETRY_MS); continue; }
+      if (seen.gone) { sleepSync(LIMITS.LOCK_RETRY_MS); continue; }
       // An unparsable lock names no live pid, so it cannot be honoured. Since creation is atomic this is
       // no longer a half-written file from a peer — it is a hand-made or corrupted one — but treating it
       // as held would wedge the directory forever, so it is reclaimed like any other stale lock.
@@ -1326,10 +1384,10 @@ function acquireLock(dir) {
       //
       // (Counting how many runs exited 0 does not measure this and will mislead you: runs that acquire in
       // sequence all succeed, correctly. Only overlapping hold intervals are evidence.)
-      if (!reclaimStale(p, dir)) { sleepSync(LOCK_RETRY_MS); continue; }
+      if (!reclaimStale(p, dir)) { sleepSync(LIMITS.LOCK_RETRY_MS); continue; }
     }
   }
-  fail(EXIT.BUSY, `${dir} is contended: the lock at ${p} changed hands ${LOCK_ATTEMPTS} times without settling`);
+  fail(EXIT.BUSY, `${dir} is contended: the lock at ${p} changed hands ${LIMITS.LOCK_ATTEMPTS} times without settling`);
 }
 // The lock body gains what could not be known when it was taken: the app-server's process group exists
 // only after the spawn. Replaced by rename, so a reader sees one whole body or the other; only ever our
@@ -1362,14 +1420,13 @@ function releaseLock() {
 // One bound for every command this driver spawns and WAITS on, git or not: a `ps`, a `plutil` or a
 // `tar` that never returns hangs the run exactly as a hook-driven git does, and only the git calls had
 // it.
-const SPAWN_TIMEOUT_MS = 120_000;
 const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external="];
 // --no-ext-diff and --no-textconv on every diff: `diff.external` is only one of the two ways a repository
 // asks git to run a program, the other being a gitattributes driver, and textconv output is not appliable.
 const GIT_DIFF_SAFE = ["--no-ext-diff", "--no-textconv"];
 function git(dir, args, extra = {}) {
   return spawnSync("git", [...GIT_SAFE, "-C", dir, ...args],
-    { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL", ...extra });
+    { encoding: "utf8", timeout: LIMITS.SPAWN_TIMEOUT_MS, killSignal: "SIGKILL", ...extra });
 }
 
 // ---------------------------------------------------------------- worktree
@@ -1401,7 +1458,7 @@ function writeJob(fields) {
     // continues an OLDER thread.
     renameOver(p, JSON.stringify(Object.fromEntries(
       Object.entries({ ...prev, ...fields }).filter(([k]) => JOB_FIELDS.has(k)))));
-    pruneAnswers(dir);
+    pruneDir(dir);
   } catch {}
 }
 // Does a job record belong to the directory being asked about? Matched by IDENTITY, and by the seat's
@@ -1628,7 +1685,7 @@ function restorePriorWork(dir, prior) {
     worktreeInfo.disposed = true;
   };
   const gone = (what, p) => (abandon(), fail(EXIT.USAGE, `--resume: the ${what} of that thread is no longer at ${p} ` +
-    `(the answer log is pruned after ${PRUNE_DAYS} days), so its tree cannot be rebuilt; resume it with --level write --cwd on a tree you restore yourself`));
+    `(the answer log is pruned after ${LIMITS.PRUNE_DAYS} days), so its tree cannot be rebuilt; resume it with --level write --cwd on a tree you restore yourself`));
   if (prior.worktreeDiffPath) {
     if (!fs.existsSync(prior.worktreeDiffPath)) gone("harvested diff", prior.worktreeDiffPath);
     const ap = git(dir, ["apply", "--binary", prior.worktreeDiffPath]);
@@ -1642,7 +1699,7 @@ function restorePriorWork(dir, prior) {
   if (prior.worktreeUntrackedPath) {
     if (!fs.existsSync(prior.worktreeUntrackedPath)) gone("untracked archive", prior.worktreeUntrackedPath);
     const tar = spawnSync("tar", ["-xzf", prior.worktreeUntrackedPath, "-C", dir],
-      { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
+      { encoding: "utf8", timeout: LIMITS.SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
     if (tar.status !== 0) {
       abandon();
       fail(EXIT.USAGE, `--resume: the untracked archive ${prior.worktreeUntrackedPath} could not be unpacked ` +
@@ -1723,7 +1780,7 @@ function disposeWorktree(turnDone) {
       if (ls.status !== 0) return "the untracked list could not be taken";
       if (ls.stdout.length) {
         const tar = spawnSync("tar", ["-czf", `${base}.untracked.tgz`, "-C", dir, "--null", "-T", "-"],
-          { input: ls.stdout, encoding: "utf8", timeout: SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
+          { input: ls.stdout, encoding: "utf8", timeout: LIMITS.SPAWN_TIMEOUT_MS, killSignal: "SIGKILL" });
         if (tar.status !== 0) return `untracked files could not be archived (${String(tar.stderr).trim().slice(0, 120)})`;
         res.worktreeUntrackedPath = `${base}.untracked.tgz`;
       } else dropStale(`${base}.untracked.tgz`);
@@ -1813,13 +1870,25 @@ function assertSandbox(thread) {
   return opts.level === "read" ? assertReadSandbox(thread) : assertWriteSandbox(thread);
 }
 
+// The one refusal, naming the level whose grant was not applied: what the server REPORTS is the only
+// evidence the rights asked for took effect, so a difference stops the run rather than narrowing it.
+const refuseSandbox = (level, why) => fail(EXIT.TRANSPORT,
+  `the ${level} sandbox is not what was asked for (${why}); refusing to continue rather than run under an unknown sandbox`);
+// The cwd is the primary grant and the one the caller reasoned about, so it is checked at BOTH levels:
+// it decides where a write seat writes and which repository a read seat reads. Everything else about
+// the two grants differs, which is why only this check is shared.
+function assertWorkspaceRoot(thread, refuse) {
+  const workspace = (thread.runtimeWorkspaceRoots ?? []).map(canonPath);
+  if (!workspace.includes(canonPath(cwd)))
+    refuse(`the workspace roots are ${JSON.stringify(thread.runtimeWorkspaceRoots ?? [])}, which do not include --cwd ${cwd}`);
+}
+
 // At write level the server reports the grant differently, measured against the live binary: the cwd is
 // NOT in writableRoots — it is implied by workspaceWrite and appears in runtimeWorkspaceRoots — so
 // writableRoots holds exactly the EXTRA roots from --writable and is empty without them. The
 // permission profile is null here, because sending `sandbox` at all suppresses it.
 function assertWriteSandbox(thread) {
-  const refuse = (why) => fail(EXIT.TRANSPORT,
-    `the write sandbox is not what was asked for (${why}); refusing to continue rather than run under an unknown sandbox`);
+  const refuse = (why) => refuseSandbox("write", why);
   const sb = thread.sandbox ?? null;
   if (sb?.type !== "workspaceWrite") refuse(`sandbox type is ${JSON.stringify(sb?.type ?? null)}`);
   // Egress is opt-in and the flag is the whole of the opt-in; a server granting it unasked is a widening.
@@ -1829,16 +1898,13 @@ function assertWriteSandbox(thread) {
   const got = (sb.writableRoots ?? []).map(canonPath).sort();
   if (want.length !== got.length || want.some((r, i) => r !== got[i]))
     refuse(`writable roots are ${JSON.stringify(sb.writableRoots ?? [])}, expected ${JSON.stringify(roots)}`);
-  // The cwd is the primary grant and the one the caller reasoned about; if the server put a different
-  // directory there, everything the turn writes lands somewhere the caller did not choose.
-  const workspace = (thread.runtimeWorkspaceRoots ?? []).map(canonPath);
-  if (!workspace.includes(canonPath(cwd)))
-    refuse(`the workspace roots are ${JSON.stringify(thread.runtimeWorkspaceRoots ?? [])}, which do not include --cwd ${cwd}`);
+  // If the server put a different directory there, everything the turn writes lands somewhere the
+  // caller did not choose.
+  assertWorkspaceRoot(thread, refuse);
 }
 
 function assertReadSandbox(thread) {
-  const refuse = (why) => fail(EXIT.TRANSPORT,
-    `the read sandbox is not what was asked for (${why}); refusing to continue rather than run under an unknown sandbox`);
+  const refuse = (why) => refuseSandbox("read", why);
   const applied = thread.activePermissionProfile?.id ?? null;
   if (applied !== READ_PROFILE) refuse(`server reports profile ${JSON.stringify(applied)}`);
   const sb = thread.sandbox ?? null;
@@ -1854,11 +1920,9 @@ function assertReadSandbox(thread) {
   const want = canonPath(tmp);
   if (!want) refuse(`TMPDIR is set to ${JSON.stringify(tmp)}, which does not resolve to a real directory`);
   const got = (sb.writableRoots ?? []).map(canonPath);
-  // Expect exactly TMPDIR, except when it is the cwd and the server reports it in runtimeWorkspaceRoots.
-  // Check cwd at both levels: it determines where a write seat writes and which repository a read seat reads.
-  const workspace = (thread.runtimeWorkspaceRoots ?? []).map(canonPath);
-  if (!workspace.includes(canonPath(cwd)))
-    refuse(`the workspace roots are ${JSON.stringify(thread.runtimeWorkspaceRoots ?? [])}, which do not include --cwd ${cwd}`);
+  // Expect exactly TMPDIR, except when it is the cwd and the server reports it in runtimeWorkspaceRoots,
+  // which is what the shared check below establishes.
+  assertWorkspaceRoot(thread, refuse);
   const cwdIsTmp = canonPath(cwd) === want;
   // When --cwd IS the tmpdir the server subtracts it from writableRoots and reports it in the workspace
   // roots instead — already verified just above — so an empty root list is correct there, not a dropped
@@ -1898,20 +1962,23 @@ function readOpts() {
   // is left to need() below, which is the one place that message is written.
   const rf = argv.lastIndexOf("--report-file");
   if (rf >= 0 && argv[rf + 1] !== undefined && !argv[rf + 1].startsWith("--")) openReportFile(argv[rf + 1]);
-  opts = at >= 0
+  const o = at >= 0
     ? parseArgs([...argvFromSeatFile(argv[at + 1], allowSeatVerify),
                  ...argv.filter((_, i) => i !== at && i !== at + 1)])
     : parseArgs(argv);
   if (seatFileBody !== null) {
     // Two prompts and no rule saying which one ran is worse than a refusal: the body is the file's own
     // and --prompt is the command line's, and neither is obviously the caller's intent.
-    if (opts.prompt !== undefined)
+    if (o.prompt !== undefined)
       fail(EXIT.USAGE, "the seat file carries a body below its header and --prompt was given too; pass one prompt, not two");
-    opts.prompt = seatFileBody;
+    o.prompt = seatFileBody;
   }
   // The one place the state root is resolved. Here rather than at each use, so a root this driver cannot
   // work with is refused at parse time rather than halfway through the run that needs it.
   stateDir();
+  // Returned rather than assigned from in here: main installs it before anything reads it, which is what
+  // lets every reader below say `opts.x` instead of guarding a variable that is always set by then.
+  return o;
 }
 
 async function setup() {
@@ -2017,26 +2084,107 @@ async function setup() {
 // ---------------------------------------------------------------- transport
 
 let child, settled = false, flushing = false;
-// Track the config probe's child at module scope so shutdown() can kill its process group.
-let probeChild = null;
-// Set by inheritedConfig for its lifetime: the one way to end the probe that also settles its closure
-// state, so a shutdown mid-probe does not trigger the probe's own close handler into a second group
-// kill and a misleading "exited before replying" warning.
-let probeCancel = null;
-const pending = new Map();
+// The turn's connection, so handleMessage can take its own pending entries and the corrective turn can
+// send on it.
+let conn = null;
+// Set by inheritedConfig for its lifetime: closing it is the one way to end the probe from outside, and
+// it settles the probe's own awaited request, so a shutdown mid-probe cannot leave the group alive or
+// print a misleading "exited before replying" warning.
+let probeConn = null;
 let stderrBuf = "";
 let stderrDropped = 0;
-const STDERR_KEEP = 64 * 1024;
 // A line the client cannot parse is a protocol fact, not noise. Failing the run on one is wrong — codex
 // may print a banner one day — but discarding it silently means a malformed stream looks like a quiet one.
 let unparsedLines = 0;
 
-// detached:true gave the child its own process group, so the negative pid reaches its descendants
-// too — killing only the app-server pid leaves orphaned test servers behind.
-const killGroup = (sig) => { if (!child) return; try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch {} } };
+// detached:true gave every child this driver spawns its own process group, so the negative pid reaches
+// its descendants too — killing only the app-server pid leaves orphaned test servers behind.
+const killGroupOf = (proc, sig) => { try { process.kill(-proc.pid, sig); } catch { try { proc.kill(sig); } catch {} } };
+const killGroup = (sig) => { if (child) killGroupOf(child, sig); };
 // Signal 0 to the NEGATIVE pid answers "does any member of the group still exist" without touching it.
 const groupAlive = () => { if (!child) return false; try { process.kill(-child.pid, 0); return true; } catch { return false; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One JSON-RPC connection over a child's stdio, used by both the config probe and the turn: newline
+// framing with a bound on the unterminated remainder, the pending-request map, the final-line flush at
+// EOF, and the one writer.
+//
+// What it deliberately does NOT decide. What a response MEANS: with an onMessage the caller sees every
+// line and takes the pending entry itself, which is how the turn assigns the root ids synchronously,
+// before anything sharing that stdout chunk is dispatched. And how the process dies: the probe SIGKILLs
+// its group the moment it has an answer, while the turn's group is quiesced by shutdown().
+function jsonRpcConn(proc, { maxLine, onMessage = null, onUnparsed = () => {}, onOverflow = () => {} }) {
+  const pending = new Map();
+  let nextId = 1, buf = "", closed = false;
+  const send = (obj) => { try { proc.stdin.write(`${JSON.stringify(obj)}\n`); } catch {} };
+  const take = (id) => {
+    const p = pending.get(id);
+    if (p) { pending.delete(id); clearTimeout(p.timer); }
+    return p ?? null;
+  };
+  // Nobody listening for events: resolve responses and drop the rest, which is the probe's whole shape.
+  const resolveResponse = (msg) => {
+    if (msg.id === undefined || msg.method) return;
+    const p = take(msg.id);
+    if (!p) return;
+    if (msg.error) p.reject(Object.assign(new Error(`${p.method}: ${JSON.stringify(msg.error).slice(0, LIMITS.RPC_ERROR_CHARS)}`), { rpc: msg.error }));
+    else p.resolve(msg.result);
+  };
+  const dispatch = (line) => {
+    let msg;
+    try { msg = JSON.parse(line); } catch { return onUnparsed(line); }
+    if (onMessage) return onMessage(msg, line.length);
+    resolveResponse(msg);
+  };
+  proc.stdout.setEncoding("utf8");   // the decoder, not the reader, owns multi-byte chunk boundaries
+  proc.stdout.on("data", (chunk) => {
+    buf += chunk;
+    let at;
+    while ((at = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, at);
+      buf = buf.slice(at + 1);
+      dispatch(line);
+    }
+    // The bound is here rather than in readline, which buffers an unterminated line without any limit:
+    // one broken write would exhaust the driver's memory with nothing to show for it.
+    if (buf.length > maxLine) { buf = ""; onOverflow(maxLine); }
+  });
+  // Flush the final line at EOF so a turn/completed without a trailing newline is still handled.
+  proc.stdout.on("end", () => {
+    const line = buf;
+    buf = "";
+    if (line.trim()) dispatch(line);
+  });
+  proc.stdin.on("error", () => {});
+  const request = (method, params, { timeoutMs = 0 } = {}) => {
+    const id = nextId++;
+    send({ jsonrpc: "2.0", id, method, params });
+    return new Promise((resolve, reject) => {
+      const timer = timeoutMs > 0
+        ? setTimeout(() => { pending.delete(id); reject(Object.assign(new Error(`no reply in ${timeoutMs}ms`), { timedOut: true })); }, timeoutMs)
+        : null;
+      pending.set(id, { method, resolve, reject, timer });
+    });
+  };
+  const rejectAll = (err) => {
+    for (const p of pending.values()) { clearTimeout(p.timer); p.reject(err); }
+    pending.clear();
+  };
+  // Streams and pending requests only, and the caller says whether to signal the group: a child's `exit`
+  // can precede its stdout `end`, so a teardown that destroyed the streams there would drop a final
+  // unterminated line. That path calls rejectAll instead.
+  const close = ({ kill = null, reason = null } = {}) => {
+    if (closed) return;
+    closed = true;
+    rejectAll(reason ?? Object.assign(new Error("the connection was closed"), { cancelled: true }));
+    if (kill) killGroupOf(proc, kill);
+    // The pipes outlive the kill for as long as anything still holds the write end, and an open pipe
+    // keeps the event loop alive on its own.
+    for (const st of [proc.stdout, proc.stderr, proc.stdin]) { try { st?.destroy(); } catch {} }
+  };
+  return { request, send, take, rejectAll, close,
+           notify: (method, params = {}) => send({ jsonrpc: "2.0", method, params }) };
+}
 
 // Ends every child this driver started and WAITS for them, bounded: group SIGTERM, up to 2 s for the
 // group to disappear, then SIGKILL and up to 1 s more. The timers are ref'd on purpose — an exiting
@@ -2050,12 +2198,8 @@ let shutdownDone = null;
 function shutdown() {
   if (shutdownDone) return shutdownDone;
   shutdownDone = (async () => {
-    if (probeCancel) probeCancel();   // kills the group once and settles the probe's own state
+    if (probeConn) probeConn.close({ kill: "SIGKILL" });   // kills the group once and settles the probe
     killVerifier();                   // the verifier is a child too, and it must never outlive the driver
-    if (probeChild) {
-      try { process.kill(-probeChild.pid, "SIGKILL"); } catch { try { probeChild.kill("SIGKILL"); } catch {} }
-      probeChild = null;
-    }
     if (child) {
       try { child.stdin.end(); } catch {}
       killGroup("SIGTERM");
@@ -2086,11 +2230,6 @@ function abort(code, msg) {
   // this the process announces its own timeout and then blocks on stdin forever.
   if (!child) { try { process.stdin.destroy(); } catch {} }
   shutdown();
-}
-
-function rejectAllPending(err) {
-  for (const p of pending.values()) p.reject(err);
-  pending.clear();
 }
 
 // ---------------------------------------------------------------- state
@@ -2132,7 +2271,6 @@ let setupDoneMs = null;     // when setup() returned, so the report can separate
 // copy of a cut answer. The delta notification carries no phase, so an accumulator is by definition
 // unphased until its item/completed arrives and deletes it.
 const answerDeltas = new Map();
-const PARTIAL_MAX_CHARS = 256 * 1024, PARTIAL_MAX_ITEMS = 64;
 // Attribute evidence to every turn id returned by our turn/start calls, including earlier corrective attempts.
 // Prior turns of a resumed thread remain excluded because their ids never came from this invocation.
 const ownedTurns = new Set();
@@ -2174,7 +2312,6 @@ function touchIdle() {
 // Bounded on both axes: a server that holds the turn/start response while streaming notifications
 // accumulates them here with nothing to drain them. Generous, because a legitimate burst is a handful
 // of items sharing one chunk.
-const EARLY_MAX_ITEMS = 1000, EARLY_MAX_BYTES = 8 * 1024 * 1024;
 let earlyBytes = 0;
 const early = [];
 function replayEarly() {
@@ -2187,10 +2324,8 @@ function replayEarly() {
 }
 
 function handleServerRequest(msg) {
-  const send = (result) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result })}\n`);
-  const sendError = (message) => child.stdin.write(
-    `${JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message } })}\n`
-  );
+  const send = (result) => conn.send({ jsonrpc: "2.0", id: msg.id, result });
+  const sendError = (message) => conn.send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message } });
   // Attribution for REQUESTS must fail closed, and cannot demand ids the schema does not always carry:
   // MCP elicitation has a nullable turnId, and attestation and token refresh carry no ids at all. So a
   // request counts as ours unless it positively proves it belongs to another thread.
@@ -2241,9 +2376,10 @@ function handleServerRequest(msg) {
 
 function handleMessage(msg, bytes = 0) {
   if (msg.id !== undefined && !msg.method) {
-    const p = pending.get(msg.id);
+    // Taken before anything is resolved, so the ids below are assigned while this line's chunk is still
+    // being dispatched.
+    const p = conn.take(msg.id);
     if (!p) return;
-    pending.delete(msg.id);
     // Assign the root ids HERE, synchronously, not in the await continuation. The parser dispatches every
     // line of one stdout chunk in a single synchronous burst, so notifications sharing a chunk with this
     // response would otherwise be handled while the id is still null — and the filters would let a
@@ -2284,7 +2420,7 @@ function handleMessage(msg, bytes = 0) {
     || msg.method === "turn/diff/updated";
   if (turnScoped && rootTurnId === null) {
     earlyBytes += bytes;
-    if (early.length >= EARLY_MAX_ITEMS || earlyBytes > EARLY_MAX_BYTES)
+    if (early.length >= LIMITS.EARLY_MAX_ITEMS || earlyBytes > LIMITS.EARLY_MAX_BYTES)
       return abort(EXIT.TRANSPORT, `the server sent ${early.length} turn-scoped notification(s) (${earlyBytes} bytes) before answering turn/start; refusing to buffer more`);
     early.push(msg);
     return;
@@ -2387,8 +2523,8 @@ function handleMessage(msg, bytes = 0) {
   if (msg.method === "item/agentMessage/delta" && isRoot(p)) {
     const id = String(p?.itemId ?? "");
     const prev = answerDeltas.get(id);
-    if (prev !== undefined || answerDeltas.size < PARTIAL_MAX_ITEMS)
-      answerDeltas.set(id, `${prev ?? ""}${String(p?.delta ?? "")}`.slice(0, PARTIAL_MAX_CHARS));
+    if (prev !== undefined || answerDeltas.size < LIMITS.PARTIAL_MAX_ITEMS)
+      answerDeltas.set(id, `${prev ?? ""}${String(p?.delta ?? "")}`.slice(0, LIMITS.PARTIAL_MAX_CHARS));
   }
 
   if (msg.method === "turn/diff/updated" && isRoot(p)) persistTurnDiff(p);
@@ -2425,7 +2561,7 @@ function handleMessage(msg, bytes = 0) {
         && commands.length === 0 && fileChanges.length === 0 && messages.length === 0
         && otherItems.length === 0 && subagentThreads.size === 0
         && (!(opts.timeout > 0)
-            || startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + TRANSIENT_TURN_MIN_MS)) {
+            || startedAtMs + opts.timeout * 1000 - Date.now() > RETRYABLE[errKind(turnError)] + LIMITS.TRANSIENT_TURN_MIN_MS)) {
       startTransientRetry(errKind(turnError));
       return;
     }
@@ -2594,13 +2730,12 @@ function parseAnswerJson(text) {
 // $CODEX_DELEGATE_SESSIONS_DIR moves the search root, and exists so this can be TESTED positively. It
 // weakens nothing: a process that can set it is already the process that writes the report, and could
 // fabricate every field in it.
-const RECEIPT_HEAD_BYTES = 64 * 1024;
 function findRollout(threadId) {
   if (!threadId) return null;
   try {
     const base = process.env.CODEX_DELEGATE_SESSIONS_DIR
       || path.join(os.userInfo().homedir, ".codex", "sessions");
-    for (let back = 0; back < RECEIPT_LOOKBACK_DAYS; back++) {
+    for (let back = 0; back < LIMITS.RECEIPT_LOOKBACK_DAYS; back++) {
       const d = new Date(Date.now() - back * 86400000);
       const dir = path.join(base, String(d.getFullYear()),
         String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0"));
@@ -2617,8 +2752,8 @@ function findRollout(threadId) {
       try {
         const fd = fs.openSync(p, "r");
         try {
-          const buf = Buffer.alloc(RECEIPT_HEAD_BYTES);
-          head = buf.subarray(0, fs.readSync(fd, buf, 0, RECEIPT_HEAD_BYTES, 0)).toString("utf8");
+          const buf = Buffer.alloc(LIMITS.RECEIPT_HEAD_BYTES);
+          head = buf.subarray(0, fs.readSync(fd, buf, 0, LIMITS.RECEIPT_HEAD_BYTES, 0)).toString("utf8");
         } finally { fs.closeSync(fd); }
       } catch (e) { res.why = `the rollout could not be opened (${e.code ?? e.message})`; return res; }
       const firstLine = head.split("\n")[0] ?? "";
@@ -2656,7 +2791,7 @@ function persistAnswer(text, suffix = "") {
     const name = `${rootThreadId ?? `no-thread-${process.pid}`}${suffix}.md`;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dir, name), text, { mode: 0o600 });
-    pruneAnswers(dir);
+    pruneDir(dir);
     return path.join(dir, name);
   } catch { return null; }
 }
@@ -2668,22 +2803,23 @@ function persistTurnDiff(payload) {
     const target = path.join(dir, `${rootThreadId}.diff`);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(target, payload.diff, { mode: 0o600 });
-    pruneAnswers(dir);
+    pruneDir(dir);
     turnDiffPath = target;
   } catch { turnDiffPath = null; }
 }
 
-// Prune by PRUNE_DAYS and PRUNE_MAX_ENTRIES, always keeping the newest entry.
+// Prune by PRUNE_DAYS and PRUNE_MAX_ENTRIES, always keeping the newest entry. Named for the directory
+// rather than for the answers: the job records and the private $TMPDIR trees are pruned by it too.
 // A recursive prune is over the private $TMPDIR tree, where a directory whose owner record names a live
 // process is kept whatever its age: it is a running seat's scratch space.
-function pruneAnswers(dir, recursive = false) {
+function pruneDir(dir, recursive = false) {
   try {
     const now = Date.now();
     const entries = fs.readdirSync(dir)
       .map((n) => { try { return { n, t: fs.statSync(path.join(dir, n)).mtimeMs }; } catch { return null; } })
       .filter(Boolean).sort((a, b) => b.t - a.t);
     for (const [i, e] of entries.entries()) {
-      if (i === 0 || (now - e.t <= PRUNE_DAYS * 86400000 && i < PRUNE_MAX_ENTRIES)) continue;
+      if (i === 0 || (now - e.t <= LIMITS.PRUNE_DAYS * 86400000 && i < LIMITS.PRUNE_MAX_ENTRIES)) continue;
       if (recursive && holderAlive(readJson(path.join(dir, e.n, TMP_OWNER)))) continue;
       try { fs.rmSync(path.join(dir, e.n), { force: true, recursive }); } catch {}
     }
@@ -2715,17 +2851,6 @@ function invalidRequest(e) {
   catch { return false; }
 }
 
-// turnError.message arrives as a pretty-printed JSON blob, which buries the one sentence naming the
-// parameter that was wrong behind punctuation. Unwrap it when it is there.
-function errText(e) {
-  const raw = e?.message ?? "";
-  try {
-    const inner = JSON.parse(raw)?.error;
-    if (inner?.message) return `${inner.message}${inner.param ? ` (param: ${inner.param})` : ""}`;
-  } catch { /* not the nested shape; the raw text is the best there is */ }
-  return raw;
-}
-
 function errKind(e) {
   const i = e?.codexErrorInfo ?? e?.type;
   if (typeof i === "string") return i;
@@ -2752,7 +2877,7 @@ function cutTurn(reason, kind, { limit = null, observed = null, graceMs = null }
   if (settled || pendingCut) return;
   // Use a quarter of the wall clock, bounded by CUT_GRACE_MIN_MS and CUT_GRACE_MAX_MS;
   // without a wall clock, allow CUT_GRACE_MAX_MS for the server to close the turn.
-  const grace = graceMs ?? (opts.timeout > 0 ? Math.min(CUT_GRACE_MAX_MS, Math.max(CUT_GRACE_MIN_MS, opts.timeout * 250)) : CUT_GRACE_MAX_MS);
+  const grace = graceMs ?? (opts.timeout > 0 ? Math.min(LIMITS.CUT_GRACE_MAX_MS, Math.max(LIMITS.CUT_GRACE_MIN_MS, opts.timeout * 250)) : LIMITS.CUT_GRACE_MAX_MS);
   pendingCut = { reason, kind, limit, observed, completedInGrace: false };
   process.stderr.write(`codex-delegate: cutting the turn (${kind ?? reason}); ${grace}ms for the server to close it\n`);
   interruptTurn();
@@ -2834,10 +2959,10 @@ function classifyEvidence() {
   // a sentence. Newest in-flight message first; a completed one has already deleted its accumulator.
   const partialText = fullAnswer ? "" : [...answerDeltas.values()].reverse().find((t) => t.trim()) ?? "";
   const answerPartialPath = persistAnswer(partialText, ".partial");
-  const answerPartial = partialText ? (opts.brief ? clip(partialText, BRIEF_LINES, BRIEF_BYTES, answerPartialPath) : partialText) : null;
+  const answerPartial = partialText ? (opts.brief ? clip(partialText, LIMITS.BRIEF_LINES, LIMITS.BRIEF_BYTES, answerPartialPath) : partialText) : null;
   // Capped only when asked. A caller who did not ask for --brief gets exactly what the model said, because
   // silently truncating an answer is how a coordinator ends up acting on half a sentence.
-  const answer = opts.brief ? clip(fullAnswer, BRIEF_LINES, BRIEF_BYTES, answerPath) : fullAnswer;
+  const answer = opts.brief ? clip(fullAnswer, LIMITS.BRIEF_LINES, LIMITS.BRIEF_BYTES, answerPath) : fullAnswer;
   const commentaryOnly = !final && messages.length > 0;
   // A turn that said things but answered nothing: the rollout at receiptPath holds every message, and
   // this is the same text one open away. Convenience, not recovery.
@@ -2852,10 +2977,7 @@ function classifyEvidence() {
 // The verifier's own process, at module scope so shutdown(), a signal and the exit handler can all reach
 // its GROUP. A synchronous spawn is unreachable by construction, and ignores every signal until it ends.
 let verifyChild = null;
-const killVerifier = () => {
-  if (!verifyChild) return;
-  try { process.kill(-verifyChild.pid, "SIGKILL"); } catch { try { verifyChild.kill("SIGKILL"); } catch {} }
-};
+const killVerifier = () => { if (verifyChild) killGroupOf(verifyChild, "SIGKILL"); };
 // The verifier is the caller's command, run in the seat's tree. --verify-sandboxed puts it behind the
 // same read profile the read level uses (`codex sandbox -P <profile> -C <cwd>`): exit codes pass
 // through, the tree is readable, $TMPDIR is writable and nothing else is — measured on codex 0.150.1.
@@ -2888,7 +3010,7 @@ function runVerifyProcess(budgetMs) {
     verifyChild = child2;
     // A rolling tail, not a cap that fails the run: how much a verifier prints says nothing about the
     // work; VERIFY_BUFFER_CHARS bounds memory and VERIFY_TAIL_CHARS bounds the report.
-    const keep = (s, d) => (s + d).slice(-VERIFY_BUFFER_CHARS);
+    const keep = (s, d) => (s + d).slice(-LIMITS.VERIFY_BUFFER_CHARS);
     child2.stdout.setEncoding("utf8"); child2.stdout.on("data", (d) => { out = keep(out, d); });
     child2.stderr.setEncoding("utf8"); child2.stderr.on("data", (d) => { err = keep(err, d); });
     const settle = () => {
@@ -2936,13 +3058,13 @@ async function runVerifier() {
     else {
       // Cap the verifier at VERIFY_TIMEOUT_S and the caller's remaining wall clock, with no minimum allowance.
       // Kill its whole group with SIGKILL at the deadline so backgrounded processes cannot outlive the check.
-      const remainingMs = opts.timeout > 0 ? startedAtMs + opts.timeout * 1000 - Date.now() : VERIFY_TIMEOUT_S * 1000;
+      const remainingMs = opts.timeout > 0 ? startedAtMs + opts.timeout * 1000 - Date.now() : LIMITS.VERIFY_TIMEOUT_S * 1000;
       // The VERIFY_FLOOR_MS default is overridable so tests can reach the budget-exhausted branch
       // without racing the turn's completion against the end of the wall clock.
-      const verifyFloorMs = Number(process.env.CODEX_DELEGATE_VERIFY_FLOOR_MS ?? VERIFY_FLOOR_MS);
+      const verifyFloorMs = Number(process.env.CODEX_DELEGATE_VERIFY_FLOOR_MS ?? LIMITS.VERIFY_FLOOR_MS);
       if (remainingMs < verifyFloorMs) { verifySkipped = "budget-exhausted"; verifyResult = null; }
       else {
-      const budgetMs = Math.min(VERIFY_TIMEOUT_S * 1000, remainingMs);
+      const budgetMs = Math.min(LIMITS.VERIFY_TIMEOUT_S * 1000, remainingMs);
       const v = await runVerifyProcess(budgetMs);
       // "Exited non-zero" and "could not be run at all" are different facts and must not render alike:
       // one means the work is missing, the other means the verifier is broken, and they call for opposite
@@ -2963,7 +3085,7 @@ async function runVerifier() {
         error: v.error ? String(v.error.code ?? v.error.message) : null,
         // Report which budget applied and whether it ended the check, alongside the observed exit status.
         budgetMs, timedOut: v.timedOut === true, sandboxed: Boolean(opts.verifySandboxed),
-        stdout: String(v.stdout ?? "").slice(-VERIFY_TAIL_CHARS), stderr: String(v.stderr ?? "").slice(-VERIFY_TAIL_CHARS)
+        stdout: String(v.stdout ?? "").slice(-LIMITS.VERIFY_TAIL_CHARS), stderr: String(v.stderr ?? "").slice(-LIMITS.VERIFY_TAIL_CHARS)
       };
       }
     }
@@ -3130,7 +3252,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     expectationOk: opts.expectRe ? expected.length > 0 : null,
     // receiptOk reports whether a matching session_meta was verified within RECEIPT_LOOKBACK_DAYS date directories.
     // A missing receipt can reflect an older thread or nonstandard layout; receiptWhy explains the result.
-    receiptPath, receiptOk: receipt?.verified === true, receiptWhy: receipt?.why ?? (receiptPath ? null : `no rollout naming this thread in the last ${RECEIPT_LOOKBACK_DAYS} days`),
+    receiptPath, receiptOk: receipt?.verified === true, receiptWhy: receipt?.why ?? (receiptPath ? null : `no rollout naming this thread in the last ${LIMITS.RECEIPT_LOOKBACK_DAYS} days`),
     // Straight out of the verified record. A wrapper that forwarded the work has no thread whose
     // session_meta says this, and a coordinator auditing a seat reads these rather than a path.
     receiptOriginator: receipt?.originator ?? null, receiptModelProvider: receipt?.modelProvider ?? null,
@@ -3206,7 +3328,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
   });
   // A report that cannot drain is a transport failure; wait for the remaining wall clock,
   // with STDOUT_DRAIN_MIN_MS as the minimum and the entire bound when no wall clock was set.
-  const drainMs = Math.max(STDOUT_DRAIN_MIN_MS, startedAtMs + opts.timeout * 1000 - Date.now());
+  const drainMs = Math.max(LIMITS.STDOUT_DRAIN_MIN_MS, startedAtMs + opts.timeout * 1000 - Date.now());
   setTimeout(() => {
     process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; ${durable ? `the report is complete at ${reportFilePath}` : "report may be truncated"}\n`);
     closeJobRecord(durable ? exitWith : EXIT.TRANSPORT);
@@ -3217,7 +3339,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
 // ---------------------------------------------------------------- run
 
 async function main() {
-  readOpts();
+  opts = readOpts();
   // The pid a caller signals to stop this seat, and the identity that says the pid is still this run
   // rather than whatever the OS recycled it into. Before setup(), because a seat killed during its
   // config probe has to be identifiable too, and this line is all its caller has until the thread exists.
@@ -3238,8 +3360,8 @@ async function main() {
   // is bounded by — so there is no deadline to steer towards, nothing to cut at, and nothing to report
   // early. A rung armed at T = start would fire at once and cut the run this default exists to allow.
   const endAtMs = startedAtMs + opts.timeout * 1000;
-  const reserveMs = Math.min(WALL_RESERVE_MAX_MS, Math.max(WALL_RESERVE_MIN_MS, opts.timeout * 250));
-  const graceMs = Math.min(CUT_GRACE_MAX_MS, Math.max(CUT_GRACE_MIN_MS, opts.timeout * 250));
+  const reserveMs = Math.min(LIMITS.WALL_RESERVE_MAX_MS, Math.max(LIMITS.WALL_RESERVE_MIN_MS, opts.timeout * 250));
+  const graceMs = Math.min(LIMITS.CUT_GRACE_MAX_MS, Math.max(LIMITS.CUT_GRACE_MIN_MS, opts.timeout * 250));
   const at = (whenMs, fn) => { const t = setTimeout(fn, Math.max(50, whenMs - Date.now())); t.unref?.(); return t; };
   if (opts.timeout > 0) {
   // Armed only where the reserve actually fits inside what is left: on a short seat there is nothing to
@@ -3284,7 +3406,7 @@ async function main() {
     let s = "";
     for await (const c of process.stdin) {
       s += c;
-      if (Buffer.byteLength(s) > MAX_PROMPT_BYTES) fail(EXIT.USAGE, `prompt exceeds ${MAX_PROMPT_BYTES} bytes`);
+      if (Buffer.byteLength(s) > LIMITS.MAX_PROMPT_BYTES) fail(EXIT.USAGE, `prompt exceeds ${LIMITS.MAX_PROMPT_BYTES} bytes`);
     }
     if (stdinGuard) clearTimeout(stdinGuard);
     prompt = s;
@@ -3306,9 +3428,9 @@ async function main() {
   // Keep a bounded stderr tail because runs can be long and abort() prints it; report how much was dropped.
   child.stderr.on("data", (c) => {
     stderrBuf += c;
-    if (stderrBuf.length > STDERR_KEEP) {
-      stderrDropped += stderrBuf.length - STDERR_KEEP;
-      stderrBuf = stderrBuf.slice(-STDERR_KEEP);
+    if (stderrBuf.length > LIMITS.STDERR_KEEP) {
+      stderrDropped += stderrBuf.length - LIMITS.STDERR_KEEP;
+      stderrBuf = stderrBuf.slice(-LIMITS.STDERR_KEEP);
     }
   });
   // The child is its own process group (detached above), so its pid IS the pgid. Recorded on the lock
@@ -3316,10 +3438,23 @@ async function main() {
   // not only about this driver.
   updateLock({ appServerPgid: child.pid });
   if (worktreeInfo?.name) updateLedger(worktreeInfo.name, { appServerPgid: child.pid });
-  child.on("error", (e) => { rejectAllPending(e); abort(EXIT.TRANSPORT, `cannot start codex: ${e.message}`); });
+  // The framing, the pending map and the writer, shared with the config probe. handleMessage is handed
+  // every line: the ids it assigns must be in place before anything sharing that stdout chunk is judged.
+  conn = jsonRpcConn(child, {
+    maxLine: LIMITS.MAX_LINE_BYTES,
+    onMessage: (msg, bytes) => {
+      try { handleMessage(msg, bytes); } catch (e) { abort(EXIT.TRANSPORT, `protocol handling failed: ${e.message}`); }
+    },
+    onUnparsed: () => { unparsedLines++; },
+    onOverflow: (n) => abort(EXIT.TRANSPORT, `the server sent more than ${n} bytes with no newline; refusing to buffer more`),
+  });
+  requestFn = conn.request;
+  // rejectAll rather than close(): a child's `exit` can precede its stdout `end`, and destroying the
+  // streams here would drop a final unterminated line the turn may have ended on.
+  child.on("error", (e) => { conn.rejectAll(e); abort(EXIT.TRANSPORT, `cannot start codex: ${e.message}`); });
   child.on("exit", (code, signal) => {
     const e = new Error(`codex app-server exited (${signal ? `signal ${signal}` : `code ${code}`})`);
-    rejectAllPending(e);
+    conn.rejectAll(e);
     if (settled) return;
     // Once a thread exists there is evidence to hand back — threadId, commands, file changes, a partial
     // answer — and a dead server is no reason to discard it. abort() prints no report, so this does not
@@ -3332,50 +3467,9 @@ async function main() {
     }
     abort(EXIT.TRANSPORT, e.message);
   });
-  child.stdin.on("error", () => {});
 
-  // Newline framing with a bound, in place of readline: readline buffers an unterminated line without
-  // any limit, so one broken write exhausts the driver's memory with nothing to show for it. The cap is
-  // far above a legitimate line — an item carrying a whole test run's aggregatedOutput is megabytes —
-  // and far below "until the OOM killer decides".
-  const MAX_LINE_BYTES = 32 * 1024 * 1024;
-  let frameBuf = "";
-  child.stdout.setEncoding("utf8");   // the decoder, not the reader, owns multi-byte chunk boundaries
-  child.stdout.on("data", (chunk) => {
-    frameBuf += chunk;
-    let at;
-    while ((at = frameBuf.indexOf("\n")) >= 0) {
-      const line = frameBuf.slice(0, at);
-      frameBuf = frameBuf.slice(at + 1);
-      let msg;
-      try { msg = JSON.parse(line); } catch { unparsedLines++; continue; }
-      try { handleMessage(msg, line.length); } catch (e) { abort(EXIT.TRANSPORT, `protocol handling failed: ${e.message}`); }
-    }
-    if (frameBuf.length > MAX_LINE_BYTES) {
-      frameBuf = "";
-      abort(EXIT.TRANSPORT, `the server sent more than ${MAX_LINE_BYTES} bytes with no newline; refusing to buffer more`);
-    }
-  });
-  // Flush the final line at EOF so a turn/completed without a trailing newline is still handled.
-  child.stdout.on("end", () => {
-    const line = frameBuf;
-    frameBuf = "";
-    if (!line.trim()) return;
-    let msg;
-    try { msg = JSON.parse(line); } catch { unparsedLines++; return; }
-    try { handleMessage(msg, line.length); } catch (e) { abort(EXIT.TRANSPORT, `protocol handling failed: ${e.message}`); }
-  });
-
-  let nextId = 1;
-  const request = (method, params) => {
-    const id = nextId++;
-    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject, method }));
-  };
-  requestFn = request;
-
-  const init = await request("initialize", initializeParams());
-  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} })}\n`);
+  const init = await conn.request("initialize", initializeParams());
+  conn.notify("initialized");
 
   // Measured live: `Claude Code/0.150.1 (Mac OS 26.6.2; arm64) unknown (codex-delegate; 2.0)` — the
   // client's own name, then the SERVER's version. Take the first x.y.z after a slash; a userAgent this
@@ -3388,7 +3482,7 @@ async function main() {
   // snapshot, not a reason to abort a run that has not started its thread yet: the report then carries
   // rateLimits null and the seat runs.
   let limits = null;
-  try { limits = await request("account/rateLimits/read", null); }
+  try { limits = await conn.request("account/rateLimits/read", null); }
   catch (e) { process.stderr.write(`codex-delegate: account/rateLimits/read unavailable (${e.message}); continuing without a snapshot\n`); }
   rateLimits = limits?.rateLimits ?? null;
   const primaryUsed = rateLimits?.primary?.usedPercent;
@@ -3399,7 +3493,7 @@ async function main() {
     const models = [], cursors = new Set();
     let cursor = null;
     for (;;) {
-      const page = await request("model/list", { cursor, limit: null, includeHidden: true });
+      const page = await conn.request("model/list", { cursor, limit: null, includeHidden: true });
       if (!Array.isArray(page?.data)) fail(EXIT.TRANSPORT, "model/list returned no model catalogue");
       models.push(...page.data);
       if (page.nextCursor == null) break;
@@ -3453,7 +3547,7 @@ async function main() {
       : []),
     // Ask for a summary and leave details in files so the coordinator opens them only when needed.
     ...(opts.brief
-      ? [`Answer in at most ${BRIEF_LINES} lines: the conclusion, then only what changes what the reader does next.`,
+      ? [`Answer in at most ${LIMITS.BRIEF_LINES} lines: the conclusion, then only what changes what the reader does next.`,
          // Withheld under --answer-json, which has just demanded ONE JSON object and nothing else: the
          // two sentences together tell the seat to answer in JSON and to put the rest beside it.
          ...(opts.answerJson ? []
@@ -3483,7 +3577,7 @@ async function main() {
     ? ["thread/resume", { threadId: opts.resume, excludeTurns: true, ...threadBase }]
     // Keep threads resumable by default because the caller may discover a need to continue only after reading the answer.
     : ["thread/start", { ...threadBase, serviceName: "claude-code-codex-delegate" }];
-  const thread = await request(threadReq[0], threadReq[1]);
+  const thread = await conn.request(threadReq[0], threadReq[1]);
   // Asked for above, asserted here, at BOTH levels — write level's writable-root boundary is escapable the
   // same way. The field is `required` on the response in the pinned schema, so a server that stops sending
   // it yields undefined and refuses: fail-closed by construction rather than by convention.
@@ -3548,7 +3642,7 @@ async function main() {
     model: opts.model ?? null, effort: null,
     ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {})
   };
-  await request("turn/start", lastTurnParams);
+  await conn.request("turn/start", lastTurnParams);
 }
 
 // Handle stdout EPIPE as a transport failure when a consumer stops reading, rather than letting
@@ -3575,8 +3669,9 @@ const RUN_AS_MAIN = (() => {
   if (import.meta.url === pathToFileURL(entry).href) return true;
   try { return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href; } catch { return false; }
 })();
-export { ATTACH_KINDS, EFFORTS, EXIT, LADDER, LEVELS, PINNED_CODEX, SEAT_FIELDS, STATE_SUBDIRS,
-         VERSION, WEB_SEARCH, helpText, lockKey };
+// Exactly what a suite imports, plus the two a suite compares against itself: an export nothing reads
+// is a second interface to keep true.
+export { EXIT, FIELDS, LADDER, PINNED_CODEX, SEAT_FIELDS, VERSION, lockKey };
 
 if (RUN_AS_MAIN) {
   process.stdout.on("error", stdoutFailed);
@@ -3623,7 +3718,7 @@ if (RUN_AS_MAIN) {
   process.on("exit", () => {
     if (child) killGroup("SIGKILL");
     killVerifier();
-    if (probeChild) { try { process.kill(-probeChild.pid, "SIGKILL"); } catch {} }
+    if (probeConn) probeConn.close({ kill: "SIGKILL" });
     releaseLock();
     worktreeLastResort();
   });
