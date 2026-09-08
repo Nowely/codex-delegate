@@ -5,9 +5,11 @@ notes; never move or recreate a published tag.
 
 ## Checklist
 
-1. Choose the version and set it in every place `evals/package.test.mjs` compares: its version case
-   names each place and fails naming the one you missed. Confirm the value and the intended `vX.Y.Z`
-   tag match. The package eval enforces this version agreement against the newest tag.
+1. Choose the version and set it in the four places `evals/package.test.mjs` compares:
+   `.claude-plugin/plugin.json`, the `metadata.version` line of every `skills/*/SKILL.md`, and the
+   driver's `VERSION`. Its version case fails naming the one you missed. Confirm the value and the
+   intended `vX.Y.Z` tag match: the package eval compares them once a `v*` tag is on `HEAD`, and
+   announces itself as skipped before that (this checklist tags at step 8, after `npm test` at step 4).
 2. Record user-visible changes in `CHANGELOG.md`, including compatibility or breaking-contract notes.
 3. For a Codex CLI upgrade, follow README.md › After a codex upgrade, then update the pinned-version
    references and fixture only to match observed live protocol output.
@@ -27,10 +29,10 @@ notes; never move or recreate a published tag.
    node evals/fidelity.test.mjs --require-live
    ```
 
-   Verify the authenticated Codex build, inspect every fixture/live difference, and re-measure the
-   dated parity table after a CLI change. Add `CODEX_DELEGATE_LIVE_TURN=1` when item-shape or probe
-   classification changes warrant spending one real turn. Do not make the fixture convenient; it must
-   emit what the live server emits.
+   Verify the authenticated Codex build, inspect every fixture/live difference, and after a CLI change
+   confirm the dated parity figures still hold as an order of magnitude. Add `CODEX_DELEGATE_LIVE_TURN=1`
+   when item-shape or probe classification changes warrant spending one real turn. Do not make the
+   fixture convenient; it must emit what the live server emits.
 6. Run the live orchestrate gate. It is not in CI: it spends real sessions and a Codex turn.
 
    ```bash

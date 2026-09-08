@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # evals/package.test.mjs compares the tree's version against the newest v* tag, and a shallow
+          # evals/package.test.mjs compares the tree's version against a v* tag on HEAD, and a shallow
           # checkout carries no tags at all.
           fetch-depth: 0
       - uses: actions/setup-node@v4

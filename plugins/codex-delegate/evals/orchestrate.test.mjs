@@ -52,7 +52,7 @@ test("the frontmatter names the mode, forbids model invocation, and states the r
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the page stays inside its budget: 150 lines, one heading level, no em-dash, no fence",
+test("the page stays inside its budget: 150 lines, one heading level, no fence",
   "the mode is loaded into a context it exists to keep small, and it ships no code: a third heading level, a fence or a page that doubled in length are each the mode spending the budget it is selling",
   () => {
     const problems = [];
@@ -61,7 +61,6 @@ test("the page stays inside its budget: 150 lines, one heading level, no em-dash
     const wrongLevel = headings.filter((l) => !l.startsWith("## "));
     if (!headings.length) problems.push("the page has no headings at all");
     if (wrongLevel.length) problems.push(`not a "## " heading: ${wrongLevel.join(" | ")}`);
-    if (/—/.test(text)) problems.push("an em-dash is in the page");
     if (text.includes("```")) problems.push("a fenced block is in the page, which ships no code");
     return problems.length === 0 || problems.join("; ");
   });

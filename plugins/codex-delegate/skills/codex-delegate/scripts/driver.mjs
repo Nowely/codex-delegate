@@ -36,7 +36,7 @@ const READ_PROFILE = "codex_delegate_read";
 const PINNED_CODEX = "0.153.4";
 // This plugin's version, printed by --help and carried as driverVersion, must agree with
 // every place evals/package.test.mjs compares.
-const VERSION = "0.10.0";
+const VERSION = "0.11.0";
 let codexVersion = null;   // what the server reported this run, parsed out of InitializeResponse.userAgent
 // The union of the model catalogue's supported_reasoning_levels and the server's accepted efforts.
 // `none` and `minimal` appear in the server's rejection list; `ultra` is absent there but completes live turns.
@@ -551,8 +551,8 @@ function helpText(full) {
 //   * VERIFY runs an unsandboxed /bin/sh with the caller's own rights, so from a seat file it needs
 //     --allow-seat-verify on the COMMAND LINE — the one place no copied value can reach.
 // Two flags are deliberately NOT fields, each because an injected line would be a grant nobody made:
-// ATTACH uploads a local file, and --run-dir would point another run's transport at a file of its
-// choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a shell. CLI_ONLY_FIELDS above are refused for a different reason: they are bounds and transport, not
+// ATTACH uploads a local file, and --report-file would let a copied line choose where another run's
+// report lands. VERIFY is a field only behind --allow-seat-verify, because it executes a shell. CLI_ONLY_FIELDS above are refused for a different reason: they are bounds and transport, not
 // rights, and the driver's own defaults are what let a seat run with nothing configured.
 let seatFileFields = null;   // what the file actually declared, for the report
 let seatFileBody = null;     // the prompt the file carried under its header, or null when it carried none

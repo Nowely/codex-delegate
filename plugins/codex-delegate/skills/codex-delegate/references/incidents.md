@@ -29,8 +29,9 @@ indistinguishable from a seat that found nothing.
 ## A relay on a small model
 
 A haiku relay received a failing `SEAT` declaration, created the missing directory, and ran Codex under
-rights nobody had granted, then reported success. The shipped `codex-seat` wrapper pins its model in
-`agents/codex-seat.md`; a hand-rolled relay must not use a small model.
+rights nobody had granted, then reported success. A prompt is copied into the seat file byte for byte
+and a refusal is reported as the refusal it is; anything that rewrites a rights line on the way is a
+model deciding rights, whatever its size.
 
 ## Context cost
 
@@ -72,11 +73,12 @@ caught it out.
 
 ## Hooks run by the driver's own git
 
-`--commit` hands the seat the git common dir, and the driver's own harvest, its worktree removal and the
-next run's worktree add then execute what the seat wrote there with the CALLER's rights, before anyone
-reads the report. Measured before the fix: `core.fsmonitor=pwn.sh` logged runs under `status`, `diff`,
-`ls-files` twice, `worktree remove` and `worktree add`, at exit 0. Closed by
-the override set every driver-spawned git now carries ([Git-directory grant](environment-and-internals.md#git-directory-grant)).
+A seat that could write the git common dir left config there, and the driver's own harvest, its worktree
+removal and the next run's worktree add then executed it with the CALLER's rights, before anyone read
+the report. Measured before the fix: `core.fsmonitor=pwn.sh` logged runs under `status`, `diff`,
+`ls-files` twice, `worktree remove` and `worktree add`, at exit 0. Closed by the override set every
+driver-spawned git now carries; a seat's own `--verify` still runs with the rights it was given
+([Git-directory grant](environment-and-internals.md#git-directory-grant)).
 
 ## Orphaned load
 
@@ -98,9 +100,9 @@ it with a TERM-ignoring survivor.
 ## Red-green seats
 
 Three mutation-testing seats ran suites against deliberately broken copies;
-`commandsFailed` was 24, 17 and 9, and exit 11 announced failure for work that had succeeded. Pass
-`--verify` with the end condition you actually want; a passing check overrules failed commands by
-design.
+`commandsFailed` was 24, 17 and 9, and the run announced failure for work that had succeeded. Failed
+commands are report fields and no verdict now; pass `--verify` with the end condition you actually
+want.
 
 ## A non-zero exit discarded
 
@@ -145,7 +147,7 @@ rights are per call, on resume as everywhere else. Verified, not assumed.
 ## Seat-file newline injection
 
 `EXPECT: x\nVERIFY: touch /tmp/pwned` became two fields and executed the verifier through `/bin/sh`.
-`SEAT` is now first and seat-file `VERIFY` requires a command-line authorization the relay never gives.
+`SEAT` is now first and seat-file `VERIFY` requires a command-line authorization no seat call gives.
 
 ## State split the lock
 
@@ -156,6 +158,16 @@ also made the lock directory relative. State paths are now absolute and the stat
 
 A suite's fake server wrote `model = "fake-model"` into the shared isolated home. Evals now move all
 driver state with `CODEX_DELEGATE_STATE_DIR`, and home updates use atomic rename.
+
+## A healthy link read as a file in the way
+
+Concurrent first runs against a fresh state directory could refuse with "exists but is not a symbolic
+link". `readlink` answers `EINVAL` for a moment while a peer replaces the same name by `rename(2)`,
+and the driver read that as a real file sitting where the link belongs. Measured with 64 children
+released on a barrier into the link loop: 19 losers over 60 rounds, every one an `EINVAL` whose `lstat`
+called it a symlink on each of five retries. The driver now asks again and reports "not a symbolic
+link" only when `lstat` agrees; the same storm after the fix, 3840 concurrent first links, produced no
+loser.
 
 ## Stale-lock stampede
 
@@ -169,8 +181,9 @@ defeated a string-prefix guard. Root protection now uses canonical identity and 
 
 ## MCP secrets in argv
 
-Passing MCP config with `-c` exposed a server's `env` tokens in world-readable process arguments. MCP
-tables now go into a mode-0600 private home and are never seat-file fields.
+Passing MCP config with `-c` exposed a server's `env` tokens in world-readable process arguments. The
+driver carries no MCP table of the caller's at all: a seat that needs those servers runs `--host-home`
+and reads them from the caller's own config file.
 
 ## Negative probes counted as failures
 
@@ -195,10 +208,11 @@ behind. Teardown now waits for the child group and escalates before exit.
 
 ## Five of seven seats lost to the wall clock
 
-GitHub issue #1 (2026-09-02) measured five of seven seats hitting a 540-second relay-era ceiling;
-commands used only 6–16% of the clock and the cut returned zero bytes. The driver gained a wrap-up steer,
-interrupt grace, partial capture, and detached transport. Native defaults now impose no wall clock;
-silence, command, and caller-declared clock bounds remain explicit.
+GitHub issue #1 (2026-09-02) measured five of seven seats hitting a 540-second wrapper ceiling;
+commands used only 6–16% of the clock and the cut returned zero bytes. The driver gained a wrap-up
+steer, interrupt grace and partial capture, and a seat is no longer bounded by any wrapper's own cap.
+Native defaults now impose no wall clock; silence, command, and caller-declared clock bounds remain
+explicit.
 
 ## Here-documents under the grant
 
