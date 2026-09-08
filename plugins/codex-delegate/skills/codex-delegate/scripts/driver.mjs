@@ -122,6 +122,11 @@ const LIMITS = {
   // response while streaming them has nothing to drain them.
   EARLY_MAX_ITEMS: 1000,
   EARLY_MAX_BYTES: 8 * 1024 * 1024,
+  // How long the turn's process group gets to end itself after SIGTERM, and how long its remains get
+  // after SIGKILL. The second bound differs per caller: see quiesceGroup and quiesceGroupSync.
+  QUIESCE_TERM_MS: 2000,
+  QUIESCE_KILL_MS: 1000,
+  QUIESCE_KILL_SYNC_MS: 200,
 };
 // Not a limit: where to look for codex when PATH does not have it.
 const CODEX_FALLBACK_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin"];
@@ -721,67 +726,75 @@ function parseArgs(argv) {
     try { o.expectRe = new RegExp(o.expect); }
     catch (e) { fail(EXIT.USAGE, `--expect-command is not a valid regular expression: ${e.message}`); }
   }
-  // Read and sanity-check the schema now, for the same reason as the regex above. The answer contract
-  // is ONE bare JSON object, so a schema demanding anything else is a contradiction, not a preference.
+  // Read and sanity-check the schema now, for the same reason as the regex above.
   if (o.outputSchemaFile !== undefined) {
-    let raw;
-    try { raw = fs.readFileSync(o.outputSchemaFile, "utf8"); }
-    catch (e) { fail(EXIT.USAGE, `--output-schema cannot read ${o.outputSchemaFile}: ${e.message}`); }
-    try { o.outputSchema = JSON.parse(raw); }
-    catch (e) { fail(EXIT.USAGE, `--output-schema is not valid JSON: ${e.message}`); }
-    if (o.outputSchema === null || typeof o.outputSchema !== "object" || Array.isArray(o.outputSchema))
-      fail(EXIT.USAGE, "--output-schema must be a JSON Schema object");
-    // The answer contract is ONE bare JSON object, so admission must require an unambiguous object type.
-    if (o.outputSchema.type !== "object" &&
-        !(Array.isArray(o.outputSchema.type) && o.outputSchema.type.length === 1 && o.outputSchema.type[0] === "object"))
-      fail(EXIT.USAGE, '--output-schema must declare "type": "object" at the top level (the answer contract is one bare JSON object)');
-    // The provider requires STRICT schemas; measured live rejection messages include:
-    //   plain object      -> "In context=(), 'additionalProperties' is required to be supplied and to be false."
-    //   nested object     -> the same, "In context=('properties', 'meta')"
-    //   optional property -> "'required' ... an array including every key in properties. Missing 'note'."
-    // Validate these rules alongside the object-type check above, before spending a turn.
-    (function strict(s, ctx) {
-      if (s === null || typeof s !== "object" || Array.isArray(s)) return;
-      const where = ctx.length ? ` at ${ctx.join(".")}` : " at the top level";
-      const isObject = s.type === "object" ||
-        (Array.isArray(s.type) && s.type.length === 1 && s.type[0] === "object");
-      if (isObject) {
-        if (s.additionalProperties !== false)
-          fail(EXIT.USAGE, `--output-schema${where}: every object must set "additionalProperties": false — the server requires a strict schema and rejects the request otherwise, after the turn has already started`);
-        const props = Object.keys(s.properties ?? {});
-        const req = new Set(Array.isArray(s.required) ? s.required : []);
-        const missing = props.filter((k) => !req.has(k));
-        if (missing.length)
-          fail(EXIT.USAGE, `--output-schema${where}: "required" must list every key in "properties" — the server permits no optional properties in a strict schema; missing ${missing.map((m) => JSON.stringify(m)).join(", ")}. Make them nullable (\`"type": ["string","null"]\`) instead of optional`);
-      }
-      for (const [k, v] of Object.entries(s.properties ?? {})) strict(v, [...ctx, "properties", k]);
-      if (s.items && !Array.isArray(s.items)) strict(s.items, [...ctx, "items"]);
-    })(o.outputSchema, []);
-    // The validator implements a subset. Every keyword outside it is collected here and REPORTED, so
-    // outputSchemaOk can never silently mean "nothing was checked" — the server still enforces the full
-    // schema during generation; the driver's independent check just names what it could not re-verify.
-    // additionalProperties is in the SUPPORTED set because the strict rule above makes it mandatory:
-    // listing a keyword as unchecked on every single schema would be noise, so the validator honours it
-    // instead.
-    const SUPPORTED = new Set(["type", "required", "properties", "enum", "items", "additionalProperties",
-      "description", "title", "$schema", "$id", "default", "examples"]);
-    const unchecked = new Set();
-    (function walk(s) {
-      if (Array.isArray(s)) return s.forEach(walk);
-      if (s === null || typeof s !== "object") return;
-      for (const [k, v] of Object.entries(s)) {
-        if (!SUPPORTED.has(k)) unchecked.add(k);
-        if (k === "properties" && v && typeof v === "object") Object.values(v).forEach(walk);
-        else if (k === "items") walk(v);
-      }
-    })(o.outputSchema);
-    if (Array.isArray(o.outputSchema.items)) unchecked.add("items(tuple form)");
-    o.schemaUnchecked = unchecked.size ? [...unchecked].sort() : null;
-    if (o.schemaUnchecked)
-      process.stderr.write(`codex-delegate: --output-schema uses keywords the driver's validator does not check (${o.schemaUnchecked.join(", ")}); the server still enforces them during generation, and the report lists them as schemaKeywordsUnchecked\n`);
+    ({ schema: o.outputSchema, unchecked: o.schemaUnchecked } = validateOutputSchema(o.outputSchemaFile));
     o.answerJson = true;   // the schema subsumes the bare-JSON demand
   }
   return o;
+}
+
+// Everything --output-schema is refused for, before a turn is paid for. The answer contract is ONE bare
+// JSON object, so a schema demanding anything else is a contradiction, not a preference. Returns the
+// parsed schema beside the keywords the driver's own validator will not re-check.
+function validateOutputSchema(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, "utf8"); }
+  catch (e) { fail(EXIT.USAGE, `--output-schema cannot read ${file}: ${e.message}`); }
+  let schema;
+  try { schema = JSON.parse(raw); }
+  catch (e) { fail(EXIT.USAGE, `--output-schema is not valid JSON: ${e.message}`); }
+  if (schema === null || typeof schema !== "object" || Array.isArray(schema))
+    fail(EXIT.USAGE, "--output-schema must be a JSON Schema object");
+  // The answer contract is ONE bare JSON object, so admission must require an unambiguous object type.
+  if (schema.type !== "object" &&
+      !(Array.isArray(schema.type) && schema.type.length === 1 && schema.type[0] === "object"))
+    fail(EXIT.USAGE, '--output-schema must declare "type": "object" at the top level (the answer contract is one bare JSON object)');
+  // The provider requires STRICT schemas; measured live rejection messages include:
+  //   plain object      -> "In context=(), 'additionalProperties' is required to be supplied and to be false."
+  //   nested object     -> the same, "In context=('properties', 'meta')"
+  //   optional property -> "'required' ... an array including every key in properties. Missing 'note'."
+  // Validate these rules alongside the object-type check above, before spending a turn.
+  (function strict(s, ctx) {
+    if (s === null || typeof s !== "object" || Array.isArray(s)) return;
+    const where = ctx.length ? ` at ${ctx.join(".")}` : " at the top level";
+    const isObject = s.type === "object" ||
+      (Array.isArray(s.type) && s.type.length === 1 && s.type[0] === "object");
+    if (isObject) {
+      if (s.additionalProperties !== false)
+        fail(EXIT.USAGE, `--output-schema${where}: every object must set "additionalProperties": false — the server requires a strict schema and rejects the request otherwise, after the turn has already started`);
+      const props = Object.keys(s.properties ?? {});
+      const req = new Set(Array.isArray(s.required) ? s.required : []);
+      const missing = props.filter((k) => !req.has(k));
+      if (missing.length)
+        fail(EXIT.USAGE, `--output-schema${where}: "required" must list every key in "properties" — the server permits no optional properties in a strict schema; missing ${missing.map((m) => JSON.stringify(m)).join(", ")}. Make them nullable (\`"type": ["string","null"]\`) instead of optional`);
+    }
+    for (const [k, v] of Object.entries(s.properties ?? {})) strict(v, [...ctx, "properties", k]);
+    if (s.items && !Array.isArray(s.items)) strict(s.items, [...ctx, "items"]);
+  })(schema, []);
+  // The validator implements a subset. Every keyword outside it is collected here and REPORTED, so
+  // outputSchemaOk can never silently mean "nothing was checked" — the server still enforces the full
+  // schema during generation; the driver's independent check just names what it could not re-verify.
+  // additionalProperties is in the SUPPORTED set because the strict rule above makes it mandatory:
+  // listing a keyword as unchecked on every single schema would be noise, so the validator honours it
+  // instead.
+  const SUPPORTED = new Set(["type", "required", "properties", "enum", "items", "additionalProperties",
+    "description", "title", "$schema", "$id", "default", "examples"]);
+  const unchecked = new Set();
+  (function walk(s) {
+    if (Array.isArray(s)) return s.forEach(walk);
+    if (s === null || typeof s !== "object") return;
+    for (const [k, v] of Object.entries(s)) {
+      if (!SUPPORTED.has(k)) unchecked.add(k);
+      if (k === "properties" && v && typeof v === "object") Object.values(v).forEach(walk);
+      else if (k === "items") walk(v);
+    }
+  })(schema);
+  if (Array.isArray(schema.items)) unchecked.add("items(tuple form)");
+  const names = unchecked.size ? [...unchecked].sort() : null;
+  if (names)
+    process.stderr.write(`codex-delegate: --output-schema uses keywords the driver's validator does not check (${names.join(", ")}); the server still enforces them during generation, and the report lists them as schemaKeywordsUnchecked\n`);
+  return { schema, unchecked: names };
 }
 
 function resolveDir(p, what) {
@@ -2083,6 +2096,11 @@ async function setup() {
 
 // ---------------------------------------------------------------- transport
 
+// The run's lifecycle, in two flags every handler reads and only five places write.
+//   settled  — a verdict has been decided; nothing may start new work or report a second one. Written by
+//              fail(), the --help exit, abort(), finish() and exitWith(), and by nothing else.
+//   flushing — the report is mid-write on stdout. A signal arriving here defers to the write callback or
+//              to the drain watchdog rather than exiting on the bytes already sent.
 let child, settled = false, flushing = false;
 // The turn's connection, so handleMessage can take its own pending entries and the corrective turn can
 // send on it.
@@ -2186,10 +2204,34 @@ function jsonRpcConn(proc, { maxLine, onMessage = null, onUnparsed = () => {}, o
            notify: (method, params = {}) => send({ jsonrpc: "2.0", method, params }) };
 }
 
-// Ends every child this driver started and WAITS for them, bounded: group SIGTERM, up to 2 s for the
-// group to disappear, then SIGKILL and up to 1 s more. The timers are ref'd on purpose — an exiting
-// driver must stay alive until the group is gone or the bound expires, and a SIGKILL armed on an
-// unref'd timer is discarded by process.exit(), which leaves a TERM-ignoring test server behind.
+// The one way the turn's process group is ended, in two callers that differ only in how they spend the
+// wait: group SIGTERM, up to QUIESCE_TERM_MS for the group to disappear, then SIGKILL and a second wait.
+//
+// shutdown()'s, which may await because nothing follows it but the exit. The timers are ref'd on
+// purpose — an exiting driver must stay alive until the group is gone or the bound expires, and a
+// SIGKILL armed on an unref'd timer is discarded by process.exit(), which leaves a TERM-ignoring test
+// server behind. The second wait is the longer one because the lock is released after it: a next writer
+// must not enter the directory while this run's descendants are still dying in it.
+async function quiesceGroup() {
+  killGroup("SIGTERM");
+  for (const end = Date.now() + LIMITS.QUIESCE_TERM_MS; groupAlive() && Date.now() < end; ) await sleep(50);
+  if (!groupAlive()) return;
+  killGroup("SIGKILL");
+  for (const end = Date.now() + LIMITS.QUIESCE_KILL_MS; groupAlive() && Date.now() < end; ) await sleep(50);
+}
+
+// The pre-harvest one, and it must NEVER await. It runs inside writeReport before `flushing` is set, so
+// a signal arriving in an await here takes the handler's `settled && !flushing` branch and exits with
+// the report unwritten; a blocking sleep is what keeps that window closed. Its second wait is the short
+// one because the harvest needs the writers STOPPED, not reaped — shutdown() waits for the group
+// properly once the report has landed.
+function quiesceGroupSync() {
+  killGroup("SIGTERM");
+  for (const end = Date.now() + LIMITS.QUIESCE_TERM_MS; groupAlive() && Date.now() < end; ) sleepSync(50);
+  if (groupAlive()) { killGroup("SIGKILL"); sleepSync(LIMITS.QUIESCE_KILL_SYNC_MS); }
+}
+
+// Ends every child this driver started and WAITS for them, bounded by the quiesce above.
 //
 // The lock is released only AFTER that wait, so a next writer cannot enter the directory while this
 // run's descendants are still dying in it. Idempotent: every caller shares one promise, and a repeat
@@ -2202,16 +2244,52 @@ function shutdown() {
     killVerifier();                   // the verifier is a child too, and it must never outlive the driver
     if (child) {
       try { child.stdin.end(); } catch {}
-      killGroup("SIGTERM");
-      for (const end = Date.now() + 2000; groupAlive() && Date.now() < end; ) await sleep(50);
-      if (groupAlive()) {
-        killGroup("SIGKILL");
-        for (const end = Date.now() + 1000; groupAlive() && Date.now() < end; ) await sleep(50);
-      }
+      await quiesceGroup();
     }
     releaseLock();
   })();
   return shutdownDone;
+}
+
+// The ONE way out once a code is decided: settle, hand stdout its last bytes under a drain watchdog,
+// close the job record on what actually happened, tear the group down, exit. A stalled consumer is a
+// bounded transport failure on every path that writes stdout, because every such path is this one.
+//
+// `durable` says the report is already on disk under --report-file: the pipe then stops mattering, so a
+// broken or stalled one keeps the turn's own verdict instead of becoming a transport failure.
+//
+// Not funnelled, deliberately: abort(), which prints the child's stderr tail and must let the loop drain
+// it (a process.exit behind an asynchronous pipe write truncates that tail), and the --help exit, which
+// has no child, no lock and no record and leaves through Bail.
+function exitWith(code, { stdout = null, durable = false } = {}) {
+  settled = true;
+  process.exitCode = code;
+  // The write callback and the watchdog race; the first one out wins, rather than whichever `.then`
+  // happened to be registered on shutdown()'s promise first.
+  let left = false;
+  const leave = (finalCode) => {
+    if (left) return;
+    left = true;
+    closeJobRecord(finalCode);
+    shutdown().then(() => process.exit(finalCode));
+  };
+  if (stdout === null) return leave(code);
+  // Set BEFORE the write and cleared in the callback: the signal handler defers to it, or a signal
+  // arriving mid-report exits with the bytes half-written.
+  flushing = true;
+  // Both the write callback and the stream's error event must classify a broken pipe as a transport failure.
+  process.stdout.write(stdout, (e) => {
+    flushing = false;
+    if ((e || stdoutBroken) && !durable) return stdoutFailed(e);
+    leave(code);
+  });
+  // A report that cannot drain is a transport failure; wait for the remaining wall clock, with
+  // STDOUT_DRAIN_MIN_MS as the minimum and the entire bound when no wall clock was set.
+  const drainMs = Math.max(LIMITS.STDOUT_DRAIN_MIN_MS, startedAtMs + opts.timeout * 1000 - Date.now());
+  setTimeout(() => {
+    process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; ${durable ? `the report is complete at ${reportFilePath}` : "report may be truncated"}\n`);
+    leave(durable ? code : EXIT.TRANSPORT);
+  }, drainMs).unref?.();
 }
 
 function abort(code, msg) {
@@ -2374,40 +2452,106 @@ function handleServerRequest(msg) {
   sendError(`${msg.method} is not supported by codex-delegate`);
 }
 
-function handleMessage(msg, bytes = 0) {
-  if (msg.id !== undefined && !msg.method) {
-    // Taken before anything is resolved, so the ids below are assigned while this line's chunk is still
-    // being dispatched.
-    const p = conn.take(msg.id);
-    if (!p) return;
-    // Assign the root ids HERE, synchronously, not in the await continuation. The parser dispatches every
-    // line of one stdout chunk in a single synchronous burst, so notifications sharing a chunk with this
-    // response would otherwise be handled while the id is still null — and the filters would let a
-    // foreign thread's events through.
-    if (msg.result && (p.method === "thread/start" || p.method === "thread/resume")) {
-      rootThreadId = msg.result.thread?.id ?? null;
-      selectedModel = msg.result.model ?? null;
-      selectedEffort = msg.result.reasoningEffort ?? null;
-    }
-    if (msg.result && p.method === "turn/start") {
-      rootTurnId = msg.result.turn?.id ?? null;
-      if (rootTurnId !== null) ownedTurns.add(rootTurnId);
-      replayEarly();          // anything that shared this chunk can now be attributed
-    }
-    if (msg.error) {
-      // -32601 means the server does not know a method this driver sends, which after a codex upgrade is
-      // the single most likely failure — and as a raw JSON blob under a generic transport error it reads
-      // as a crash rather than as protocol drift. Name it and say what to do.
-      const e = new Error(msg.error.code === -32601
-        ? `the server does not support ${p.method} (JSON-RPC -32601): your codex and this plugin have ` +
-          `drifted apart. Update the plugin, or pin codex to the version it was measured against ` +
-          `(schema-<version>/ in the plugin root names it).`
-        : `${p.method}: ${JSON.stringify(msg.error)}`);
-      e.rpcCode = msg.error.code;
-      p.reject(e);
-    } else p.resolve(msg.result);
-    return;
+// A response to one of this driver's own requests. Synchronous throughout, and it must stay that way:
+// see the root-id assignment below.
+function handleResponse(msg) {
+  // Taken before anything is resolved, so the ids below are assigned while this line's chunk is still
+  // being dispatched.
+  const p = conn.take(msg.id);
+  if (!p) return;
+  // Assign the root ids HERE, synchronously, not in the await continuation. The parser dispatches every
+  // line of one stdout chunk in a single synchronous burst, so notifications sharing a chunk with this
+  // response would otherwise be handled while the id is still null — and the filters would let a
+  // foreign thread's events through.
+  if (msg.result && (p.method === "thread/start" || p.method === "thread/resume")) {
+    rootThreadId = msg.result.thread?.id ?? null;
+    selectedModel = msg.result.model ?? null;
+    selectedEffort = msg.result.reasoningEffort ?? null;
   }
+  if (msg.result && p.method === "turn/start") {
+    rootTurnId = msg.result.turn?.id ?? null;
+    if (rootTurnId !== null) ownedTurns.add(rootTurnId);
+    replayEarly();          // anything that shared this chunk can now be attributed
+  }
+  if (msg.error) {
+    // -32601 means the server does not know a method this driver sends, which after a codex upgrade is
+    // the single most likely failure — and as a raw JSON blob under a generic transport error it reads
+    // as a crash rather than as protocol drift. Name it and say what to do.
+    const e = new Error(msg.error.code === -32601
+      ? `the server does not support ${p.method} (JSON-RPC -32601): your codex and this plugin have ` +
+        `drifted apart. Update the plugin, or pin codex to the version it was measured against ` +
+        `(schema-<version>/ in the plugin root names it).`
+      : `${p.method}: ${JSON.stringify(msg.error)}`);
+    e.rpcCode = msg.error.code;
+    p.reject(e);
+  } else p.resolve(msg.result);
+}
+
+// Everything the ROOT thread's completed items contribute to the report: the commands and their
+// server-side parse, the answer, the reasoning summaries, the item types the gates ignore, and the
+// file changes. Root-only by the caller's filter, because evidence of success has to be strict.
+function recordRootItem(it, p) {
+  // commandActions is the server's own parse of the command, and it is load-bearing: `command` is the
+  // WRAPPER the server ran (`/bin/zsh -c '<script>'` in every live turn), not the command the model
+  // wrote. Kept as bare strings — one entry means one command, several mean a pipeline.
+  if (it?.type === "commandExecution") {
+    // durationMs is the server's own measurement of how long the command took; the report subtracts it
+    // from the wall clock to say how much of the run was the MODEL rather than the work it ordered.
+    commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status,
+                    durationMs: typeof it.durationMs === "number" ? it.durationMs : null,
+                    actions: (Array.isArray(it.commandActions) ? it.commandActions : []).map((a) => String(a?.command ?? "")) });
+    // The volume cap, and the analogue of a native subagent's maxTurns: with no wall clock, a turn that
+    // loops — retrying one command shape forever, or walking a tree that never ends — is bounded by
+    // nothing else, because a loop is not silence and each iteration costs few tokens. Counted on root
+    // commands only, like every other piece of evidence.
+    if (opts.maxCommands && commands.length >= opts.maxCommands)
+      cutTurn("maxCommands", "commands", { limit: opts.maxCommands, observed: commands.length });
+  }
+  if (it?.type === "agentMessage") {
+    // The accumulator goes with the message it belonged to: a partial may only ever describe a message
+    // the server never finished, and a long turn must not carry every message it already delivered.
+    if (it.id !== undefined) answerDeltas.delete(String(it.id));
+    // Since 0.153.0 request_user_input_async arrives as an agentMessage with questions, not a server request;
+    // measured on 0.153.4 (gpt-6-astra), its phase is final_answer.
+    // Record it as interaction rather than answer text: it requires input no sandbox change can supply.
+    const questions = Array.isArray(it.questions) ? it.questions.filter((q) => typeof q?.title === "string") : [];
+    if (questions.length) {
+      interactions.push(`item/agentMessage/questions: ${questions.map((q) => q.title).join(" | ").slice(0, 200)}`);
+    } else if (it.text) {
+      messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
+      // Written the moment it arrives rather than at finish(): a SIGKILL after the answer exists must
+      // not take it with the process. classifyEvidence rewrites the file with the final choice.
+      if ((it.phase ?? null) === null || it.phase === "final_answer") persistAnswer(it.text);
+    }
+  }
+  // The summary is the same artefact a Claude subagent's transcript exposes as its thinking; bounded,
+  // because reasoning can be long and the report is not the place for a novel.
+  if (it?.type === "reasoning") {
+    const s = Array.isArray(it.summary) ? it.summary.join("\n") : String(it.summary ?? "");
+    if (s.trim() && reasoningSummaries.length < 40) reasoningSummaries.push(s.slice(0, 2000));
+  }
+  // Count other item types so tool and subagent activity stays visible.
+  // Exclude userMessage: it echoes the caller's prompt and must not count as work or suppress a transient retry.
+  if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning", "userMessage"].includes(it.type)) {
+    otherItemCounts[it.type] = (otherItemCounts[it.type] ?? 0) + 1;
+    if (otherItems.length < 50) {
+      const detail = String(it.query ?? it.tool ?? it.server ?? "").slice(0, 120);
+      otherItems.push({ type: it.type, ...(detail ? { detail } : {}) });
+    }
+  }
+  // FileChangeThreadItem carries changes and status; report failed and declined patches as evidence,
+  // just as failed commands are reported.
+  if (it?.type === "fileChange") {
+    for (const ch of it.changes ?? [])
+      // PatchChangeKind is a oneOf of OBJECTS ({type:"add"} / {type:"delete"} / {type:"update",move_path}).
+      // Extract the type and rename destination so the report names the file that exists after the change.
+      fileChanges.push({ path: String(ch.path), kind: ch.kind?.type ?? String(ch.kind),
+                         move: ch.kind?.move_path ?? null, status: it.status });
+  }
+}
+
+function handleMessage(msg, bytes = 0) {
+  if (msg.id !== undefined && !msg.method) return handleResponse(msg);
   // A request is the turn asking us something, which is as alive as a notification.
   if (msg.id !== undefined && msg.method) { touchIdle(); return handleServerRequest(msg); }
 
@@ -2458,66 +2602,7 @@ function handleMessage(msg, bytes = 0) {
     if (p.item?.type === "commandExecution") t.commands++;
   }
 
-  if (msg.method === "item/completed" && isRoot(p)) {
-    const it = p.item;
-    // commandActions is the server's own parse of the command, and it is load-bearing: `command` is the
-    // WRAPPER the server ran (`/bin/zsh -c '<script>'` in every live turn), not the command the model
-    // wrote. Kept as bare strings — one entry means one command, several mean a pipeline.
-    if (it?.type === "commandExecution") {
-      // durationMs is the server's own measurement of how long the command took; the report subtracts it
-      // from the wall clock to say how much of the run was the MODEL rather than the work it ordered.
-      commands.push({ command: String(it.command), exitCode: it.exitCode, status: it.status,
-                      durationMs: typeof it.durationMs === "number" ? it.durationMs : null,
-                      actions: (Array.isArray(it.commandActions) ? it.commandActions : []).map((a) => String(a?.command ?? "")) });
-      // The volume cap, and the analogue of a native subagent's maxTurns: with no wall clock, a turn that
-      // loops — retrying one command shape forever, or walking a tree that never ends — is bounded by
-      // nothing else, because a loop is not silence and each iteration costs few tokens. Counted on root
-      // commands only, like every other piece of evidence.
-      if (opts.maxCommands && commands.length >= opts.maxCommands)
-        cutTurn("maxCommands", "commands", { limit: opts.maxCommands, observed: commands.length });
-    }
-    if (it?.type === "agentMessage") {
-      // The accumulator goes with the message it belonged to: a partial may only ever describe a message
-      // the server never finished, and a long turn must not carry every message it already delivered.
-      if (it.id !== undefined) answerDeltas.delete(String(it.id));
-      // Since 0.153.0 request_user_input_async arrives as an agentMessage with questions, not a server request;
-      // measured on 0.153.4 (gpt-6-astra), its phase is final_answer.
-      // Record it as interaction rather than answer text: it requires input no sandbox change can supply.
-      const questions = Array.isArray(it.questions) ? it.questions.filter((q) => typeof q?.title === "string") : [];
-      if (questions.length) {
-        interactions.push(`item/agentMessage/questions: ${questions.map((q) => q.title).join(" | ").slice(0, 200)}`);
-      } else if (it.text) {
-        messages.push({ text: it.text, phase: it.phase ?? null, turnId: turnIdOf(p) });
-        // Written the moment it arrives rather than at finish(): a SIGKILL after the answer exists must
-        // not take it with the process. classifyEvidence rewrites the file with the final choice.
-        if ((it.phase ?? null) === null || it.phase === "final_answer") persistAnswer(it.text);
-      }
-    }
-    // The summary is the same artefact a Claude subagent's transcript exposes as its thinking; bounded,
-    // because reasoning can be long and the report is not the place for a novel.
-    if (it?.type === "reasoning") {
-      const s = Array.isArray(it.summary) ? it.summary.join("\n") : String(it.summary ?? "");
-      if (s.trim() && reasoningSummaries.length < 40) reasoningSummaries.push(s.slice(0, 2000));
-    }
-    // Count other item types so tool and subagent activity stays visible.
-    // Exclude userMessage: it echoes the caller's prompt and must not count as work or suppress a transient retry.
-    if (it?.type && !["commandExecution", "agentMessage", "fileChange", "reasoning", "userMessage"].includes(it.type)) {
-      otherItemCounts[it.type] = (otherItemCounts[it.type] ?? 0) + 1;
-      if (otherItems.length < 50) {
-        const detail = String(it.query ?? it.tool ?? it.server ?? "").slice(0, 120);
-        otherItems.push({ type: it.type, ...(detail ? { detail } : {}) });
-      }
-    }
-    // FileChangeThreadItem carries changes and status; report failed and declined patches as evidence,
-    // just as failed commands are reported.
-    if (it?.type === "fileChange") {
-      for (const ch of it.changes ?? [])
-        // PatchChangeKind is a oneOf of OBJECTS ({type:"add"} / {type:"delete"} / {type:"update",move_path}).
-        // Extract the type and rename destination so the report names the file that exists after the change.
-        fileChanges.push({ path: String(ch.path), kind: ch.kind?.type ?? String(ch.kind),
-                           move: ch.kind?.move_path ?? null, status: it.status });
-    }
-  }
+  if (msg.method === "item/completed" && isRoot(p)) recordRootItem(p.item, p);
   // Opted INTO, alone among the delta streams, and only because of what a cut costs: the accumulated
   // text is the only copy of an answer the server discards when the turn is interrupted.
   if (msg.method === "item/agentMessage/delta" && isRoot(p)) {
@@ -3144,8 +3229,7 @@ function finish(reason, codeOverride = null) {
     .then((verifySkipped) => writeReport(ev, verifySkipped, codeOverride))
     .catch((e) => {
       process.stderr.write(`codex-delegate: the report could not be produced (${e.message})\n`);
-      process.exitCode = EXIT.TRANSPORT;
-      shutdown().then(() => process.exit(EXIT.TRANSPORT));
+      exitWith(EXIT.TRANSPORT);
     });
 }
 
@@ -3165,11 +3249,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
   // the turn backgrounded can still be writing; snapshotting around it would archive a half-written
   // file and the removal would then delete the rest. Bounded and synchronous — finish() is — and only
   // on the path that actually removes a tree, so an ordinary run's teardown timing is unchanged.
-  if (worktreeInfo && !worktreeInfo.disposed && turnStatus === "completed" && child) {
-    killGroup("SIGTERM");
-    for (const end = Date.now() + 2000; groupAlive() && Date.now() < end; ) sleepSync(50);
-    if (groupAlive()) { killGroup("SIGKILL"); sleepSync(200); }
-  }
+  if (worktreeInfo && !worktreeInfo.disposed && turnStatus === "completed" && child) quiesceGroupSync();
   // After the verifier (which runs in the tree), before the report (which carries the outcome).
   const worktree = disposeWorktree(turnStatus === "completed");
   // The receipt is the one artefact no wrapper can fabricate; locate it, READ it, and say what it says,
@@ -3314,39 +3394,90 @@ function writeReport(ev, verifySkipped, codeOverride) {
   // FAILED is the transport failure instead — the caller was told where to read and there is nothing
   // there — while the report itself still carries the verdict the turn earned.
   const durable = publishReport(out);
-  const exitWith = reportFilePath !== null && !durable ? EXIT.TRANSPORT : code;
-  process.exitCode = exitWith;
-  // Wait for stdout to drain before exiting so a report larger than the pipe buffer is not truncated.
-  // Await shutdown() too, so process.exit cannot discard the SIGKILL escalation timer.
-  flushing = true;
-  // Both the write callback and stream error event must classify a broken pipe as a transport failure.
-  process.stdout.write(out, (e) => {
-    flushing = false;
-    if ((e || stdoutBroken) && !durable) return stdoutFailed(e);
-    closeJobRecord(exitWith);
-    shutdown().then(() => process.exit(exitWith));
-  });
-  // A report that cannot drain is a transport failure; wait for the remaining wall clock,
-  // with STDOUT_DRAIN_MIN_MS as the minimum and the entire bound when no wall clock was set.
-  const drainMs = Math.max(LIMITS.STDOUT_DRAIN_MIN_MS, startedAtMs + opts.timeout * 1000 - Date.now());
-  setTimeout(() => {
-    process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; ${durable ? `the report is complete at ${reportFilePath}` : "report may be truncated"}\n`);
-    closeJobRecord(durable ? exitWith : EXIT.TRANSPORT);
-    shutdown().then(() => process.exit(durable ? exitWith : EXIT.TRANSPORT));
-  }, drainMs).unref?.();
+  exitWith(reportFilePath !== null && !durable ? EXIT.TRANSPORT : code, { stdout: out, durable });
 }
 
 // ---------------------------------------------------------------- run
 
-async function main() {
-  opts = readOpts();
-  // The pid a caller signals to stop this seat, and the identity that says the pid is still this run
-  // rather than whatever the OS recycled it into. Before setup(), because a seat killed during its
-  // config probe has to be identifiable too, and this line is all its caller has until the thread exists.
-  process.stderr.write(`codex-delegate: pid=${process.pid} identity=${selfIdentity() ?? "unknown"}`
-    + `${reportFilePath === null ? "" : ` reportPath=${reportFilePath}`}\n`);
-  await setup();
-  setupDoneMs = Date.now();
+// What --model and --effort are checked against before a thread is started: the server's own
+// catalogue, walked to the end. A name or an effort the catalogue does not carry is a usage error
+// the caller can fix, and finding it here costs no turn.
+async function preflightModel(request) {
+  if (opts.model === undefined && opts.effort === undefined) return;
+  const models = [], cursors = new Set();
+  let cursor = null;
+  for (;;) {
+    const page = await request("model/list", { cursor, limit: null, includeHidden: true });
+    if (!Array.isArray(page?.data)) fail(EXIT.TRANSPORT, "model/list returned no model catalogue");
+    models.push(...page.data);
+    if (page.nextCursor == null) break;
+    if (typeof page.nextCursor !== "string" || cursors.has(page.nextCursor) || cursors.size >= 99)
+      fail(EXIT.TRANSPORT, "model/list pagination did not terminate with a valid cursor");
+    cursors.add(page.nextCursor);
+    cursor = page.nextCursor;
+  }
+  const chosen = opts.model === undefined ? null
+    : models.find((m) => m?.model === opts.model || m?.id === opts.model) ?? null;
+  if (opts.model !== undefined && !chosen)
+    fail(EXIT.USAGE, `--model ${JSON.stringify(opts.model)} is not in model/list; available models: ${models.map((m) => m?.model).filter(Boolean).join(", ") || "none"}`);
+  if (opts.effort !== undefined) {
+    const candidates = chosen ? [chosen] : models;
+    const supported = (m) => (m?.supportedReasoningEfforts ?? []).map((e) => e?.reasoningEffort).filter(Boolean);
+    if (!candidates.some((m) => supported(m).includes(opts.effort))) {
+      const allowed = [...new Set(candidates.flatMap(supported))].sort();
+      fail(EXIT.USAGE, `--effort ${JSON.stringify(opts.effort)} is not advertised by ${opts.model ? `model ${opts.model}` : "any model in model/list"}; supported efforts: ${allowed.join("|") || "none"}`);
+    }
+  }
+}
+
+// The standing rules the thread is started with, as one string. A function of opts and what is LEFT
+// of the budget — never of the prompt, which is the turn's own input.
+function developerInstructions() {
+  // Standing rules belong on the thread, not in the task prompt: they then govern every turn of a
+  // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
+  // What is LEFT of the budget, read here rather than at process start: the probe and the lock come out
+  // of the same clock, and a number the model plans against must not include time already spent. Read
+  // only by the branch below that has a budget to report.
+  const budgetLeftS = Math.max(1, Math.round((startedAtMs + opts.timeout * 1000 - Date.now()) / 1000));
+  return [
+    "You are being driven by a Claude Code coordinator, unattended. Nobody will answer a question.",
+    // Advisory: the model has no clock unless it runs `date`. It costs one sentence and it is the only
+    // thing that makes the wall clock something the turn can plan against rather than be surprised by.
+    // Without a wall clock the sentence has to say so: told "you have about N seconds" when nothing is
+    // counting, the model plans against a deadline that does not exist and rushes work it had time for.
+    opts.timeout > 0
+      ? `You have about ${budgetLeftS} seconds of wall clock`
+        + ` for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`
+      : `There is no wall-clock limit on this turn`
+        + `; it is cut only ${opts.idleTimeout ? `after ${opts.idleTimeout} seconds of silence or ` : ""}by the coordinator. `
+        + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`,
+    opts.webSearch
+      ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
+      : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
+    "If a command cannot run, reply with the single token COMMAND_BLOCKED for that step and continue.",
+    "Never report a test as passing unless you ran it and saw the count in this turn.",
+    "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful.",
+    // The coordinator machine-reads this answer. Saying so is what makes the JSON arrive bare; without it
+    // the model reaches for a fenced block, and a fence is not JSON.
+    ...(opts.answerJson
+      ? ["Your final answer must be ONE JSON object and nothing else: no prose before or after, no markdown code fence."]
+      : []),
+    // Ask for a summary and leave details in files so the coordinator opens them only when needed.
+    ...(opts.brief
+      ? [`Answer in at most ${LIMITS.BRIEF_LINES} lines: the conclusion, then only what changes what the reader does next.`,
+         // Withheld under --answer-json, which has just demanded ONE JSON object and nothing else: the
+         // two sentences together tell the seat to answer in JSON and to put the rest beside it.
+         ...(opts.answerJson ? []
+           : ["Put anything longer — diffs, transcripts, tables, evidence — in a file under $TMPDIR and give its absolute path."])]
+      : [])
+  ].join(" ");
+}
+
+// Every deadline this driver arms: unref'd, so a timer alone never holds the process open, and never
+// sooner than 50 ms, so a rung whose moment has already passed does not fire inside its own arming.
+const armAt = (whenMs, fn) => { const t = setTimeout(fn, Math.max(50, whenMs - Date.now())); t.unref?.(); return t; };
+
+function armWallClock() {
   // Three rungs on one clock, because a budget the model cannot plan against is a budget it spends on
   // investigation and then has nothing left to write with. Anchored on the PROCESS start, not on this
   // line: the config probe runs before this timer is armed, and a relative deadline overshoots the
@@ -3362,11 +3493,10 @@ async function main() {
   const endAtMs = startedAtMs + opts.timeout * 1000;
   const reserveMs = Math.min(LIMITS.WALL_RESERVE_MAX_MS, Math.max(LIMITS.WALL_RESERVE_MIN_MS, opts.timeout * 250));
   const graceMs = Math.min(LIMITS.CUT_GRACE_MAX_MS, Math.max(LIMITS.CUT_GRACE_MIN_MS, opts.timeout * 250));
-  const at = (whenMs, fn) => { const t = setTimeout(fn, Math.max(50, whenMs - Date.now())); t.unref?.(); return t; };
-  if (opts.timeout > 0) {
+  if (!(opts.timeout > 0)) return;
   // Armed only where the reserve actually fits inside what is left: on a short seat there is nothing to
   // reserve, and a wrap-up steer that fires immediately would be an interruption, not a warning.
-  if (endAtMs - reserveMs > Date.now() + 1000) at(endAtMs - reserveMs, () => {
+  if (endAtMs - reserveMs > Date.now() + 1000) armAt(endAtMs - reserveMs, () => {
     if (settled) return;
     const left = Math.max(0, Math.round((endAtMs - Date.now()) / 1000));
     const sent = steerOnce(`About ${left} seconds of wall clock remain. Stop investigating now; write your final answer `
@@ -3378,20 +3508,23 @@ async function main() {
   });
   // Once a child exists, a timeout hands back the partial result rather than discarding it; before that
   // there is nothing to interrupt, so this rung has nothing to do and T below does the aborting.
-  at(endAtMs - graceMs, () => {
+  armAt(endAtMs - graceMs, () => {
     if (child && rootThreadId)
       cutTurn("timedOut", "wall", { limit: opts.timeout, observed: Math.round((Date.now() - startedAtMs) / 1000), graceMs });
   });
   // The budget is the budget: a server that never answers the interrupt does not get to extend it. A run
   // with no thread yet has nothing to report and spends its whole budget waiting for one, so it aborts
   // here rather than a grace early — abort() also has to unblock a stdin read that may never end.
-  at(endAtMs, () => {
+  armAt(endAtMs, () => {
     if (settled) return;
     if (child && rootThreadId) finish("timedOut");
     else abort(EXIT.TIMEOUT, `timed out after ${opts.timeout}s`);
   });
-  }
+}
 
+// The prompt, from --prompt or from stdin. Bounded on both axes: MAX_PROMPT_BYTES while it arrives,
+// and the silence budget where no wall clock will end an stdin that never closes.
+async function readPrompt() {
   let prompt = opts.prompt;
   if (prompt === undefined) {
     if (process.stdin.isTTY) fail(EXIT.USAGE, "no prompt: pass --prompt or pipe one on stdin");
@@ -3401,7 +3534,7 @@ async function main() {
     // report. That is silence before the turn, so the silence budget answers for it; abort() destroys
     // stdin, which is what unblocks the read below.
     const stdinGuard = opts.timeout > 0 || !opts.idleTimeout ? null
-      : at(Date.now() + opts.idleTimeout * 1000,
+      : armAt(Date.now() + opts.idleTimeout * 1000,
            () => abort(EXIT.TIMEOUT, `no prompt arrived on stdin within the ${opts.idleTimeout}s silence budget`));
     let s = "";
     for await (const c of process.stdin) {
@@ -3414,7 +3547,14 @@ async function main() {
   if (settled) throw new Bail();   // aborted while reading stdin; the exit code is already set
   prompt = prompt.trim();
   if (!prompt) fail(EXIT.USAGE, "empty prompt");
+  return prompt;
+}
 
+// Starts the app-server and returns with the connection attached: the stderr tail abort() prints, the
+// pgid on the lock and the ledger, the framing, and the two handlers that turn a dead server into a
+// report rather than a hang. The order is the contract — a pgid recorded after the first event, or a
+// connection attached after the handlers, is a window in which a crash has nowhere to go.
+function spawnServer() {
   // The seat's shell is zsh, which keeps every here-document in a file under $TMPPREFIX, default
   // /tmp/zsh: outside the grant, so every `<<EOF` failed ("can't create temp file for here document",
   // measured in 15 rollouts, 2026-08-31 to 2026-09-08). Under $TMPDIR it is inside the grant at every
@@ -3467,6 +3607,20 @@ async function main() {
     }
     abort(EXIT.TRANSPORT, e.message);
   });
+}
+
+async function main() {
+  opts = readOpts();
+  // The pid a caller signals to stop this seat, and the identity that says the pid is still this run
+  // rather than whatever the OS recycled it into. Before setup(), because a seat killed during its
+  // config probe has to be identifiable too, and this line is all its caller has until the thread exists.
+  process.stderr.write(`codex-delegate: pid=${process.pid} identity=${selfIdentity() ?? "unknown"}`
+    + `${reportFilePath === null ? "" : ` reportPath=${reportFilePath}`}\n`);
+  await setup();
+  setupDoneMs = Date.now();
+  armWallClock();
+  const prompt = await readPrompt();
+  spawnServer();
 
   const init = await conn.request("initialize", initializeParams());
   conn.notify("initialized");
@@ -3489,71 +3643,7 @@ async function main() {
   if (rateLimits && typeof primaryUsed === "number" && primaryUsed >= 100)
     fail(EXIT.USAGE, `the account's primary Codex rate-limit window is at ${primaryUsed}%; no thread was started`);
 
-  if (opts.model !== undefined || opts.effort !== undefined) {
-    const models = [], cursors = new Set();
-    let cursor = null;
-    for (;;) {
-      const page = await conn.request("model/list", { cursor, limit: null, includeHidden: true });
-      if (!Array.isArray(page?.data)) fail(EXIT.TRANSPORT, "model/list returned no model catalogue");
-      models.push(...page.data);
-      if (page.nextCursor == null) break;
-      if (typeof page.nextCursor !== "string" || cursors.has(page.nextCursor) || cursors.size >= 99)
-        fail(EXIT.TRANSPORT, "model/list pagination did not terminate with a valid cursor");
-      cursors.add(page.nextCursor);
-      cursor = page.nextCursor;
-    }
-    const chosen = opts.model === undefined ? null
-      : models.find((m) => m?.model === opts.model || m?.id === opts.model) ?? null;
-    if (opts.model !== undefined && !chosen)
-      fail(EXIT.USAGE, `--model ${JSON.stringify(opts.model)} is not in model/list; available models: ${models.map((m) => m?.model).filter(Boolean).join(", ") || "none"}`);
-    if (opts.effort !== undefined) {
-      const candidates = chosen ? [chosen] : models;
-      const supported = (m) => (m?.supportedReasoningEfforts ?? []).map((e) => e?.reasoningEffort).filter(Boolean);
-      if (!candidates.some((m) => supported(m).includes(opts.effort))) {
-        const allowed = [...new Set(candidates.flatMap(supported))].sort();
-        fail(EXIT.USAGE, `--effort ${JSON.stringify(opts.effort)} is not advertised by ${opts.model ? `model ${opts.model}` : "any model in model/list"}; supported efforts: ${allowed.join("|") || "none"}`);
-      }
-    }
-  }
-
-  // Standing rules belong on the thread, not in the task prompt: they then govern every turn of a
-  // resumed thread and do not compete with the task text for attention. `codex exec` cannot do this.
-  // What is LEFT of the budget, read here rather than at process start: the probe and the lock come out
-  // of the same clock, and a number the model plans against must not include time already spent. Read
-  // only by the branch below that has a budget to report.
-  const budgetLeftS = Math.max(1, Math.round((startedAtMs + opts.timeout * 1000 - Date.now()) / 1000));
-  const developerInstructions = [
-    "You are being driven by a Claude Code coordinator, unattended. Nobody will answer a question.",
-    // Advisory: the model has no clock unless it runs `date`. It costs one sentence and it is the only
-    // thing that makes the wall clock something the turn can plan against rather than be surprised by.
-    // Without a wall clock the sentence has to say so: told "you have about N seconds" when nothing is
-    // counting, the model plans against a deadline that does not exist and rushes work it had time for.
-    opts.timeout > 0
-      ? `You have about ${budgetLeftS} seconds of wall clock`
-        + ` for this turn; reserve the last fifth for writing the final answer, and if time runs short answer with what you have and say what you did not get to.`
-      : `There is no wall-clock limit on this turn`
-        + `; it is cut only ${opts.idleTimeout ? `after ${opts.idleTimeout} seconds of silence or ` : ""}by the coordinator. `
-        + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`,
-    opts.webSearch
-      ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
-      : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
-    "If a command cannot run, reply with the single token COMMAND_BLOCKED for that step and continue.",
-    "Never report a test as passing unless you ran it and saw the count in this turn.",
-    "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful.",
-    // The coordinator machine-reads this answer. Saying so is what makes the JSON arrive bare; without it
-    // the model reaches for a fenced block, and a fence is not JSON.
-    ...(opts.answerJson
-      ? ["Your final answer must be ONE JSON object and nothing else: no prose before or after, no markdown code fence."]
-      : []),
-    // Ask for a summary and leave details in files so the coordinator opens them only when needed.
-    ...(opts.brief
-      ? [`Answer in at most ${LIMITS.BRIEF_LINES} lines: the conclusion, then only what changes what the reader does next.`,
-         // Withheld under --answer-json, which has just demanded ONE JSON object and nothing else: the
-         // two sentences together tell the seat to answer in JSON and to put the rest beside it.
-         ...(opts.answerJson ? []
-           : ["Put anything longer — diffs, transcripts, tables, evidence — in a file under $TMPDIR and give its absolute path."])]
-      : [])
-  ].join(" ");
+  await preflightModel(conn.request);
 
   // Sending `sandbox` at all suppresses the permission profile — the server reports
   // activePermissionProfile: null and the $TMPDIR grant silently disappears. So at --level read the
@@ -3569,7 +3659,7 @@ async function main() {
   // is a real config key and a menu item in the interactive TUI, so this is one toggle away by accident.
   const approvalsReviewer = "user";
   const threadBase = { cwd, model: opts.model ?? null, approvalPolicy: "on-request", approvalsReviewer,
-    ...sandboxParam, developerInstructions };
+    ...sandboxParam, developerInstructions: developerInstructions() };
   // excludeTurns: the driver never reads thread.turns off the response, and every thread created under
   // 0.153.4 is paginated — for those full-history hydration is deprecated. Measured: a resume shrank
   // from 1.5 MB to 58 KB with it.
@@ -3657,8 +3747,7 @@ function stdoutFailed(e) {
   // With the report already durable the pipe carried a copy, so the exit belongs to writeReport's own
   // callback (or its drain timer) and the verdict stays the turn's.
   if (reportFileWritten) return;
-  closeJobRecord(EXIT.TRANSPORT);
-  shutdown().then(() => process.exit(EXIT.TRANSPORT));
+  exitWith(EXIT.TRANSPORT);
 }
 
 // Imports must not install signal handlers, exit hooks or start a turn.
@@ -3692,7 +3781,7 @@ if (RUN_AS_MAIN) {
           killVerifier();
           return;
         }
-        shutdown().then(() => process.exit(process.exitCode ?? EXIT.TRANSPORT));
+        exitWith(process.exitCode ?? EXIT.TRANSPORT);
         return;
       }
       // A turn that has already produced evidence is REPORTED, not discarded: abort() writes no report at
@@ -3709,7 +3798,7 @@ if (RUN_AS_MAIN) {
       // SIGTERM wait is what gives the server time to act on it.
       if (child && rootThreadId) { cutTurn("interrupted", null, { graceMs: 1000 }); return; }
       abort(EXIT.TRANSPORT, `interrupted by ${sig} before the thread existed`);
-      shutdown().then(() => process.exit(EXIT.TRANSPORT));
+      exitWith(EXIT.TRANSPORT);
     });
   }
 
