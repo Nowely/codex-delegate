@@ -26,7 +26,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 const EXIT = { OK: 0, TURN_NOT_COMPLETED: 1, USAGE: 2, TIMEOUT: 3, TRANSPORT: 4, NO_COMMANDS: 5, ESCALATED: 6, INTERACTION: 7, NO_ANSWER: 8, VERIFY_FAILED: 9, BUSY: 10, VERIFY_UNMEASURABLE: 12, SCHEMA: 13 };
 const LEVELS = new Set(["read", "write"]);
@@ -51,8 +51,6 @@ const BRIEF_BYTES = 4000;
 const MAX_PROMPT_BYTES = 512 * 1024;
 const DEFAULT_IDLE_TIMEOUT_S = 900;
 const DEFAULT_MAX_COMMANDS = 1000;
-const DEFAULT_DETACH_WAIT_S = 0;
-const DEFAULT_WAIT_TIMEOUT_S = 7200;
 const MAX_TIMEOUT_S = 7200;
 const VERIFY_TIMEOUT_S = 300;
 const VERIFY_TAIL_CHARS = 2000;
@@ -63,7 +61,6 @@ const PRUNE_MAX_ENTRIES = 400;
 const STDOUT_DRAIN_MIN_MS = 5000;
 const CONFIG_PROBE_MAX_MS = 5000;
 const CONFIG_PROBE_MIN_MS = 1000;
-const STDERR_TAIL_LINES = 20;
 const RECEIPT_LOOKBACK_DAYS = 2;
 const CODEX_FALLBACK_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin"];
 const WALL_RESERVE_MIN_MS = 60000;
@@ -71,20 +68,6 @@ const WALL_RESERVE_MAX_MS = 300000;
 const CUT_GRACE_MIN_MS = 50;
 const CUT_GRACE_MAX_MS = 10000;
 const TRANSIENT_TURN_MIN_MS = 10000;
-// --relay / --relay-collect: stdout is the ENVELOPE and nothing else, from the first byte, so the flag
-// is read off the raw command line before any parser can refuse it.
-let relayMode = false;
-// One wait, just under the 590 s cap a relay's Bash call runs with, so the call returns the envelope
-// rather than being killed holding it. The variable is a test and live-check seam and nothing else.
-const RELAY_WAIT_S = 560;
-function relayWaitSeconds() {
-  const raw = process.env.CODEX_DELEGATE_RELAY_WAIT_S;
-  if (raw === undefined || raw === "") return RELAY_WAIT_S;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0)
-    fail(EXIT.USAGE, `CODEX_DELEGATE_RELAY_WAIT_S must be a number of seconds, got ${JSON.stringify(raw)}`);
-  return n;
-}
 // --timeout is the caller's whole budget, so anything the driver spends after the turn — the verifier —
 // has to come out of what is left of it rather than out of a private allowance.
 const startedAtMs = Date.now();
@@ -110,9 +93,9 @@ const initializeParams = () => ({
 
 function fail(code, msg) {
   process.stderr.write(`codex-delegate: ${msg}\n`);
-  // In relay mode a refusal is still an envelope: the relay copies stdout and has no rule for a stdout
-  // that is empty, so every exit this driver can take starts with `exitCode:`.
-  if (relayMode) emitEnvelope(renderEnvelope(null, { exitCode: code, stderrTail: `codex-delegate: ${msg}` }), code);
+  // A caller waiting on the report file is waiting on it for refusals too: an empty path reads as
+  // "unknown", and a refusal that left nothing behind is indistinguishable from a seat still starting.
+  preTurnReport(code, msg);
   process.exitCode = code;
   // Settle a refusal before shutdown() SIGTERMs the child, so its exit handler cannot
   // rewrite the refusal's code to TRANSPORT.
@@ -127,9 +110,9 @@ const SEAT_FIELDS = new Set(["SEAT", "EFFORT", "EXPECT", "VERIFY", "NETWORK", "M
                              "WRITABLE", "RESUME"]);
 // Accepted on the command line and refused as fields: each bounds or transports the run rather than
 // declaring its rights, and each has a default a seat launched with nothing configured can live with.
-// A header able to set one is a knob every relayed seat would have to size.
+// A header able to set one is a knob every wrapped seat would have to size.
 const CLI_ONLY_FIELDS = { TIMEOUT: "--timeout", IDLE_TIMEOUT: "--idle-timeout", MAX_COMMANDS: "--max-commands",
-                          DETACH: "--detach", WAIT_TIMEOUT: "--wait-timeout", COLLECT: "--wait" };
+                          REPORT_FILE: "--report-file" };
 // The extensions the server takes, and which item kind each becomes.
 const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
                        webp: "localImage", bmp: "localImage",
@@ -140,8 +123,7 @@ const STATE_SUBDIRS = [
   ["locks/", "per-directory write locks"],
   ["answers/", "answers, partials, turn diffs"],
   ["home/", "the isolated Codex home"],
-  ["jobs/", "--jobs, --wait, `--resume last`"],
-  ["runs/", "a --detach run's transport"],
+  ["jobs/", "`--resume last` and the worktree rebuild"],
   ["tmp/", "the private $TMPDIR of a run whose caller exported none"],
   ["worktrees/", "the --worktree ledger"],
   ["pasted/", "attach-pasted.mjs's staged images"],
@@ -299,8 +281,9 @@ const HELP = [
   { s: "Turn", all: true,
     text: `  --allow-seat-verify  permit VERIFY in a seat file. Without it VERIFY there is
                      refused, because --verify runs an unsandboxed shell with
-                     your own rights and a relayed value must not be able to
-                     introduce one. Pass --verify on the command line instead
+                     your own rights and a value copied into a seat file must
+                     not be able to introduce one. Pass --verify on the command
+                     line instead
   --web-search ${[...WEB_SEARCH].join("|")}
                      off by default: a search makes the turn depend on what the
                      index says today` },
@@ -349,47 +332,31 @@ const HELP = [
   answer deltas, token usage), so a long inference step does not trip it either.` },
 
   { s: "Run",
-    text: `  --detach           start the turn in a process of its own and hand back a
-                     HANDLE instead of a report: exit 10, turnStatus running, with
-                     threadId, pid, runId and the paths its report and stderr will
-                     land at. The run survives this process, its shell and the
-                     session, under the same bounds; --wait collects it
-  --wait ID          collect a detached run: a threadId, or "last" for the run
-                     most recently STARTED for --cwd. It polls once a second,
-                     then copies that run's report and stderr byte for byte,
-                     exiting with the code the run itself decided. A run whose
-                     process is gone without a report is exit 4
-  --wait-timeout S   how long to wait before handing back the handle instead: ${DEFAULT_DETACH_WAIT_S}
-                     (the default under --detach) returns at once; with --wait
-                     the default is ${DEFAULT_WAIT_TIMEOUT_S}, and giving up is the handle, exit 10
-  --jobs             print the job registry as a JSON array and exit 0, spawning
-                     nothing. status is DERIVED at read time from pid liveness —
-                     running, crashed or ended. --cwd narrows it to one directory
-  --cancel ID        SIGTERM a running seat by threadId: the run's own handler
-                     writes the full interrupted report at its report path. Exit
-                     0 when the signal went out, 2 when it is not cancellable`,
-    more: `  \`--wait last\` takes the run most recently STARTED for --cwd, else for this
-  process's own directory. Each --jobs record carries threadId, cwd, repo, level, pid,
-  status, exitCode, startedAt, endedAt, answerPath, reportPath and runId, plus the
-  mid-flight lastEventAt, tokensSpent, commandsSeen and phase a running seat
-  records as it goes; --cwd narrows it to a repository as well as a directory.
-  --cancel is exit 2 on a run already ended, already dead, or older than its own
-  budget, where the pid may have been recycled. Under --detach
-  the run directory (<state>/runs/<runId>/) IS the transport, so a state directory
-  that cannot be written is a usage error.` },
-  { s: "Run", all: true,
-    text: `  --run-dir DIR      command-line only, never a seat field: it names where a
-                     detached run's transport lives, and it says "you ARE the
-                     detached run", so it wins over any --detach beside it` },
+    text: `  --report-file F    write the JSON report to F as well as to stdout, and make F
+                     the delivery that counts: an ABSOLUTE path that does not
+                     exist yet, published by rename at 0600, so a reader finds
+                     either the whole report or no file at all. A caller that
+                     stopped reading stdout then costs the run nothing — the file
+                     carries the same bytes under the same exit code. A refusal
+                     reached before the turn is written there too, as an object
+                     with ok false and the error in it, so a MISSING file means
+                     "unknown", never "success"`,
+    more: `  A seat is stopped by SIGTERM to this process: its pid is on stderr from the
+  first line, the handler asks the server to end the turn, and the report the
+  turn had earned is written anyway, at exit 1. There is no run registry and no
+  collector — the caller that started the seat owns its lifetime — and
+  <state>/jobs/ keeps only what \`--resume last\` and a worktree rebuild need.` },
 
   { s: "Report",
-    text: `  the JSON report on stdout is the only report: beyond the flags above it
-  carries receiptPath/receiptOk, tokenUsage, timing, cut — null, or the budget
-  that ended the turn — answerPath, answerPartialPath, the command and file counts
-  the exit ladder reads and the ones it does not. --help-all lists the rest
-  threadId is announced on stderr as soon as the thread exists, so a long turn's
-  rollout can be tailed; SIGINT/SIGTERM/SIGHUP after that report what the turn did
-  so far and exit 1, and before it they exit 4
+    text: `  the JSON report is the only report — on stdout, and at --report-file where one
+  was named: beyond the flags above it carries receiptPath/receiptOk, tokenUsage,
+  timing, cut — null, or the budget that ended the turn — answerPath,
+  answerPartialPath, the command and file counts the exit ladder reads and the
+  ones it does not. --help-all lists the rest
+  pid is announced on stderr before anything else, and threadId as soon as the
+  thread exists, so a long turn's rollout can be tailed and the run can be
+  stopped; SIGINT/SIGTERM/SIGHUP after that report what the turn did so far and
+  exit 1, and before it they exit 4
   -h, --help         this text
   --help-all         this text, plus the rarely needed flags and the internals`,
     more: `  the rest of the report: receiptOriginator, receiptModelProvider and receiptCwd,
@@ -428,42 +395,6 @@ const HELP = [
   normally ~120 ms. It counts against that one budget, which is anchored at
   process start` },
 
-  { s: "Relay — the whole command line of a wrapper that must decide nothing",
-    text: `  --relay FILE       run the seat FILE declares (header and body, as --seat-file
-                     reads it) DETACHED, wait ${RELAY_WAIT_S} s for it, and print the
-                     ENVELOPE below instead of the JSON report. The exit code is
-                     the run's own, or 10 while it is still going — in which case
-                     the envelope carries a \`collect:\` line that is a literal
-                     command to run again, unchanged. The report is still written,
-                     in full, at the reportPath the envelope names. Excludes
-                     --detach, --wait and --wait-timeout: the mode is format and
-                     transport
-  --relay-collect ID collect a relayed seat: --wait ID with the relay's own
-                     budget, printing the same envelope under the same rules. It
-                     is what \`collect:\` runs, and it is safe to repeat until the
-                     first line is no longer \`exitCode: 10\`
-  a FILE whose header carries no SEAT is a read seat in the current directory;
-  --seat-file still refuses it
-
-  The envelope, in this order and nothing else on stdout:
-      exitCode: <n>              always the first line
-      turnStatus: threadId: receiptOk: commandsSucceeded: reportPath:
-      hint:                      when the report carries one
-      then only the pointers that are not null — answerPath, answerPartialPath,
-      commentaryPath, cut (kind=/limit=/observed=), verify (ok=/measured=),
-      resumedFrom, worktreeDiffPath, worktreeUntrackedPath, worktreeCommitsRef,
-      worktreePreserved, worktreeRemoveCommand, schemaErrors
-      collect: node "<driver>" --relay-collect <id> --cwd "<dir>"   while running
-      --- stderr (last ${STDERR_TAIL_LINES} lines) ---   instead of the fields, when the run
-      <the tail>                       failed before it had a thread at all
-      --- answer (<n> bytes) ---  ALWAYS last, always present
-      <the full answer, exactly n bytes, empty where there is none>
-  Every value is copied from the report, never composed out of several keys, so
-  one rule reads it: the fields are the lines above the first \`--- answer\`, and
-  everything after it is the answer, however field-like it looks`,
-    more: `  that default is what lets a relay add nothing to a coordinator's prompt — not
-  even a rights line.` },
-
   { s: "Environment", all: true,
     text: `  CODEX_DELEGATE_STATE_DIR      where everything this driver owns lives; must be
                                 absolute. For test harnesses: two runs under
@@ -473,11 +404,6 @@ ${stateSubdirHelp()}
   CODEX_DELEGATE_CODEX          absolute path to the codex executable; without
                                 it the driver searches PATH, then
                                 ${CODEX_FALLBACK_DIRS.join(", ")}
-  CODEX_DELEGATE_RELAY_WAIT_S   how long --relay and --relay-collect wait before
-                                handing back the running envelope (default ${RELAY_WAIT_S},
-                                just under the 590 s cap a relay's own tool call
-                                runs with). A test and live-check seam: nothing
-                                in production sets it
   CODEX_DELEGATE_VERIFY_FLOOR_MS  how little of the --timeout budget is too
                                 little to start --verify in (default ${VERIFY_FLOOR_MS}).
                                 Also a test seam: the branch is otherwise
@@ -488,9 +414,8 @@ ${stateSubdirHelp()}
   3  a stalled probe or stdin under a short --timeout, or a prompt that never
      arrives on stdin within the silence budget; like a 2 it then prints no report
   4  transport, and every sandbox / approval assertion
-  10 another run holds the lock on this directory, a resumed thread still has a
-     turn open, or the run is still running (the --detach handle, or --wait
-     giving up on its budget)
+  10 another run holds the lock on this directory, or a resumed thread still
+     has a turn open
 
   Decided after the turn, first match wins, in this order:
 ${ladderHelp()}
@@ -530,12 +455,12 @@ function helpText(full) {
 // become a different seat.
 //
 // That holds for a value with no NEWLINE in it and fails for one with: a newline IS the field separator,
-// so a relayed value carrying one ends its own field and opens another, and the wrapper cannot tell an
+// so a copied value carrying one ends its own field and opens another, and the wrapper cannot tell an
 // injected line from one it meant to write. Two structural answers, both here rather than in the
 // wrapper, which is the component that cannot know which of its values came from somewhere else:
 //   * SEAT must be the FIRST field, so an injected SEAT is always a duplicate and already a usage error.
 //   * VERIFY runs an unsandboxed /bin/sh with the caller's own rights, so from a seat file it needs
-//     --allow-seat-verify on the COMMAND LINE — the one place no relayed value can reach.
+//     --allow-seat-verify on the COMMAND LINE — the one place no copied value can reach.
 // Two flags are deliberately NOT fields, each because an injected line would be a grant nobody made:
 // ATTACH uploads a local file, and --run-dir would point another run's transport at a file of its
 // choosing. VERIFY is a field only behind --allow-seat-verify, because it executes a shell. CLI_ONLY_FIELDS above are refused for a different reason: they are bounds and transport, not
@@ -543,11 +468,11 @@ function helpText(full) {
 let seatFileFields = null;   // what the file actually declared, for the report
 let seatFileBody = null;     // the prompt the file carried under its header, or null when it carried none
 // A header line, and the three labels that OPEN the body instead of being fields of it. One file holds
-// both halves so a relay writes ONE file and never decides where a prompt ends: the header is the run of
-// leading FIELD: lines, and everything from the first line that is not one is the prompt, verbatim.
+// both halves so a caller writes ONE file and never decides where a prompt ends: the header is the run
+// of leading FIELD: lines, and everything from the first line that is not one is the prompt, verbatim.
 const SEAT_HEADER_RE = /^([A-Z][A-Z_]*):/;
 const BODY_LABELS = new Set(["TASK", "CHECK", "RETURN"]);
-function argvFromSeatFile(file, allowSeatVerify, defaultSeat = false) {
+function argvFromSeatFile(file, allowSeatVerify) {
   let raw;
   try { raw = fs.readFileSync(file, "utf8"); }
   catch (e) { fail(EXIT.USAGE, `--seat-file cannot read ${file}: ${e.message}`); }
@@ -605,17 +530,15 @@ function argvFromSeatFile(file, allowSeatVerify, defaultSeat = false) {
   // A header-only file leaves the prompt to stdin or --prompt.
   const body = lines.slice(bodyAt).join("\n");
   seatFileBody = body.trim() ? body : null;
-  // After the scan, not inside it: SEAT may be absent altogether on the --relay route, and only a
-  // finished header can tell "no rights declared" from "declared somewhere other than first".
+  // After the scan, not inside it: SEAT may be absent altogether, and only a finished header can tell
+  // "no rights declared" from "declared somewhere other than first".
   if (seen.has("SEAT") && declared[0] !== "SEAT")
     fail(EXIT.USAGE, `--seat-file: the first field must be SEAT, not ${declared[0]} — a seat file that does not open with its rights declaration lets a later line supply them`);
-  // --relay carries a coordinator's prompt as it was written, so the relay may add nothing to it, not
-  // even a rights line. The default it stands in for never widens anything: read level in the current
-  // directory, and the header is only the LEADING run of fields, so a later SEAT: line is body.
-  if (!seen.has("SEAT")) {
-    if (!defaultSeat) fail(EXIT.USAGE, "--seat-file: no SEAT field; the seat's rights must be declared, not defaulted");
-    out.push("--level", "read");
-  }
+  // A file carrying a coordinator's prompt as it was written may have no header at all, and nothing may
+  // be added to that prompt, not even a rights line. The default it stands in for never widens anything:
+  // read level in the current directory, and the header is only the LEADING run of fields, so a later
+  // SEAT: line is body. A file that DOES declare rights still declares them first, refused above.
+  if (!seen.has("SEAT")) out.push("--level", "read");
   // In the report, so a coordinator reading a wrapped seat can see what the FILE declared rather than
   // inferring it from the flags the run ended up with.
   seatFileFields = declared;
@@ -636,9 +559,8 @@ function parseArgs(argv) {
     const a = argv[i];
     switch (a) {
       case "--seat-file": o.seatFile = need(++i, a); break;
-      // The relay's whole command line: one seat file, one envelope on stdout, one exit code.
-      case "--relay": o.relay = need(++i, a); break;
-      case "--relay-collect": o.relayCollect = need(++i, a); break;
+      // Validated in readOpts, off the raw command line, so a refusal the seat file causes reaches it too.
+      case "--report-file": o.reportFile = need(++i, a); break;
       // Only ever read off the command line, never out of a seat file — that is the whole of its value.
       case "--allow-seat-verify": o.allowSeatVerify = true; break;
       case "--level": o.level = need(++i, a); o.levelExplicit = true; break;
@@ -647,13 +569,6 @@ function parseArgs(argv) {
       case "--effort": o.effort = need(++i, a); break;
       case "--model": o.model = need(++i, a); break;
       case "--timeout": o.timeout = Number(need(++i, a)); break;
-      case "--detach": o.detach = true; break;
-      // Command-line only, and never a seat field: it names where a detached run's transport lives.
-      case "--run-dir": o.runDir = need(++i, a); break;
-      case "--wait": o.wait = need(++i, a); break;
-      case "--wait-timeout": o.waitTimeout = Number(need(++i, a)); o.waitTimeoutExplicit = true; break;
-      case "--jobs": o.jobs = true; break;
-      case "--cancel": o.cancel = need(++i, a); break;
       case "--idle-timeout": o.idleTimeout = Number(need(++i, a)); break;
       case "--max-commands": o.maxCommands = Number(need(++i, a)); break;
       // need() rejects a missing value or another flag; a prompt starting with "--" belongs on stdin.
@@ -678,36 +593,6 @@ function parseArgs(argv) {
       default: fail(EXIT.USAGE, `unknown argument: ${a}`);
     }
   }
-  // --run-dir says "you ARE the detached run", so it wins over any --detach that still reached this
-  // argv: without the precedence a run that re-parses its own command line forks another front.
-  if (o.runDir) o.detach = false;
-  // --detach has no wall clock of its own: the one 0 default covers every route.
-  // Each of these is a whole mode of its own: one starts a run, the others read the registry a run
-  // already wrote. Combining them silently would pick one and discard the caller's other intent.
-  {
-    const modes = [["--detach", o.detach], ["--wait", o.wait !== undefined], ["--jobs", o.jobs],
-                   ["--cancel", o.cancel !== undefined]].filter(([, on]) => on).map(([n]) => n);
-    if (modes.length > 1) fail(EXIT.USAGE, `${modes.join(" and ")} are contradictory: one starts a run, the others act on runs already recorded`);
-  }
-  if (o.waitTimeout !== undefined && (!Number.isFinite(o.waitTimeout) || o.waitTimeout < 0))
-    fail(EXIT.USAGE, "--wait-timeout must be a number of seconds, 0 to return the handle at once");
-  // DEFAULT_DETACH_WAIT_S returns the handle at once; DEFAULT_WAIT_TIMEOUT_S bounds an explicit --wait.
-  o.waitTimeout = o.waitTimeout ?? (o.detach ? DEFAULT_DETACH_WAIT_S : DEFAULT_WAIT_TIMEOUT_S);
-  // The relay is a transport of its own: it detaches, waits one bounded wait and prints text. Every flag
-  // that would change WHAT it prints or HOW it carries the run is a caller contradicting the mode.
-  if ((o.relay !== undefined || o.relayCollect !== undefined) && !o.runDir) {
-    const mode = o.relay !== undefined ? "--relay" : "--relay-collect";
-    if (o.relay !== undefined && o.relayCollect !== undefined)
-      fail(EXIT.USAGE, "--relay and --relay-collect are contradictory: one starts a seat, the other collects one already running");
-    const clash = [["--detach", o.detach],
-                   ["--wait", o.wait !== undefined], ["--wait-timeout", o.waitTimeoutExplicit]]
-      .filter(([, on]) => on).map(([n]) => n);
-    if (clash.length)
-      fail(EXIT.USAGE, `${clash.join(" and ")} cannot be combined with ${mode}: it prints the envelope rather than a report, and it chooses its own transport and its own wait`);
-    o.waitTimeout = relayWaitSeconds();
-    if (o.relay !== undefined) o.detach = true;
-    else o.wait = o.relayCollect;
-  }
   if (!LEVELS.has(o.level)) fail(EXIT.USAGE, `--level must be one of ${[...LEVELS].join("|")}`);
   // The server enumerates these itself and rejects anything else at startup, which would surface as a
   // transport failure long after the caller could act on it.
@@ -721,9 +606,6 @@ function parseArgs(argv) {
   // 0 is the documented "off", like --idle-timeout's.
   if (!Number.isInteger(o.maxCommands) || o.maxCommands < 0)
     fail(EXIT.USAGE, "--max-commands must be a whole number of commands, 0 to disable");
-  // Checked here rather than at the first write into it: a run directory that does not exist means the
-  // front never made one, and the child would then report into nowhere.
-  if (o.runDir !== undefined) o.runDir = resolveDir(o.runDir, "--run-dir");
   // 0 is the documented "off", so the floor is 0 rather than a positive number.
   if (!Number.isFinite(o.idleTimeout) || o.idleTimeout < 0)
     fail(EXIT.USAGE, "--idle-timeout must be a number of seconds, 0 to disable");
@@ -747,11 +629,9 @@ function parseArgs(argv) {
   if (o.worktree && o.cwd) fail(EXIT.USAGE, "--worktree and --cwd are contradictory: the created worktree becomes the cwd");
   if (o.worktree && o.levelExplicit && o.level === "read") fail(EXIT.USAGE, "--worktree requires --level write");
   if (o.worktree) o.level = "write";
-  // The three registry modes read records that already name their own directory, so a --cwd would be a
-  // filter at most: --jobs takes it as one, --wait and --cancel take the threadId as the whole address.
   // --cwd is a GRANT at write level and must be named there. At read level it only says which tree to
   // read, and the current directory is what a native subagent reads when nobody says otherwise.
-  if (!o.cwd && !o.worktree && !o.jobs && o.wait === undefined && o.cancel === undefined) {
+  if (!o.cwd && !o.worktree) {
     if (o.level !== "read") fail(EXIT.USAGE, "--cwd is required at --level write: the writable root is a grant, and a defaulted grant is one nobody made");
     o.cwd = canonPath(process.cwd()) ?? process.cwd();
   }
@@ -899,6 +779,57 @@ function checkRoot(dir) {
 // and HOME="" makes the path RELATIVE to the invocation directory. os.userInfo() reads passwd and ignores
 // the environment.
 //
+// ---------------------------------------------------------------- the report file
+//
+// --report-file is how a caller that is not holding a pipe collects this run: a background task's
+// stdout is a file nobody is reading while the turn runs, and a coordinator reads the report after the
+// task's exit notification rather than out of the call's own output. So the FILE is the delivery that
+// counts and stdout is the copy: a stdout that broke neither loses the report nor changes its verdict.
+//
+// The path is the caller's, whole and absolute, and it must not exist yet: a report published over
+// another run's report is two seats' evidence in one file, with nothing saying which one it is. It is
+// published by rename at 0600, so a reader finds either the whole report or no file at all.
+let reportFilePath = null;
+let reportFileWritten = false;
+// Checked BEFORE the seat file is expanded, so a refusal the seat file itself causes still reaches the
+// caller waiting on the report. Every failure here is a usage error, decided before anything is spawned.
+function openReportFile(p) {
+  if (!path.isAbsolute(p))
+    fail(EXIT.USAGE, `--report-file must be an absolute path — it is read by a caller with a directory of its own — got ${JSON.stringify(p)}`);
+  const dir = path.dirname(p);
+  let st = null;
+  try { st = fs.statSync(dir); } catch (e) { fail(EXIT.USAGE, `--report-file cannot use ${dir}: ${e.message}`); }
+  if (!st.isDirectory()) fail(EXIT.USAGE, `--report-file: ${dir} is not a directory`);
+  try { fs.accessSync(dir, fs.constants.W_OK); }
+  catch (e) { fail(EXIT.USAGE, `--report-file cannot write into ${dir}: ${e.message}`); }
+  if (fs.existsSync(p))
+    fail(EXIT.USAGE, `--report-file ${p} already exists; a report is never written over one already there, so name a path of this run's own`);
+  reportFilePath = p;
+}
+// Whole or not at all: the temp name is refused if it exists (wx) and the rename is what publishes.
+// Returns whether the report is durable, which is what decides how much a broken stdout costs.
+function publishReport(text) {
+  if (reportFilePath === null || reportFileWritten) return reportFileWritten;
+  const tmp = `${reportFilePath}.${crypto.randomBytes(8).toString("hex")}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600, flag: "wx" });
+    fs.renameSync(tmp, reportFilePath);
+    reportFileWritten = true;
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    process.stderr.write(`codex-delegate: the report could not be published at ${reportFilePath}: ${e.message}\n`);
+  }
+  return reportFileWritten;
+}
+// A refusal reached before there is a turn to report is still an answer to whoever is waiting on the
+// file. The same shape as a report, so one reader parses both, and no receipt, answer or turn status is
+// invented for a run that produced none.
+function preTurnReport(code, msg) {
+  if (reportFilePath === null || reportFileWritten) return;
+  publishReport(`${JSON.stringify({ ok: false, exitCode: code, threadId: rootThreadId,
+    turnStatus: null, answer: "", error: msg, reportPath: reportFilePath }, null, 2)}\n`);
+}
+
 // Resolved LAZILY, never at module scope: os.userInfo() THROWS for a uid with no passwd entry (a
 // container with no passwd mapping); resolve it inside main() so a failure receives a usage error.
 function passwdHome(what) {
@@ -1070,13 +1001,11 @@ let privateTmp = null;
 const TMP_OWNER = "owner.json";
 function privateTmpDir() {
   const base = path.join(stateDir(), "tmp");
-  // The detached child names its directory after its own run, so the two halves of one seat's state
-  // share a name; a blocking run has no runId and gets the same shape the run directory uses.
-  const id = opts.runDir ? path.basename(opts.runDir) : `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+  const id = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   const dir = path.join(base, id);
   try {
     fs.mkdirSync(base, { recursive: true, mode: 0o700 });
-    pruneAnswers(base, true, TMP_OWNER);
+    pruneAnswers(base, true);
     fs.mkdirSync(dir, { mode: 0o700 });
     // Whose it is, so the pruner never removes a live seat's scratch directory. A seat may delete this
     // file — it owns the tree — and the age bound is what decides then.
@@ -1098,7 +1027,7 @@ const tmpHasSeatFiles = () => {
   try { return fs.readdirSync(privateTmp).some((n) => n !== TMP_OWNER); } catch { return false; }
 };
 // Record the source of the seat's model and effort so a fresh probe, stale config and account defaults
-// remain distinguishable through the relay.
+// remain distinguishable.
 let configInherited = null;
 const keysInConfig = (cfg) => {
   try { return [...fs.readFileSync(cfg, "utf8").matchAll(/^([A-Za-z0-9_]+)\s*=/gm)].map((m) => m[1]); }
@@ -1265,6 +1194,10 @@ function processIdentity(pid) {
   const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
   return t ? `lstart:${t}` : null;
 }
+// This run's own identity, read once: it costs a `ps` on every platform without /proc, and the startup
+// line and the job record both want it.
+let ownIdentity;
+const selfIdentity = () => (ownIdentity === undefined ? (ownIdentity = processIdentity(process.pid)) : ownIdentity);
 
 // Is the pid in a lock file a process that still exists? EPERM means it exists and belongs to another
 // user; only ESRCH proves it is gone. An unparsable lock names no pid and cannot be honoured.
@@ -1451,6 +1384,12 @@ const answersDir = () => path.join(stateDir(), "answers");
 // (--resume last). Best-effort on the same terms as the answer log: losing a record costs the record,
 // never the run. Pruned with the same bounds as the answers.
 const jobsDir = () => path.join(stateDir(), "jobs");
+// Everything a record may carry: how to find this thread again, and how to rebuild the tree it ran in.
+// Applied on every write, so a record left by a release that kept a transport or a poller's snapshot in
+// it loses those keys the first time this driver rewrites it, while remaining readable until then.
+const JOB_FIELDS = new Set(["threadId", "pid", "identity", "cwd", "started", "repo", "baseSha",
+                            "endedAt", "exitCode", "turnStatus", "answerPath",
+                            "worktreeDiffPath", "worktreeUntrackedPath", "worktreeCommitsRef"]);
 function writeJob(fields) {
   if (!rootThreadId) return;
   try {
@@ -1460,7 +1399,8 @@ function writeJob(fields) {
     const prev = readJson(p) ?? {};
     // Whole or not at all, or a concurrent `--resume last` that fails to parse this discards it and
     // continues an OLDER thread.
-    renameOver(p, JSON.stringify({ ...prev, ...fields }));
+    renameOver(p, JSON.stringify(Object.fromEntries(
+      Object.entries({ ...prev, ...fields }).filter(([k]) => JOB_FIELDS.has(k)))));
     pruneAnswers(dir);
   } catch {}
 }
@@ -1496,374 +1436,16 @@ function resolveResumeLast(forCwd, what = "--resume last") {
   return id;
 }
 
-// ---------------------------------------------------------------- detached runs
-//
-// A detached run outlives the process that started it. The FRONT spools the prompt, spawns this same
-// driver in a process group of its own with the run directory's files as its whole stdio, and
-// hands back a handle; the CHILD is an ordinary blocking run whose report happens to land in a file.
-// Nothing about the turn changes — the lock, the worktree ledger and the job record are all the child's
-// and name the pid that dies with the run — so the front holds no lock, no tree and no pipe, and its
-// own death costs nothing but the wait.
-const runsDir = () => path.join(stateDir(), "runs");
-// One run directory holds the transport: whatever a collector is handed, it can find the rest.
-const runFiles = (dir) => ({
-  runDir: dir, runId: path.basename(dir),
-  promptPath: path.join(dir, "prompt.txt"), reportPath: path.join(dir, "report.json"),
-  stderrPath: path.join(dir, "stderr.txt"), launchPath: path.join(dir, "launch.json")
-});
-const DRIVER_PATH = fileURLToPath(import.meta.url);
-// Canonicalised like the run directory: under a symlinked state dir the raw path and the resolved one
-// are two spellings of one file, and a handle carrying both is a collector comparing them for equality.
+// Canonicalised: under a symlinked state dir the raw path and the resolved one are two spellings of one
+// file, and a caller comparing them would see two different runs.
 const jobRecordPath = (id) => path.join(canonPath(jobsDir()) ?? jobsDir(), `${id}.json`);
-
-// The one shape a coordinator gets for a run that has not finished: it is a REPORT as far as any reader
-// is concerned (exitCode and turnStatus first), and everything else in it is an address.
-function runHandle(rec, id) {
-  return { detached: Boolean(rec.detached), exitCode: EXIT.BUSY, turnStatus: "running",
-           threadId: id, pid: rec.pid ?? null, runId: rec.runId ?? null,
-           jobPath: rec.jobPath ?? (id ? jobRecordPath(id) : null),
-           reportPath: rec.reportPath ?? null, stderrPath: rec.stderrPath ?? null,
-           runDir: rec.runDir ?? null, startedAt: rec.started ?? rec.startedAt ?? null,
-           // Mid-flight, so a coordinator deciding whether to wait longer has something to decide on.
-           lastEventAt: rec.lastEventAt ?? null, tokensSpent: rec.tokensSpent ?? null,
-           commandsSeen: rec.commandsSeen ?? null, phase: rec.phase ?? null };
-}
-
-let handleSent = false;
-function emitHandle(handle, note) {
-  if (handleSent) return;
-  handleSent = true;
-  settled = true;
-  if (note) process.stderr.write(`codex-delegate: ${note}\n`);
-  if (relayMode) return emitEnvelope(renderEnvelope(handle, { cwd: opts?.cwd }), EXIT.BUSY);
-  process.exitCode = EXIT.BUSY;
-  process.stdout.write(`${JSON.stringify(handle, null, 2)}\n`, () => process.exit(EXIT.BUSY));
-}
-
-const tailOf = (p, lines) => {
-  try { return fs.readFileSync(p, "utf8").trimEnd().split("\n").slice(-lines).join("\n"); } catch { return ""; }
-};
-
-// ---------------------------------------------------------------- the relay envelope
-//
-// The ONE rendering of a report as text, for a coordinator that reads a relay's message rather than
-// JSON. Every value is COPIED from the report and never composed out of several keys, so the only rule a
-// reader needs — "the fields are the lines above the first `--- answer`, the answer is everything below
-// it" — holds without knowing what any field means. The answer is always last and always present, even
-// at zero bytes, so "the seat produced nothing" and "the seat was never asked" are different bytes.
-const ENVELOPE_ANSWER_RE = /^--- answer \((\d+) bytes\) ---$/m;   // exported shape, pinned by the suites
-const envValue = (x) => (x === null || x === undefined ? "null" : String(x));
-// The full answer, never the clipped one: --brief caps what the REPORT carries inline and writes the
-// whole text to answerPath, and an envelope that relayed the cap would lose what the cap forwarded to.
-function envelopeAnswer(report) {
-  if (report.answerTruncated && report.answerPath) {
-    try { return fs.readFileSync(report.answerPath, "utf8"); } catch {}
-  }
-  return typeof report.answer === "string" ? report.answer : "";
-}
-function renderEnvelope(report, { reportPath = null, exitCode = null, stderrTail = "", cwd = null } = {}) {
-  const L = [];
-  L.push(`exitCode: ${envValue(report ? report.exitCode : exitCode)}`);
-  let answer = "";
-  if (report) {
-    for (const k of ["turnStatus", "threadId", "receiptOk", "commandsSucceeded"]) L.push(`${k}: ${envValue(report[k])}`);
-    L.push(`reportPath: ${envValue(reportPath ?? report.reportPath ?? null)}`);
-    if (report.hint) L.push(`hint: ${report.hint}`);
-    // Only the pointers that point somewhere: a null artefact line is a path a coordinator can try to
-    // open, and every one of these is absent on the ordinary run.
-    const at = (k) => { if (report[k] !== null && report[k] !== undefined) L.push(`${k}: ${envValue(report[k])}`); };
-    at("answerPath"); at("answerPartialPath"); at("commentaryPath");
-    if (report.cut) L.push(`cut: kind=${envValue(report.cut.kind)} limit=${envValue(report.cut.limit)} observed=${envValue(report.cut.observed)}`);
-    if (report.verify) L.push(`verify: ok=${envValue(report.verify.ok)} measured=${envValue(report.verify.measured)}`);
-    at("resumedFrom");
-    for (const k of ["worktreeDiffPath", "worktreeUntrackedPath", "worktreeCommitsRef",
-                     "worktreePreserved", "worktreeRemoveCommand"]) at(k);
-    if (Array.isArray(report.schemaErrors) && report.schemaErrors.length)
-      L.push(`schemaErrors: ${report.schemaErrors.join(" | ")}`);
-    // A LITERAL command, absolute and quoted, so the relay repeats it instead of building one: the
-    // driver's path is the one this process was started from, which is the one that works.
-    if (report.turnStatus === "running" && report.threadId)
-      L.push(`collect: node ${JSON.stringify(DRIVER_PATH)} --relay-collect ${report.threadId} `
-        + `--cwd ${JSON.stringify(cwd ?? report.cwd ?? process.cwd())}`);
-    answer = envelopeAnswer(report);
-  } else {
-    // No report at all: exit 2, 4 or 10 before the thread existed. The tail is the only evidence there
-    // is, and it goes in a block of its own — never above `exitCode:`, never below the answer marker.
-    L.push(`--- stderr (last ${STDERR_TAIL_LINES} lines) ---`);
-    L.push(stderrTail.trim() ? stderrTail.trimEnd() : "none");
-  }
-  // Nothing after the marker but the answer, and exactly as many bytes as the marker states: a newline
-  // added for tidiness would make the one number in the format wrong by one.
-  L.push(`--- answer (${Buffer.byteLength(answer, "utf8")} bytes) ---`);
-  return `${L.join("\n")}\n${answer}`;
-}
-// stdout in relay mode is the envelope and nothing else, written once and drained before the exit.
-let envelopeSent = false;
-function emitEnvelope(text, code) {
-  if (envelopeSent) return;
-  envelopeSent = true;
-  settled = true;
-  process.exitCode = code;
-  process.stdout.write(text, () => process.exit(code));
-}
-
-// The detached run's own bytes, unaltered: whoever waited gets exactly the report the blocking driver
-// would have printed, under exactly the code that run decided. Reading and re-emitting is the whole
-// job — a collector that reformatted would be a second report format to keep in sync.
-function deliverRun(F, code) {
-  settled = true;
-  let err = null, body = null;
-  try { err = fs.readFileSync(F.stderrPath); } catch {}
-  try { body = fs.readFileSync(F.reportPath); } catch {}
-  if (err?.length) process.stderr.write(err);
-  if (relayMode) {
-    // The report is the envelope's whole source; a run that left none is a pre-thread failure however it
-    // ended, and its stderr tail is what the envelope carries instead.
-    const report = readJson(F.reportPath);
-    return emitEnvelope(report
-      ? renderEnvelope(report, { reportPath: F.reportPath, cwd: opts?.cwd })
-      : renderEnvelope(null, { exitCode: code, stderrTail: tailOf(F.stderrPath, STDERR_TAIL_LINES) }), code);
-  }
-  if (!body?.length) {
-    process.stderr.write(`codex-delegate: the run ended (exit ${code}) but left no report at ${F.reportPath}\n`);
-    process.exitCode = EXIT.TRANSPORT;
-    return;
-  }
-  process.exitCode = code;
-  process.stdout.write(body, () => process.exit(code));
-}
-
-// The handshake bound. A child either announces its thread or exits — both are bounded by its own
-// --timeout — so this only caps how long a front waits on a child stuck in setup, and its expiry hands
-// back what IS known rather than killing a run that may be perfectly healthy.
-const HANDSHAKE_MS = 120000;
-let detachHandle = null;
-
-async function detachFront() {
-  const base = runsDir();
-  let runDir;
-  try {
-    fs.mkdirSync(base, { recursive: true, mode: 0o700 });
-    runDir = path.join(base, `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`);
-    fs.mkdirSync(runDir, { mode: 0o700 });
-    // The child resolves its --run-dir, so the front resolves it too: one spelling in the handle, in
-    // the record and in the launch file, or a collector comparing them sees two different runs.
-    runDir = canonPath(runDir) ?? runDir;
-  } catch (e) {
-    // The run directory IS the transport: with nowhere for the report, the stderr and the handshake to
-    // land there is no detached run to hand back, and starting one anyway would strand it.
-    fail(EXIT.USAGE, `--detach cannot create its run directory under ${base}: ${e.message}`);
-  }
-  const F = runFiles(runDir);
-  pruneAnswers(base, true);
-
-  // Spooled, so the child reads its task the way every other run does — from stdin — and the front can
-  // die at any moment after the spawn without taking the prompt with it.
-  let prompt = opts.prompt ?? "";
-  if (opts.prompt === undefined) {
-    if (process.stdin.isTTY) fail(EXIT.USAGE, "no prompt: pass --prompt or pipe one on stdin");
-    process.stdin.setEncoding("utf8");
-    let s = "";
-    for await (const c of process.stdin) {
-      s += c;
-      if (Buffer.byteLength(s) > MAX_PROMPT_BYTES) fail(EXIT.USAGE, `prompt exceeds ${MAX_PROMPT_BYTES} bytes`);
-    }
-    prompt = s;
-  }
-  try { fs.writeFileSync(F.promptPath, prompt, { mode: 0o600 }); }
-  catch (e) { fail(EXIT.USAGE, `--detach cannot spool the prompt into ${F.promptPath}: ${e.message}`); }
-
-  // The child's command line is this one minus what belongs to the front: the detach itself, the front's
-  // waiting budget, and a --prompt that is now on stdin. Everything else — seat file included — is
-  // re-parsed by the child exactly as it was here.
-  const argv = process.argv.slice(2), childArgv = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--detach") continue;
-    if (a === "--wait-timeout" || a === "--prompt") { i++; continue; }
-    childArgv.push(a);
-  }
-  childArgv.push("--run-dir", runDir);
-
-  const fds = [];
-  let kid;
-  try {
-    fds.push(fs.openSync(F.promptPath, "r"), fs.openSync(F.reportPath, "w", 0o600),
-             fs.openSync(F.stderrPath, "w", 0o600));
-    // detached + three file descriptors + unref: no pipe the front must keep draining, no process group
-    // shared with the front, so a harness that kills the front's group (the Bash tool does exactly that
-    // at an explicit timeout) leaves the run untouched.
-    kid = spawn(process.execPath, [DRIVER_PATH, ...childArgv],
-      { detached: true, stdio: fds, cwd: process.cwd(), env: process.env });
-  } catch (e) {
-    fail(EXIT.TRANSPORT, `--detach could not start the run: ${e.message}`);
-  } finally { for (const fd of fds) { try { fs.closeSync(fd); } catch {} } }
-  kid.unref();
-  // Before the handshake, not after it: a front killed while still waiting for the thread has printed
-  // no handle, and this line is then the only thing naming the directory the run is writing into.
-  process.stderr.write(`codex-delegate: detached: runDir=${runDir} reportPath=${F.reportPath} stderrPath=${F.stderrPath}\n`);
-
-  let kidExit = null;
-  kid.on("exit", (code, signal) => { kidExit = { code, signal }; });
-  kid.on("error", (e) => { kidExit = { code: EXIT.TRANSPORT, signal: null, message: e.message }; });
-
-  // The front's own wait for the thread announcement, never longer than the run's budget when it has one.
-  const handshakeEnd = Date.now() + (opts.timeout > 0 ? Math.min(HANDSHAKE_MS, opts.timeout * 1000) : HANDSHAKE_MS);
-  let launch = null;
-  for (;;) {
-    launch = readJson(F.launchPath);
-    if (launch?.threadId) break;
-    // One last look after the exit: the announcement and the exit can land in the same instant.
-    if (kidExit) { launch = readJson(F.launchPath); break; }
-    if (Date.now() >= handshakeEnd) break;
-    await sleep(100);
-  }
-
-  if (!launch?.threadId && kidExit) {
-    // A refusal before the thread existed: exit 2, 3, 4 or 10 with no report. The front owns no
-    // evidence of its own, so it relays the child's stderr tail and the child's code.
-    const tail = tailOf(F.stderrPath, STDERR_TAIL_LINES);
-    if (tail) process.stderr.write(`${tail}\n`);
-    const code = kidExit.signal ? EXIT.TRANSPORT : (kidExit.code ?? EXIT.TRANSPORT);
-    process.stderr.write(`codex-delegate: the detached run exited ${kidExit.signal ?? code} before announcing a thread; its stderr is at ${F.stderrPath}\n`);
-    settled = true;
-    process.exitCode = code;
-    if (relayMode) emitEnvelope(renderEnvelope(null, { exitCode: code, stderrTail: tail }), code);
-    return;
-  }
-
-  const handle = runHandle({ ...(launch ?? {}), detached: true, runId: F.runId, runDir,
-                             reportPath: F.reportPath, stderrPath: F.stderrPath,
-                             pid: launch?.pid ?? kid.pid, started: launch?.startedAt ?? new Date().toISOString() },
-                           launch?.threadId ?? null);
-  detachHandle = handle;
-  // On the front's OWN stderr as well as in the handle: a front killed at a harness's cap prints no
-  // report, and this line is then the only thing naming the run that is still going.
-  process.stderr.write(`codex-delegate: detached: threadId=${handle.threadId} pid=${handle.pid} jobPath=${handle.jobPath} `
-    + `reportPath=${handle.reportPath} stderrPath=${handle.stderrPath} runId=${handle.runId}\n`);
-  if (!launch?.threadId)
-    process.stderr.write(`codex-delegate: the detached run had not announced a thread after ${Math.round((handshakeEnd - startedAtMs) / 1000)}s; `
-      + `it is still starting — find it with --jobs, or read ${F.stderrPath}\n`);
-
-  if (!(opts.waitTimeout > 0)) return emitHandle(handle);
-  const end = Date.now() + opts.waitTimeout * 1000;
-  while (!kidExit && Date.now() < end) await sleep(200);
-  if (!kidExit)
-    return emitHandle(handle, `the detached run is still going after ${opts.waitTimeout}s; collect it with --wait ${handle.threadId}`);
-  return deliverRun(F, kidExit.signal ? EXIT.TRANSPORT : (kidExit.code ?? EXIT.TRANSPORT));
-}
-
-// The handshake the front waits on, written the moment the thread exists — the first instant there is
-// anything to hand back. temp+rename, so the front never reads a half-written one.
-function writeLaunch(F, fields) {
-  const tmp = `${F.launchPath}.${crypto.randomBytes(8).toString("hex")}.tmp`;
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(fields), { mode: 0o600 });
-    fs.renameSync(tmp, F.launchPath);
-  } catch { try { fs.rmSync(tmp, { force: true }); } catch {} }
-}
-
-// `--wait`: the collector. It reads the registry, never the process table alone — a record with no
-// endedAt whose pid is gone is a run that died between its last event and its report, and saying
-// "still running" about it forever is the one answer that helps nobody.
-async function waitForJob(id) {
-  if (id === "last") {
-    const here = opts.cwd ? resolveDir(opts.cwd, "--cwd") : (canonPath(process.cwd()) ?? process.cwd());
-    id = resolveResumeLast(here, "--wait last");
-  }
-  const deadline = Date.now() + opts.waitTimeout * 1000;
-  for (;;) {
-    const rec = readJson(jobRecordPath(id));
-    if (!rec) fail(EXIT.USAGE, `--wait: no run named ${id} is recorded in ${jobsDir()}`);
-    // endedAt is written only after the report file is complete, so it is safe to read the moment it appears.
-    if (rec.endedAt) {
-      const code = Number.isInteger(rec.exitCode) ? rec.exitCode : EXIT.TRANSPORT;
-      if (rec.reportPath) return deliverRun(runFiles(rec.runDir ?? path.dirname(rec.reportPath)), code);
-      // A blocking run's report went to its own caller's stdout and was never kept; the record is all
-      // that is left of it, and pretending otherwise would hand back an invented report.
-      process.stderr.write(`codex-delegate: run ${id} was not detached, so its report went to its own caller; this is its job record\n`);
-      if (relayMode) return emitEnvelope(renderEnvelope(rec, { reportPath: rec.reportPath ?? null, cwd: opts?.cwd }), code);
-      settled = true;
-      process.exitCode = code;
-      process.stdout.write(`${JSON.stringify(rec, null, 2)}\n`, () => process.exit(code));
-      return;
-    }
-    if (!holderAlive(rec))
-      fail(EXIT.TRANSPORT, `run ${id} died without a report (pid ${rec.pid ?? "?"} gone)`
-        + `${rec.stderrPath ? `; its stderr is at ${rec.stderrPath}` : ""}`);
-    if (Date.now() >= deadline)
-      return emitHandle(runHandle(rec, id), `run ${id} is still going after ${opts.waitTimeout}s`);
-    await sleep(1000);
-  }
-}
-
-// `--jobs`: what ran and what is running, read out of the registry and nothing else — no server, no
-// lock, no turn. status is DERIVED here and never stored: a record written by a process that has since
-// been SIGKILLed must not claim to be running throughout PRUNE_DAYS of retention.
-function listJobs() {
-  // resolveDir, not canonPath: a --cwd that does not exist would silently canonicalise to null and
-  // list every run on the machine as if no filter had been asked for.
-  const forCwd = opts.cwd ? resolveDir(opts.cwd, "--cwd") : null;
-  let names = [];
-  try { names = fs.readdirSync(jobsDir()).filter((n) => n.endsWith(".json")); } catch {}
-  const rows = [];
-  for (const n of names) {
-    const p = path.join(jobsDir(), n);
-    const rec = readJson(p);
-    if (!rec) continue;
-    if (forCwd && !recordIsIn(rec, forCwd)) continue;
-    let t = 0;
-    try { t = fs.statSync(p).mtimeMs; } catch {}
-    rows.push({ t, row: {
-      threadId: n.replace(/\.json$/, ""), cwd: rec.cwd ?? null, repo: rec.repo ?? null,
-      level: rec.level ?? null, pid: rec.pid ?? null,
-      status: rec.endedAt ? "ended" : holderAlive(rec) ? "running" : "crashed",
-      exitCode: Number.isInteger(rec.exitCode) ? rec.exitCode : null,
-      startedAt: rec.started ?? null, endedAt: rec.endedAt ?? null,
-      // The same mid-flight facts the running handle carries, and for the same reason: --jobs is what a
-      // coordinator polls when it did not keep a handle, and "running" alone does not say whether the
-      // seat is working or merely alive.
-      lastEventAt: rec.lastEventAt ?? null, tokensSpent: rec.tokensSpent ?? null,
-      commandsSeen: rec.commandsSeen ?? null, phase: rec.phase ?? null,
-      answerPath: rec.answerPath ?? null, reportPath: rec.reportPath ?? null, runId: rec.runId ?? null } });
-  }
-  rows.sort((a, b) => b.t - a.t);
-  settled = true;
-  process.exitCode = EXIT.OK;
-  process.stdout.write(`${JSON.stringify(rows.map((r) => r.row), null, 2)}\n`, () => process.exit(EXIT.OK));
-}
-
-// `--cancel`: the seat's own SIGTERM handler is what writes the interrupted report, so cancelling is
-// exactly "signal the recorded pid" — and the only hard part is being sure the pid is still that run.
-function cancelJob(id) {
-  const rec = readJson(jobRecordPath(id));
-  if (!rec) fail(EXIT.USAGE, `--cancel: no run named ${id} is recorded in ${jobsDir()}`);
-  if (rec.endedAt) fail(EXIT.USAGE, `--cancel: run ${id} already ended (exit ${rec.exitCode ?? "?"} at ${rec.endedAt})`);
-  if (!holderAlive(rec)) fail(EXIT.USAGE, `--cancel: run ${id} is not running — pid ${rec.pid ?? "?"} is gone and no report was written`);
-  // A pid outlives its process and the OS recycles it. Past a run's own DECLARED budget the record
-  // cannot vouch for that pid any more, and a SIGTERM aimed at a stranger is worse than a refusal.
-  // With no wall clock the run may still be working hours later; holderAlive() checks process identity,
-  // and this age check adds only the budget the caller declared.
-  const startedMs = Date.parse(rec.started ?? "");
-  const declared = Number(rec.timeout) > 0 ? Number(rec.timeout) : null;
-  if (declared !== null && Number.isFinite(startedMs) && Date.now() - startedMs > (declared + 60) * 1000)
-    fail(EXIT.USAGE, `--cancel: the record for ${id} started ${new Date(startedMs).toISOString()}, longer ago than its own budget plus a minute; `
-      + `pid ${rec.pid} may belong to another process now, so it is not signalled — check it by hand`);
-  try { process.kill(rec.pid, "SIGTERM"); }
-  catch (e) { fail(EXIT.USAGE, `--cancel: SIGTERM to pid ${rec.pid} failed (${e.code ?? e.message})`); }
-  process.stderr.write(`codex-delegate: SIGTERM sent to run ${id} (pid ${rec.pid}); its interrupted report lands at `
-    + `${rec.reportPath ?? "its own caller's stdout"}\n`);
-  settled = true;
-  process.exitCode = EXIT.OK;
-}
 
 // A thread whose driver is still alive cannot be continued: the server refuses the resume after the
 // spawn (exit 10), and the local record knows it before a worktree is cut or a token is spent.
 function refuseLiveResume(id) {
   const rec = readJson(jobRecordPath(id));
   if (!rec || rec.endedAt || !holderAlive(rec)) return;
-  fail(EXIT.BUSY, `thread ${id} is still running (pid ${rec.pid})`
-    + `${rec.detached ? `, detached run ${rec.runId}` : ""}; wait for it with --wait ${id}, or stop it with --cancel ${id}`);
+  fail(EXIT.BUSY, `thread ${id} is still running (pid ${rec.pid}); wait for that seat to finish, or stop it with SIGTERM to that pid`);
 }
 
 const ledgerDir = () => path.join(stateDir(), "worktrees");
@@ -2292,8 +1874,8 @@ let opts, cwd, sandbox, spawnArgs;
 let codexHome = null;   // null means the caller's own ~/.codex, which --host-home asks for
 let roots = [];
 
-// Everything the argument layer decides, on its own: the detached front, the collector, the registry
-// readers and --help all need `opts` and none of them needs a codex, a lock or a directory.
+// Everything the argument layer decides, on its own: --help and every refusal reachable from the
+// command line need `opts` and none of them needs a codex, a lock or a directory.
 function readOpts() {
   // A seat file is expanded into ordinary argv and re-parsed, so every flag guard, every mutual
   // exclusion and every value check applies to it unchanged — a second parser would be a second set of
@@ -2303,24 +1885,22 @@ function readOpts() {
   // Scanned for the flag alone, not parsed: a full parse first would reject the command line for
   // missing exactly what the seat file is about to supply (--cwd).
   const argv = process.argv.slice(2);
-  // --relay names a seat file too, and it is the relay's whole command line: expanded here, and left in
-  // place for parseArgs, because it is a MODE as well as a declaration.
-  const SEAT_FLAGS = ["--seat-file", "--relay"];
-  const at = argv.findIndex((a) => SEAT_FLAGS.includes(a));
-  // Stdout is the envelope from the first byte, so a refusal reached before parseArgs has to know. The
-  // detached child runs the same command line plus --run-dir: it reads the file the same way and writes
-  // the JSON report the front renders from, so the MODE is the front's alone.
-  relayMode = !argv.includes("--run-dir") && (argv.includes("--relay") || argv.includes("--relay-collect"));
+  const at = argv.indexOf("--seat-file");
   // Refuse multiple seat files rather than silently choosing which declaration supplies the run.
-  if (at >= 0 && argv.findIndex((a, i) => i > at + 1 && SEAT_FLAGS.includes(a)) >= 0)
-    fail(EXIT.USAGE, `${SEAT_FLAGS.join(" / ")} given more than once; only one seat file defines a seat`);
+  if (at >= 0 && argv.indexOf("--seat-file", at + 2) >= 0)
+    fail(EXIT.USAGE, "--seat-file given more than once; only one seat file defines a seat");
   if (at >= 0 && (argv[at + 1] === undefined || argv[at + 1].startsWith("--")))
-    fail(EXIT.USAGE, `${argv[at]} requires a non-empty value`);
+    fail(EXIT.USAGE, "--seat-file requires a non-empty value");
   // Scanned off the raw command line on purpose: a seat file must not be able to authorise itself.
   const allowSeatVerify = argv.includes("--allow-seat-verify");
+  // Opened before the seat file is read, and off the raw command line for the same reason: the file the
+  // caller waits on has to exist for a refusal the seat file itself caused. A missing or flag-like value
+  // is left to need() below, which is the one place that message is written.
+  const rf = argv.lastIndexOf("--report-file");
+  if (rf >= 0 && argv[rf + 1] !== undefined && !argv[rf + 1].startsWith("--")) openReportFile(argv[rf + 1]);
   opts = at >= 0
-    ? parseArgs([...argvFromSeatFile(argv[at + 1], allowSeatVerify, argv[at] === "--relay"),
-                 ...(argv[at] === "--relay" ? argv : argv.filter((_, i) => i !== at && i !== at + 1))])
+    ? parseArgs([...argvFromSeatFile(argv[at + 1], allowSeatVerify),
+                 ...argv.filter((_, i) => i !== at && i !== at + 1)])
     : parseArgs(argv);
   if (seatFileBody !== null) {
     // Two prompts and no rule saying which one ran is worse than a refusal: the body is the file's own
@@ -2498,6 +2078,9 @@ function abort(code, msg) {
     if (stderrDropped) process.stderr.write(`[${stderrDropped} earlier bytes of stderr dropped]\n`);
     process.stderr.write(`${stderrBuf.trim()}\n`);
   }
+  // Like fail(): an abort prints no report, and a caller reading the file has to be told that rather
+  // than left to time out on a path that never appears.
+  preTurnReport(code, msg);
   process.exitCode = code;
   // The deadline can fire while still reading the prompt from stdin, before any child exists. Without
   // this the process announces its own timeout and then blocks on stdin forever.
@@ -2529,10 +2112,6 @@ let selectedEffort = null;  // likewise: with no --effort this is whatever confi
 let effectiveSandbox = null;   // the sandbox the SERVER applied, not the one we asked for
 let verifyResult = null;    // the caller-run check, the one piece of evidence the model cannot author
 let tokenUsage = null;      // the latest thread/tokenUsage/updated payload: what this seat cost
-// What the registry reports while a run a coordinator cannot see is working. The server's own total for
-// the root thread, which is thread-cumulative: on --resume it counts the earlier turns too. null means no
-// usage event ever arrived, which is a different fact from 0.
-const tokensSoFar = () => tokenUsage?.total?.totalTokens ?? null;
 let rateLimits = null;      // the account snapshot read once before any thread is started
 let turnDiffPath = null;    // where the last turn/diff/updated payload was persisted, or null when it could not be written
 let outputAttempts = 0;     // turns STARTED under --output-schema; at most one corrective retry
@@ -2547,11 +2126,6 @@ let cutGraceTimer = null;
 // every sign of life on it, so what it measures is silence, not duration.
 let idleTimer = null;
 let lastEventAtMs = startedAtMs;
-// What the turn was last seen doing, for the mid-flight record: the type of the last root item the
-// server named. A poll is the only progress a detached seat has (nothing can push to a subagent).
-let lastPhase = null;
-let midflightAtMs = startedAtMs;
-const MIDFLIGHT_EVERY_MS = 30000;
 let setupDoneMs = null;     // when setup() returned, so the report can separate setup from model time
 // The in-flight agentMessage text, keyed by item id. Measured (E1): turn/interrupt DISCARDS the
 // server's in-progress message — no item/completed, nothing in the rollout — so the deltas are the only
@@ -2584,7 +2158,6 @@ const onRootThread = (p) =>
 // The wall clock bounds a HEALTHY turn; this bounds a dead one, and only this can tell them apart.
 function touchIdle() {
   lastEventAtMs = Date.now();
-  noteProgress();
   if (!opts.idleTimeout || settled || pendingCut) return;
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
@@ -2593,16 +2166,6 @@ function touchIdle() {
       { limit: opts.idleTimeout, observed: Math.round((Date.now() - lastEventAtMs) / 1000) });
   }, opts.idleTimeout * 1000);
   idleTimer.unref?.();
-}
-
-// The registry is what a coordinator polls while a run it cannot see is working, so the record carries
-// the run's own liveness beside its identity. Rate-limited rather than written per event: a busy turn
-// emits hundreds a minute and each write is a temp file, a rename and a prune.
-function noteProgress() {
-  if (settled || !rootThreadId || Date.now() - midflightAtMs < MIDFLIGHT_EVERY_MS) return;
-  midflightAtMs = Date.now();
-  writeJob({ lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: tokensSoFar(),
-             commandsSeen: commands.length, phase: lastPhase });
 }
 
 // Events can share a stdout chunk with the turn/start response and so arrive before rootTurnId is known.
@@ -2726,14 +2289,6 @@ function handleMessage(msg, bytes = 0) {
     early.push(msg);
     return;
   }
-
-  // What the turn is doing right now, for the mid-flight record. Not gated on --progress: the record is
-  // the only view a detached seat's coordinator has, and it costs one assignment.
-  // userMessage is the caller's own prompt handed back: it can share a chunk with the turn's real
-  // items and would then report the seat's phase as "being asked the question".
-  if ((msg.method === "item/started" || msg.method === "item/completed") && isRoot(p)
-      && p?.item?.type && p.item.type !== "userMessage")
-    lastPhase = p.item.type;
 
   // A subagent thread the server started under ours: registered so its activity is visible in the
   // report rather than invisibly filtered. Evidence attribution stays root-only — a child's command is
@@ -3119,8 +2674,9 @@ function persistTurnDiff(payload) {
 }
 
 // Prune by PRUNE_DAYS and PRUNE_MAX_ENTRIES, always keeping the newest entry.
-// For recursive run directories, also keep any whose owner record names a live process so its transport stays readable.
-function pruneAnswers(dir, recursive = false, ownerFile = "launch.json") {
+// A recursive prune is over the private $TMPDIR tree, where a directory whose owner record names a live
+// process is kept whatever its age: it is a running seat's scratch space.
+function pruneAnswers(dir, recursive = false) {
   try {
     const now = Date.now();
     const entries = fs.readdirSync(dir)
@@ -3128,7 +2684,7 @@ function pruneAnswers(dir, recursive = false, ownerFile = "launch.json") {
       .filter(Boolean).sort((a, b) => b.t - a.t);
     for (const [i, e] of entries.entries()) {
       if (i === 0 || (now - e.t <= PRUNE_DAYS * 86400000 && i < PRUNE_MAX_ENTRIES)) continue;
-      if (recursive && holderAlive(readJson(path.join(dir, e.n, ownerFile)))) continue;
+      if (recursive && holderAlive(readJson(path.join(dir, e.n, TMP_OWNER)))) continue;
       try { fs.rmSync(path.join(dir, e.n), { force: true, recursive }); } catch {}
     }
   } catch {}
@@ -3471,10 +3027,10 @@ function finish(reason, codeOverride = null) {
     });
 }
 
-// endedAt is the one flag a collector reads to decide the report is there to be read, so it must never
-// precede a complete report file: a --wait that saw it early would hand back a truncated report as the
-// run's whole answer. The closing fields are prepared with the report and committed only once the bytes
-// have actually landed — in the drain callback, in the drain watchdog, or on a broken pipe.
+// endedAt is what says this thread's run is over — a `--resume last` looks no further than the record,
+// and the resume guard reads it before a pid — so it must never precede a delivered report. The closing
+// fields are prepared with the report and committed only once the bytes have actually landed: in the
+// drain callback, in the drain watchdog, or on a broken pipe.
 let closingFields = null, recordClosed = false;
 function closeJobRecord(finalCode) {
   if (recordClosed || !closingFields) return;
@@ -3522,7 +3078,7 @@ function writeReport(ev, verifySkipped, codeOverride) {
     // The run's own $TMPDIR when the driver made one, so a path the answer names can still be opened
     // after the run; null when the caller exported a TMPDIR of his own.
     tmpDir,
-    // Report which thread was continued after resolving "last", so a relay can identify the conversation.
+    // Report which thread was continued after resolving "last", so the caller can identify the conversation.
     resumedFrom: opts.resume ?? null,
     // Report the server version parsed from initialize.userAgent; null means the version could not be read.
     driverVersion: VERSION, codexHome, codexVersion, codexVersionPinned: PINNED_CODEX,
@@ -3567,8 +3123,8 @@ function writeReport(ev, verifySkipped, codeOverride) {
     otherItems: otherItems.length ? otherItems : null,
     subagentThreads: [...subagentThreads.entries()].map(([threadId, t]) => ({ threadId, ...t })),
     // What a seat FILE declared, in order, when one was used. A wrapped seat is otherwise indistinguishable
-    // from a hand-typed one in the report, and the fields a relay wrote are exactly what a coordinator
-    // needs to see when it did not write them itself.
+    // from a hand-typed one in the report, and the fields the file declared are exactly what a
+    // coordinator needs to see when a script wrote them.
     ...(seatFileFields ? { seatFileFields } : {}),
     // null only when no --expect-command was given, so a caller can tell "not asked" from "asked and missed".
     expectationOk: opts.expectRe ? expected.length > 0 : null,
@@ -3620,18 +3176,10 @@ function writeReport(ev, verifySkipped, codeOverride) {
   };
 
   const out = `${JSON.stringify({ ...report, commands }, null, 2)}\n`;
+  // The record is resume metadata and nothing else. What this run measured is in the report, and the
+  // report is delivered — to a file when one was named, to stdout otherwise — so a second copy of the
+  // gates here would be a second answer about one run for whoever found it first.
   closingFields = { turnStatus, answerPath,
-    // The gates, copied field for field out of the report that was just built. The record is the ONLY
-    // thing a run leaves when its report cannot reach stdout (the EPIPE path closes it), and it is what
-    // `--relay --wait` renders an envelope from — where a missing gate prints as `receiptOk: null`, which
-    // reads as "the run computed nothing" about a run that computed all of it.
-    receiptOk: report.receiptOk, commandsSucceeded: report.commandsSucceeded,
-    commandsFailed: report.commandsFailed,
-    verify: report.verify, verifySkipped: report.verifySkipped, cut: report.cut,
-    // The last mid-flight snapshot, on the record for good: the rate limit means a run shorter than
-    // MIDFLIGHT_EVERY_MS would otherwise end with none of it, which is exactly the run a poller misses.
-    lastEventAt: new Date(lastEventAtMs).toISOString(), tokensSpent: tokensSoFar(),
-    commandsSeen: commands.length, phase: lastPhase,
     // Only a successful harvest updates the rebuild pointers: on a preserved tree the work is still in
     // the tree, and overwriting them with null would throw away the last state that CAN be rebuilt. The
     // commits ref is kept when this turn made none — the earlier ref still names that thread's history.
@@ -3639,24 +3187,30 @@ function writeReport(ev, verifySkipped, codeOverride) {
       ? { worktreeDiffPath: worktree.worktreeDiffPath, worktreeUntrackedPath: worktree.worktreeUntrackedPath,
           ...(worktree.worktreeCommitsRef ? { worktreeCommitsRef: worktree.worktreeCommitsRef } : {}) }
       : {}) };
-  process.exitCode = code;
+  // The file first, because it is the delivery that counts: published before a byte reaches stdout, a
+  // consumer that never read the pipe changes nothing about what this run produced. A publication that
+  // FAILED is the transport failure instead — the caller was told where to read and there is nothing
+  // there — while the report itself still carries the verdict the turn earned.
+  const durable = publishReport(out);
+  const exitWith = reportFilePath !== null && !durable ? EXIT.TRANSPORT : code;
+  process.exitCode = exitWith;
   // Wait for stdout to drain before exiting so a report larger than the pipe buffer is not truncated.
   // Await shutdown() too, so process.exit cannot discard the SIGKILL escalation timer.
   flushing = true;
   // Both the write callback and stream error event must classify a broken pipe as a transport failure.
   process.stdout.write(out, (e) => {
     flushing = false;
-    if (e || stdoutBroken) return stdoutFailed(e);
-    closeJobRecord(code);
-    shutdown().then(() => process.exit(code));
+    if ((e || stdoutBroken) && !durable) return stdoutFailed(e);
+    closeJobRecord(exitWith);
+    shutdown().then(() => process.exit(exitWith));
   });
   // A report that cannot drain is a transport failure; wait for the remaining wall clock,
   // with STDOUT_DRAIN_MIN_MS as the minimum and the entire bound when no wall clock was set.
   const drainMs = Math.max(STDOUT_DRAIN_MIN_MS, startedAtMs + opts.timeout * 1000 - Date.now());
   setTimeout(() => {
-    process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; report may be truncated\n`);
-    closeJobRecord(EXIT.TRANSPORT);
-    shutdown().then(() => process.exit(EXIT.TRANSPORT));
+    process.stderr.write(`codex-delegate: stdout did not drain within ${drainMs}ms; ${durable ? `the report is complete at ${reportFilePath}` : "report may be truncated"}\n`);
+    closeJobRecord(durable ? exitWith : EXIT.TRANSPORT);
+    shutdown().then(() => process.exit(durable ? exitWith : EXIT.TRANSPORT));
   }, drainMs).unref?.();
 }
 
@@ -3664,13 +3218,11 @@ function writeReport(ev, verifySkipped, codeOverride) {
 
 async function main() {
   readOpts();
-  // Before setup(), and that is the whole of their isolation: none of these four touches a lock, a
-  // worktree, an isolated home or a codex, so none of them can leave any of those behind.
-  if (opts.jobs) return listJobs();
-  if (opts.cancel !== undefined) return cancelJob(opts.cancel);
-  if (opts.wait !== undefined) return waitForJob(opts.wait);
-  if (opts.detach) return detachFront();
-
+  // The pid a caller signals to stop this seat, and the identity that says the pid is still this run
+  // rather than whatever the OS recycled it into. Before setup(), because a seat killed during its
+  // config probe has to be identifiable too, and this line is all its caller has until the thread exists.
+  process.stderr.write(`codex-delegate: pid=${process.pid} identity=${selfIdentity() ?? "unknown"}`
+    + `${reportFilePath === null ? "" : ` reportPath=${reportFilePath}`}\n`);
   await setup();
   setupDoneMs = Date.now();
   // Three rungs on one clock, because a budget the model cannot plan against is a budget it spends on
@@ -3965,30 +3517,22 @@ async function main() {
   // never set would fire on every default run.
   if (["high", "xhigh", "max"].includes(String(selectedEffort)) && opts.timeout > 0 && opts.timeout < 600)
     process.stderr.write(`codex-delegate: effort ${selectedEffort} with --timeout ${opts.timeout}s is the measured failure shape — the turn is likely to be cut before it writes an answer (exit 3). Raise --timeout above 600 or lower the effort.\n`);
-  const detachedRun = opts.runDir ? runFiles(opts.runDir) : null;
-  const startedAt = new Date().toISOString();
+  // The whole record: what a later `--resume last` has to find this thread by, and what a worktree
+  // rebuild has to cut its tree from. Nothing about the run's progress or its verdict, which the report
+  // carries and its caller reads.
   writeJob({ threadId: rootThreadId, pid: process.pid,
-    // Record process identity for --jobs, --wait, --cancel and the resume guard because a pid can be recycled.
-    identity: processIdentity(process.pid),
-    cwd, level: opts.level, started: startedAt,
-    // What this run is allowed to spend, so --cancel can tell a live pid from a recycled one.
-    timeout: opts.timeout,
+    // Process identity beside the pid, for the resume guard: a pid can be recycled.
+    identity: selfIdentity(),
+    cwd, started: new Date().toISOString(),
+    // A resumed thread rewrites the record of the run that ended, and every closing field in it belongs
+    // to THAT run. Left in place, `endedAt` says this thread is finished while its new turn is running,
+    // and the resume guard — which returns the moment it sees one — would wave a second seat onto a live
+    // thread. undefined rather than null: JSON.stringify drops the key, so the record has no field at
+    // all until closeJobRecord writes this run's.
+    endedAt: undefined, exitCode: undefined, turnStatus: undefined, answerPath: undefined,
     // A worktree seat's cwd is removed when the seat finishes, so the repository it was cut from and the
     // commit it started at are what a later --resume can still name.
-    ...(worktreeInfo ? { repo: worktreeInfo.repo, baseSha: worktreeInfo.baseSha, worktreeName: worktreeInfo.name } : {}),
-    // Where a collector finds this run: the transport, not the turn.
-    ...(detachedRun ? { detached: true, runId: detachedRun.runId, runDir: detachedRun.runDir,
-                        reportPath: detachedRun.reportPath, stderrPath: detachedRun.stderrPath,
-                        promptPath: detachedRun.promptPath } : {}) });
-  if (detachedRun) {
-    const jobPath = jobRecordPath(rootThreadId);
-    writeLaunch(detachedRun, { threadId: rootThreadId, pid: process.pid,
-      identity: processIdentity(process.pid), jobPath, startedAt });
-    // One line, all three facts: a relay whose front was killed before it could print the handle reads
-    // this out of the stderr file it named.
-    process.stderr.write(`codex-delegate: detached run: threadId=${rootThreadId} pid=${process.pid} jobPath=${jobPath} `
-      + `reportPath=${detachedRun.reportPath} runId=${detachedRun.runId}\n`);
-  }
+    ...(worktreeInfo ? { repo: worktreeInfo.repo, baseSha: worktreeInfo.baseSha } : {}) });
   // Armed here, where the thread exists and there is something to cut: before it, a silent server is
   // the wall clock's business.
   touchIdle();
@@ -4014,21 +3558,25 @@ function stdoutFailed(e) {
   if (stdoutBroken) return;
   stdoutBroken = true;
   flushing = false;
-  process.stderr.write(`codex-delegate: stdout: ${e?.code ?? e?.message ?? "write failed"}; the report did not reach the caller\n`);
+  process.stderr.write(`codex-delegate: stdout: ${e?.code ?? e?.message ?? "write failed"}; the report `
+    + `${reportFileWritten ? `is complete at ${reportFilePath}` : "did not reach the caller"}\n`);
+  // With the report already durable the pipe carried a copy, so the exit belongs to writeReport's own
+  // callback (or its drain timer) and the verdict stays the turn's.
+  if (reportFileWritten) return;
   closeJobRecord(EXIT.TRANSPORT);
   shutdown().then(() => process.exit(EXIT.TRANSPORT));
 }
 
 // Imports must not install signal handlers, exit hooks or start a turn.
-// Direct and detached invocations match the module URL; resolve symlinked argv[1] because ESM resolves its URL.
+// A direct invocation matches the module URL; resolve symlinked argv[1] because ESM resolves its URL.
 const RUN_AS_MAIN = (() => {
   const entry = process.argv[1];
   if (!entry) return false;
   if (import.meta.url === pathToFileURL(entry).href) return true;
   try { return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href; } catch { return false; }
 })();
-export { ATTACH_KINDS, EFFORTS, ENVELOPE_ANSWER_RE, EXIT, LADDER, LEVELS, PINNED_CODEX, SEAT_FIELDS, STATE_SUBDIRS,
-         VERSION, WEB_SEARCH, helpText, lockKey, renderEnvelope };
+export { ATTACH_KINDS, EFFORTS, EXIT, LADDER, LEVELS, PINNED_CODEX, SEAT_FIELDS, STATE_SUBDIRS,
+         VERSION, WEB_SEARCH, helpText, lockKey };
 
 if (RUN_AS_MAIN) {
   process.stdout.on("error", stdoutFailed);
@@ -4057,9 +3605,6 @@ if (RUN_AS_MAIN) {
       // and it lands on the published rung for "the turn did not complete" (exit 1) rather than on
       // transport (4), which means "codex crashed or the rights were wrong". Before a thread exists there
       // is nothing to report, and 4 stays.
-      // A detached FRONT holds no turn and no lock, only a handle to a run that is still going: a harness
-      // killing it (the Bash tool SIGTERMs the group at its own timeout) must still get that handle.
-      if (detachHandle) return emitHandle(detachHandle, `interrupted by ${sig}; the detached run is unaffected`);
       process.stderr.write(`codex-delegate: interrupted by ${sig}\n`);
       // A second signal during the grace reports at once: the caller is waiting, and a handler that
       // silently absorbed it would leave only SIGKILL — which takes the report with it.

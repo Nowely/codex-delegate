@@ -81,7 +81,7 @@ test("the tier table pairs all eight model names, one tier per row",
 
 test("A1 the mode is prompt only",
   "the mode adds no mechanism to maintain; asking for a new header field or driver flag would change its scope",
-  () => says("The mode is prompt only: no driver or relay change, no new header field or flag, the relay's temp file and the driver's state directory unchanged."));
+  () => says("The mode is prompt only: no driver change, no new header field or flag, the seat's own prompt file and the driver's state directory unchanged."));
 
 test("A3 the sibling is loaded first and this page re-cuts only what the mode changes",
   "rights, header fields, the worktree lifecycle and the exit ladder have exactly one home; a copy here is a second copy to drift, so the page has to send the reader there and say what it does not restate",
@@ -178,12 +178,12 @@ test("D2 the orchestrator's own model is read out of the system prompt",
   "the plan states it beside the pool and an untagged subagent inherits it, and nothing else in the session says which it is: a coordinator that guesses announces the wrong model and cannot tell an inherited tier from a chosen one",
   () => says("Your own model is in your system prompt (\"You are powered by the model named ...\"); nothing else carries it."));
 
-test("D3 every Claude Agent call is tagged, fable only for the one Fable seat, and a codex-seat call carries neither model nor effort",
-  "an untagged subagent silently inherits the session model, so a fan-out meant to be cheap runs at the top tier; and model or effort passed to a codex-seat call reshapes the relay instead of the seat",
+test("D3 every Claude Agent call is tagged, fable only for the one Fable seat, and a Codex seat's model is its own header line",
+  "an untagged subagent silently inherits the session model, so a fan-out meant to be cheap runs at the top tier; and a Codex seat is a Bash task, so a model or effort written as a tool option is spent on nothing while the seat runs on the config default",
   () => says(
     "Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat",
     "every Codex seat carries one with a slug from the table, never the config default",
-    "pass neither `model` nor `effort` to a `codex-seat` call",
+    "a Codex seat is a Bash task, so no tool-side `model` or `effort` option reaches it",
   ));
 
 test("D4 one Fable seat and one gpt-6-astra seat alive at a time",
@@ -265,17 +265,24 @@ test("E6 the writer may run the suite, but the deciding evidence comes from else
 
 // ------------------------------------------------------------------ F: mechanism and verification
 
-test("F1 the invocation authorises Workflow, names the agent signature, both agentType spellings, pipeline and parallel, and the return convention",
-  "Workflow is for the chain a script must decide; a batch of independent seats runs as Agent calls so each seat's end reaches the orchestrator (measured 2026-09-08: a Workflow hid a seat's exit for nine minutes); the bare agentType is the clone-and-symlink install, and a subagent told nothing about its final text writes a message to a human that no script reads",
-  () => says(
-    "authorises Workflow",
-    "Launch independent seats as background Agent calls, one notification each",
-    "Load the `workflow-authoring` skill before writing the script when the session lists it.",
-    "`agent(prompt, {label, phase, schema, model, effort, agentType, isolation})`",
-    "`agentType: 'codex-delegate:codex-seat'` (bare `codex-seat` on a clone-and-symlink install) makes it a Codex seat",
-    "`pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier",
-    "A subagent's final text is its return value, not a message to a human",
-  ));
+test("F1 a Codex seat is a background Bash task and no agentType, and the Workflow signature names what a script may still do",
+  "Workflow is for the chain a script must decide; a batch of independent Claude seats runs as Agent calls so each seat's end reaches the orchestrator (measured 2026-09-08: a Workflow hid a seat's exit for nine minutes); and with the relay agent gone, a page that still offered a Codex agentType would send every Codex seat to a subagent type that does not exist",
+  () => {
+    const prose = says(
+      "authorises Workflow",
+      "A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true",
+      "the task's exit notification is when you read that report",
+      "It is not an `agentType` and there is no other route to it",
+      "Launch independent Claude seats as background Agent calls, one notification each",
+      "Load the `workflow-authoring` skill before writing the script when the session lists it.",
+      "`agent(prompt, {label, phase, schema, model, effort, agentType, isolation})`",
+      "`pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier",
+      "A subagent's final text is its return value, not a message to a human",
+    );
+    // The negative half: the agent this release deleted, offered again by name, is a seat that never runs.
+    if (/codex-seat/.test(text)) return "the page names the codex-seat agent again";
+    return prose;
+  });
 
 test("F2 the six verification bullets, one line each",
   "the list is read while composing a fan-out, so each bullet has to be one glance; a bullet that grew into a paragraph is a bullet that stops being read",
@@ -295,11 +302,11 @@ test("F3 two rounds of fix and cross-review, then escalate",
 test("F4 every row of the Result table",
   "this table is read at the one moment judgement is worst, when a seat has just failed; a missing row is a relaunch that duplicates a live run, or a gate verdict retried until it costs real money",
   () => shows(
-    /^\| `exitCode: null` or a Bash timeout \| the seat may still be running: `node "<driver>" --jobs --cwd "<dir>"` first; collect a live run with `node "<driver>" --relay-collect <threadId> --cwd "<dir>"`; relaunch once, same rights, only when none is live \|$/m,
-    /^\| `DRIVER_NOT_FOUND` \| report it; no relaunch fixes an install \|$/m,
+    /^\| no report file at all \| the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights, only when none is live \|$/m,
+    /^\| a stderr file naming no driver \| report it; no relaunch fixes an install \|$/m,
     /^\| `exitCode: 3`, a cut \| read the partial; if the work is unfinished, continue that thread once with `RESUME:` \|$/m,
-    /^\| `exitCode: 10` with no `collect:` line \| a held lock or a busy thread: read the stderr block, wait for the holder, then run again; not a retry \|$/m,
-    /^\| exit 4, or a pre-turn 2, 3 or 10 \| no report was printed: read the stderr block \|$/m,
+    /^\| `exitCode: 10` \| a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry \|$/m,
+    /^\| `ok: false` with an `error`, exit 2 or 4 \| no turn ran: read the error and the stderr file \|$/m,
     /^\| any other non-zero `exitCode` with an answer \| a gate verdict: do not retry, read the answer \|$/m,
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,
   ));
@@ -330,7 +337,7 @@ test("G3 the run directory: its path, its self-ignoring .gitignore, kept after t
     "create `.orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it ignores itself",
     "not under `.claude/`, where every write is refused as a sensitive file",
     "the directory is kept after the task and the user deletes it",
-    "Codex artifacts are the paths the driver's envelope names",
+    "Codex artifacts are the paths the seat's own report names",
   ));
 
 // ------------------------------------------------------------------ the schema, and the links

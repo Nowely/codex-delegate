@@ -946,15 +946,18 @@ test("--host-home sweeps the group and releases the lock exactly as an isolated 
   });
 
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
-  test(`${sig} reports the turn, sweeps the group and releases the lock`,
+  test(`${sig} reports the turn to its --report-file, sweeps the group and releases the lock`,
     sig === "SIGHUP"
       ? "SIGHUP is the signal from a closing terminal; it must preserve the report, reap descendants and release the lock like other cancellation signals"
-      : "cancellation must return the incomplete-turn verdict and preserve the commands, files and answer already collected",
+      : "cancellation must return the incomplete-turn verdict and preserve the commands, files and answer already collected — and stopping a seat IS signalling it, so the report has to reach the file the caller was told to read rather than a pipe nobody held",
     async () => {
       reapSurvivors();
       const d = freshDir(`sig-${sig}`);
       const rpcLog = path.join(d, `rpc-${sig}.log`);
-      const { p, done, stderrSoFar } = spawnRun(d, { env: { FAKE_RPC_LOG: rpcLog } });
+      // The path a caller signalling this run would read afterwards: written by the signal handler's own
+      // report, or a stopped seat leaves nothing behind but its stderr.
+      const reportFile = path.join(tempDir(`codex-lock-report-${sig}-`), "report.json");
+      const { p, done, stderrSoFar } = spawnRun(d, { args: ["--report-file", reportFile], env: { FAKE_RPC_LOG: rpcLog } });
       if (!await waitFor(() => fs.existsSync(lockFor(d)))) { p.kill("SIGKILL"); reapSurvivors(); return "the run never took its lock"; }
       const notReady = await readyToSignal(p, stderrSoFar, rpcLog);
       if (notReady) return notReady;
@@ -969,6 +972,10 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
       let r = null;
       try { r = JSON.parse(out); } catch { return `${sig} produced no JSON report (${out.length} bytes of stdout)`; }
       if (r.turnStatus !== "interrupted") return `the report did not say the turn was interrupted: ${JSON.stringify(r.turnStatus)}`;
+      if (!fs.existsSync(reportFile)) return `${sig} left no report at ${reportFile}`;
+      if ((fs.statSync(reportFile).mode & 0o777) !== 0o600) return `the signalled run's report is not 0600`;
+      if (fs.readFileSync(reportFile, "utf8") !== out)
+        return `the signalled run's file and stdout differ (${fs.statSync(reportFile).size} vs ${out.length} bytes)`;
       // The server must be ASKED to end the turn, not merely killed: that is what leaves the thread
       // cleanly resumable after a cancellation.
       let rpc = "";
@@ -976,6 +983,30 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
       return /turn\/interrupt/.test(rpc) || `the driver never sent turn/interrupt on ${sig}`;
     });
 }
+
+test("a run signalled before its thread exists writes the pre-turn report to its file",
+  "a seat stopped during setup is the case a caller cannot tell from a seat still starting: the notification fires either way, so the same file has to carry the refusal — with no turn status and no answer invented for a turn that never ran",
+  async () => {
+    const d = freshDir("sig-pre-thread");
+    const reportFile = path.join(tempDir("codex-lock-report-pre-"), "report.json");
+    // A codex that never answers `initialize`, so the run is still in setup when the signal arrives.
+    const stuck = tempDir("codex-lock-stuck-shim-");
+    fs.writeFileSync(path.join(stuck, "codex"), "#!/bin/sh\nexec cat > /dev/null\n", { mode: 0o755 });
+    const { p, done, stderrSoFar } = spawnRun(d, { shim: stuck, args: ["--report-file", reportFile] });
+    if (!await waitFor(() => /pid=\d+/.test(stderrSoFar()))) { p.kill("SIGKILL"); return "the run never announced its pid"; }
+    if (await waitFor(() => /threadId=/.test(stderrSoFar()), 1000)) { p.kill("SIGKILL"); return "the stuck shim started a thread after all"; }
+    p.kill("SIGTERM");
+    const { code, out } = await done;
+    if (fs.existsSync(lockFor(d))) { fs.rmSync(lockFor(d), { force: true }); return "the signalled run left its lock behind"; }
+    if (code !== EXIT.TRANSPORT) return `a signal before the thread exited ${code}, expected 4`;
+    if (out.trim()) return `a run with no report printed ${out.length} bytes on stdout`;
+    let r = null;
+    try { r = JSON.parse(fs.readFileSync(reportFile, "utf8")); } catch (e) { return `no parseable report at ${reportFile}: ${e.message}`; }
+    if (r.ok !== false || r.exitCode !== EXIT.TRANSPORT) return `the pre-turn report does not carry its verdict: ${JSON.stringify(r)}`;
+    if (r.turnStatus !== null || r.answer !== "" || r.threadId !== null)
+      return `a turn that never ran was reported as one that did: ${JSON.stringify(r)}`;
+    return /interrupted by SIGTERM/.test(String(r.error)) || `the report does not say what ended it: ${JSON.stringify(r.error)}`;
+  });
 
 test("the lock is released only after the process group is dead",
   "the next writer must not enter while the previous run's descendants are still dying; waiting for group teardown must precede lock release",
@@ -1605,30 +1636,6 @@ test("a PRESERVED tree keeps its ledger entry, so something still names it",
       if (r?.worktreePath) spawnSync("git", ["-C", repo, "worktree", "remove", "--force", r.worktreePath]);
       fs.rmSync(entry, { force: true });
     }
-    return true;
-  });
-
-test("a detached run's lock is the RUN's, and the front that started it releases nothing",
-  "the front holds no lock by construction — it branches before setup — so a lock naming the front would be released the moment the front returned its handle, and a second writer would walk into a directory a live seat is editing",
-  async () => {
-    const d = freshDir("detach-lock");
-    const { code, out, err } = await run(d, { scenario: "slow-turn", timeout: 60, args: ["--detach"] });
-    if (code !== EXIT.BUSY) return `--detach exited ${code}, expected the handle's 10: ${err.trim().slice(0, 200)}`;
-    let h = null; try { h = JSON.parse(out); } catch { return `the handle is not JSON: ${out.slice(0, 160)}`; }
-    const p = lockFor(d);
-    // The front has exited (run() resolved on its close) and the lock is still there.
-    if (!fs.existsSync(p)) return "the front's exit took the detached run's lock with it";
-    let held = null; try { held = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
-    if (held?.pid !== h.pid) return `the lock names ${held?.pid}, not the detached run ${h.pid}`;
-    let alive = false;
-    try { process.kill(h.pid, 0); alive = true; } catch {}
-    if (!alive) return "the lock names a process that is already gone";
-    // The app-server's group, recorded once it existed: the second half of the reclaim rule.
-    if (!Number.isInteger(held.appServerPgid) || held.appServerPgid <= 0)
-      return `the lock carries no app-server group: ${JSON.stringify(held)}`;
-    for (const end = Date.now() + 20000; fs.existsSync(p) && Date.now() < end; )
-      await new Promise((r) => setTimeout(r, 25));
-    if (fs.existsSync(p)) { fs.rmSync(p, { force: true }); return "the detached run never released its lock"; }
     return true;
   });
 

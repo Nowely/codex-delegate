@@ -10,9 +10,9 @@ license: MIT
 ---
 
 Load [codex-delegate](../codex-delegate/SKILL.md) now (Skill tool, `codex-delegate:codex-delegate`; bare `codex-delegate` on a
-clone-and-symlink install) and follow it for every Codex seat: rights, header fields, worktree lifecycle, envelopes and the exit
-ladder live there and stay authoritative; this page re-cuts only what the mode changes. The mode is prompt only: no driver or
-relay change, no new header field or flag, the relay's temp file and the driver's state directory unchanged. You are the
+clone-and-symlink install) and follow it for every Codex seat: rights, header fields, worktree lifecycle, the report and the exit
+ladder live there and stay authoritative; this page re-cuts only what the mode changes. The mode is prompt only: no driver
+change, no new header field or flag, the seat's own prompt file and the driver's state directory unchanged. You are the
 orchestrator; the work-list, the plan, the composition and the synthesis are yours, the rest is a seat's.
 
 ## Your own hands
@@ -27,7 +27,7 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 Scouting is the only exploration you do; report a failed seat and never backfill it. After "go" and before the first seat,
 create `.orchestrate/<run>/` under the repository root, `<run>` unique, holding a `.gitignore` whose single line is `*` so it
 ignores itself; not under `.claude/`, where every write is refused as a sensitive file. Claude seats write their artifacts
-there and every brief names the path; Codex artifacts are the paths the driver's envelope names; the directory is kept after
+there and every brief names the path; Codex artifacts are the paths the seat's own report names; the directory is kept after
 the task and the user deletes it. Redirect a check you run yourself into that directory and read back only a 5-line tail
 with the counts.
 
@@ -67,8 +67,8 @@ the top-row roles in turn, architect for one task and judge for the next, and th
 
 - Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat;
   untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line, and every Codex seat carries one
-  with a slug from the table, never the config default: pass neither `model` nor `effort` to a `codex-seat` call, in the Agent
-  tool or in a Workflow; those reshape the relay, not the seat.
+  with a slug from the table, never the config default: a Codex seat is a Bash task, so no tool-side `model` or `effort`
+  option reaches it, and one written there would be silently spent on nothing.
 - Subagents may spawn subagents, but a Fable seat never spawns Fable: it tags its own Agent calls `opus` or `sonnet`; only you launch
   the pool's Fable seat.
 - Send no `EFFORT:` line; the user's configured Codex effort is inherited by every `MODEL:`. In a Workflow, `effort: 'low'` is
@@ -100,11 +100,12 @@ code, or from you under the redirect rule.
 
 ## Mechanism
 
-Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge) or
-that must parse a Codex seat's JSON, and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
+A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true, its prompt file and
+its `--report-file` under `.orchestrate/<run>/`, and the task's exit notification is when you read that report. It is not an
+`agentType` and there is no other route to it. Stop one by stopping its task.
+Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated
-object when `schema` is given; `agentType: 'codex-delegate:codex-seat'` (bare `codex-seat` on a clone-and-symlink install) makes
-it a Codex seat. `pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier for when
+object when `schema` is given. `pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier for when
 every result must exist before the next decision. A subagent's final text is its return value, not a message to a human: say so
 in the brief.
 
@@ -122,11 +123,11 @@ that round fails too.
 
 | Result | What to do |
 | --- | --- |
-| `exitCode: null` or a Bash timeout | the seat may still be running: `node "<driver>" --jobs --cwd "<dir>"` first; collect a live run with `node "<driver>" --relay-collect <threadId> --cwd "<dir>"`; relaunch once, same rights, only when none is live |
-| `DRIVER_NOT_FOUND` | report it; no relaunch fixes an install |
+| no report file at all | the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights, only when none is live |
+| a stderr file naming no driver | report it; no relaunch fixes an install |
 | `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:` |
-| `exitCode: 10` with no `collect:` line | a held lock or a busy thread: read the stderr block, wait for the holder, then run again; not a retry |
-| exit 4, or a pre-turn 2, 3 or 10 | no report was printed: read the stderr block |
+| `exitCode: 10` | a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry |
+| `ok: false` with an `error`, exit 2 or 4 | no turn ran: read the error and the stderr file |
 | any other non-zero `exitCode` with an answer | a gate verdict: do not retry, read the answer |
 | a Claude seat that returns `blocked` | do not retry, report it |
 
@@ -141,9 +142,8 @@ bound, and `BRIEF:` would clip the answer at 20 lines.
     artifacts: paths
     open:      questions and risks
 
-In a Workflow they are a JSON schema. Give a Claude seat the `schema` option and never a `codex-seat` call: measured, the relay
-then wraps the whole envelope into `result` and the seat's own fields are lost inside it. A Codex seat takes the same five fields
+In a Workflow they are a JSON schema, and a Claude seat takes the `schema` option. A Codex seat takes the same five fields
 as a strict JSON Schema file (`additionalProperties: false` on every object, every property in `required`) named on its
-`OUTPUT_SCHEMA:` line, and the script parses the JSON below the envelope's `--- answer` line:
+`OUTPUT_SCHEMA:` line, and you read them from `answerJson` in its report file:
 
     {"type":"object","additionalProperties":false,"required":["status","result","evidence","artifacts","open"],"properties":{"status":{"type":"string","enum":["done","partial","blocked"]},"result":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"open":{"type":"array","items":{"type":"string"}}}}

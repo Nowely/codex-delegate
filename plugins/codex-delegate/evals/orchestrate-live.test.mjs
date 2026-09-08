@@ -25,8 +25,9 @@
 //   - the init line's tool list names the subagent tool `Task` while the tool_use blocks in the same
 //     build's stream carry `Agent`, so both spellings count and neither alone is safe;
 //   - the last line is {type:"result"} and its `result` is the final text;
-//   - --plugin-dir loaded codex-delegate:codex-delegate, codex-delegate:orchestrate and both spellings of
-//     the codex-seat agent;
+//   - --plugin-dir loaded codex-delegate:codex-delegate and codex-delegate:orchestrate. There is no
+//     codex-seat agent any more: a Codex seat is a background Bash task running the driver, so a seat is
+//     counted here as a Bash tool_use whose command names driver.mjs and --seat-file;
 //   - this machine's managed settings set disableBypassPermissionsMode: "disable", so
 //     --dangerously-skip-permissions is accepted and then ignored, and in -p mode there is no prompt to
 //     answer: every write and every non-trivial Bash is auto-denied. --permission-mode acceptEdits with an
@@ -88,8 +89,12 @@ const note = (line) => console.log(`      ${line}`);
 // --------------------------------------------------------------- the vocabulary the page owns
 
 const CODEX_MODELS = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"];
-const CODEX_SEATS = ["codex-delegate:codex-seat", "codex-seat"];
 const SIBLING_SKILLS = ["codex-delegate:codex-delegate", "codex-delegate"];
+// A Codex seat is one Bash call: the driver, a seat file and a report file. Both flags, because a Bash
+// call that merely mentions the driver is `--help`, a probe, or the coordinator reading a report back.
+const seatCommand = (u) => (u.name === "Bash" ? String(u.input.command ?? "") : "");
+const isSeatCall = (u) => /driver\.mjs/.test(seatCommand(u)) && /--seat-file/.test(seatCommand(u));
+const seatCalls = (toolUses) => toolUses.filter(isSeatCall);
 // Both, because one build answers with both: `Task` in the init line's tool list, `Agent` in the tool_use
 // blocks. A rename must not silently empty the checks that count subagent calls.
 const AGENT_TOOLS = new Set(["Task", "Agent"]);
@@ -115,12 +120,20 @@ function runProc(cmd, args, { cwd, timeoutMs, env, input } = {}) {
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { err += d; });
+    // TERM before KILL, and to the GROUP: a driver in it is a seat, and its handler is what interrupts
+    // the turn, writes the report the run had earned and sweeps the codex process group it started —
+    // which SIGKILL cannot do and which nothing else would then reap. The grace covers the driver's own
+    // 1 s interrupt plus its 2 s + 1 s teardown; whatever is still alive after it is killed outright.
+    let bellKill = null;
     const bell = setTimeout(() => {
       killed = true;
-      try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch {} }
+      const sweep = (sig) => { try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch {} } };
+      sweep("SIGTERM");
+      bellKill = setTimeout(() => sweep("SIGKILL"), 6000);
     }, timeoutMs);
     const end = (code, extra) => {
       clearTimeout(bell);
+      if (bellKill) clearTimeout(bellKill);
       resolve({ code, out, err: extra ? `${err}\n${extra}` : err, killed });
     };
     child.on("error", (e) => end(null, `spawn failed: ${e.message}`));
@@ -211,9 +224,6 @@ const agentCalls = (toolUses) => toolUses.filter((u) => AGENT_TOOLS.has(u.name))
 const workflowCalls = (toolUses) => toolUses.filter((u) => u.name === "Workflow");
 const skillCalls = (toolUses) => toolUses.filter((u) => u.name === "Skill")
   .map((u) => String(u.input.skill ?? u.input.name ?? JSON.stringify(u.input)));
-// A Workflow's script is one field of its input, but which one is the tool's business, not this suite's:
-// the whole input is the text the codex-seat check reads, which cannot miss an agentType in a sibling field.
-const scriptText = (u) => JSON.stringify(u.input);
 // The agent() scan wants the script itself, because it reads syntax; the fallback keeps it alive if the
 // field is ever renamed, since JSON.stringify leaves `agent(` and a model key matchable.
 const scriptSource = (u) => (typeof u.input.script === "string" ? u.input.script : JSON.stringify(u.input));
@@ -231,14 +241,11 @@ function untaggedAgentCalls(text) {
     const comma = call.indexOf(",");
     if (comma < 0 || call.indexOf("{", comma) < 0) { found.push(`${call.slice(0, 60)}: no options`); continue; }
     // The script arrives as source when the field is named and as JSON when it is not, so the escaped
-    // quotes of the fallback are undone before the two patterns read it.
+    // quotes of the fallback are undone before the pattern reads it.
     const flat = call.replace(/\\(["'])/g, "$1");
-    // Tagged means one of the two things the page allows and nothing else: a Codex seat by agentType, or
-    // a Claude seat whose model is literally opus, sonnet or fable. `model: undefined`, a fourth spelling
-    // and a non-Codex agentType all read as untagged.
-    const codex = /["']?agentType["']?\s*:\s*["'][^"']*codex-seat["']/.test(flat);
-    const claude = /["']?model["']?\s*:\s*["'](opus|sonnet|fable)["']/.test(flat);
-    if (!codex && !claude) found.push(call.slice(0, 100));
+    // Every agent() in a script is a CLAUDE seat now — a Codex seat is a Bash task and no agentType — so
+    // tagged means one of exactly three model names. `model: undefined` and a fourth spelling are untagged.
+    if (!/["']?model["']?\s*:\s*["'](opus|sonnet|fable)["']/.test(flat)) found.push(call.slice(0, 100));
   }
   return found;
 }
@@ -248,17 +255,29 @@ const runDirs = (scratch) => {
   try { return fs.readdirSync(d).map((n) => path.join(d, n)); } catch { return []; }
 };
 
-// A relay launches its seat detached, in a process group of its own, so the bell's SIGKILL on the
-// session's group never reaches it: after a kill, every run the registry still shows running for the
-// scratch is cancelled by threadId, and the ids are saved beside the case.
-async function cancelSeats(scratch, dir, env) {
-  const jobs = await runProc(process.execPath, [DRIVER, "--jobs", "--cwd", scratch], { timeoutMs: 60_000, env });
-  let records = [];
-  try { records = JSON.parse(jobs.out); } catch {}
-  const running = (Array.isArray(records) ? records : []).filter((r) => r.status === "running" && r.threadId);
-  for (const r of running) await runProc(process.execPath, [DRIVER, "--cancel", r.threadId], { timeoutMs: 60_000, env });
-  save(dir, "cancelled.txt", running.map((r) => r.threadId).join("\n"));
-  return running.length;
+// A seat is a background task of the session's, and a task can outlive the SIGKILL aimed at the session's
+// group. There is no registry to ask any more: every seat announces `pid=` on the first line of the stderr
+// file the coordinator redirected it to, so after a kill each live pid under the run directories is
+// SIGTERMed — the driver's own handler then interrupts the turn, writes its report and sweeps the codex
+// process group it started. Best-effort by construction: a seat whose stderr went somewhere this cannot
+// see is left to its own bounds, which is what --idle-timeout is for.
+function stopSeats(scratch, dir) {
+  const stopped = [];
+  for (const run of runDirs(scratch)) {
+    let names = [];
+    try { names = fs.readdirSync(run); } catch { continue; }
+    for (const n of names) {
+      let head = "";
+      try { head = fs.readFileSync(path.join(run, n), "utf8").slice(0, 8192); } catch { continue; }
+      const m = /^codex-delegate: pid=(\d+)\b/m.exec(head);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      try { process.kill(pid, 0); } catch { continue; }     // already gone
+      try { process.kill(pid, "SIGTERM"); stopped.push(`${n}:${pid}`); } catch {}
+    }
+  }
+  save(dir, "stopped.txt", stopped.join("\n"));
+  return stopped.length;
 }
 
 // --------------------------------------------------------------- the plan assertions
@@ -267,8 +286,10 @@ async function cancelSeats(scratch, dir, env) {
 // once: nothing was delegated, nothing was written, no run directory exists yet.
 function stoppedAtPlan(toolUses, scratch, head0) {
   const problems = [];
-  const fanned = [...agentCalls(toolUses), ...workflowCalls(toolUses)];
-  if (fanned.length) problems.push(`the plan did not stop: ${fanned.map((u) => u.name).join(", ")} ran before "go"`);
+  // A Codex seat is a Bash call now, so counting Agent and Workflow alone would let a plan turn launch
+  // every Codex seat it described and still read as stopped.
+  const fanned = [...agentCalls(toolUses), ...workflowCalls(toolUses), ...seatCalls(toolUses)];
+  if (fanned.length) problems.push(`the plan did not stop: ${fanned.map((u) => (isSeatCall(u) ? "Bash(seat)" : u.name)).join(", ")} ran before "go"`);
   const dirty = git(scratch, "status", "--porcelain").trim();
   if (dirty) problems.push(`the scratch was written to: ${dirty.split("\n").slice(0, 5).join(" | ")}`);
   // A clean tree is also what a commit leaves behind, so HEAD is compared as well as the porcelain.
@@ -399,7 +420,7 @@ test("plan only under Opus: the first attempt stops at a plan",
     const scratch = scratchClone(dir);
     const head0 = git(scratch, "rev-parse", "HEAD").trim();
     const r = await session({ model: "opus", maxTurns: 60, prompt: SLUG_TASK }, { cwd: scratch, timeoutMs: PLAN_TIMEOUT });
-    if (r.killed) await cancelSeats(scratch, dir);
+    if (r.killed) stopSeats(scratch, dir);
     save(dir, "session.jsonl", r.out);
     save(dir, "stderr.txt", r.err);
     const s = parseStream(r.out);
@@ -423,7 +444,7 @@ test("plan only under Fable: the top pair is capped",
     const scratch = scratchClone(dir);
     const head0 = git(scratch, "rev-parse", "HEAD").trim();
     const r = await session({ model: "fable", maxTurns: 60, prompt: DESIGN_TASK }, { cwd: scratch, timeoutMs: PLAN_TIMEOUT });
-    if (r.killed) await cancelSeats(scratch, dir);
+    if (r.killed) stopSeats(scratch, dir);
     save(dir, "session.jsonl", r.out);
     save(dir, "stderr.txt", r.err);
     const s = parseStream(r.out);
@@ -507,8 +528,9 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
     // CODEX_DELEGATE_STATE_DIR as where everything the driver owns lives, and it must be absolute.
     const env = { ...process.env, CODEX_DELEGATE_STATE_DIR: path.join(dir, "state") };
 
+    // No stopSeats here: this seat IS the child runProc started, so the bell's own SIGTERM reaches its
+    // handler and the driver sweeps its codex group itself.
     const r = await runProc(process.execPath, [DRIVER, ...base, "--prompt", COUNT_TASK], { timeoutMs: DRIVER_TIMEOUT, env });
-    if (r.killed) await cancelSeats(scratch, dir, env);
     save(dir, "report.json", r.out);
     save(dir, "stderr.txt", r.err);
     let report = null;
@@ -546,7 +568,6 @@ test("gpt-6-astra answers on its own thread when not invited to delegate",
     if (!DELEGATE_PROBE) note("delegation probe: NOT RUN");
     else {
       const p = await runProc(process.execPath, [DRIVER, ...base, "--prompt", DELEGATE_TASK], { timeoutMs: DRIVER_TIMEOUT, env });
-      if (p.killed) await cancelSeats(scratch, dir, env);
       save(dir, "delegate.report.json", p.out);
       save(dir, "delegate.stderr.txt", p.err);
       let pr = null;
@@ -616,7 +637,7 @@ test("the full run under Opus: plan, go, run",
     // makes a session unresumable, and --resume is the whole point of turn 2.
     const t1 = await session({ model: "opus", maxTurns: 60, prompt: SLUG_TASK, sessionId, resumable: true },
       { cwd: scratch, timeoutMs: PLAN_TIMEOUT });
-    if (t1.killed) await cancelSeats(scratch, dir);
+    if (t1.killed) stopSeats(scratch, dir);
     save(dir, "turn1.jsonl", t1.out);
     save(dir, "turn1.stderr.txt", t1.err);
     const s1 = parseStream(t1.out);
@@ -634,7 +655,7 @@ test("the full run under Opus: plan, go, run",
 
     const t2 = await session({ model: "opus", maxTurns: 400, prompt: "go", resume: sessionId, resumable: true },
       { cwd: scratch, timeoutMs: FULL_TIMEOUT });
-    if (t2.killed) { await cancelSeats(scratch, dir); problems.push("turn 2 was killed at the timeout"); }
+    if (t2.killed) { stopSeats(scratch, dir); problems.push("turn 2 was killed at the timeout"); }
     save(dir, "turn2.jsonl", t2.out);
     save(dir, "turn2.stderr.txt", t2.err);
     const s2 = parseStream(t2.out);
@@ -681,8 +702,9 @@ test("the full run under Opus: plan, go, run",
         problems.push(`slug("  Hello World ") returned ${JSON.stringify(slug("  Hello World "))}, not "hello-world"`);
     } catch (e) { problems.push(`lib/slug.mjs does not import: ${e.message}`); }
 
+    // Every Agent call is a Claude seat now: a Codex seat is a Bash task, so there is no subagent type to
+    // exempt and an untagged call is an untagged Claude seat, whatever it was meant to be.
     const untagged = agentCalls(s2.toolUses)
-      .filter((u) => !CODEX_SEATS.includes(String(u.input.subagent_type ?? "")))
       .filter((u) => !["opus", "sonnet", "fable"].includes(String(u.input.model ?? "")));
     if (untagged.length)
       problems.push(`${untagged.length} Claude Agent call(s) carry no opus/sonnet/fable tag: ${untagged.map((u) => `${u.input.subagent_type ?? "?"}=${JSON.stringify(u.input.model ?? null)}`).join(", ")}`);
@@ -691,37 +713,39 @@ test("the full run under Opus: plan, go, run",
     // blocks: the check above sees a run whose whole fan-out is one Workflow as fully tagged.
     const inScript = workflowCalls(s2.toolUses).flatMap((u) => untaggedAgentCalls(scriptSource(u)));
     if (inScript.length)
-      problems.push(`${inScript.length} agent() call(s) in a Workflow script carry neither agentType nor a model: ${inScript.join(" | ")}`);
+      problems.push(`${inScript.length} agent() call(s) in a Workflow script carry no opus/sonnet/fable model: ${inScript.join(" | ")}`);
 
-    const seatByAgent = agentCalls(s2.toolUses).filter((u) => CODEX_SEATS.includes(String(u.input.subagent_type ?? "")));
-    const seatByScript = workflowCalls(s2.toolUses).filter((u) => {
-      const t = scriptText(u);
-      return t.includes("agentType") && /codex-seat/.test(t);
-    });
-    if (!seatByAgent.length && !seatByScript.length)
-      problems.push(`no Codex seat ran: ${agentCalls(s2.toolUses).length} Agent call(s), ${workflowCalls(s2.toolUses).length} Workflow call(s)`);
+    // A Codex seat is one Bash call carrying the driver, a seat file and a report file. The report file
+    // is also the only place the run's own evidence is: there is no registry to ask, so the calls name
+    // where to look and the files answer for what ran.
+    const seatCallsRan = seatCalls(s2.toolUses);
+    if (!seatCallsRan.length)
+      problems.push(`no Codex seat ran: ${s2.toolUses.filter((u) => u.name === "Bash").length} Bash call(s), none naming driver.mjs with --seat-file`);
+    const noBackground = seatCallsRan.filter((u) => u.input.run_in_background !== true);
+    if (noBackground.length)
+      problems.push(`${noBackground.length} seat call(s) ran in the foreground, so the coordinator waited on the pipe instead of the notification`);
+    const noReportFlag = seatCallsRan.filter((u) => !/--report-file/.test(seatCommand(u)));
+    if (noReportFlag.length)
+      problems.push(`${noReportFlag.length} seat call(s) name no --report-file, so their report is only in a task's output`);
+    save(dir, "seat-calls.txt", seatCallsRan.map((u) => seatCommand(u)).join("\n\n"));
 
-    const jobs = await runProc(process.execPath, [DRIVER, "--jobs", "--cwd", scratch], { timeoutMs: 60_000 });
-    save(dir, "jobs.json", jobs.out);
-    let records = null;
-    try { records = JSON.parse(jobs.out); } catch {}
-    if (!Array.isArray(records)) problems.push(`--jobs printed no array (exit ${jobs.code}): ${jobs.err.trim().slice(-200)}`);
-    else {
-      // A seat that RAN: a tier model and a completed turn. The exit code may be a gate verdict (a
-      // reviewer whose grep found nothing exits 11 with its answer), so it is recorded, not required.
-      const seen = [], ran = [];
-      for (const rec of records) {
-        if (!rec.reportPath) continue;
-        try {
-          const rep = JSON.parse(fs.readFileSync(rec.reportPath, "utf8"));
-          seen.push(`${rep.model ?? null}:${rep.turnStatus ?? null}:${rep.exitCode ?? null}`);
-          if (CODEX_MODELS.includes(rep.model) && rep.turnStatus === "completed") ran.push(rep.model);
-        } catch { seen.push("unreadable"); }
-      }
-      save(dir, "job-models.txt", `${seen.join("\n")}\n`);
-      if (!ran.length)
-        problems.push(`${records.length} run(s) in the registry for this directory, none a completed turn on a tier model (model:turnStatus:exitCode): ${JSON.stringify(seen)}`);
+    // Every report file the seats named, read where the calls said it would be. A seat that RAN is a tier
+    // model and a completed turn; the exit code may be a gate verdict, so it is recorded, not required.
+    const reportPaths = [...new Set(seatCallsRan
+      .map((u) => /--report-file\s+"?([^"\s]+)"?/.exec(seatCommand(u))?.[1])
+      .filter(Boolean)
+      .map((f) => (path.isAbsolute(f) ? f : path.join(scratch, f))))];
+    const seen = [], ran = [];
+    for (const f of reportPaths) {
+      try {
+        const rep = JSON.parse(fs.readFileSync(f, "utf8"));
+        seen.push(`${rep.model ?? null}:${rep.turnStatus ?? null}:${rep.exitCode ?? null}`);
+        if (CODEX_MODELS.includes(rep.model) && rep.turnStatus === "completed") ran.push(rep.model);
+      } catch { seen.push(`${path.basename(f)}: unreadable`); }
     }
+    save(dir, "seat-reports.txt", `${seen.join("\n")}\n`);
+    if (!ran.length)
+      problems.push(`${reportPaths.length} report file(s) named by the seat calls, none a completed turn on a tier model (model:turnStatus:exitCode): ${JSON.stringify(seen)}`);
 
     if (!/\bCodex\b/.test(s2.planText)) problems.push("the final report never names the composition that ran");
     return settle(dir, problems);
