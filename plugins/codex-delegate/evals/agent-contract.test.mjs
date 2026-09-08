@@ -147,16 +147,20 @@ test("every driver path and every state directory on both pages is the exact ${.
         if (p !== `\${CLAUDE_SKILL_DIR}/scripts/driver.mjs`)
           problems.push(`${label} names the driver as ${JSON.stringify(p)}, not "\${CLAUDE_SKILL_DIR}/scripts/driver.mjs"`);
       // Every mention of the variable, in a recipe or in prose, is the exact placeholder: the substituted
-      // form is what a plugin install replaces, and anything else reaches the shell as a literal.
+      // form is what a plugin install replaces, and anything else reaches the shell as a literal. The one
+      // exception is the recipe's assignment name, which forwards the placeholder under its own name.
       for (const m of text.matchAll(/CLAUDE_PLUGIN_DATA/g)) {
         const at = m.index;
+        if (text.startsWith('="${CLAUDE_PLUGIN_DATA}"', at + m[0].length)) continue;
         if (text.slice(at - 2, at) !== "${" || text[at + m[0].length] !== "}")
           problems.push(`${label} names CLAUDE_PLUGIN_DATA outside the exact \${CLAUDE_PLUGIN_DATA} form: ${JSON.stringify(text.slice(Math.max(0, at - 30), at + 40))}`);
       }
     }
-    // The one call every seat is launched by carries the state directory: without it the driver exits 2.
-    if (!/CODEX_DELEGATE_STATE_DIR="\$\{CLAUDE_PLUGIN_DATA\}" node "\$\{CLAUDE_SKILL_DIR\}\/scripts\/driver\.mjs"/.test(skill))
-      problems.push("the One call recipe no longer passes CODEX_DELEGATE_STATE_DIR=\"${CLAUDE_PLUGIN_DATA}\" ahead of the driver");
+    // The one call every seat is launched by forwards the data directory under its own name: the driver reads
+    // CODEX_DELEGATE_STATE_DIR first, so an exported one (the clone route, where nothing substitutes the
+    // placeholder and the forwarded value is empty) still wins, and a plugin install gets the resolved path.
+    if (!/CLAUDE_PLUGIN_DATA="\$\{CLAUDE_PLUGIN_DATA\}" node "\$\{CLAUDE_SKILL_DIR\}\/scripts\/driver\.mjs"/.test(skill))
+      problems.push("the One call recipe no longer forwards CLAUDE_PLUGIN_DATA=\"${CLAUDE_PLUGIN_DATA}\" ahead of the driver");
     // The placeholder resolves to the skill directory, so the path below it is the shipped layout's.
     if (!fs.existsSync(path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs")))
       problems.push("scripts/driver.mjs is not where ${CLAUDE_SKILL_DIR} would resolve it");
