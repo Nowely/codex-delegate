@@ -6,8 +6,8 @@
 ## Bypasses of `--expect-command`
 
 A plain probe answering "no" — `grep`/`rg`/`test`/`diff`/`cmp` exiting **1 exactly** — is not a failed
-command and never raises exit 11; it is counted separately as `commandsProbeNegative`. The exemption is
-for a PLAIN command only: a pipe, a compound, a substitution or a multi-line script keeps failure
+command; it is counted separately as `commandsProbeNegative`. The exemption is for a PLAIN command
+only: a pipe, a compound, a substitution or a multi-line script keeps failure
 semantics, because its exit 1 may belong to another command in the chain. A sandbox-declined command is
 never a negative probe, whatever its text says.
 
@@ -25,19 +25,24 @@ just to cap output. The contrived bypass is real too — a command that is liter
 claim work it had not done, Codex refused and said so.
 The report counts sliced evidence as `commandsPipedToPager`, with `pipedToPagerHint` beside it.
 
-### `--allow-failed-commands`
+### A failed command is not a verdict
 
-Use this waiver when failures are the finding: a crashing environment probe, an intentionally broken
-build, or a bisection seat's red step. It removes rung 11 only. `--expect-command` still decides exit 5;
-`--verify` still decides 9 or 12; and `commandsFailed`, `fileChangesFailed`, and `commandsBlocked` remain
-in the report. Prefer `--verify` when an end state can be measured: this flag asserts nothing, it only
-stops asserting the opposite.
+A completed turn that produced an answer exits 0 however many of its commands failed: whether the
+failures are the finding — a crashing environment probe, an intentionally broken build, a bisection
+seat's red step — or a defect, the exit code cannot tell, so it does not try. What ran and how it ended
+is in the report: `commandsFailed`, `commandsBlocked`, `commandsProbeNegative`, `fileChangesFailed`,
+`commandsPipedToPager`. Read them before acting on the answer, and where an end state can be measured
+declare `--verify`, which asserts something rather than merely declining to assert its opposite.
+
+`--expect-command` still decides exit 5 and `--verify` decides 9 or 12. Exit code 11 is retired, not
+free: it named a failed-command verdict, and a caller that recorded that meaning should not meet it
+again under another one.
 
 ### Unknown command verdicts
 
 A command that reached the client without an exit code and was neither failed nor declined has an
-unknown outcome, so it raises exit 11. A passing verifier or native review overrides that rung, and
-`--allow-failed-commands` waives it; otherwise exit 0 would assert success without evidence.
+unknown outcome. It is `commandsBlocked` in the report and no exit code of its own: only a declared gate
+turns it into a verdict.
 
 ## What `--verify` can and cannot measure
 

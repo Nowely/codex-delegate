@@ -9,7 +9,7 @@ description: >-
   mixes ("one of them codex", "half codex", "only codex") and refusals ("no codex", "just you"). Skip
   trivia and mechanical fact-gathering.
 metadata:
-  version: "0.10.0"
+  version: "0.11.0"
 license: MIT
 ---
 
@@ -35,8 +35,8 @@ A read seat's prompt needs no header at all:
     CHECK: …
     RETURN: …
 
-For an isolated writer, one rights line above it (the tree starts from HEAD: commit or stash first, or
-the seat sees none of your uncommitted work):
+For an isolated writer, one rights line above it (cut at `HEAD`, see
+[Worktree lifecycle](#worktree-lifecycle)):
 
     SEAT: worktree <repo>
 

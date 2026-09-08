@@ -8,16 +8,10 @@ explains environment, state, wrappers, operational bounds, and lifecycle details
 
 ## Environment
 
-The variables, and every subdirectory `CODEX_DELEGATE_STATE_DIR` moves, are listed under `--help-all`.
-What that table does not spell out: two runs under different values of `CODEX_DELEGATE_STATE_DIR` do not
-exclude each other; `CODEX_DELEGATE_RELAY_WAIT_S` and `CODEX_DELEGATE_VERIFY_FLOOR_MS` are test and
-live-check seams as much as knobs (the floor is explained under
-[Bounding or stopping a seat](#bounding-or-stopping-a-seat)); and `TMPDIR` is the read level's entire
-writable grant, so a caller's own goes through the same guard as a write root — unset, the driver makes a
-private one (0700) and grants exactly that; it outlives the run, the report names it as `tmpDir`, and it is
-pruned with the run directories. The seat's shell also receives `TMPPREFIX` under that directory: zsh keeps
-here-document temp files at `$TMPPREFIX*`, default `/tmp/zsh`, which no grant covers
-([incidents](incidents.md#here-documents-under-the-grant)).
+The variables, the state subdirectories `CODEX_DELEGATE_STATE_DIR` moves, and what `TMPDIR` grants a read
+seat are all under `--help-all`. What it does not carry: the seat's shell also receives `TMPPREFIX` under
+the run's `$TMPDIR`, because zsh keeps here-document temp files at `$TMPPREFIX*`, default `/tmp/zsh`,
+which no grant covers ([incidents](incidents.md#here-documents-under-the-grant)).
 
 ## Observability
 
@@ -46,10 +40,11 @@ root thread; N subagent thread(s) ran (<agentPath list>, <n> commands): liveness
 ## The answer log, and what --brief does not deliver
 
 The full answer of every run is written to the state dir's `answers/<threadId>.md` (default
-`~/.codex-delegate/answers/`), pruned on the bounds `--help` states; `--brief` clips the inline copy at
-the line and byte cap `--help` states, **including** the "clipped" marker. `answerPath` is null when there
-was no answer or the write failed, and `answerTruncated: true` beside `answerPath: null` means the full text
-survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to park
+`~/.codex-delegate/answers/`), pruned on the same age and count bounds as the rest of the state
+directory (14 days, 400 entries); `--brief` clips the inline copy at the driver's `BRIEF_LINES` and
+`BRIEF_BYTES` limits, 20 lines and 4000 bytes, **including** the "clipped" marker. `answerPath` is null
+when there was no answer or the write failed, and `answerTruncated: true` beside `answerPath: null`
+means the full text survives only in the rollout. Under `--brief` the model is ALSO asked to answer short and to park
 evidence in `$TMPDIR` files — detail it never generated inline is not in `answerPath` either, which is
 why a run whose working note you need should not be `--brief`.
 
@@ -58,8 +53,8 @@ checked before the turn, so a typo costs nothing.
 
 ## What is protected, and what is not
 
-Every write-level root — `--cwd`, `--writable`, the git dir `--commit` grants, the destination a
-`--worktree` lands in — and the read level's `$TMPDIR` refuse `~/.codex`, `~/.codex-delegate` and the
+Every write-level root — `--cwd`, `--writable`, and the destination a `--worktree` lands in — and the
+read level's `$TMPDIR` refuse `~/.codex`, `~/.codex-delegate` and the
 resolved `CODEX_DELEGATE_STATE_DIR` (when it was moved elsewhere) and anything inside them, by inode
 identity: the first holds the receipts a seat is verified by, the others this driver's locks and
 answer log. The private `<state>/tmp/<runId>` created by the driver is the narrow exception: its owner
@@ -82,37 +77,33 @@ rollout receipt lands where `receiptPath` points. `model`, `model_reasoning_effo
 `service_tier` are carried in through `config/read`, not by parsing TOML. A failed probe warns, retries
 once, and keeps the last known good config. A probe cancelled by a signal also fails, and an ending run
 writes nothing there. `configInherited` reports `probe`, `last-known-good`, or `none`, with carried keys;
-the report also carries `codexVersion` beside `codexVersionPinned`. Under `--mcp`, `mcp_servers` are written
-into a PRIVATE per-run home's `config.toml` — not into the shared file (a grant there would leak into
-concurrent runs that never asked for it) and not into `-c` spawn args (an MCP server's `env` table
-routinely holds tokens, and argv is world-readable). It is removed during orderly shutdown; a later MCP
-run reaps it if its recorded owner died first.
+the report also carries `codexVersion` beside `codexVersionPinned`. No MCP server of the caller's is
+carried into it: a seat that needs them runs `--host-home` and accepts the rest of the host
+configuration with them.
 
 Because that file is shared, isolate test harness state with `CODEX_DELEGATE_STATE_DIR`; concurrent
 writers use atomic rename.
 
 ## Seat files and wrappers
 
-A direct seat is one driver process. A wrapper is useful only when it adds orchestration. Where the
-shipped agent is unavailable, preserve the contract `agents/codex-seat.md` states: return the driver's
-envelope verbatim, never answer the task yourself, and relay a failure as the failure it is.
+A seat is one driver process, launched by the coordinator itself. A wrapper is useful only when it adds
+orchestration; whatever it is, it hands the prompt over unchanged, never answers the task itself, and
+reports a failure as the failure it is.
 
 Wrappers write ONE file: a header of `FIELD: value` lines, then the prompt. The driver caps the file's
 size and exits 2 past it, naming the byte count. The header grammar — where it ends, which names open the
 body, what an unknown name costs — is in `--help`; everything below the header is the body, verbatim, even
 when a later line looks like a field.
 
-With `--seat-file`, `SEAT` is required and must be first. A file with no body leaves the prompt to stdin
-or `--prompt`; providing both is exit 2, as is a body beside `REVIEW`, which builds its own prompt.
-Explicit command-line flags override file fields, and `seatFileFields` reports the declared fields in
-their original order. Pass the file to `--seat-file` for JSON or `--relay` for the text envelope. The
-complete field list is in `--help`.
+`SEAT` is required and must be first, except that a file with no header at all is a read seat in the
+current directory. A file with no body leaves the prompt to stdin or `--prompt`; providing both is exit
+2. Explicit command-line flags override file fields, and `seatFileFields` reports the declared fields in
+their original order. The complete field list is in `--help`.
 
 The format avoids constructing a shell command from relayed values: an injected quote stays literal
-instead of becoming flags. Attachments, steering files, MCP servers, bounds, and transport remain
-command-line-only because an injected field could otherwise upload, truncate, grant, or reshape a run
-that the user never named. A header naming a command-line-only bound or transport exits 2 and names the
-flag to use.
+instead of becoming flags. Attachments, the bounds and `--report-file` remain command-line-only because
+an injected field could otherwise upload, truncate or redirect a run that the user never named. A header
+naming one exits 2 and names the flag to use.
 
 The refused names, and the flag each must be passed as instead, are listed under `--help-all`. Boolean
 fields take `yes|true|1`; `no|false|0` is the same as omitting the line.
@@ -120,8 +111,9 @@ fields take `yes|true|1`; `no|false|0` is the same as omitting the line.
 ### The injection limit
 
 A newline is a field separator. Require `SEAT` first and refuse `VERIFY` unless the harness explicitly
-passes command-line `--allow-seat-verify`; a relay cannot distinguish an injected field from an intended
-one. The measured failure is recorded in [incidents.md](incidents.md#seat-file-newline-injection).
+passes command-line `--allow-seat-verify`; a wrapper cannot distinguish an injected field from an
+intended one. The measured failure is recorded in
+[incidents.md](incidents.md#seat-file-newline-injection).
 
 `VERIFY` is refused from a seat file unless the harness supplies `--allow-seat-verify` on the command
 line, because verification runs an unsandboxed `/bin/sh` with the coordinator's rights. Prefer passing
@@ -129,55 +121,20 @@ line, because verification runs an unsandboxed `/bin/sh` with the coordinator's 
 
 ## Bounding or stopping a seat
 
-The native defaults, stated in `--help` under Bounds, set no wall clock, a silence guard and a command
-cap. Silence is rearmed by every thread item, delta, and usage event. Set any bound deliberately:
+`--timeout`, `--idle-timeout` and `--max-commands`, their defaults and what each cut looks like are in
+`--help` under Bounds; the report file and the signal contract are under Run. What help does not say:
 
-- `--timeout S` declares a wall clock. The driver steers for a final answer before the end, interrupts
-  with a short grace, then writes the report at the deadline. Without it there is no wall-clock cut.
-- `--idle-timeout S` guards silence; `0` disables it. `--max-commands N` catches command loops; `0`
-  disables it.
-- A cut is exit 3 with `cut.kind` `wall`, `idle`, or `commands`; `answerPartial` and the resume hint report
-  what was retained.
-
-There is no token budget — `tokenUsage` in the report is the server's own accounting, not a bound. The
-bounds that exist, `--timeout`, `--idle-timeout` and `--max-commands`, are command-line-only,
-because the defaults let a seat run with no sizing header. `--brief` controls both answer size and
-context consumption; it does not stop a turn.
-
-Use `--detach` when a run must outlive its caller. The run flags — `--detach`, `--wait`, `--wait-timeout`,
-`--jobs`, `--cancel` — and their defaults are in `--help` under Run; what this section adds is the
-lifecycle. The seat runs in its own process group under the state dir's run directory and the caller gets
-a handle (exit 10, `turnStatus: running`). `--jobs` derives status from process liveness, so it spawns
-nothing. `--cancel` sends `SIGTERM` and the seat's own handler writes the interrupted report; a second
-signal escalates teardown, while `SIGKILL` of the driver can strand descendants. Run directories are
-pruned on the bounds `--help-all` states, except one whose launch record names a live process, which is
-never pruned however old.
-
-The run directory holds the prompt, the report, the stderr and the launch record; it is the transport,
-so an unwritable state directory is exit 2 before launch. `endedAt` is written only after the complete
-report. Before then a live recorded pid means running and a dead one means crashed. The detached front
-holds no cwd lock or worktree; the run itself owns both. Detach returns immediately unless given a wait
-budget; a standalone `--wait` waits for the `--wait-timeout` default and hands back the handle (exit 10)
-if the run is still going.
-
-A signal after the thread exists returns the interrupted report with exit 1 (`turn/interrupt` is sent
-once a turn id exists; the sub-second window before that sends nothing); before the thread exists it is
-exit 4.
-
-## Relay transport
-
-The shipped relay runs `driver.mjs --relay <file>`: one detached seat, one wait of
-`CODEX_DELEGATE_RELAY_WAIT_S` seconds (its default is under `--help-all`, just under the relay's own tool
-cap), and one text envelope on stdout under the run's own exit code. While the seat is going, the
-envelope starts with `exitCode: 10` and carries a literal `collect:` command using
-`--relay-collect <threadId> --cwd <dir>`. The relay repeats it verbatim up to its own cap
-(`agents/codex-seat.md`), so one Agent call normally returns the finished answer. Run that same command by
-hand to keep collecting, or use `--wait <threadId>` for JSON.
-
-The envelope has one shape: `exitCode` first; report fields and non-null artifact pointers next; the
-`collect:` command only while running; an stderr tail when no report exists; then the full answer and its
-byte count, always last. Everything above the answer marker is metadata, and everything after it is the
-answer even if it looks like a field. Transport is never declared in the seat header.
+- There is no token budget. `tokenUsage` in the report is the server's own accounting, not a bound, and
+  `--brief` controls answer size and context consumption without stopping a turn.
+- The bounds are command-line-only because their defaults let a seat run with no sizing header at all.
+- `--report-file` is validated off the raw command line before the seat file is expanded and before
+  anything is spawned: an absolute path, a parent directory that exists and is writable, and a name that
+  does not exist yet. Nothing prunes the files it writes; the caller that named one owns it.
+- A second signal escalates teardown, while `SIGKILL` of the driver can strand descendants. In the
+  sub-second window before a turn id exists there is nothing to interrupt: the run exits 4, and the
+  pre-turn refusal still reaches `--report-file`.
+- The job record's `endedAt` is written only after the report has landed. Before then a live recorded
+  pid means running and a dead one means crashed.
 
 ## Receipt validation and reporting
 
@@ -198,18 +155,19 @@ receipt is false, the delegation machinery itself is under audit, or the user ne
 ## Worktree ledger and destination
 
 Each `--worktree` run creates a unique tree under `<repo>/.claude/worktrees/` and writes its ledger entry
-in `~/.codex-delegate/worktrees/` before `git worktree add`; it rewrites the entry with the base commit,
-and an unreadable base refuses the run before Codex starts. The next worktree run reconciles crashed
-entries oldest first, at most fifty: a gone tree drops its entry, a dirty one remains and is named, and a
-clean one is removed only after commits at its HEAD get `refs/codex-delegate/<name>`. A preserved tree
-keeps `state: "preserved"` and is later handled on the same terms once its owner is gone. The destination
+in `~/.codex-delegate/worktrees/` before `git worktree add`; a ledger it cannot write refuses the run
+before the tree exists. It rewrites the entry with the base commit, and an unreadable base refuses the
+run before Codex starts. The next worktree run reconciles crashed entries oldest first, at most fifty: a
+gone tree drops its entry, a dirty one remains and is named, a clean one is removed only after commits at
+its HEAD get `refs/codex-delegate/<name>`, and an entry that cannot be parsed is quarantined as
+`<name>.json.bad` rather than deleted, so the tree it named survives with it. A preserved tree keeps
+`state: "preserved"` and is later handled on the same terms once its owner is gone. The destination
 guard prevents a `<repo>/.claude` symlink from escaping the repository's implied path.
 
 Job records retain repository, base, diff, and untracked-archive paths so `--worktree --resume` can
-rebuild content. A private `--mcp` home under `homes/<hex>/` records its owner in `owner.json`; a later MCP
-run reaps it once that owner is gone. It contains caller MCP environment tokens in a 0600 `config.toml`.
-Lock and ledger records also retain the app-server process group and are reclaimed only when both it and
-the driver are gone.
+rebuild content; a harvest that takes nothing removes the diff and untracked archive an earlier turn of
+the same thread left under those names, and says so. Lock and ledger records also retain the app-server
+process group and are reclaimed only when both it and the driver are gone.
 
 ## Lock design
 
@@ -221,7 +179,7 @@ never consumed.
 The lock lives in `~/.codex-delegate/locks/` (or under `$CODEX_DELEGATE_STATE_DIR`, which relocates all
 of this driver's state — two runs under different values therefore do NOT exclude each other), **not**
 in the directory it protects — a lock inside the cwd
-gets staged and committed by a turn running `git add -A` under `--commit`. It is keyed on the directory's
+gets staged by a turn running `git add -A`. It is keyed on the directory's
 identity (`dev:ino`), not on how the path was spelled, so a symlink, a rename or a case-variant cannot
 produce a second lock for one directory. Each file holds the pid, a **second identity** for that pid (its
 process start time, from `ps -o lstart=` or `/proc/<pid>/stat`), the cwd it locks, and a start time. A pid
@@ -231,24 +189,18 @@ lock is honoured. The exit-10 message names the file to delete if the holder is 
 for it: it is a mutable environment variable, so two runs on one cwd under different values would take two
 different locks and both proceed, and it is the one place a `--level read` turn can write.
 
-Reclaiming a stale lock is serialised by its own marker, and liveness is re-checked under it. Without that,
-a run that judged the *stale* lock dead could arrive late and delete the *fresh* lock that had replaced it
-— measured at up to three simultaneous holders of one directory. Note that several runs exiting 0 against
-one cwd is **not** evidence of that bug: runs that acquire in sequence all legitimately succeed. Only
-overlapping hold intervals are.
+Reclaiming a stale lock is serialised by its own marker, and liveness is re-checked under it. Without
+that, a run that judged the *stale* lock dead could arrive late and delete the *fresh* lock that had
+replaced it ([measured](incidents.md#stale-lock-stampede)).
 
-That marker is abandoned when its **owner** is gone — liveness, not a clock, decides. A deadline got it
-wrong in both directions: it stole the marker from an owner merely stalled past it — a laptop sleep, a
-`SIGSTOP`, a wall-clock step — reopening the very window the marker closes; and it made a provably free
-directory report `BUSY` for the whole deadline whenever a run was killed mid-reclaim. One clock
-survives, as a backstop and nothing else: a marker whose mtime is older than a fixed backstop age is abandonable even
-if a live process still bears its pid, because after that long the pid is more likely recycled than
-stalled.
+That marker is abandoned when its **owner** is gone: liveness, not a clock, ends it, and one mtime
+backstop survives for the case where the pid is more likely recycled than stalled. The driver's comment
+at that code carries the two ways a deadline got it wrong.
 
-The lock covers the whole run, not just the turn: the job-registry record is written and read inside it,
-and an `--mcp` run's private home is deleted right after release. The isolated Codex home is written
+The lock covers the whole run, not just the turn: the job record is written and read inside it. The
+isolated Codex home is written
 **before** the lock: its config probe is a second process, and holding a write lock across it made an idle
-directory report exit 10. Concurrent writers there are safe by atomic rename, not by the lock. Detached
+directory report exit 10. Concurrent writers there are safe by atomic rename, not by the lock. Lock
 records carry the app-server process group; a stale lock is reclaimed only when both driver and group are
 gone.
 
@@ -264,20 +216,25 @@ from under a run by other work on the machine; give every concurrent run its own
 
 ## Git-directory grant
 
-A narrower grant was measured and **rejected**. Whitelisting `{worktrees/<name>, objects, refs, logs/refs}`
-does let `git add` + `git commit` through for a linked worktree on the `files` ref backend, but it breaks
-`git branch -D` and `git tag -d` (`packed-refs.lock` sits at the `.git` root), breaks `git gc`, prints
+There is none, so a sandboxed seat cannot commit: committing needs the main clone's common dir, and no
+flag grants it. Measured in a linked worktree whose main `.git` was read-only, `git commit` fails at
+`Unable to create '.../worktrees/<name>/index.lock': Permission denied`. A seat's work comes back as
+`worktreeDiffPath` and its untracked archive; `worktreeCommitsRef` is populated only where the caller's
+own `--verify`, which runs unsandboxed, committed.
+
+A narrower grant was measured and **rejected** before that, so do not reach for one. Whitelisting
+`{worktrees/<name>, objects, refs, logs/refs}` does let `git add` + `git commit` through for a linked
+worktree on the `files` ref backend, but it breaks `git branch -D` and `git tag -d`
+(`packed-refs.lock` sits at the `.git` root), breaks `git gc`, prints
 `error: Unable to create '.../packed-refs.lock'` on every commit, and cannot be applied at all to a
 reftable repo or to a main worktree, where `index.lock` and `COMMIT_EDITMSG` live at the root. It also
 breaks any pre-commit hook that stashes (lint-staged runs `git stash`, which needs `refs/stash` at the
-`refs/` root).
+`refs/` root). `workspace-write` has no deny-list, so "grant `.git` but not hooks and config" cannot be
+said with writable roots at all: it needs a permissions profile. Land a diff instead, or point
+`--level write --cwd` at a worktree of a throwaway clone and settle that blast radius with the user.
 
-`workspace-write` has no deny-list, so "grant `.git` but not hooks and config" cannot be said with writable
-roots at all — it needs a permissions profile, which is a bigger change than this flag. Until then: prefer
-harvesting a diff over granting `--commit`, and when you do grant it, point `--cwd` at a worktree of a
-throwaway clone.
-
-The driver's own git is not exposed to what a `--commit` seat writes there. Every git it spawns carries
+The driver's own git is not exposed to what a seat writes in the tree it was given. Every git it
+spawns carries
 `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c diff.external=`, every diff adds
 `--no-ext-diff --no-textconv`, and each call has a bounded timeout with `SIGKILL`. Without that,
 harvest, worktree removal, and the next checkout ran the seat's hooks, fsmonitor, and external diff with
@@ -292,9 +249,9 @@ the driver sets to whatever `--web-search` asked for and to `disabled` only when
 
 **There are two config surfaces, and this oracle covers one.** The `-c` payload carries the per-run
 keys the driver assembles (web search, the read profile, effort, sandbox settings). The isolated home's
-`config.toml` carries the inherited keys ([The isolated home](#the-isolated-home)) and, under `--mcp`, the caller's whole `[mcp_servers]` table — `--mcp`
-adds no `-c` entry at all. A key destined for that file has to be validated by putting it in a
-config.toml and starting codex under `--strict-config`, not with `-c`.
+`config.toml` carries the inherited keys ([The isolated home](#the-isolated-home)). A key destined for
+that file has to be validated by putting it in a config.toml and starting codex under
+`--strict-config`, not with `-c`.
 
 Validate any new `-c` key offline first:
 

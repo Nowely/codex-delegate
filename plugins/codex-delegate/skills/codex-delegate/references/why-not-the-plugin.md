@@ -96,33 +96,19 @@ granted; this driver answers each approval method with a schema-correct refusal,
 reviewer, asserts the applied sandbox/policy against what was asked, and derives its exit code from the
 event stream. That layer is the part upstream has not merged.
 
-## Upstream state (as of 2026-08-31)
+## Upstream state
 
-- `openai/codex-plugin-cc#426` (PR, open): passes `on-request` for write-capable runs — not enough
-  alone, the read paths still send `never`.
-- `#482` (open since 2026-07-12): the sandbox-suppression mechanism above, filed from an unmanaged
-  machine. **Its fix was written and dropped**: PR `#508` stopped sending the hardcoded value, was
-  third-party-verified, and was closed unmerged on 2026-08-11.
-- `#273`: the linked-worktree commit failure this skill solves with the git-common-dir writable root.
-- `#499` / `#640` / `#641`: the `-32601` stubbing from the other side — every approval and MCP
-  request auto-rejected; answering those requests is most of what this driver does.
-- `#412` (open since 2026-07-01): the write-path symptom as users meet it — `/codex:rescue` "always
-  returns a read-only sandbox error", reported from a Windows machine (the report states the OS, not
-  whether it is managed; a macOS managed-preferences profile cannot apply there, so the defect is not
-  the MDM one).
-- `#240` (open since 2026-04-18): the override mechanism itself — "plugin overrides Codex sandbox
-  config", from the bwrap angle.
-- Maintainer engagement: every participant on #482/#508 is `NONE`, and **0 of the 40 most recently
-  closed PRs were merged** — window 2026-08-05 to 2026-08-29, re-measured 2026-08-31. Take the window
-  literally: `gh pr list --state closed --limit 40` orders by NUMBER, not by close date, and returns a
-  different 40 spanning back to June, of which 2 were merged (#447, #398) — that is the "earlier count"
-  this line used to carry. Over the whole history 28 of 139 closed PRs were merged; the recent window
-  is the one that matters for planning. Do not plan around upstream.
+A snapshot taken 2026-08-31, not maintained since: both defects were reported and neither was fixed.
+The hardcoded policy has an open PR (`openai/codex-plugin-cc#426`, write paths only); the
+sandbox suppression is `#482`, open since 2026-07-12, whose written and third-party-verified fix `#508`
+was closed unmerged on 2026-08-11; the `-32601` stubbing is `#499`/`#640`/`#641`, the user-facing
+symptom `#412`, the override mechanism `#240`, and the linked-worktree commit failure `#273`. Every
+participant on #482/#508 was `NONE`, and 0 of the 40 PRs closed between 2026-08-05 and 2026-08-29 were
+merged. The managed-profile case is not reported as such, but each of its ingredients is.
 
-A merged #426 plus a merged successor to #508 is the day the write path can go back to the plugin.
-The managed-profile case is not reported as such, but its every ingredient is — the hardcoded policy
-(#426), the override (#240/#482), the symptom (#412), the auto-rejection (#499/#640/#641) — so a
-separate MDM report would add little, and none was filed from here.
+The routing rule that follows from it, and the only part to act on: do not plan around upstream. Read
+the issues yourself before assuming any of the above still holds; a merged #426 plus a merged successor
+to #508 is the day the write path can go back to the plugin.
 
 ## What the plugin does better, and is worth adopting
 
@@ -130,8 +116,10 @@ Verified in its source: a persisted background-job index with progress logs, ses
 cancel (`lib/state.mjs`, `tracked-jobs.mjs`, `job-control.mjs`); a stop-time review gate as a Claude
 Stop hook (`hooks/hooks.json`, `stop-review-gate-hook.mjs`); native `review/start` with target
 resolution and a review output schema; `turn/interrupt` through a shared broker; Claude-session import
-via `externalAgentConfig`. All three have since been adopted here: a job record with resume-by-id status (`--detach`, `--jobs`,
-`--wait`), `review/start` as `--review`, and `stop-gate.mjs` as an optional companion, not skill machinery.
+via `externalAgentConfig`. What this driver takes from that list is `turn/interrupt`, which is what a
+signal sends. The rest it declines: a seat's lifetime is the caller's own task rather than a job index,
+and a review is a prompt seat under [`review-output.schema.json`](../schemas/review-output.schema.json),
+validated here rather than trusted from the server.
 
 Nothing here modifies the plugin. Patching `?? "never"` in the plugin cache works and was measured —
 and the cache is overwritten on every plugin update, so a fix that silently reverts is worse than none.

@@ -1,7 +1,124 @@
 # Changelog
 
-Release history is derived from the tagged git log. Dates are the tagged commit dates; detailed
+Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
+
+## 0.11.0 — 2026-09-08
+
+Measured against codex-cli 0.153.4 on macOS. An orchestrated review on 2026-09-08 — two scouts, five
+reviewers, three cross-side refuters, a judge and a completeness critic, half of them Codex seats — made
+124 findings, of which 96 survived refutation and 27 were ranked for work. This release is that work: a
+Codex seat is now a direct background call of the driver, and the flags no live run had used are gone.
+
+### Compatibility notes
+
+- The `codex-seat` agent and the whole relay and detach transport are retired: `--relay`,
+  `--relay-collect`, `--detach`, `--run-dir`, `--wait`, `--wait-timeout`, `--jobs`, `--cancel`,
+  `CODEX_DELEGATE_RELAY_WAIT_S`, the text envelope, the progress heartbeat, the `runs/` directory family
+  and the launch handshake. Launch a seat directly instead, in a background Bash task:
+  `node driver.mjs --seat-file <prompt> --report-file <report>`, and read that file when the task's exit
+  notification arrives. A run no longer survives its caller and there is no collector; stop a seat by
+  stopping its task, or by signalling the pid the driver announces on its first stderr line. `jobs/*.json`
+  remains, private, as what `--resume last` and a worktree rebuild need, and loses its obsolete keys the
+  first time this driver rewrites it.
+- `--report-file FILE` is new, and is the delivery that counts: an absolute path whose parent exists and
+  which does not exist yet, each of those exit 2 before anything is spawned, written to a sibling at 0600
+  and published by rename before stdout, so a broken pipe neither loses the report nor changes the
+  verdict. A refusal reached before the turn — a usage error, an abort, a signal — writes
+  `{ok:false, exitCode, threadId, turnStatus:null, answer:"", error, reportPath}` to the same path, so a
+  missing file means unknown and never success. It is command-line-only: `REPORT_FILE:` in a header is
+  exit 2 naming the flag.
+- Removed, unused in 177 live runs: `--fork`, `--fork-through`, `--compact`, `--reasoning-summary`,
+  `--mcp-server`, `--ephemeral`, `--steer-file` and `--progress`; native `--review` with its `REVIEW:`
+  field; `--mcp` with its per-run private home; `--commit` with its `COMMIT:` field; and
+  `scripts/stop-gate.mjs` with `CODEX_DELEGATE_STOP_GATE`. `thread/fork`, `thread/compact/start` and
+  `review/start` are no longer sent, `thread/start` carries no `ephemeral` and `turn/start` no `summary`,
+  and the report drops `forkedFrom` and `forkedThrough`. A retired flag is an unknown argument and a
+  retired field an unknown header line; both are exit 2 naming the line or the flag.
+- A Codex seat cannot commit at all. `--commit` granted the git common dir that a linked worktree needs
+  to commit, and without it `git commit` inside the seat's sandbox fails at
+  `index.lock: Permission denied` (measured). A worktree seat's work comes back as `worktreeDiffPath`
+  and `worktreeUntrackedPath`; `worktreeCommitsRef` is still harvested and is now populated only where
+  the caller's own `--verify`, which runs unsandboxed, committed.
+- A seat that needs MCP tools uses `--host-home`, which brings the caller's whole configuration with
+  them. The isolated home is one shared directory unconditionally: `<state>/homes/` is neither created
+  nor reaped, and no `[mcp_servers]` table of the caller's is copied anywhere.
+- Exit rung 11 (`COMMAND_FAILED`) is retired, and the code stays unallocated rather than free: a
+  completed turn that answered exits 0 however many of its commands failed. `commandsFailed`,
+  `commandsBlocked`, `commandsProbeNegative`, `fileChangesFailed` and `commandsPipedToPager` stay in the
+  report, and `--expect-command` (exit 5) and `--verify` (9, or 12 when it could not be measured) are the
+  gates that judge. `--allow-failed-commands` and `ALLOW_FAILED_COMMANDS:` waived that rung and only it,
+  so both are exit 2.
+- `--resume last` names the run most recently STARTED for this `--cwd`, or with `--worktree` this
+  repository — not the one most recently written to, so a long seat still running no longer outranks a
+  shorter one begun after it and already finished. A newest run that is still running is exit 10 as
+  before.
+- A relative `CODEX_DELEGATE_STATE_DIR` is exit 2 at parse time. It used to be accepted, and the answer
+  log and turn diff answered a bad root by silently dropping the artefact.
+- A `--seat-file` with no header at all is a read seat in the current directory, which is the default
+  `--relay` used to supply. Where a header exists, `SEAT` is still required and still first.
+- `schema-0.153.4/` tracks only the 15 files `evals/conformance.test.mjs` loads, down from 304. The full
+  generated tree is the annotated tag `schema-0.153.4-full`, and README › After a codex upgrade diffs the
+  next regeneration against that tag.
+- The driver exports `EXIT`, `FIELDS`, `LADDER`, `PINNED_CODEX`, `SEAT_FIELDS`, `VERSION` and `lockKey`.
+  `ATTACH_KINDS`, `EFFORTS`, `LEVELS`, `STATE_SUBDIRS`, `WEB_SEARCH` and `helpText` had no reader
+  anywhere and are no longer exported.
+
+### Fixed
+
+- Every zsh here-document in a seat failed with "can't create temp file for here document": zsh keeps the
+  document under `TMPPREFIX`, default `/tmp/zsh`, which no grant covers. Measured in 15 rollouts between
+  2026-08-31 and 2026-09-08. The app-server is now spawned with `TMPPREFIX` under the run's own `TMPDIR`,
+  and a live seat proved it.
+- Concurrent first runs against a fresh state directory could refuse with "exists but is not a symbolic
+  link": `readlink` answers a transient `EINVAL` while a peer replaces the link by `rename`. The driver
+  re-checks with `lstat` and re-links atomically; 3840 synchronised first links after the fix, no loser.
+- The worktree ledger is written by temp+rename; an unparsable entry is quarantined as `<name>.json.bad`
+  instead of deleted, so the tree it names survives; a ledger that cannot be written refuses the run
+  before `git worktree add`; a re-harvest that takes nothing removes the previous turn's `.diff` and
+  `.untracked.tgz` and says so; harvest diffs go through temp+rename; and `ps`, `plutil` and the harvest
+  `tar` now carry the timeout git already had.
+- A resumed thread kept the previous run's `endedAt`, which is what the busy-thread refusal reads, so a
+  second seat could be waved onto a live thread. The closing fields are reset when a run starts.
+- A job record closed on the broken-pipe path keeps `receiptOk`, the command counts and the verify and
+  cut summaries.
+- `run-all` fails on a signal-killed suite (a killed child reports `code` null, and `process.exit(null)`
+  exits 0) and no longer counts a skipped or unparsed suite as green; the harness has a `skip(reason)`
+  sentinel that prints its reason and is named in the summary. `package.test.mjs` is green from an
+  installed plugin root, where there is no git metadata, and compares the version only against a `v*` tag
+  on `HEAD`. `conformance.test.mjs` asserts that the schema directory it loads is the one `PINNED_CODEX`
+  names (`CODEX_DELEGATE_SCHEMA_DIR` overrides it during an upgrade) and validates JSON-RPC error
+  responses. An unknown scenario name is now fatal in the fixture instead of answered with a success.
+
+### Changed
+
+- The orchestrate page prefers background Agent calls, one notification per seat, over a Workflow, which
+  reports nothing until its last agent returns (measured 2026-09-08: a seat's exit at minute 9 surfaced
+  only when the user asked, while its sibling ran 18 minutes). Workflow stays for a chain a script must
+  decide.
+- Driver structure: one `FIELDS` table derives the seat-field vocabulary; one `jsonRpcConn` serves the
+  config probe and the main channel; every `LADDER` rung is a pure function of its own context; one
+  `exitWith` funnel settles, closes the record, writes stdout under the drain watchdog and exits, so
+  `process.exit` appears once; `main`, `parseArgs` and `handleMessage` are split into named units
+  (`main` 362 lines to 125); one `LIMITS` table holds 36 tuning numbers with a reason each. The driver
+  goes 4318 lines to 3819. Those refactors changed no byte the driver writes or prints; the removals
+  above are what changed its help text.
+- Eleven suites, cheapest first: the protocol suite splits into `protocol` (what the driver does with the
+  server's events, 135 cases) and `cli` (what it does with its arguments and its output surface, 85), the
+  lock suite into `lock` (53) and `worktree` (22), over the new `evals/lib/scenarios.mjs`. Every protocol
+  table case runs on its own state root.
+
+### Notes
+
+- The two live gates, `evals/fidelity.test.mjs` and `evals/orchestrate-live.test.mjs`, were rewritten for
+  the direct route and have not been run against a live binary since. RELEASING.md steps 5 and 6 run
+  them, and no release is cut without them.
+- `references/parity.md`'s memory and turn-overhead figures still carry their 2026-08-30/31 date and were
+  not re-measured for the 0.153.4 pin; the page now says so and the release checklist asks only that the
+  order of magnitude still holds.
+- `references/why-not-the-plugin.md` keeps the code forensics and dates its upstream-activity snapshot;
+  the routing rule is to read the issues rather than plan around them.
+- `evals/README.md` now leads with how to run the suites and keeps the dated coverage ledger after it.
 
 ## 0.10.0 — 2026-09-07
 
@@ -245,7 +362,7 @@ goal-checked before its commit) and the design for GitHub issue #1.
   exit-ladder text, package/version agreement checks, and CI for the six free suites across Linux and
   macOS on Node 18 and 24. Added `--allow-failed-commands` for expected probe failures.
 
-## [v0.6.0] — 2026-09-01
+## 0.6.0 — 2026-09-01
 
 - Completed a documentation-only best-practice pass: corrected eleven drifted claims, reduced the
   entrypoint, defined terms, and moved conditional detail into focused references.
@@ -253,7 +370,7 @@ goal-checked before its commit) and the design for GitHub issue #1.
   changing the driver.
 - Added license metadata to the plugin manifest and tightened the shipped relay-agent contract.
 
-## [v0.5.0] — 2026-09-01
+## 0.5.0 — 2026-09-01
 
 - Added driver-owned worktree harvest and disposal, including staged work, untracked archives, crash
   ledger reconciliation, and retained refs for clean seats that commit.
@@ -263,7 +380,7 @@ goal-checked before its commit) and the design for GitHub issue #1.
   and extensive corrections from independent review.
 - Measured `codex mcp-server` against this driver and documented why it is still not a substitute.
 
-## [v0.4.0] — 2026-09-01
+## 0.4.0 — 2026-09-01
 
 - Hardened seat files: `SEAT` must be first, relayed `VERIFY` needs command-line authorization, and
   declared fields are reported.
@@ -275,7 +392,7 @@ goal-checked before its commit) and the design for GitHub issue #1.
 - Corrected lock, token, verifier, answer-log, worktree, and protected-root documentation; added the
   coordinator-side background-load warning.
 
-## [v0.3.0] — 2026-08-31
+## 0.3.0 — 2026-08-31
 
 - Shipped the repository as a Claude Code plugin with the `codex-seat` relay agent.
 - Added `--seat-file` so wrappers pass literal fields instead of interpolating user values into a shell
@@ -283,14 +400,14 @@ goal-checked before its commit) and the design for GitHub issue #1.
 - Added identity-based root guards, strict schema-verdict handling, and report integrity after a refused
   retry, with adversarial contract tests.
 
-## [v0.2.0] — 2026-08-31
+## 0.2.0 — 2026-08-31
 
 - Made the driver wait for its child process group and own the managed-worktree lifecycle.
 - Added rollout receipt location (`receiptPath`, `receiptOk`) and made JSON the default report output.
 - Reworked installation and operating documentation, moving incident and plugin forensics into
   references and reducing the skill entrypoint.
 
-## [v0.1.0] — 2026-08-31
+## 0.1.0 — 2026-08-31
 
 - Introduced the one-file Node app-server driver with per-call read/write rights, worktree support,
   cwd locking, evidence-derived exit codes, and commit/network controls.
@@ -300,10 +417,3 @@ goal-checked before its commit) and the design for GitHub issue #1.
   fidelity suite against codex-cli 0.150.1.
 - Reshaped the returned report to match subagent handoff needs, capping the inline answer while the
   full text stays at `answerPath`.
-
-[v0.6.0]: https://github.com/Nowely/codex-delegate/compare/v0.5.0...v0.6.0
-[v0.5.0]: https://github.com/Nowely/codex-delegate/compare/v0.4.0...v0.5.0
-[v0.4.0]: https://github.com/Nowely/codex-delegate/compare/v0.3.0...v0.4.0
-[v0.3.0]: https://github.com/Nowely/codex-delegate/compare/v0.2.0...v0.3.0
-[v0.2.0]: https://github.com/Nowely/codex-delegate/compare/v0.1.0...v0.2.0
-[v0.1.0]: https://github.com/Nowely/codex-delegate/releases/tag/v0.1.0

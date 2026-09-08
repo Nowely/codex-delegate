@@ -15,9 +15,9 @@ to know in advance. The defaults have to produce what a native Claude Code subag
 waits as long as the work takes, it returns the answer, and it is stopped only by silence or by the
 coordinator. Everything else here serves that. Rights are declared per call so the coordinator never
 wonders what the seat may touch; exit codes are derived from evidence so a seat that did nothing cannot
-report as though it had; the relay agent's defaults are the native ones. Where a knob and a default
-compete, the default wins. Where a rule must be known to succeed, that is a defect in this repository,
-not in the coordinator.
+report as though it had; a prompt with no header at all is a read seat in the current directory. Where a
+knob and a default compete, the default wins. Where a rule must be known to succeed, that is a defect in
+this repository, not in the coordinator.
 
 A second, user-invoked skill applies the same goal to the whole session. `/codex-delegate:orchestrate`
 turns the main conversation into an orchestrator that scouts inline, agrees one plan, and pushes every
@@ -45,16 +45,15 @@ this skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md)).
 
 ## Install
 
-As a plugin — the full set: every skill plus the namespaced subagent (the repo is its own marketplace):
+As a plugin — the full set: both skills, the driver and the suites (the repo is its own marketplace):
 
 ```
 /plugin marketplace add Nowely/codex-delegate
 /plugin install codex-delegate@codex-delegate
 ```
 
-This route exposes the skill as `codex-delegate:codex-delegate`, the wrapped seat as
-`codex-delegate:codex-seat`, and the orchestrator mode as `codex-delegate:orchestrate`, which only the
-user can turn on.
+This route exposes the skill as `codex-delegate:codex-delegate` and the orchestrator mode as
+`codex-delegate:orchestrate`, which only the user can turn on.
 
 The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then
 `claude plugin install codex-delegate@codex-delegate`. To update, refresh the marketplace clone and
@@ -65,21 +64,19 @@ claude plugin marketplace update codex-delegate
 claude plugin update codex-delegate@codex-delegate
 ```
 
-Or from source — clone and symlink, so the checkout stays the single source of truth (the `codex-seat`
-symlink is only needed without the plugin route, the `orchestrate` one only for the orchestrator mode):
+Or from source — clone and symlink, so the checkout stays the single source of truth (the `orchestrate`
+symlink is only needed for the orchestrator mode):
 
 ```bash
 git clone https://github.com/Nowely/codex-delegate.git
 cd codex-delegate
-mkdir -p ~/.claude/skills ~/.claude/agents          # absent on a machine that has never run Claude Code
+mkdir -p ~/.claude/skills                           # absent on a machine that has never run Claude Code
 ln -s "$PWD/skills/codex-delegate" ~/.claude/skills/codex-delegate
-ln -s "$PWD/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
 ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
 ```
 
-On this clone-and-symlink route the agent spelling is bare `codex-seat`, the skill is
-`codex-delegate` and the mode is `/orchestrate`; on the plugin route they are
-`codex-delegate:codex-seat`, `codex-delegate:codex-delegate` and `/codex-delegate:orchestrate`.
+On this clone-and-symlink route the skill is `codex-delegate` and the mode is `/orchestrate`; on the
+plugin route they are `codex-delegate:codex-delegate` and `/codex-delegate:orchestrate`.
 
 The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`
 on a fresh account, which is exactly the account this route is written for.
@@ -91,6 +88,9 @@ costs nothing, calls no model:
 npm test    # every suite, cheapest first, stops at the first red
 ```
 
+A plugin root carries no git metadata, so the `package` suite's tag and payload cases announce
+themselves there as skipped instead of failing; from the checkout they run.
+
 The `fidelity` suite is what to watch after a `codex` upgrade: it performs a real handshake and diffs
 it against the fixture, so protocol drift shows up as a failing case instead of a confident wrong
 answer. Without `codex` on `PATH` it skips and exits 0, which is what CI does; the release checklist
@@ -100,8 +100,7 @@ Run the suites from the **repository or plugin root**. Do not compute that root 
 to the skill path: where the skill is a symlink (the clone-and-symlink install above), Node collapses
 `..` lexically and lands somewhere that does not exist, while `ls` follows the link and appears to
 work. Resolve the link, or use the install path announced when the skill loads, or `installPath` in
-`installed_plugins.json`. Use either installation route above and run the suites from its checkout or
-plugin root.
+`installed_plugins.json`.
 
 ## First run
 
@@ -120,15 +119,13 @@ declared check passed, and a command really ran; anything else is a specific com
 say what that does and does not prove).
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
-agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed,
-use `Agent(subagent_type: "codex-delegate:codex-seat", prompt: "TASK: …\nCHECK: …\nRETURN: …")` or
-`agentType: "codex-delegate:codex-seat"` in a workflow; the skill is
-`codex-delegate:codex-delegate` (the clone-and-symlink spellings are under Install). Add
-`SEAT: worktree <repo>` before `TASK:` for a managed writer. The pinned relay does three mechanical
-things — write the prompt to a file, run `driver.mjs --relay <file>`, return that output verbatim — and
-the driver does the rest: it parses the header, launches one seat, waits as long as the work takes and
-renders the envelope carrying the thread id, the receipt and Codex's whole answer. The relay never
-composes an answer of its own.
+agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed it
+is `codex-delegate:codex-delegate` (the clone-and-symlink spellings are under Install). A seat is one
+background Bash call of that same driver: the prompt in a file named by `--seat-file`, the report at
+`--report-file`; add `SEAT: worktree <repo>` above `TASK:` for a managed writer. The
+driver parses that header, launches one seat, waits as long as the work takes, and publishes the report
+by rename: the coordinator reads the file when the call's exit notification arrives, and a missing file
+means unknown, never success.
 
 ## Rights, per call
 
@@ -137,22 +134,20 @@ composes an answer of its own.
 | `--level read` (the default; `--cwd DIR` is optional and defaults to the current directory) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests |
 | `--worktree REPO` | write level in a managed detached tree the driver creates, harvests and removes; what it starts from and lacks is in [parity.md](skills/codex-delegate/references/parity.md#read-and-isolated-write) |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
-| `+ --network` / `--writable DIR` / `--commit` | egress, an extra root, or the repository's git dir — each an explicit opt-in |
+| `+ --network` / `--writable DIR` | egress or an extra root — each an explicit opt-in |
 
-## Runs that outlive the call
+## The run's lifetime
 
-A detached run survives this process, its shell and the session; the run directory under the state dir
-is its transport.
-
-`--detach` starts the turn in its own process group and prints a handle; `--wait <id|last>` collects the
-run under its own exit code; `--wait-timeout`, `--jobs` and `--cancel` bound, list and stop it. Each
-flag's semantics and defaults are in the driver's `--help`, under Run.
+A run lives exactly as long as its call: there is no run registry and no collector, and the caller that
+started a seat owns its lifetime. `--report-file` is the delivery that survives a broken pipe, and a
+seat is stopped by `SIGTERM` to the pid the driver prints on its first stderr line — the turn is
+interrupted, the report it had earned is written anyway, and the codex process group is swept.
 
 ## Trust and verification
 
 - **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
   ladder of exit codes from the event stream. The driver's `--help` is the complete ladder;
-  `SKILL.md` gives the relay decisions a coordinator needs.
+  `SKILL.md` gives the decisions a coordinator makes on it.
 - **Evidence gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
   the model — but with the coordinator's own rights, env and network, so a verifier that executes tree
   contents (`npm test` runs the seat's `package.json` script) is running the seat's code; prefer one
@@ -196,14 +191,13 @@ git archive schema-<old-version>-full | tar -x -C <tmp-old>/
 diff -r <tmp-old>/ <tmp-new>/
 ```
 
-Read the diff for anything structural, commit `<tmp-new>/` into the repo as `schema-<new-version>/`,
-and tag that commit `schema-<new-version>-full`: the oracle the next upgrade diffs against.
-`CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version>` lets `node evals/conformance.test.mjs` validate it
-while `schema-<old-version>/` is still the pinned one. Once it is green, move `PINNED_CODEX`, prune
-`schema-<new-version>/` down to the files [conformance](evals/conformance.test.mjs) loads, and remove
-`schema-<old-version>/`. Then run `npm test` and `node evals/fidelity.test.mjs --require-live`, inspect
-any fixture/live difference, and re-check
-[the dated parity reference](skills/codex-delegate/references/parity.md).
+Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` and tag that
+commit `schema-<new-version>-full`, the oracle the next upgrade diffs against.
+`CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` validates it while
+`schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new
+directory to the files [conformance](evals/conformance.test.mjs) loads, and delete the old one. Then
+`npm test` and `node evals/fidelity.test.mjs --require-live`, inspect any fixture/live difference, and
+re-check [the dated parity reference](skills/codex-delegate/references/parity.md).
 
 ## Layout
 
@@ -212,7 +206,6 @@ skills/codex-delegate/           the skill: SKILL.md (the operating manual), scr
                                  its companions, each self-describing under --help), references/
 skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the codex-delegate skill,
                                  prompt only
-agents/codex-seat.md             the relay subagent the plugin ships
 .claude-plugin/                  plugin + marketplace manifests
 evals/                           the suites, one file each; run-all.mjs lists them and runs them
                                  cheapest first, lib/harness.mjs is their shared machinery
@@ -233,7 +226,6 @@ Canonical homes for repeated stories:
 | composition, rights, workflow | [`SKILL.md`](skills/codex-delegate/SKILL.md) |
 | orchestration: tiers, Codex share, seat bounds, returns | [`skills/orchestrate/SKILL.md`](skills/orchestrate/SKILL.md) |
 | flags and field formats | `node skills/codex-delegate/scripts/driver.mjs --help` (`--help-all` for the rest) |
-| wrapped-agent relay contract | [`agents/codex-seat.md`](agents/codex-seat.md) |
 | environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/codex-delegate/references/environment-and-internals.md) |
 | native capability parity and dated measurements | [`parity.md`](skills/codex-delegate/references/parity.md) |
 | measured failures behind rules | [`incidents.md`](skills/codex-delegate/references/incidents.md) |

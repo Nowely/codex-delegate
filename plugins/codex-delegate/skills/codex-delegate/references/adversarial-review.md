@@ -1,7 +1,9 @@
 # Adversarial review prompt
 
-Use this with `driver.mjs --output-schema schemas/review-output.schema.json`. Append the specific target
-and any caller focus to `TASK`; do not weaken the checks or return contract.
+This prompt plus its schema is the review route: a seat whose `OUTPUT_SCHEMA:` line names
+`"${CLAUDE_SKILL_DIR}/schemas/review-output.schema.json"`, or a command line passing that path to
+`--output-schema`. Append the specific target and any caller focus to `TASK`; do not weaken the checks
+or the return contract.
 
 TASK
 
@@ -29,7 +31,7 @@ CHECK
 
 RETURN
 
-Return only one JSON object matching `schemas/review-output.schema.json`, with no prose or code fence.
+Return only one JSON object matching the schema this seat was given, with no prose or code fence.
 Use the schema's blocking verdict when any material risk should block shipping and its approving verdict
 only when no substantive adversarial finding is supportable. Keep `summary` a terse ship/no-ship assessment, `findings` compact and
 specific, and `next_steps` limited to actions that change the shipping decision.

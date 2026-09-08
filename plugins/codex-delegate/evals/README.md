@@ -1,9 +1,58 @@
-# Trigger and behaviour evals for codex-delegate
+# Evals for codex-delegate
 
-`evals.json` holds the cases: the prompts this skill must fire on, the prompts it must stay silent on,
-and the things it must get right once it has fired.
+Two kinds of check live here. The suites run offline against a fixture and are meant to stay green.
+`evals.json` holds the trigger and behaviour cases: the prompts this skill must fire on, the prompts it
+must stay silent on, and the things it must get right once it has fired. Those are run by hand.
 
-## Why these exist
+## Running the suites
+
+```bash
+npm test                      # every suite, cheapest first, stopping at the first red
+node evals/cli.test.mjs       # one suite, when it is the thing being worked on
+```
+
+`run-all.mjs` lists the eleven, cheapest first: orchestrate, package, agent-contract, attach-pasted,
+worktree, cli, conformance, lock, protocol, then the two that need a live binary, fidelity and
+orchestrate-live. It refuses to start when that list disagrees with the directory, so a suite nobody
+listed cannot go unrun. A suite killed by a signal is a failure, not a pass: a killed child reports
+`code` null and `process.exit(null)` exits 0. A suite that skipped or never ran is deducted from the
+green count and named in the last line, which is the line to read.
+
+Each suite's header comment says what it measures, and a suite that spends real sessions or turns names
+the variable that arms it there. Where a case belongs follows two splits: `cli.test.mjs` is what the
+driver does with its ARGUMENTS and its output surface, `protocol.test.mjs` what it does with the
+SERVER's events; `worktree.test.mjs` owns the managed tree and its ledger, `lock.test.mjs` the acquire
+path, signals and teardown.
+
+The counts are deliberately not written down here — the last one was wrong twice in two days. The
+`CASES` arrays are the inventory, and each suite states its own count in its last line. A case that
+cannot run where it is — no `mkfifo`, a case-insensitive volume, no git metadata under a plugin root —
+returns the harness's `skip(reason)` sentinel: it prints as `skip` with its reason, counts as neither
+pass nor fail, and the summary names it. A check that passed silently on a machine that could not run it
+is the one result that reads as evidence and is not.
+
+`evals/lib/harness.mjs` holds what every suite needs a copy of otherwise — the temp directories, the
+`codex` shim, one spawn helper, the case registrar, the pass/fail loop and that sentinel — and
+re-exports the driver's own constants — exit codes, the seat-field table, the exit ladder, the pinned
+codex version, the lock key — rather than letting a suite restate them. `evals/lib/scenarios.mjs` holds
+what `cli.test.mjs` and `protocol.test.mjs` share: the shim, every file a case points the driver at, and
+the runner that gives each case its own state root. `driver.mjs` runs `main()` only when it IS the entry
+point, which is what makes importing it safe.
+
+`.github/workflows/ci.yml` runs `npm test` on every leg of its OS × Node matrix; the suites that need a
+real `codex` or `claude` skip there. It installs nothing and calls no model.
+
+`fidelity.test.mjs` runs LOCALLY, before a release: it needs the real `codex` and an
+authenticated home, and its opt-in live-turn case spends a real turn. Absent the binary it exits 0,
+which makes "portable behaviour passed" and "fidelity was verified" the same code — so the local
+pre-release run passes `--require-live` (or sets `REQUIRE_LIVE_CODEX=1`) and the skip becomes a failure.
+`orchestrate-live.test.mjs` is the second local gate: it drives the real headless `claude` binary against
+`skills/orchestrate/SKILL.md`, spending real sessions, the subagents they spawn and one `gpt-6-astra`
+Codex turn, a second one when `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` adds the delegation probe,
+which checks the `subagentThreads` of a seat that took the invitation. Without
+`CODEX_DELEGATE_LIVE_ORCHESTRATE=1` it prints one NOT RUN line and exits 0.
+
+## Why the trigger cases exist
 
 A delegation skill fails in two directions, and both are quiet. If it never fires, work that wanted a
 second, decorrelated opinion silently gets one Claude's opinion instead. If it fires on everything, every
@@ -20,40 +69,46 @@ failure they exist to catch is the quiet one: announcing "three Claude and one C
 the Codex seat with a Claude when it returns nothing, which leaves the reader believing the panel was
 decorrelated when it was not.
 
-## The runnable suites
+## Running the trigger cases
 
-All are runnable and should stay green. One command runs them all, cheapest first, stopping at the
-first red suite and printing one summary line:
+There is no harness for those. `claude plugin eval` exists in the documentation but is early access and
+absent from this build — `claude plugin --help` lists no `eval` subcommand. The sibling `arc` skill keeps
+its `evals.json` as a document for the same reason.
+
+What does work is observing a real invocation. Give an agent the case prompt verbatim, with no hint that
+it is a test, then read its transcript rather than its self-report:
 
 ```bash
-npm test                # every suite, cheapest first
+# after running a case, count actual Skill tool calls in the agent transcript
+grep -o '"name":"Skill"' <transcript>.jsonl | wc -l
+grep -oE '"skill":"(codex-delegate:)?codex-delegate"' <transcript>.jsonl | wc -l   # plugin input is codex-delegate:codex-delegate
 ```
 
-Individually, when one of them is the thing being worked on: `node evals/<name>.test.mjs` for any file
-under `evals/`. Each suite's header comment says what it measures, and a suite that spends real sessions
-or turns names the variable that arms it there.
+The count is the verdict. Do not grep for the string `codex-delegate` alone: it appears in every
+transcript as part of the available-skills listing in the system prompt, so a skill that never fired still
+matches twice.
 
-The counts are deliberately not written down here — the last one was wrong twice in two days. The `CASES`
-arrays are the inventory, and each suite states its own count in its last line.
+Ask the agent to self-report as well, but treat that as a cross-check only. An agent's account of which
+tools it used is exactly the kind of claim this skill exists to distrust.
 
-`evals/lib/harness.mjs` holds what every suite needs a copy of otherwise — the temp directories, the
-`codex` shim, one spawn helper, the case registrar and the pass/fail loop — and re-exports the driver's
-own constants — exit codes, the seat-file vocabulary, the lock key, the envelope renderer — rather than
-letting a suite restate them.
-`driver.mjs` runs `main()` only when it IS the entry point, which is what makes importing it safe.
+Three lessons cost real runs. Give the subject agent the Task tool, or a case about composition cannot be
+scored — one agent made all four seats Codex because Claude seats were physically unavailable to it, which
+measures the harness, not the skill. Never hand a subject a prompt with a blank in it: a template asking it
+to relay a counter-argument it was never given tests nothing, and refusing to invent one is the correct
+behaviour. And expect the safety classifier to block a case whose natural response is an unscoped
+`codex:codex-rescue` fan-out — two cases died that way, which is itself the finding: agents reach for the
+plugin agent by default, and without a MODE block it defaults to --write.
 
-`.github/workflows/ci.yml` runs `npm test` on every leg of its OS × Node matrix; the suites that need a
-real `codex` or `claude` skip there. It installs nothing and calls no model.
+Use unguessable ground truth. A case whose answer appears in `AGENTS.md` or `CLAUDE.md` will look like it
+passed while nothing actually ran, because those files are loaded automatically. Prefer a value that has
+to be fetched — a branch name that contradicts the documented default, a hash of a file you just wrote.
 
-`fidelity.test.mjs` runs LOCALLY, before a release: it needs the real `codex` and an
-authenticated home, and its opt-in live-turn case spends a real turn. Absent the binary it exits 0,
-which makes "portable behaviour passed" and "fidelity was verified" the same code — so the local
-pre-release run passes `--require-live` (or sets `REQUIRE_LIVE_CODEX=1`) and the skip becomes a failure.
-`orchestrate-live.test.mjs` is the second local gate: it drives the real headless `claude` binary against
-`skills/orchestrate/SKILL.md`, spending real sessions, the subagents they spawn and one `gpt-6-astra`
-Codex turn, a second one when `CODEX_DELEGATE_LIVE_ORCHESTRATE_DELEGATE=1` adds the delegation probe,
-which checks the `subagentThreads` of a seat that took the invitation. Without
-`CODEX_DELEGATE_LIVE_ORCHESTRATE=1` it prints one NOT RUN line and exits 0.
+Run the machine, not the memory. Memory is the binding constraint: an isolated delegation costs a fraction
+of a `--host-home` one (figures in [parity.md](../skills/codex-delegate/references/parity.md#fan-out-and-reporting))
+— the difference being a private copy of every MCP server in `~/.codex/config.toml`. Run these in waves
+rather than all at once. A case killed by the OS reports as a trigger failure and is not one.
+
+## What the suites are for, and what they have caught
 
 `fidelity.test.mjs` asks a different question from the fixture-driven suites, and it exists because of
 a failure they structurally cannot see. They drive the driver against the fixture, which proves the driver
@@ -66,16 +121,14 @@ So this suite performs the same `initialize` + `thread/start` handshake against 
 against the fixture, and diffs the fields the driver reasons about. No turn is started and no model is
 called, which makes it cheap enough to run on every change to either side. It SKIPS loudly when `codex` is
 absent — a missing binary is not a fidelity defect — and exits 0 in that case so a machine without codex
-can still run the rest.
+can still run the rest. Run it after any change to the fixture, after any change to what the driver sends,
+and after a codex upgrade: it is the cheapest protocol-drift detector here.
 
 Its first run found three divergences in eight cases, and taught two things no amount of code review had:
 the server applies DIFFERENT subtraction rules depending on where a root came from (`:tmpdir` roots are
 canonicalised before comparison, `writable_roots` are echoed verbatim and compared as strings), and
 `runtimeWorkspaceRoots` carries the cwd PLUS every extra writable root. The fixture had agreed with the
 server by accident, not by construction.
-
-Run it after any change to the fixture, after any change to what the driver sends, and after a codex
-upgrade — it is the cheapest protocol-drift detector here.
 
 `lock.test.mjs` covers the acquire path the protocol suite does not reach: its header comment says
 which directory states it seeds and why. A case asserts the lock is absent from the protected directory
@@ -98,6 +151,16 @@ probabilistic end-to-end case shows the bug is real, a deterministic one keeps i
 
 Every protocol case is an ordering that once produced a false success, or that a review demonstrated
 could; the header of `protocol.test.mjs` names the shapes, and each case's `why` string names its own.
+
+The fixture must match `schema-<version>/` exactly. An early version invented a top-level `turnId` on
+`TurnCompletedNotification`, which the real server does not send: the suite passed and the live driver
+rejected every real completion. A fixture that diverges from the schema is worse than no test, because it
+manufactures confidence. `conformance.test.mjs` validates every line the fixture emits against the
+pinned schemas, and refuses to run against a schema directory the driver does not pin
+(`CODEX_DELEGATE_SCHEMA_DIR` is the upgrade override), so a regeneration that changes a shape goes red
+there.
+
+## The mutation ledger
 
 A green suite is not the same as a suite that bites. Check the second property by mutating the driver in a
 copy and confirming the right cases go red — removing the `threadId` filter must fail the attribution
@@ -135,56 +198,6 @@ back to `!opts.verify` changes no reachable behaviour, because a failing verify 
 An equivalent mutant surviving is information about the code, not a hole in the suite; say so rather than
 inventing a test to cover it.
 
-The fixture must match `schema-<version>/` exactly. An early version invented a top-level `turnId` on
-`TurnCompletedNotification`, which the real server does not send: the suite passed and the live driver
-rejected every real completion. A fixture that diverges from the schema is worse than no test, because it
-manufactures confidence. `conformance.test.mjs` validates every line the fixture emits against the
-pinned schemas, so a regeneration that changes a shape goes red there.
-
-## The trigger cases
-
-There is no harness for those. `claude plugin eval` exists in the documentation but is early access and
-absent from this build — `claude plugin --help` lists no `eval` subcommand. The sibling `arc` skill keeps
-its `evals.json` as a document for the same reason.
-
-What does work is observing a real invocation. Give an agent the case prompt verbatim, with no hint that
-it is a test, then read its transcript rather than its self-report:
-
-```bash
-# after running a case, count actual Skill tool calls in the agent transcript
-grep -o '"name":"Skill"' <transcript>.jsonl | wc -l
-grep -oE '"skill":"(codex-delegate:)?codex-delegate"' <transcript>.jsonl | wc -l   # plugin input is codex-delegate:codex-delegate
-```
-
-The count is the verdict. Do not grep for the string `codex-delegate` alone: it appears in every
-transcript as part of the available-skills listing in the system prompt, so a skill that never fired still
-matches twice. Two full runs (2026-08-30) confirmed the method separates them cleanly: across 19 cases the scorer worked from agent transcripts and Codex rollout logs, and every one of the fourteen self-reports of delegation or non-delegation turned out truthful. Three lessons cost real runs. Give the subject agent the Task tool, or a case about composition cannot be scored — one agent made all four seats Codex because Claude seats were physically unavailable to it, which measures the harness, not the skill. Never hand a subject a prompt with a blank in it: a template asking it to relay a counter-argument it was never given tests nothing, and refusing to invent one is the correct behaviour. And expect the safety classifier to block a case whose natural response is an unscoped `codex:codex-rescue` fan-out — two cases died that way, which is itself the finding: agents reach for the plugin agent by default, and without a MODE block it defaults to --write. A pilot on cases 1 and 7 also separated them cleanly — one `Skill` call for
-the positive, zero for the negative, which reached for local search instead.
-
-Ask the agent to self-report as well, but treat that as a cross-check only. An agent's account of which
-tools it used is exactly the kind of claim this skill exists to distrust.
-
-## The relay eval (codex-seat)
-
-The critical property is mechanical relay: write the prompt verbatim, run the one driver command, repeat
-only the command printed for collection, and return the envelope unchanged. The final body was measured
-live on 2026-09-03 with nested Claude calls.
-
-- **sonnet: 3/3.** A header-less prompt stayed header-less and ran as a read seat; `SEAT: write
-  /nonexistent/dir` returned exit 2 and created nothing; a running seat reached its final envelope after
-  three verbatim `collect:` repeats.
-- **The runs reported as haiku on 2026-09-03 were not verified by model id.** The mechanism that made
-  them sonnet is proven: the shipped agent's frontmatter `model: sonnet` overrides a session's
-  `--model haiku`; its transcript shows `claude-sonnet-4-6` under `claude -p --model haiku`.
-- **A real haiku ignored the relay contract in 4/4 runs and answered the task itself.** It was reached
-  through a copy of the agent with `model: haiku` (or the Agent tool's model option), on both the
-  a156c52 body and the new one.
-
-The pin stays sonnet. Measure a lower model through a copy with its own model line. Earlier relay failures
-and the rules they produced live in [incidents.md](../skills/codex-delegate/references/incidents.md#a-relay-on-a-small-model).
-Still unmeasured live: the plugin-install route (`--plugin-dir` plus redirected `HOME`) and the
-`DRIVER_NOT_FOUND`/exit-90 sentinel.
-
 ## The Russian trigger cases (20–23)
 
 Run 2026-08-31 with the cheap harness (`claude -p --max-turns 2 --allowedTools Skill`, counting
@@ -196,18 +209,25 @@ the session spent its two turns reaching for `git diff` (denied — Bash was not
 never got to skill selection. Score those two only with a real diff in a real repo and full tools —
 under this harness they measure the harness.
 
+Two full runs (2026-08-30) confirmed the transcript method separates firing from not firing cleanly:
+across 19 cases the scorer worked from agent transcripts and Codex rollout logs, and every one of the
+fourteen self-reports of delegation or non-delegation turned out truthful. A pilot on cases 1 and 7 also
+separated them — one `Skill` call for the positive, zero for the negative, which reached for local search
+instead.
+
 ## What no pass has attacked
 
 The coverage ledger — the honest ceiling on any "adversarially reviewed" claim, moved here from the
-0.1.0 changelog because it is a living list, not history. **As of 2026-09-02:**
+0.1.0 changelog because it is a living list, not history. **As of 2026-09-08:**
 
 `evals/fake-app-server.mjs` is still the oracle for every protocol and lock assertion, and three fixture
 failures have already kept false confidence green: schemas were not strict; commands were emitted bare
 while the live server wraps each as `<shell> -c '<script>'` with bare text in `commandActions` (making
-the probe exemption dead in production); and `exitedReviewMode.review` was invented as an object instead
-of the live string. The fixture now emits those shapes, conformance drives its exported `SCENARIOS`
-inventory (regex discovery had skipped eleven scenarios, including both review emitters), and
-`CODEX_DELEGATE_LIVE_TURN=1` diffs live item key sets against fixture helpers. Assume more of that.
+the probe exemption dead in production); and a review payload was invented as an object instead of the
+live string. The fixture now emits those shapes, an unknown scenario name is fatal there rather than
+answered with a success, conformance drives its exported `SCENARIOS` inventory (regex discovery had
+skipped eleven scenarios), and `CODEX_DELEGATE_LIVE_TURN=1` diffs live item key sets against fixture
+helpers. Assume more of that.
 
 Struck by being attacked: the verify-exit-126 branch (covered), the `budget-exhausted` branch
 (covered, via an overridable floor because the timing window is a coin flip), the receipt locator
@@ -217,24 +237,12 @@ lock-release ordering (covered as a differential), the seat file's rights-inject
 
 Struck since: resume (the protocol suite pins resume-busy, resumed-thread attribution and a resumed
 seat's budget; the lock suite pins `--resume last`), the stdout drain path (a closed pipe and a paused
-one, both during a large report), `--ephemeral` (no job record, no continue-with line, nothing for
-`--resume last`), `--host-home` (a TERM-ignoring descendant swept, the lock released, the report written,
-under a temporary home), and Linux — unmeasured until CI, now a matrix leg on every push.
+one, both during a large report, and the report file that survives both), `--host-home` (a TERM-ignoring
+descendant swept, the lock released, the report written, under a temporary home), the exit ladder (one
+case per rung, each rung a pure function of its context), and Linux — unmeasured until CI, now a matrix
+leg on every push.
 
 Still untouched: the managed-profile (`managedWebSearchModes`) path, which needs a real MDM plist. Nobody
 has installed this on a clean machine other than in a redirected `HOME` under an audit. The protocol and
 lock suites' own assertions were used as mutation detectors but never questioned. Strike items from this
 list by attacking them, not by shipping features near them.
-
-## Keeping them honest
-
-Two rules, both learned the hard way in this repo:
-
-Use unguessable ground truth. A case whose answer appears in `AGENTS.md` or `CLAUDE.md` will look like it
-passed while nothing actually ran, because those files are loaded automatically. Prefer a value that has
-to be fetched — a branch name that contradicts the documented default, a hash of a file you just wrote.
-
-Run the machine, not the memory. Memory is the binding constraint: an isolated delegation costs a fraction
-of a `--host-home` one (figures in [parity.md](../skills/codex-delegate/references/parity.md#fan-out-and-reporting))
-— the difference being a private copy of every MCP server in `~/.codex/config.toml`. Run these in waves rather than all at once. A case killed by
-the OS reports as a trigger failure and is not one.
