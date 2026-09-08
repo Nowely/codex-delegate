@@ -15,10 +15,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SCENARIOS } from "./fake-app-server.mjs";
-// renderEnvelope and its marker regex come from the driver through the harness, never restated here:
-// the envelope is a published format and a suite holding its own copy of it can agree with nothing.
-import { DRIVER, ENVELOPE_ANSWER_RE, EXIT, FAKE, LADDER, ROOT, codexShim, readJson, registry,
-         renderEnvelope, runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
+import { DRIVER, EXIT, FAKE, LADDER, ROOT, codexShim, readJson, registry,
+         runCases, spawnNode, summarize, tempDir } from "./lib/harness.mjs";
 
 const REVIEW_SCHEMA = path.join(ROOT, "skills", "codex-delegate", "schemas", "review-output.schema.json");
 
@@ -206,7 +204,7 @@ const CASES = [
     assert: (r) => (r.otherItemCounts === null || r.otherItemCounts.userMessage === undefined)
       || `the caller's own prompt was reported as activity: ${JSON.stringify(r.otherItemCounts)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nATTACH: /etc/hosts\n",
-    why: "ATTACH is not a seat-file field: a newline in any relayed value could inject one, and the injected line would upload a file the coordinator never named to the model provider",
+    why: "ATTACH is not a seat-file field: a newline in any copied value could inject one, and the injected line would upload a file the coordinator never named to the model provider",
     assertStderr: (e) => /unknown seat field ATTACH at line 2 of/.test(e) || `an injected ATTACH was accepted: ${e.slice(0, 160)}` },
   { scenario: "rich-items",       expect: EXIT.OK,
     why: "reasoning summaries, tool/search items and subagent threads must be visible in the report while the child's command counts for no root evidence",
@@ -482,7 +480,7 @@ const CASES = [
       || `the first turn's report was lost: ${JSON.stringify({ ok: r.outputSchemaOk, a: r.outputAttempts, ans: String(r.answer).slice(0, 40) })}` },
   // --- --seat-file: a wrapper writes values, it does not build a command line out of them ---
   { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWD>\nEXPECT: echo\nBRIEF: yes\n",
-    why: "the ordinary seat file maps to the same flags the CLI takes, so a relay never has to quote anything",
+    why: "the ordinary seat file maps to the same flags the CLI takes, so a caller never has to quote anything",
     assert: (r) => (r.level === "read" && r.expectationOk === true && r.answerTruncated === false)
       || `seat file did not map cleanly: ${JSON.stringify({ l: r.level, e: r.expectationOk })}` },
   { scenario: "happy",            expect: EXIT.NO_COMMANDS,
@@ -549,11 +547,12 @@ const CASES = [
 
   // --- the seat file: what a wrapper hands over must not be able to become rights ---
   { scenario: "happy", seat: "EXPECT: foo\nSEAT: read <CWD>\n", expect: EXIT.USAGE,
-    why: "SEAT must come FIRST. A relay that wrote any other field first left the rights slot open, and an injected `SEAT: write ...` line then defined them",
+    why: "SEAT must come FIRST. A file whose first field is anything else left the rights slot open, and an injected `SEAT: write ...` line then defined them",
     assertStderr: (e) => /first field must be SEAT/.test(e) || `a seat file without a leading SEAT was accepted: ${e.slice(0, 160)}` },
-  { scenario: "happy", seat: "# a header that declares nothing\n\n", expect: EXIT.USAGE,
-    why: "a seat file with no SEAT at all declares no rights, and defaulting them is exactly what a rights declaration exists to prevent. Comments and blank lines are the only way past the first-field check, so this is the case that reaches the final one",
-    assertStderr: (e) => /no SEAT field/.test(e) || `a seat file with no SEAT was accepted: ${e.slice(0, 160)}` },
+  { scenario: "happy", noPrompt: true, seat: "# a header that declares nothing\n\nTASK: do it\n", expect: EXIT.OK,
+    why: "a seat file with no SEAT at all is a coordinator's prompt copied verbatim, which is what the direct route hands over; the default it falls back to is the narrowest seat there is, and it is REPORTED as undeclared so nobody reads it as a grant somebody made",
+    assert: (r) => (r.level === "read" && !(r.seatFileFields ?? []).includes("SEAT"))
+      || `a header-less file did not default to a read seat: ${JSON.stringify({ level: r.level, fields: r.seatFileFields })}` },
   { scenario: "happy", seat: "SEAT: read <CWD>\nVERIFY: touch <CWD>/seat-verify-must-not-run\n", expect: EXIT.USAGE,
     why: "VERIFY runs an unsandboxed shell with the caller's rights, so a newline-injected header must not enable it; seat-file use requires --allow-seat-verify on the command line",
     assertStderr: (e) => /allow-seat-verify/.test(e) || `a seat file supplied a verifier unasked: ${e.slice(0, 200)}` },
@@ -704,7 +703,7 @@ const CASES = [
     assert: (r) => (!/Put anything longer/.test(String(r.answer)) && /ONE JSON object/.test(String(r.answer)))
       || `the contradictory pair was still sent: ${String(r.answer).slice(0, 300)}` },
 
-  // --- the seat file is written by a relay, so it must take the shapes a relay writes ---
+  // --- the seat file is written by a program, so it must take the shapes a program writes ---
   { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nNETWORK: no\nALLOW_NO_COMMANDS: false\nBRIEF: 0\n", expect: EXIT.OK,
     why: "NETWORK/ALLOW_NO_COMMANDS/BRIEF must accept explicit false values in a header template without enabling the flag or rejecting the seat",
     assert: (r) => (r.network === false && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,ALLOW_NO_COMMANDS,BRIEF")
@@ -808,29 +807,21 @@ const CASES = [
 
   // --- the bounds and the transport are flags: a seat file naming one is exit 2 ---
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nTIMEOUT: 30\n",
-    why: "the wall clock is the configuration the default exists to remove: a relay that copies a TIMEOUT out of a header reintroduces exactly the bound every seat would otherwise have to size, so the field is refused and the flag stays for the caller who really wants one",
+    why: "the wall clock is the configuration the default exists to remove: a header that carries a TIMEOUT reintroduces exactly the bound every seat would otherwise have to size, so the field is refused and the flag stays for the caller who really wants one",
     assertStderr: (e) => /TIMEOUT is command-line-only; pass --timeout/.test(e)
       || `a seat file still set the wall clock: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nIDLE_TIMEOUT: 300\n",
-    why: "the default idle guard and command cap belong to the driver; a relayed header must not widen or disable these hang guards",
+    why: "the default idle guard and command cap belong to the driver; a copied header must not widen or disable these hang guards",
     assertStderr: (e) => /IDLE_TIMEOUT is command-line-only; pass --idle-timeout/.test(e)
       || `a seat file still set the silence guard: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nMAX_COMMANDS: 2\n",
     assertStderr: (e) => /MAX_COMMANDS is command-line-only; pass --max-commands/.test(e)
       || `a seat file still set the command cap: ${e.slice(0, 200)}`,
     why: "the volume cap is the maxTurns a native subagent has; the driver owns it" },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nDETACH: yes\n",
-    why: "the transport is the driver's, not the header's: DETACH, WAIT_TIMEOUT and COLLECT describe how a run is carried rather than what it may do, and a relay that writes them is choosing a transport its coordinator never asked about",
-    assertStderr: (e) => /DETACH is command-line-only; pass --detach/.test(e)
-      || `a seat file still chose the transport: ${e.slice(0, 200)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nWAIT_TIMEOUT: 560\n",
-    assertStderr: (e) => /WAIT_TIMEOUT is command-line-only; pass --wait-timeout/.test(e)
-      || `a seat file still sized a wait: ${e.slice(0, 200)}`,
-    why: "one wait's own budget is the collector's business, and the collector is a flag" },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nCOLLECT: thr_root\n",
-    assertStderr: (e) => /COLLECT is command-line-only; pass --wait/.test(e)
-      || `a seat file still collected a run: ${e.slice(0, 200)}`,
-    why: "collecting a detached run is a whole mode of its own, reached with --wait" },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nREPORT_FILE: /tmp/elsewhere.json\n",
+    why: "the delivery is the caller's, not the header's: the report file is where the run's whole evidence lands, so a line inside the prompt that redirects it is a seat writing its own answer somewhere its coordinator never looks",
+    assertStderr: (e) => /REPORT_FILE is command-line-only; pass --report-file/.test(e)
+      || `a seat file still chose where the report lands: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nTIMEOUT: 30\n", args: ["--timeout", "5"],
     why: "and the refusal is not waived by passing the flag too: a seat file that names a bound is a caller who believes the file decides it, and running the flag's value silently would leave that belief in place",
     assertStderr: (e) => /TIMEOUT is command-line-only/.test(e)
@@ -949,7 +940,7 @@ const CASES = [
     assert: (r) => (r.cwd === (fs.realpathSync(process.cwd())) && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
       || `a bare SEAT: read did not default to the current directory: ${JSON.stringify({ cwd: r.cwd, fields: r.seatFileFields })}` },
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: write\n",
-    why: "and NOT at write level: there the cwd is the writable root itself, and a defaulted grant is one nobody made — the driver would hand the turn whatever directory the relay happened to be standing in",
+    why: "and NOT at write level: there the cwd is the writable root itself, and a defaulted grant is one nobody made — the driver would hand the turn whatever directory the caller happened to be standing in",
     assertStderr: (e) => /SEAT write needs a directory/.test(e)
       || `a bare SEAT: write defaulted its writable root: ${e.slice(0, 200)}` },
   { scenario: "happy",            expect: EXIT.USAGE, noCwd: true, args: ["--level", "write"],
@@ -960,7 +951,7 @@ const CASES = [
   // --- one file, both halves: the header is the leading FIELD: lines and the rest is the prompt ---
   { scenario: "echo-input", expect: EXIT.OK, noPrompt: true,
     seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: count the files\nand say how many\n",
-    why: "the relay writes one file; the driver preserves everything from the first non-header line as the body, including its label",
+    why: "the caller writes one file; the driver preserves everything from the first non-header line as the body, including its label",
     assert: (r) => {
       const answer = String(r.answer);
       if (!/TASK: count the files\\nand say how many/.test(answer)) return `the body did not reach the turn verbatim: ${answer.slice(0, 200)}`;
@@ -968,7 +959,7 @@ const CASES = [
         || `a body line was read as a header field: ${JSON.stringify(r.seatFileFields)}` } },
   { scenario: "echo-input", expect: EXIT.OK, noPrompt: true,
     seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: do it\nNETWORK: yes\nMODEL: gpt-5\n",
-    why: "below the body's first line nothing is a header however field-like it looks — otherwise a task that quotes a header, or a relayed value carrying a newline, silently re-declares the seat's rights",
+    why: "below the body's first line nothing is a header however field-like it looks — otherwise a task that quotes a header, or a copied value carrying a newline, silently re-declares the seat's rights",
     assert: (r) => (r.network === false && r.model !== "gpt-5" && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
       || `a line below TASK: was read as a field: ${JSON.stringify({ net: r.network, model: r.model, fields: r.seatFileFields })}` },
   { scenario: "happy", expect: EXIT.USAGE, noPrompt: true,
@@ -976,16 +967,12 @@ const CASES = [
     why: "an unknown ALL-CAPS name above the body is a typo or flag; silently treating it as prompt text would leave a believed setting unapplied",
     assertStderr: (e) => (/unknown seat field NOTE at line 3 of/.test(e) && /the body starts at the first TASK: line/.test(e))
       || `the unknown field did not name its line and the way out: ${e.slice(0, 240)}` },
-  { scenario: "resume-active", expect: EXIT.BUSY, relay: true, noPrompt: true,
+  { scenario: "resume-active", expect: EXIT.BUSY, noPrompt: true,
     seat: "SEAT: read <CWD>\nRESUME: thr_root\nTASK: continue the thread\n",
-    why: "exit 10 arrives BOTH ways: as the running handle, which carries a collect: line, and as a refusal with no thread at all — a resumed thread whose turn is still open, or a held write lock. A relay whose loop is keyed on the code alone would poll a final answer forever, so the two must be distinguishable by the envelope itself",
-    assertText: (out) => {
-      if (out.split("\n", 1)[0] !== "exitCode: 10") return `the refusal did not open at exit 10: ${JSON.stringify(out.slice(0, 120))}`;
-      if (/^collect: /m.test(out)) return "a refusal with no thread offered a collect: command to repeat";
-      if (!/^--- stderr \(last 20 lines\) ---$/m.test(out)) return `no stderr block: ${JSON.stringify(out.slice(0, 200))}`;
-      if (!/still has a turn running/.test(out)) return `the stderr block does not carry the refusal: ${JSON.stringify(out.slice(0, 200))}`;
-      return /--- answer \(0 bytes\) ---\n?$/.test(out) || `the envelope does not end at a 0-byte answer: ${JSON.stringify(out.slice(-80))}`;
-    } },
+    why: "a resumed thread whose turn is still open is exit 10 with no report at all, like a held write lock: the caller reads the reason on stderr, and a coordinator that treated 10 as 'still starting' would wait on a run that already refused",
+    assertStderr: (e) => /still has a turn running/.test(e)
+      || `the refusal does not say the thread is busy: ${e.slice(0, 200)}`,
+    assertText: (out) => out.trim() === "" || `a pre-turn refusal printed ${out.length} bytes on stdout` },
   { scenario: "happy", expect: EXIT.USAGE,
     seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: the file's own body\n",
     why: "the file's body and --prompt are two prompts, and no rule says which one ran; the harness passes --prompt to every case that does not opt out, so this is also what proves the body route is the one being measured above",
@@ -1011,14 +998,13 @@ let caseSeq = 0;
 function run(c) {
   return new Promise((resolve) => {
     const stateRoot = path.join(shimDir, "case-state", String(caseSeq++));
-    // A seat-file case writes its declaration to disk and passes only --seat-file, exactly as the
-    // codex-seat relay does — the point being that no value ever passes through a shell. `relay: true`
-    // is the same file through --relay, which is the whole of the relay's command line.
+    // A seat-file case writes its declaration to disk and passes only --seat-file, exactly as a
+    // coordinator does — the point being that no value ever passes through a shell.
     let seatArgs = [];
     if (c.seat) {
       const f = path.join(shimDir, `seat-${seatSeq++}.txt`);
       fs.writeFileSync(f, c.seat.replaceAll("<CWD>", shimDir).replaceAll("<CWDSP>", spacedDir));
-      seatArgs = [c.relay ? "--relay" : "--seat-file", f];
+      seatArgs = ["--seat-file", f];
     }
     const { child: p, done } = spawnNode(
       // Give cases a wall clock to bound hung fixtures; noTimeout opts out to measure the default.
@@ -1037,9 +1023,10 @@ function run(c) {
   });
 }
 
-// --- detached seats: a handshake, a wait and a collection, each step's state the next step's input ---
+// --- flows: what one run of the driver cannot express ---
 //
-// One run of the driver cannot express any of this, so these are procedural rather than table cases.
+// A record written by one run and read by the next, a report delivered to a file, a signal mid-turn:
+// each step's state is the next step's input, so these are procedural rather than table cases.
 // Each gets a state directory of its own: every fixture run reports the SAME thread id, so a shared
 // registry would let one flow read another's record.
 const { cases: FLOWS, test: flow } = registry();
@@ -1051,12 +1038,6 @@ const flowState = () => {
 };
 const recordOf = (state, id = "thr_root") => readJson(path.join(state, "jobs", `${id}.json`));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-// A pid that is certainly gone: a process this suite started and reaped.
-const deadPid = () => {
-  const r = spawnSync(process.execPath, ["-e", ""]);
-  return r.pid ?? 999999;
-};
-
 // Poll until the predicate holds, so a flow never sleeps for a fixed guess.
 async function until(fn, ms = 15000) {
   for (const end = Date.now() + ms; Date.now() < end; ) {
@@ -1066,129 +1047,6 @@ async function until(fn, ms = 15000) {
   }
   return null;
 }
-
-flow("--detach hands back a handle while the run is still going, and the run outlives the front",
-  "the whole point of the transport: the front returns exit 10 with an address, and the seat it started keeps working in a process the front does not own",
-  async () => {
-    const state = flowState();
-    const { code, out, err } = await run({ scenario: "slow-turn", args: ["--detach", "--timeout", "30"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.BUSY) return `expected exit 10, got ${code}: ${err.slice(0, 200)}`;
-    const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
-    if (!h) return `the handle is not JSON: ${out.slice(0, 160)}`;
-    if (h.detached !== true || h.exitCode !== EXIT.BUSY || h.turnStatus !== "running" || h.threadId !== "thr_root")
-      return `the handle is not the running shape: ${JSON.stringify(h)}`;
-    for (const k of ["pid", "runId", "jobPath", "reportPath", "stderrPath", "startedAt"])
-      if (h[k] === null || h[k] === undefined) return `the handle has no ${k}: ${JSON.stringify(h)}`;
-    // The handshake file the front waited on, and the run's own process — neither is the front's.
-    const launch = readJson(path.join(h.runDir, "launch.json"));
-    if (launch?.threadId !== "thr_root" || launch.pid !== h.pid)
-      return `launch.json does not name the run: ${JSON.stringify(launch)}`;
-    // The front is gone (run() resolved on its close) and the seat is not.
-    let alive = false;
-    try { process.kill(h.pid, 0); alive = true; } catch {}
-    const rec = recordOf(state);
-    if (!alive && !rec?.endedAt) return "the detached run is neither alive nor finished";
-    if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";
-    return true;
-  });
-
-flow("--wait delivers the detached run's report byte for byte, under the code the run itself decided",
-  "a collector that reformatted or re-derived anything would be a second report format to keep in sync; the coordinator must get exactly what the blocking driver would have printed",
-  async () => {
-    const state = flowState();
-    const first = await run({ scenario: "happy", args: ["--detach", "--timeout", "30"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (first.code !== EXIT.BUSY) return `the detach exited ${first.code}: ${first.err.slice(0, 200)}`;
-    const h = JSON.parse(first.out);
-    if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";
-    const onDisk = fs.readFileSync(h.reportPath, "utf8");
-    const collected = await run({ scenario: "happy", args: ["--wait", "thr_root", "--wait-timeout", "20"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (collected.out !== onDisk)
-      return `--wait did not deliver the report verbatim (${collected.out.length} bytes vs ${onDisk.length})`;
-    const rec = recordOf(state);
-    if (collected.code !== rec.exitCode)
-      return `--wait exited ${collected.code}, the run decided ${rec.exitCode}`;
-    if (JSON.parse(onDisk).exitCode !== rec.exitCode)
-      return `the record and the report disagree: ${rec.exitCode} vs ${JSON.parse(onDisk).exitCode}`;
-    return true;
-  });
-
-flow("--wait that runs out of budget hands back the handle, not a verdict",
-  "a collector that timed out into an exit code would turn 'I stopped waiting' into 'the seat failed', which is the confusion the whole running shape exists to prevent",
-  async () => {
-    const state = flowState();
-    const first = await run({ scenario: "stalled-turn", args: ["--detach", "--timeout", "30"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (first.code !== EXIT.BUSY) return `the detach exited ${first.code}: ${first.err.slice(0, 200)}`;
-    const h = JSON.parse(first.out);
-    const collected = await run({ scenario: "stalled-turn", args: ["--wait", "thr_root", "--wait-timeout", "1"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    try { process.kill(h.pid, "SIGKILL"); } catch {}
-    if (collected.code !== EXIT.BUSY) return `expected exit 10 at the budget, got ${collected.code}`;
-    const back = (() => { try { return JSON.parse(collected.out); } catch { return null; } })();
-    if (back?.turnStatus !== "running" || back.threadId !== "thr_root")
-      return `the budget did not return the running shape: ${collected.out.slice(0, 160)}`;
-    return true;
-  });
-
-flow("a run that died without writing a report is exit 4, not a wait that never ends",
-  "no endedAt and no process is a state a poller cannot resolve on its own; calling it still running wedges the coordinator for as long as the record is kept",
-  async () => {
-    const state = flowState();
-    const jobs = path.join(state, "jobs");
-    fs.mkdirSync(jobs, { recursive: true });
-    fs.writeFileSync(path.join(jobs, "thr_dead.json"), JSON.stringify({
-      threadId: "thr_dead", pid: deadPid(), cwd: shimDir, level: "read",
-      started: new Date().toISOString(), timeout: 900 }));
-    const { code, err } = await run({ scenario: "happy", args: ["--wait", "thr_dead", "--wait-timeout", "5"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.TRANSPORT) return `expected exit 4, got ${code}: ${err.slice(0, 200)}`;
-    return /died without a report \(pid \d+ gone\)/.test(err) || `the refusal did not say why: ${err.slice(0, 200)}`;
-  });
-
-flow("--jobs derives running, crashed and ended from pid liveness, and spawns nothing",
-  "a stored status is a lie the moment the process holding it is killed; and a listing that started a codex to answer 'what is running' would cost a delegation per poll",
-  async () => {
-    const state = flowState();
-    const jobs = path.join(state, "jobs");
-    fs.mkdirSync(jobs, { recursive: true });
-    const base = { cwd: shimDir, level: "read", started: new Date().toISOString(), timeout: 900 };
-    fs.writeFileSync(path.join(jobs, "thr_run.json"), JSON.stringify({ ...base, pid: process.pid, runId: "r1",
-      // The mid-flight snapshot a live run keeps rewriting: --jobs is what a coordinator polls when it
-      // did not keep the handle, and "running" alone does not say whether the seat is working.
-      lastEventAt: new Date().toISOString(), tokensSpent: 4200, commandsSeen: 7, phase: "commandExecution" }));
-    fs.writeFileSync(path.join(jobs, "thr_dead.json"), JSON.stringify({ ...base, pid: deadPid() }));
-    fs.writeFileSync(path.join(jobs, "thr_done.json"), JSON.stringify({ ...base, pid: deadPid(),
-      endedAt: new Date().toISOString(), exitCode: 0, answerPath: "/tmp/a.md" }));
-    // A record belonging to another directory, to prove --cwd narrows rather than decorates.
-    fs.writeFileSync(path.join(jobs, "thr_other.json"), JSON.stringify({ ...base, cwd: os.tmpdir(), pid: process.pid }));
-    // A codex on PATH that would leave a trace if it were ever started.
-    const marker = path.join(state, "codex-ran");
-    const probeShim = path.join(state, "shim");
-    fs.mkdirSync(probeShim, { recursive: true });
-    fs.writeFileSync(path.join(probeShim, "codex"), `#!/bin/sh\necho ran >> "${marker}"\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
-    const { code, out } = await run({ scenario: "happy", args: ["--jobs", "--cwd", shimDir],
-      env: { CODEX_DELEGATE_STATE_DIR: state, PATH: `${probeShim}:${process.env.PATH}` } });
-    if (code !== EXIT.OK) return `--jobs exited ${code}`;
-    if (fs.existsSync(marker)) return "--jobs spawned a codex";
-    const rows = (() => { try { return JSON.parse(out); } catch { return null; } })();
-    if (!Array.isArray(rows)) return `--jobs did not print an array: ${out.slice(0, 160)}`;
-    const by = Object.fromEntries(rows.map((r) => [r.threadId, r]));
-    if (rows.length !== 3) return `--cwd did not narrow the listing: ${JSON.stringify(rows.map((r) => r.threadId))}`;
-    if (by.thr_run?.status !== "running" || by.thr_dead?.status !== "crashed" || by.thr_done?.status !== "ended")
-      return `derived statuses wrong: ${JSON.stringify(rows.map((r) => [r.threadId, r.status]))}`;
-    for (const k of ["threadId", "cwd", "repo", "level", "pid", "status", "exitCode", "startedAt", "endedAt",
-                     "answerPath", "reportPath", "runId", "lastEventAt", "tokensSpent", "commandsSeen", "phase"])
-      if (!(k in by.thr_done)) return `--jobs dropped the ${k} field: ${JSON.stringify(by.thr_done)}`;
-    // Carried through, not merely present: a listing that nulled them would answer every poll with
-    // "a process exists", which is what the record already said.
-    if (by.thr_run.tokensSpent !== 4200 || by.thr_run.commandsSeen !== 7 || by.thr_run.phase !== "commandExecution"
-        || !Number.isFinite(Date.parse(by.thr_run.lastEventAt)))
-      return `--jobs did not carry the mid-flight fields: ${JSON.stringify(by.thr_run)}`;
-    return true;
-  });
 
 flow("with no wall clock, a prompt that never arrives on stdin is ended by the silence budget",
   "with no wall clock, an open stdin pipe from a dead caller can hold the driver forever before any thread exists; the stdin read needs its own bound",
@@ -1209,87 +1067,6 @@ flow("with no wall clock, a prompt that never arrives on stdin is ended by the s
     if (!/no prompt arrived on stdin within the 2s silence budget/.test(err))
       return `the abort did not name the budget that ended it: ${err.slice(0, 200)}`;
     return ms < 15000 || `the silence budget took ${ms}ms to fire`;
-  });
-
-flow("a detached run with no --timeout records no wall clock, and still ends on its own",
-  "the detached route uses the same no-wall-clock default as the blocking route, leaving no implicit budget for a coordinator to size",
-  async () => {
-    const state = flowState();
-    const { code, out, err } = await run({ scenario: "slow-turn", args: ["--detach"], noTimeout: true,
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.BUSY) return `expected exit 10, got ${code}: ${err.slice(0, 200)}`;
-    const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
-    if (h?.turnStatus !== "running") return `the handle is not the running shape: ${out.slice(0, 160)}`;
-    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
-    if (!rec) return "the detached run never finished";
-    if (rec.timeout !== 0) return `the detached run recorded a wall clock of ${rec.timeout}`;
-    if (rec.exitCode !== EXIT.OK) return `the unbounded detached run exited ${rec.exitCode}`;
-    return true;
-  });
-
-flow("--cancel still stops a seat with no wall clock, hours after it started",
-  "a run with no declared budget must remain cancellable regardless of age; the recorded process identity guards against pid recycling without inventing an age cap",
-  async () => {
-    const state = flowState();
-    const jobs = path.join(state, "jobs");
-    fs.mkdirSync(jobs, { recursive: true });
-    // A real process to signal, and the identity the driver would have recorded for it: a pid alone
-    // could be a stranger, and this is the check that says it is not.
-    const sleeper = spawn("/bin/sh", ["-c", "sleep 30"], { stdio: "ignore" });
-    const identity = (() => {
-      try {
-        const stat = fs.readFileSync(`/proc/${sleeper.pid}/stat`, "utf8");
-        const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-        if (after[19]) return `starttime:${after[19]}`;
-      } catch {}
-      const r = spawnSync("ps", ["-o", "lstart=", "-p", String(sleeper.pid)],
-        { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
-      const t = r.status === 0 ? String(r.stdout ?? "").trim() : "";
-      return t ? `lstart:${t}` : null;
-    })();
-    fs.writeFileSync(path.join(jobs, "thr_old.json"), JSON.stringify({
-      cwd: shimDir, level: "read", pid: sleeper.pid, identity, timeout: 0,
-      started: new Date(Date.now() - 3 * 3600 * 1000).toISOString() }));
-    const { code, err } = await run({ scenario: "happy", args: ["--cancel", "thr_old"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    const gone = await until(() => { try { process.kill(sleeper.pid, 0); return null; } catch { return true; } });
-    try { sleeper.kill("SIGKILL"); } catch {}
-    if (code !== EXIT.OK) return `--cancel refused a three-hour-old seat with no wall clock: exit ${code} (${err.slice(0, 200)})`;
-    if (!gone) return "the signal never reached the recorded pid";
-    // And a run that DID declare a budget still gets the age guard: the pid it names is the one the
-    // record can no longer vouch for.
-    fs.writeFileSync(path.join(jobs, "thr_bounded.json"), JSON.stringify({
-      cwd: shimDir, level: "read", pid: process.pid, timeout: 60,
-      started: new Date(Date.now() - 3 * 3600 * 1000).toISOString() }));
-    const bounded = await run({ scenario: "happy", args: ["--cancel", "thr_bounded"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    return (bounded.code === EXIT.USAGE && /longer ago than its own budget/.test(bounded.err))
-      || `a declared budget lost its age guard: exit ${bounded.code} (${bounded.err.slice(0, 200)})`;
-  });
-
-flow("--cancel signals the run, and the interrupted report lands at the run's own report path",
-  "cancelling is only useful if the work so far survives it: the seat's own signal handler writes the full report, so the coordinator gets evidence rather than an empty file",
-  async () => {
-    const state = flowState();
-    const first = await run({ scenario: "stalled-turn", args: ["--detach", "--timeout", "60"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (first.code !== EXIT.BUSY) return `the detach exited ${first.code}: ${first.err.slice(0, 200)}`;
-    const h = JSON.parse(first.out);
-    const cancelled = await run({ scenario: "stalled-turn", args: ["--cancel", "thr_root"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (cancelled.code !== EXIT.OK) return `--cancel exited ${cancelled.code}: ${cancelled.err.slice(0, 200)}`;
-    if (!await until(() => recordOf(state)?.endedAt)) return "the cancelled run never wrote its record";
-    const report = readJson(h.reportPath);
-    if (report?.turnStatus !== "interrupted")
-      return `the cancelled run did not write an interrupted report: ${JSON.stringify(report?.turnStatus)}`;
-    if (report.exitCode !== EXIT.TURN_NOT_COMPLETED)
-      return `the interrupted report exited ${report.exitCode}, expected 1`;
-    // And a second --cancel is a refusal with a reason, not a signal into the void.
-    const again = await run({ scenario: "stalled-turn", args: ["--cancel", "thr_root"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (again.code !== EXIT.USAGE || !/already ended/.test(again.err))
-      return `cancelling a finished run was not refused: exit ${again.code} ${again.err.slice(0, 160)}`;
-    return true;
   });
 
 flow("resuming a thread whose own driver is still alive is exit 10, decided locally",
@@ -1315,23 +1092,6 @@ flow("resuming a thread whose own driver is still alive is exit 10, decided loca
     return true;
   });
 
-flow("the job record carries the mid-flight fields a poller reads",
-  "a detached seat cannot push progress anywhere (a subagent has no channel to its coordinator), so the record IS the progress: without lastEventAt, tokensSpent, commandsSeen and phase, --jobs can only say 'a process exists'",
-  async () => {
-    const state = flowState();
-    const { code } = await run({ scenario: "happy", args: ["--detach", "--timeout", "30"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.BUSY) return `the detach exited ${code}`;
-    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
-    if (!rec) return "the detached run never finished";
-    for (const k of ["lastEventAt", "commandsSeen", "phase", "runId", "runDir", "reportPath", "stderrPath", "promptPath", "detached", "identity", "timeout"])
-      if (rec[k] === undefined) return `the record has no ${k}: ${JSON.stringify(Object.keys(rec))}`;
-    if (!Number.isFinite(Date.parse(rec.lastEventAt))) return `lastEventAt is not a timestamp: ${rec.lastEventAt}`;
-    if (rec.commandsSeen !== 1 || rec.phase !== "agentMessage")
-      return `the mid-flight snapshot did not follow the turn: ${JSON.stringify({ c: rec.commandsSeen, p: rec.phase })}`;
-    return true;
-  });
-
 flow("endedAt is written only once the report has actually landed",
   "endedAt is the flag every collector reads to decide the report is there: written before the bytes, a --wait racing a large report delivers a truncated one, and a report that never reached its caller is recorded as the success it was not",
   async () => {
@@ -1348,275 +1108,220 @@ flow("endedAt is written only once the report has actually landed",
     return true;
   });
 
-flow("a job record closed on a broken pipe still carries the run's gates",
-  "the record is the ONLY thing a run leaves when its report cannot be written, and it is what `--relay --wait` renders an envelope from: without the gates the envelope reports `receiptOk: null` and `commandsSucceeded: null` for a run that measured both, which reads as evidence nobody collected",
+flow("the job record is private resume metadata, and a record from an older release loses the rest of it",
+  "the record is not a second report: with a run's gates, progress and transport in it, whoever found the record first read a second, staler answer about the same seat — and a record written by a release that kept them has to lose them rather than outlive the interfaces that filled it",
   async () => {
     const state = flowState();
-    const { code } = await run({ scenario: "long-answer", closeStdout: true,
+    const jobs = path.join(state, "jobs");
+    fs.mkdirSync(jobs, { recursive: true });
+    // A record in the shape an earlier release wrote, for a thread this run is about to continue.
+    fs.writeFileSync(path.join(jobs, "thr_root.json"), JSON.stringify({
+      threadId: "thr_root", cwd: shimDir, level: "read", pid: 2147483646, timeout: 900,
+      started: new Date(Date.now() - 60000).toISOString(), endedAt: new Date(Date.now() - 30000).toISOString(),
+      exitCode: 0, detached: true, runId: "r9", runDir: "/tmp/gone", reportPath: "/tmp/gone/report.json",
+      stderrPath: "/tmp/gone/stderr.txt", promptPath: "/tmp/gone/prompt.txt", worktreeName: "wt-1",
+      lastEventAt: "2026-01-01T00:00:00.000Z", tokensSpent: 1, commandsSeen: 1, phase: "agentMessage",
+      receiptOk: true, commandsSucceeded: 1, commandsFailed: 0, verify: null, verifySkipped: null, cut: null }));
+    // A slow scenario, so the record can be read WHILE the resumed turn runs: every closing field in it
+    // belongs to the run that ended, and `endedAt` left in place says this thread is finished while its
+    // new turn is going — which is exactly what the resume guard returns on.
+    const pending = run({ scenario: "slow-turn", args: ["--resume", "last", "--timeout", "30"],
       env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.TRANSPORT) return `a report that could not be written exited ${code}, expected 4`;
+    const live = await until(() => {
+      const r = recordOf(state);
+      return r && r.pid !== 2147483646 && !r.endedAt ? r : null;
+    });
+    const { code, out, err } = await pending;
+    if (code !== EXIT.OK) return `the resumed run exited ${code}: ${err.trim().slice(-200)}`;
+    if (!live) return "the resumed run kept the earlier run's endedAt while its own turn was going";
+    if (live.turnStatus !== undefined || live.exitCode !== undefined)
+      return `the resumed run kept the earlier run's verdict while its own turn was going: ${JSON.stringify({ t: live.turnStatus, e: live.exitCode })}`;
     const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
-    if (!rec) return "no record was closed at all";
-    for (const k of ["receiptOk", "commandsSucceeded", "commandsFailed", "verify", "verifySkipped", "cut"])
-      if (rec[k] === undefined) return `the record lost ${k}: ${JSON.stringify(Object.keys(rec))}`;
-    if (typeof rec.receiptOk !== "boolean")
-      return `receiptOk is not the gate the run computed: ${JSON.stringify(rec.receiptOk)}`;
-    if (rec.commandsSucceeded !== 1 || rec.commandsFailed !== 0)
-      return `the command counts are not this run's: ${JSON.stringify({ ok: rec.commandsSucceeded, bad: rec.commandsFailed })}`;
-    // What a coordinator actually reads: the envelope rendered from the record, through the driver's own
-    // renderer rather than a second copy of it.
-    const env = renderEnvelope({ ...rec, exitCode: rec.exitCode, threadId: "thr_root" });
-    if (/^receiptOk: null$/m.test(env) || /^commandsSucceeded: null$/m.test(env))
-      return `the envelope built from the record still shows null gates: ${env.split("\n").slice(0, 6).join(" | ")}`;
-    return true;
+    if (!rec) return "the run wrote no job record";
+    const allowed = ["threadId", "pid", "identity", "cwd", "started", "repo", "baseSha",
+                     "endedAt", "exitCode", "turnStatus", "answerPath",
+                     "worktreeDiffPath", "worktreeUntrackedPath", "worktreeCommitsRef"];
+    const extra = Object.keys(rec).filter((k) => !allowed.includes(k));
+    if (extra.length) return `the record carries what only the report should: ${extra.join(", ")}`;
+    for (const k of ["threadId", "pid", "identity", "cwd", "started", "endedAt", "exitCode", "turnStatus", "answerPath"])
+      if (rec[k] === undefined) return `the record has no ${k}: ${JSON.stringify(Object.keys(rec))}`;
+    if (rec.exitCode !== EXIT.OK || rec.turnStatus !== "completed")
+      return `the record does not close on the run's own verdict: ${JSON.stringify({ e: rec.exitCode, t: rec.turnStatus })}`;
+    // And the run it closed on is the one that just ran, not the record it inherited.
+    return JSON.parse(out).threadId === rec.threadId
+      || `the record closed on another run: ${JSON.stringify({ record: rec.threadId })}`;
   });
 
-flow("run directories are pruned on both bounds, and a run still writing into one is never pruned",
-  "the run directory holds a whole report and a whole stderr per detached seat, so unbounded it is the answer log's growth problem with bigger files — but it is also the LIVE transport of a run in progress: removing it leaves the seat writing into an unlinked inode and the collector reading 'the run ended but left no report'",
+flow("the report's tokenUsage is the root thread's total, and no record carries a second copy of it",
+  "the run must compute the root token total the report states; a later subagent usage event exposes a missing thread filter, and the number belongs to the report the caller reads rather than to a record that would then have to be kept in step with it",
   async () => {
     const state = flowState();
-    const runs = path.join(state, "runs");
-    fs.mkdirSync(runs, { recursive: true });
-    const at = (p, secondsAgo) => { const t = (Date.now() - secondsAgo * 1000) / 1000; fs.utimesSync(p, t, t); };
-    // Four hundred directories with staggered times, so the count bound has an unambiguous oldest.
-    const bulk = [];
-    for (let i = 0; i < 400; i++) {
-      const d = path.join(runs, `bulk-${String(i).padStart(3, "0")}`);
-      fs.mkdirSync(d);
-      fs.writeFileSync(path.join(d, "report.json"), "{}");
-      at(d, i + 1);
-      bulk.push(d);
+    const { code, out, err } = await run({ scenario: "happy", env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(-200)}`;
+    const report = JSON.parse(out);
+    if (report.tokenUsage?.total?.totalTokens !== 135)
+      return `the report's root-thread total is ${JSON.stringify(report.tokenUsage?.total?.totalTokens)}; the fixture's is 135`;
+    const rec = await until(() => { const r = recordOf(state); return r?.endedAt ? r : null; });
+    if (!rec) return "the run wrote no job record";
+    return rec.tokensSpent === undefined || `the record carries tokensSpent ${JSON.stringify(rec.tokensSpent)} beside the report's own`;
+  });
+
+// --- the report file: the delivery a caller holding no pipe collects the run from ---
+
+const reportPath = (state, name = "report.json") => path.join(state, name);
+
+flow("--report-file publishes the whole report at 0600, byte for byte what stdout carried",
+  "the caller reads the file after the task's exit notification, not the pipe: a file that differs from stdout by one escape, or that a second seat can read, is a second report format and a leak of the seat's answer",
+  async () => {
+    const problems = [];
+    // A long report and one carrying non-ASCII and escapes: the file is the same bytes either way, or
+    // an answer that survived the pipe is not the one on disk.
+    for (const [scenario, args, prompt] of [
+      ["long-answer", [], undefined],
+      ["echo-input", [], "кавычки \"x\" \\ ⧉  and a newline\nbelow"]]) {
+      const state = flowState();
+      const p = reportPath(state);
+      const { code, out, err } = await run({ scenario, args: [...args, "--report-file", p],
+        ...(prompt === undefined ? {} : { noPrompt: true }),
+        env: { CODEX_DELEGATE_STATE_DIR: state },
+        ...(prompt === undefined ? {} : { seat: `SEAT: read <CWD>\n${prompt}\n` }) });
+      if (code !== EXIT.OK) { problems.push(`${scenario} exited ${code}: ${err.trim().slice(-160)}`); continue; }
+      if (!fs.existsSync(p)) { problems.push(`${scenario}: no report at ${p}`); continue; }
+      const mode = fs.statSync(p).mode & 0o777;
+      if (mode !== 0o600) problems.push(`${scenario}: the report is mode ${mode.toString(8)}, not 600`);
+      const onDisk = fs.readFileSync(p, "utf8");
+      if (onDisk !== out) problems.push(`${scenario}: the file is ${onDisk.length} bytes and stdout ${out.length}`);
+      if (!readJson(p)) problems.push(`${scenario}: the published report does not parse`);
+      // Nothing is left beside it: the temp name the rename published from is gone.
+      const left = fs.readdirSync(state).filter((n) => n.startsWith("report.json."));
+      if (left.length) problems.push(`${scenario}: the publication left ${left.join(", ")}`);
     }
-    // Older than both bounds and owned by nobody: the age bound must take it.
-    const old = path.join(runs, "aaaaaaaa-old");
-    fs.mkdirSync(old);
-    fs.writeFileSync(path.join(old, "report.json"), "{}");
-    at(old, 20 * 86400);
-    // Older still, and its launch.json names a process that is alive — this suite's own.
-    const live = path.join(runs, "aaaaaaaa-live");
-    fs.mkdirSync(live);
-    fs.writeFileSync(path.join(live, "launch.json"), JSON.stringify({ threadId: "thr_live", pid: process.pid }));
-    at(live, 21 * 86400);
-    const { code } = await run({ scenario: "happy", args: ["--detach", "--timeout", "30"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.BUSY) return `the detach exited ${code}`;
-    if (!fs.existsSync(live)) return "the prune deleted a run directory whose launch.json names a live process";
-    if (fs.existsSync(old)) return "a twenty-day-old run directory survived the age bound";
-    if (fs.existsSync(bulk[399])) return "the four-hundredth-oldest run directory survived the count bound";
-    if (!fs.existsSync(bulk[0])) return "the prune reached past its own bounds";
-    const left = fs.readdirSync(runs);
-    if (left.length !== 401) return `expected the fresh run, 399 of the bulk and the live one to remain, found ${left.length}`;
-    return true;
+    return problems.length === 0 || problems.join("; ");
   });
 
-flow("a detached run's own child does not detach again",
-  "the child re-parses the front command line, so --detach must be stripped and --run-dir must win to prevent recursive detachment; seat files cannot reintroduce CLI-only DETACH",
+flow("--report-file refuses a path it would overwrite, a relative one and a directory it cannot write, before anything is spawned",
+  "the report file is the run's whole delivery: a path already holding one is two seats' evidence in one file, and every one of these is knowable before a token is spent — refused after the turn it would cost the delegation",
   async () => {
     const state = flowState();
-    const { code, out, err } = await run({ scenario: "happy",
-      seat: "SEAT: read <CWD>\n", args: ["--detach", "--timeout", "30", "--wait-timeout", "0"],
-      env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.BUSY) return `the detach exited ${code}: ${err.slice(0, 200)}`;
-    const h = (() => { try { return JSON.parse(out); } catch { return null; } })();
-    if (h?.threadId !== "thr_root") return `no handle came back: ${out.slice(0, 160)}`;
-    if (!await until(() => recordOf(state)?.endedAt)) return "the detached run never finished";
-    const runs = fs.readdirSync(path.join(state, "runs"));
-    if (runs.length !== 1) return `one seat forked ${runs.length} runs: ${JSON.stringify(runs)}`;
-    return true;
-  });
-
-flow("the detach contradictions are refused, and a run directory that cannot be made is exit 2",
-  "one flag starts a run and the other two collect or discard it, so a driver that silently picked would run something the caller did not ask for; and the run directory IS the transport, so a state directory nobody can write has nowhere to put the report",
-  async () => {
-    const both = await run({ scenario: "happy", args: ["--detach", "--wait", "thr_root"] });
-    if (both.code !== EXIT.USAGE || !/contradictory/.test(both.err))
-      return `--detach with --wait was not refused: exit ${both.code} ${both.err.slice(0, 160)}`;
-    const state = path.join(shimDir, `flow-ro-${flowSeq++}`);
-    fs.mkdirSync(state, { recursive: true });
-    fs.mkdirSync(path.join(state, "runs"));
-    fs.chmodSync(path.join(state, "runs"), 0o500);
+    const marker = path.join(state, "codex-ran");
+    const probeShim = path.join(state, "shim");
+    fs.mkdirSync(probeShim, { recursive: true });
+    fs.writeFileSync(path.join(probeShim, "codex"), `#!/bin/sh\necho ran >> "${marker}"\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+    const taken = reportPath(state, "taken.json");
+    fs.writeFileSync(taken, "{}\n");
+    const ro = path.join(state, "read-only");
+    fs.mkdirSync(ro, { mode: 0o500 });
+    const problems = [];
     try {
-      const { code, err } = await run({ scenario: "happy", args: ["--detach"],
-        env: { CODEX_DELEGATE_STATE_DIR: state } });
-      if (code !== EXIT.USAGE || !/cannot create its run directory/.test(err))
-        return `an unwritable state directory was not refused: exit ${code} ${err.slice(0, 200)}`;
-    } finally { fs.chmodSync(path.join(state, "runs"), 0o700); }
-    return true;
+      for (const [p, why] of [[taken, "already exists"], ["report.json", "must be an absolute path"],
+                              [path.join(state, "no-such-dir", "r.json"), "cannot use"],
+                              [path.join(ro, "r.json"), "cannot write into"]]) {
+        const { code, out, err } = await run({ scenario: "happy", args: ["--report-file", p],
+          env: { CODEX_DELEGATE_STATE_DIR: state, PATH: `${probeShim}:${process.env.PATH}` } });
+        if (code !== EXIT.USAGE) problems.push(`${why}: exit ${code}, expected 2 (${err.trim().slice(0, 120)})`);
+        else if (!err.includes(why)) problems.push(`${why}: the refusal does not say so: ${err.trim().slice(0, 160)}`);
+        if (out.trim()) problems.push(`${why}: a usage error printed ${out.length} bytes of report`);
+      }
+    } finally { fs.chmodSync(ro, 0o700); }
+    if (fs.readFileSync(taken, "utf8") !== "{}\n") problems.push("the refused run overwrote the file it was refused");
+    if (fs.existsSync(marker)) problems.push("a refused --report-file still spawned a codex");
+    return problems.length === 0 || problems.join("; ");
   });
 
-// --- the relay: one command in, one envelope out, and no decision left to the agent that ran it ---
-//
-
-// The shape a coordinator parses: fields above the first `--- answer (N bytes) ---`, answer below it,
-// and nothing else anywhere.
-function parseEnvelope(out) {
-  const m = /^--- answer \((\d+) bytes\) ---\n?/m.exec(out);
-  if (!m) return { error: `no \`--- answer (N bytes) ---\` marker in ${JSON.stringify(out.slice(0, 200))}` };
-  const head = out.slice(0, m.index);
-  const answer = out.slice(m.index + m[0].length);
-  return { head, answer, bytes: Number(m[1]), first: out.split("\n", 1)[0],
-           fields: Object.fromEntries([...head.matchAll(/^([A-Za-z]+): (.*)$/gm)].map((x) => [x[1], x[2]])) };
-}
-
-flow("--relay prints the envelope and exits with the code the run itself decided",
-  "the relay's whole job becomes `run this, copy stdout, return the exit code`. Three codes because these are the three shapes it must never conflate: a success, a gate that said no with an answer beside it, and a sandbox that was too small",
-  async () => {
-    for (const [scenario, expect, seat] of [
-      ["happy", EXIT.OK, "SEAT: read <CWD>\nEXPECT: echo\nTASK: do the work\n"],
-      ["wrong-command", EXIT.NO_COMMANDS, "SEAT: read <CWD>\nEXPECT: vitest\nTASK: run the tests\n"],
-      ["escalated", EXIT.ESCALATED, "SEAT: read <CWD>\nTASK: do the work\n"]]) {
-      const { code, out, err } = await run({ scenario, seat, relay: true, noPrompt: true,
-        env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-      if (code !== expect) return `--relay on ${scenario} exited ${code}, the run decides ${expect}: ${err.trim().slice(-200)}`;
-      const e = parseEnvelope(out);
-      if (e.error) return `${scenario}: ${e.error}`;
-      if (e.first !== `exitCode: ${expect}`) return `${scenario}: the first line is ${JSON.stringify(e.first)}, not \`exitCode: ${expect}\``;
-      if (e.fields.threadId !== "thr_root") return `${scenario}: the envelope names no thread: ${JSON.stringify(e.fields)}`;
-      if (e.fields.turnStatus !== "completed") return `${scenario}: turnStatus is ${JSON.stringify(e.fields.turnStatus)}`;
-      if (Buffer.byteLength(e.answer) !== e.bytes) return `${scenario}: the marker says ${e.bytes} bytes and ${Buffer.byteLength(e.answer)} follow it`;
-      // The JSON report is not thrown away: the envelope names where it is, and it parses.
-      if (!readJson(e.fields.reportPath)) return `${scenario}: reportPath does not name a readable report: ${e.fields.reportPath}`;
-    }
-    return true;
-  });
-
-flow("a seat that outlives the relay's wait comes back as exit 10 with a LITERAL collect command",
-  "the envelope must supply an absolute, quoted collect command with the thread and cwd so the relay can repeat it without substitution",
+flow("a report that could not reach stdout is complete in --report-file, under the verdict the turn earned",
+  "the whole point of the file is that the pipe stops mattering: a caller that closed stdout, or a task whose output was truncated, must not turn a finished turn into a transport failure or lose the answer it already paid for",
   async () => {
     const state = flowState();
-    const started = await run({ scenario: "stalled-turn", relay: true, noPrompt: true,
-      noTimeout: true, seat: "SEAT: read <CWD>\nTASK: stall for a while\n", args: ["--timeout", "6"],
-      env: { CODEX_DELEGATE_STATE_DIR: state, CODEX_DELEGATE_RELAY_WAIT_S: "1" } });
-    if (started.code !== EXIT.BUSY) return `the relay did not hand back a running envelope: exit ${started.code} ${started.err.trim().slice(-200)}`;
-    const e = parseEnvelope(started.out);
-    if (e.error) return e.error;
-    if (e.first !== "exitCode: 10") return `the first line is ${JSON.stringify(e.first)}`;
-    if (e.fields.turnStatus !== "running") return `the running envelope says turnStatus ${JSON.stringify(e.fields.turnStatus)}`;
-    if (e.bytes !== 0 || e.answer !== "") return `the running envelope carried an answer: ${JSON.stringify(e.answer.slice(0, 80))}`;
-    const collect = /^collect: (.+)$/m.exec(started.out)?.[1];
-    if (!collect) return "the running envelope carries no collect: line";
-    if (!collect.includes(`"${DRIVER}"`)) return `the collect command does not name this driver absolutely and quoted: ${collect}`;
-    if (!collect.includes("--relay-collect thr_root")) return `the collect command does not name the thread: ${collect}`;
-    // Run it VERBATIM, the way the relay does: it must need no substitution of any kind.
-    const collected = spawnSync("sh", ["-c", collect], { encoding: "utf8", timeout: 60000,
-      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}`, FAKE_SCENARIO: "stalled-turn",
-             CODEX_DELEGATE_STATE_DIR: state, CODEX_DELEGATE_RELAY_WAIT_S: "30" } });
-    if (collected.status !== EXIT.TIMEOUT)
-      return `the collect command exited ${collected.status}, the cut run decided ${EXIT.TIMEOUT}: ${String(collected.stderr).trim().slice(-200)}`;
-    const f = parseEnvelope(String(collected.stdout));
-    if (f.error) return `the collected output is not an envelope: ${f.error}`;
-    if (f.first !== `exitCode: ${EXIT.TIMEOUT}`) return `the collected envelope opens ${JSON.stringify(f.first)}`;
-    if (f.fields.turnStatus !== "timedOut") return `the collected envelope says turnStatus ${JSON.stringify(f.fields.turnStatus)}`;
-    return /^cut: kind=wall limit=6 observed=\d+$/m.test(f.head)
-      || `the collected envelope does not name the budget that ended the turn: ${f.head}`;
+    const p = reportPath(state);
+    const { code } = await run({ scenario: "long-answer", closeStdout: true,
+      args: ["--report-file", p], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (!fs.existsSync(p)) return "a closed stdout took the report file with it";
+    const r = readJson(p);
+    if (!r) return "the published report does not parse";
+    if (r.exitCode !== EXIT.OK || r.turnStatus !== "completed")
+      return `the report's own verdict changed with the pipe: ${JSON.stringify({ exitCode: r.exitCode, turnStatus: r.turnStatus })}`;
+    if (code !== EXIT.OK) return `the run exited ${code}; a delivered report keeps the turn's own code, not the pipe's 4`;
+    if (!String(r.answer).length) return "the report reached the file without the answer";
+    return true;
   });
 
-flow("a relayed seat that never got a thread is an envelope too, with the stderr tail in its own block",
-  "every relay-mode exit starts with exitCode; stderr belongs above the answer marker so the coordinator cannot read failure diagnostics as Codex's answer",
+flow("a refusal reached before the thread is written to --report-file, as a report saying so",
+  "the caller is woken by the task's exit and reads one path: a refusal that left the file empty is indistinguishable from a seat that is still starting, and inventing a receipt or a turn status for it would be worse",
   async () => {
-    const { code, out } = await run({ scenario: "happy", relay: true, noPrompt: true,
-      seat: "SEAT: read /nonexistent/relay/dir\nTASK: do it\n",
-      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
+    const state = flowState();
+    const p = reportPath(state);
+    const { code, out } = await run({ scenario: "happy", noPrompt: true,
+      seat: "SEAT: read /nonexistent/report/dir\nTASK: do it\n",
+      args: ["--report-file", p], env: { CODEX_DELEGATE_STATE_DIR: state } });
     if (code !== EXIT.USAGE) return `a seat that could not start exited ${code}`;
-    const e = parseEnvelope(out);
-    if (e.error) return e.error;
-    if (e.first !== "exitCode: 2") return `the first line is ${JSON.stringify(e.first)}`;
-    if (!/^--- stderr \(last 20 lines\) ---$/m.test(e.head)) return `no stderr block: ${JSON.stringify(e.head)}`;
-    if (!/--cwd does not exist/.test(e.head)) return `the stderr block does not carry the refusal: ${JSON.stringify(e.head)}`;
-    if (e.bytes !== 0 || e.answer !== "") return `a seat that never ran returned an answer: ${JSON.stringify(e.answer)}`;
-    return fs.existsSync("/nonexistent/relay/dir") ? "the relayed seat created the directory it was refused" : true;
+    if (out.trim()) return `a usage error printed ${out.length} bytes on stdout`;
+    const r = readJson(p);
+    if (!r) return `no parseable report at ${p}`;
+    if (r.ok !== false || r.exitCode !== EXIT.USAGE) return `the refusal does not carry its own verdict: ${JSON.stringify(r)}`;
+    if (r.turnStatus !== null || r.answer !== "") return `a turn status or an answer was invented: ${JSON.stringify(r)}`;
+    if (r.threadId !== null) return `a thread that never existed was named: ${JSON.stringify(r.threadId)}`;
+    if (!/--cwd does not exist/.test(String(r.error))) return `the refusal does not carry the reason: ${JSON.stringify(r.error)}`;
+    return r.reportPath === p || `the report does not name itself: ${JSON.stringify(r.reportPath)}`;
   });
 
-flow("the envelope carries the FULL answer where --brief clipped the report's",
-  "--brief caps what the REPORT holds inline and writes the whole text to answerPath; an envelope that relayed the capped field would hand the coordinator a clip marker instead of the answer, and the file it forwards to is the seat's own",
+flow("a resumed seat writes a report file of its own",
+  "a follow-up turn is a second delivery, not an amendment: written over the first it would leave the thread's earlier evidence unreadable, and the no-clobber rule is what makes the caller name a new path",
   async () => {
-    const { code, out } = await run({ scenario: "long-answer", relay: true, noPrompt: true,
-      seat: "SEAT: read <CWD>\nBRIEF: yes\nTASK: write at length\n",
-      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-    if (code !== EXIT.OK) return `the brief relay exited ${code}`;
-    const e = parseEnvelope(out);
-    if (e.error) return e.error;
-    if (/\[clipped:/.test(e.answer)) return "the envelope relayed the clipped answer, not the full one";
-    if (e.bytes <= 4000) return `the relayed answer is ${e.bytes} bytes, within --brief's own cap — the clip was not undone`;
-    if (Buffer.byteLength(e.answer) !== e.bytes) return `the marker says ${e.bytes} bytes and ${Buffer.byteLength(e.answer)} follow it`;
-    const onDisk = fs.readFileSync(e.fields.answerPath, "utf8");
-    return e.answer === onDisk || `the relayed answer is not the file the envelope names (${e.answer.length} vs ${onDisk.length})`;
+    const state = flowState();
+    const first = reportPath(state, "first.json"), second = reportPath(state, "second.json");
+    const a = await run({ scenario: "happy", args: ["--report-file", first], env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (a.code !== EXIT.OK) return `the first turn exited ${a.code}: ${a.err.trim().slice(-160)}`;
+    const b = await run({ scenario: "happy", args: ["--resume", "thr_root", "--report-file", second],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (b.code !== EXIT.OK) return `the resumed turn exited ${b.code}: ${b.err.trim().slice(-160)}`;
+    const r1 = readJson(first), r2 = readJson(second);
+    if (!r1 || !r2) return "one of the two turns published nothing";
+    if (r1.resumedFrom !== null) return `the first turn reported a resume: ${JSON.stringify(r1.resumedFrom)}`;
+    if (r2.resumedFrom !== "thr_root") return `the second turn does not name the thread it continued: ${JSON.stringify(r2.resumedFrom)}`;
+    // And the second run refuses to publish over the first: the paths are the caller's to keep apart.
+    const again = await run({ scenario: "happy", args: ["--resume", "thr_root", "--report-file", first],
+      env: { CODEX_DELEGATE_STATE_DIR: state } });
+    if (again.code !== EXIT.USAGE || !/already exists/.test(again.err))
+      return `a resumed seat overwrote the earlier report: exit ${again.code} ${again.err.trim().slice(0, 160)}`;
+    return readJson(first)?.resumedFrom === null || "the refused resume rewrote the first report anyway";
   });
 
-flow("--relay supplies the rights line a coordinator's prompt does not have, and --seat-file still refuses to",
-  "the relay copies the prompt unchanged; only --relay defaults missing rights to read in the current directory, while --seat-file requires a rights declaration",
+// --- the seat file, which is the whole of what a caller hands the driver ---
+
+flow("a seat file supplies the rights line a coordinator's prompt does not have, and a SEAT below another field is still refused",
+  "the caller writes the prompt it was given, unchanged, and a prompt is not obliged to open with a header at all: the default it falls back to widens nothing (read level, this directory), while a SEAT anywhere but first is the injection that would",
   async () => {
     const here = fs.realpathSync(process.cwd());
+    const parse = (o) => { try { return JSON.parse(o); } catch { return null; } };
     // A prompt exactly as a coordinator wrote it: no header at all.
-    const bare = await run({ scenario: "happy", relay: true, noPrompt: true,
+    const bare = await run({ scenario: "happy", noPrompt: true,
       seat: "Count the exit codes in the driver and say how many.\n",
       env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-    if (bare.code !== EXIT.OK) return `a header-less relayed prompt exited ${bare.code}: ${bare.err.trim().slice(-200)}`;
-    const e = parseEnvelope(bare.out);
-    if (e.error) return e.error;
-    const r1 = readJson(e.fields.reportPath);
-    if (!r1) return `the envelope names no readable report: ${e.fields.reportPath}`;
+    if (bare.code !== EXIT.OK) return `a header-less prompt exited ${bare.code}: ${bare.err.trim().slice(-200)}`;
+    const r1 = parse(bare.out);
+    if (!r1) return `the run printed no report: ${bare.out.slice(0, 160)}`;
     if (r1.level !== "read" || r1.cwd !== here)
       return `the default is not read level in the current directory: ${JSON.stringify({ level: r1.level, cwd: r1.cwd })}`;
     if ((r1.seatFileFields ?? []).includes("SEAT"))
       return `a SEAT the file never carried was reported as declared: ${JSON.stringify(r1.seatFileFields)}`;
     // A header that declares something else and still no rights: the fields apply, the default stands.
-    const noSeat = await run({ scenario: "happy", relay: true, noPrompt: true,
+    const noSeat = await run({ scenario: "happy", noPrompt: true,
       seat: "EFFORT: high\n\nDo the work and report.\n", env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
     if (noSeat.code !== EXIT.OK) return `a SEAT-less header exited ${noSeat.code}: ${noSeat.err.trim().slice(-200)}`;
-    const r2 = readJson(parseEnvelope(noSeat.out).fields.reportPath);
-    if (!r2) return "the second relayed run left no readable report";
+    const r2 = parse(noSeat.out);
+    if (!r2) return "the second run printed no report";
     if (r2.level !== "read" || r2.cwd !== here)
       return `a SEAT-less header did not default to read in the current directory: ${JSON.stringify({ level: r2.level, cwd: r2.cwd })}`;
     if (r2.effort !== "high" || (r2.seatFileFields ?? []).join(",") !== "EFFORT")
       return `the fields beside the missing SEAT were dropped: ${JSON.stringify({ effort: r2.effort, fields: r2.seatFileFields })}`;
-    // The same two files through --seat-file, which declares rights or runs nothing.
-    for (const seat of ["Count the exit codes in the driver and say how many.\n", "EFFORT: high\n\nDo the work and report.\n"]) {
-      const refused = await run({ scenario: "happy", seat, noPrompt: true,
-        env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-      if (refused.code !== EXIT.USAGE || !/no SEAT field/.test(refused.err))
-        return `--seat-file accepted a file with no rights line: exit ${refused.code} ${refused.err.trim().slice(0, 160)}`;
-    }
-    // And a SEAT that IS there but not first is still the injection refusal, on both routes.
-    const late = await run({ scenario: "happy", relay: true, noPrompt: true,
+    // And a SEAT that IS there but not first is the injection refusal.
+    const late = await run({ scenario: "happy", noPrompt: true,
       seat: "EFFORT: high\nSEAT: read <CWD>\nTASK: do it\n", env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
     return (late.code === EXIT.USAGE && /first field must be SEAT, not EFFORT/.test(late.err))
       || `a SEAT below another field was accepted: exit ${late.code} ${late.err.trim().slice(0, 200)}`;
   });
 
-flow("--relay and --relay-collect refuse the flags that would change what they print or how they carry the run",
-  "the mode IS the transport and the format: a --detach beside it asks for two transports and a --wait for two waits, and each would leave the relay copying something its coordinator cannot parse",
-  async () => {
-    for (const args of [["--detach"], ["--wait", "thr_root"], ["--wait-timeout", "5"]]) {
-      const { code, err } = await run({ scenario: "happy", relay: true, noPrompt: true,
-        seat: "SEAT: read <CWD>\nTASK: do it\n", args, env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-      if (code !== EXIT.USAGE || !/cannot be combined with --relay/.test(err))
-        return `${args[0]} beside --relay was not refused: exit ${code} ${err.trim().slice(0, 200)}`;
-    }
-    const collect = await run({ scenario: "happy", noPrompt: true,
-      args: ["--relay-collect", "thr_root", "--detach"], env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-    if (collect.code !== EXIT.USAGE || !/cannot be combined with --relay-collect/.test(collect.err))
-      return `--detach beside --relay-collect was not refused: exit ${collect.code} ${collect.err.trim().slice(0, 200)}`;
-    const both = await run({ scenario: "happy", relay: true, noPrompt: true,
-      seat: "SEAT: read <CWD>\nTASK: do it\n", args: ["--relay-collect", "thr_root"],
-      env: { CODEX_DELEGATE_STATE_DIR: flowState() } });
-    return (both.code === EXIT.USAGE && /--relay and --relay-collect are contradictory/.test(both.err))
-      || `--relay with --relay-collect was not refused: exit ${both.code} ${both.err.trim().slice(0, 200)}`;
-  });
-
-flow("the job record's tokensSpent is what a real run measured, on the root thread",
-  "the run must compute the root token total that --jobs and the running handle report; a later subagent usage event exposes a missing thread filter",
-  async () => {
-    const state = flowState();
-    const { code, err } = await run({ scenario: "happy", env: { CODEX_DELEGATE_STATE_DIR: state } });
-    if (code !== EXIT.OK) return `the run exited ${code}: ${err.trim().slice(-200)}`;
-    const rec = recordOf(state);
-    if (!rec) return "the run wrote no job record";
-    return rec.tokensSpent === 135
-      || `tokensSpent is ${JSON.stringify(rec.tokensSpent)}; the fixture's root-thread total is 135`;
-  });
-
-flow("a private $TMPDIR outlives its run and is reaped on the run-directory bounds",
+flow("a private $TMPDIR outlives its run and is reaped on the answer log's bounds",
   "private scratch must survive exit so answer paths remain usable, then be pruned by later runs within retention bounds; live runs must never be pruned",
   async () => {
     const state = flowState();
@@ -1643,15 +1348,11 @@ flow("a private $TMPDIR outlives its run and is reaped on the run-directory boun
   });
 
 let failed = 0;
-// Every report the table cases produce, rendered through the ONE envelope function — see the flow at the
-// end of the file. Filled by the loop below, which runs before the flows do.
-const rendered = [];
 for (const c of CASES) {
   const label = `${c.scenario}${c.args?.length ? ` ${c.args.join(" ")}` : ""}`;
   const { code, out, err, ms, stateRoot } = await run(c);
   let report = null;
   try { report = JSON.parse(out); } catch {}
-  if (report) rendered.push({ label, report });
   // Check report contents as well as exit codes so opposite verifier results cannot look identical.
   // An assertion returns true or a reason; a thrown assertion fails its case without aborting the suite.
   let assertion;
@@ -1675,26 +1376,6 @@ for (const c of CASES) {
     console.log(`ok    ${label} -> ${code}`);
   }
 }
-
-flow("every report this suite produced renders as an envelope a coordinator can parse",
-  "the envelope is ONE function over the report object, so the whole matrix of reports above — cut, escalated, schema, worktree, review, brief — is its input set. The two rules a coordinator is given have to hold for every one of them: the first line is the exit code, and everything after the single answer marker is the answer, exactly as many bytes as the marker states",
-  () => {
-    if (rendered.length < 100) return `only ${rendered.length} reports were collected, so this proves little`;
-    const problems = [];
-    for (const { label, report } of rendered) {
-      const text = renderEnvelope(report, { reportPath: "/dev/null" });
-      const first = text.split("\n", 1)[0];
-      if (!/^exitCode: (-?\d+|null)$/.test(first)) { problems.push(`${label}: first line ${JSON.stringify(first)}`); continue; }
-      const markers = [...text.matchAll(new RegExp(ENVELOPE_ANSWER_RE.source, "gm"))];
-      if (markers.length !== 1) { problems.push(`${label}: ${markers.length} answer markers`); continue; }
-      const m = markers[0];
-      const answer = text.slice(m.index + m[0].length + 1);
-      if (Buffer.byteLength(answer) !== Number(m[1]))
-        problems.push(`${label}: the marker says ${m[1]} bytes and ${Buffer.byteLength(answer)} follow it`);
-      if (first !== `exitCode: ${report.exitCode}`) problems.push(`${label}: the envelope's code is not the report's`);
-    }
-    return problems.length === 0 || problems.slice(0, 5).join("; ");
-  });
 
 // --- the help surface: what a coordinator is shown, and what the parser will actually take ---
 
@@ -1723,7 +1404,7 @@ flow("every flag the parser accepts appears in --help or --help-all",
   () => {
     const parsed = [...new Set([...fs.readFileSync(DRIVER, "utf8").matchAll(/case "(-{1,2}[a-z-]+)":/g)].map((m) => m[1]))];
     // A pattern that stopped matching would pass this case with nothing to check.
-    if (parsed.length < 30) return `only ${parsed.length} case labels matched in the parser; the pattern has drifted`;
+    if (parsed.length < 25) return `only ${parsed.length} case labels matched in the parser; the pattern has drifted`;
     const core = helpRun("--help").stdout, all = helpRun("--help-all").stdout;
     // Word-boundary on the right, or --wait would be "documented" by --wait-timeout.
     const names = (text, f) => new RegExp(`(?<![a-z-])${f}(?![a-z-])`).test(text);

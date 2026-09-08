@@ -14,7 +14,7 @@
 // This is a SEPARATE front-end, not a driver flag, on purpose. The driver owns rights, locks,
 // worktrees and sandbox assertions; it must not also parse another product's private, version-drifting
 // JSONL. And its standing rule — a file that leaves this machine is named on the command line, never
-// in a relayed seat file — stays true when the names come from here.
+// in a seat file a coordinator copied — stays true when the names come from here.
 //
 // It spawns the driver rather than exec-ing it, so the extracted files can be removed when the run
 // ends. Exit code and terminating signal are forwarded.

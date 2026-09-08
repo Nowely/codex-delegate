@@ -1,33 +1,30 @@
 #!/usr/bin/env node
-// Does the shipped relay agent still describe the driver it drives?
+// Does the page a coordinator launches a seat from still describe the driver it launches?
 //
 //   node evals/agent-contract.test.mjs
 //
-// The relay agent owns the numbered steps for invoking the driver and copying its envelope; SKILL.md
-// owns the coordinator's field table. This suite compares both documents with the driver.
+// There is no relay agent any more: the coordinator writes the prompt and runs the driver itself, in a
+// background Bash task, so the ONE call and the field table are both SKILL.md's. This suite compares
+// that page, and the orchestrate page that re-cuts it, with the driver they describe.
 
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { DRIVER, ROOT, SEAT_FIELDS, registry, renderEnvelope, runCases, summarize } from "./lib/harness.mjs";
+import { DRIVER, ROOT, SEAT_FIELDS, registry, runCases, summarize } from "./lib/harness.mjs";
 
-const AGENT = path.join(ROOT, "agents", "codex-seat.md");
 const SKILL = path.join(ROOT, "skills", "codex-delegate", "SKILL.md");
+const ORCHESTRATE = path.join(ROOT, "skills", "orchestrate", "SKILL.md");
 
-const agent = fs.readFileSync(AGENT, "utf8");
 const skill = fs.readFileSync(SKILL, "utf8");
+const orchestrate = fs.readFileSync(ORCHESTRATE, "utf8");
 const driver = fs.readFileSync(DRIVER, "utf8");
 
-// The document in the two pieces every case reads: the frontmatter and the BODY, which is nothing but
-// the rules the relay executes. The field table is the coordinator's reference, so it is SKILL.md's
-// section, read here as the third piece.
-const parts = agent.split(/^---$/m);
-const front = parts[1] ?? "";
-const body = parts[2] ?? "";
+// The page in the pieces the cases read: the whole text collapsed for prose pins, the field table, and
+// the indented command lines a coordinator copies into a Bash call.
 const table = skill.split(/^## /m).find((s) => s.startsWith("Header fields")) ?? "";
-const flat = agent.replace(/\s+/g, " ");
-const shellBlocks = [...agent.matchAll(/```sh\n([\s\S]*?)```/g)].map((m) => m[1]);
-const inlineShell = [...agent.matchAll(/`(mktemp -d [^`]*)`/g)].map((m) => m[1]);
+const flat = skill.replace(/\s+/g, " ");
+const commands = [...skill.matchAll(/^ {4}(node "[^\n]+)$/gm)].map((m) => m[1]);
+const inlineShell = [...skill.matchAll(/`(mktemp -d [^`]*)`/g)].map((m) => m[1]);
 
 const { cases: CASES, test } = registry();
 
@@ -62,197 +59,71 @@ test("SKILL.md's table names every field the driver accepts, and the driver acce
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the numbered steps are in order, and each names the ONE tool call it is",
-  "the relay's whole reliability argument is that it decides nothing: a step that does not say how many calls it is, or that can be read out of order, is where a weaker model improvises",
+test("the ONE call is --seat-file with --report-file, in a background task, and every shell the page hands over parses",
+  "this line is copied verbatim into a Bash call: a stray quote is a seat that never runs, a missing --report-file is a seat whose report nobody can read after the notification, and an `&` of its own detaches the run from the task that is supposed to own it",
   () => {
-    const problems = [];
-    let last = -1;
-    for (const n of ["0.", "1.", "2.", "3.", "4."]) {
-      const at = body.indexOf(`\n${n} `);
-      if (at < 0) { problems.push(`step ${n} is missing`); continue; }
-      if (at < last) problems.push(`step ${n} comes before the step above it`);
-      last = at;
-    }
-    if (!/0\. ONE Bash call/.test(body)) problems.push("step 0 does not say it is ONE Bash call");
-    if (!/1\. With the Write tool/.test(body)) problems.push("step 1 is not the Write");
-    if (!/2\. ONE Bash call, tool timeout 590000 ms/.test(body)) problems.push("step 2 is not ONE Bash call with the 590000 ms tool timeout");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("the prompt is written VERBATIM and step 1 has no exception at all",
-  "rewriting a prompt can change its rights, waive a gate or lose task text; the relay must copy it verbatim and leave missing-rights defaults to the driver",
-  () => {
-    const problems = [];
-    if (!/write the prompt VERBATIM to `<DIR>\/prompt\.txt`/.test(flat))
-      problems.push("step 1 no longer says the whole prompt goes VERBATIM into one file");
-    if (!/Change nothing in it, ever/.test(flat)) problems.push("nothing forbids every edit");
-    if (!/not a header line it has/.test(flat)) problems.push("nothing forbids rewriting a header the prompt carries");
-    if (!/and add nothing/.test(flat)) problems.push("step 1 does not forbid ADDING a line");
-    if (/exception/i.test(body)) problems.push("step 1 has an exception again");
-    if (/`SEAT: read` above it|put `SEAT: read`/.test(body)) problems.push("the relay is told to write a SEAT line again");
-    // And the driver has to take exactly that file: a header, a body from the first line that is not a
-    // field, and no SEAT at all on the --relay route while --seat-file still refuses one.
-    if (!/const BODY_LABELS = new Set\(\["TASK", "CHECK", "RETURN"\]\)/.test(driver))
-      problems.push("the driver no longer ends the header at a TASK:/CHECK:/RETURN: label");
-    if (!/seatFileBody/.test(driver)) problems.push("the driver no longer reads a body out of the seat file");
-    if (!/if \(!defaultSeat\) fail\(EXIT\.USAGE, "--seat-file: no SEAT field/.test(driver))
-      problems.push("the driver no longer defaults the rights line on --relay, or no longer refuses it on --seat-file");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("there is exactly ONE command, and it is `--relay` on the file just written",
-  "the relay must not choose a transport, a format or a budget: --relay is all three, and any second command in this document is a decision the coordinator did not ask for",
-  () => {
-    const problems = [];
-    if (shellBlocks.length !== 1) problems.push(`${shellBlocks.length} shell blocks, expected exactly one`);
-    const block = shellBlocks[0] ?? "";
-    if (!/\nnode "\$DRIVER" --relay "\$D\/prompt\.txt"\n/.test(block))
-      problems.push(`the driver call is not \`node "$DRIVER" --relay "$D/prompt.txt"\`: ${JSON.stringify(block.trim().slice(-80))}`);
-    // The relay must name no alternative invocation routes.
-    for (const flag of ["--seat-file", "--wait", "--detach", "--json", "--wait-timeout", "--timeout"])
-      if (block.includes(flag)) problems.push(`the relay's command still carries ${flag}`);
-    if (!driver.includes('case "--relay":')) problems.push("the driver has no --relay");
-    if (!driver.includes('case "--relay-collect":')) problems.push("the driver has no --relay-collect");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("every shell the agent hands the relay parses",
-  "the block is copied verbatim into a Bash call; a stray quote or an unbalanced brace is a seat that never runs, and nothing else reads this text before a live run does",
-  () => {
-    const scripts = [...shellBlocks, ...inlineShell];
+    const scripts = [...commands, ...inlineShell];
     if (scripts.length < 2) return `expected the mktemp pre-step and the driver call, found ${scripts.length} shell snippets`;
     const problems = [];
     for (const src of scripts) {
       const r = spawnSync("bash", ["-n"], { input: src, encoding: "utf8" });
       if (r.status !== 0) problems.push(`bash -n rejected ${JSON.stringify(src.slice(0, 60))}: ${String(r.stderr).trim()}`);
     }
+    const call = commands.find((c) => c.includes("driver.mjs")) ?? "";
+    if (!call) problems.push("no indented `node \"...driver.mjs\"` line is on the page at all");
+    for (const part of ['--seat-file "<DIR>/prompt.txt"', '--report-file "<DIR>/report.json"',
+                        '> "<DIR>/out.json"', '2> "<DIR>/err.txt"'])
+      if (!call.includes(part)) problems.push(`the call does not carry ${part}: ${JSON.stringify(call)}`);
+    if (/(^|[^&])&\s*$/.test(call)) problems.push("the call ends in an `&` of its own, which hides the run from the task");
+    if (!/`run_in_background: true` and no `&` of your own/.test(flat))
+      problems.push("the page does not say the call is a background task with no `&` of its own");
+    // And the driver has to take exactly those two flags.
+    for (const flag of ["--seat-file", "--report-file"])
+      if (!driver.includes(`case "${flag}":`)) problems.push(`the driver has no ${flag}`);
     return problems.length === 0 || problems.join("; ");
   });
 
 test("the scratch directory comes from one mktemp call, not from an unexpandable $TMPDIR path",
-  "Write and Read take literal absolute paths and expand nothing, so the relay needs a resolved private directory to avoid colliding or world-readable files",
+  "Write and Read take literal absolute paths and expand nothing, so a coordinator needs a resolved private directory to avoid colliding or world-readable files — and --report-file refuses a relative path outright",
   () => {
     const problems = [];
-    if (!/mktemp -d "\$\{TMPDIR:-\/tmp\}\/codex-seat\.XXXXXXXX"/.test(agent)) problems.push("the mktemp -d pre-step is gone or reworded");
-    if (/\$TMPDIR\/(prompt|seat|task|report|stderr)/.test(agent)) problems.push("a scratch path is written as $TMPDIR/..., which the Write and Read tools cannot expand");
+    if (!/mktemp -d "\$\{TMPDIR:-\/tmp\}\/codex-seat\.XXXXXXXX"/.test(skill)) problems.push("the mktemp -d pre-step is gone or reworded");
+    if (/\$TMPDIR\/(prompt|seat|task|report|stderr)/.test(skill)) problems.push("a scratch path is written as $TMPDIR/..., which the Write and Read tools cannot expand");
+    if (!/--report-file must be an absolute path/.test(driver)) problems.push("the driver no longer refuses a relative --report-file");
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the driver probe starts at the exact ${CLAUDE_PLUGIN_ROOT} placeholder and ends at the plugin cache",
-  "Claude Code substitutes that exact form inline in an agent body and exports nothing to the Bash tool, so a ${VAR:-default} is never substituted, expands to the default, and makes every plugin-installed seat exit 90",
+test("every driver path on both pages is the exact ${CLAUDE_SKILL_DIR} placeholder",
+  "Claude Code substitutes that exact form inline in a skill body and exports nothing to the Bash tool, so a ${VAR:-default} is never substituted, expands to the default, and makes every plugin-installed seat fail to find the driver at all",
   () => {
     const REL = "skills/codex-delegate/scripts/driver.mjs";
     if (path.relative(ROOT, DRIVER).split(path.sep).join("/") !== REL) return `the shipped layout moved: ${path.relative(ROOT, DRIVER)}`;
-    if (/CLAUDE_PLUGIN_ROOT\s*:-/.test(agent))
-      return "the probe uses ${CLAUDE_PLUGIN_ROOT:-...}, which Claude Code does not substitute — the seat would probe the default, not the plugin";
-    const probed = [...agent.matchAll(/"([^"]*driver\.mjs)"/g)].map((m) => m[1]);
     const problems = [];
-    if (probed[0] !== `\${CLAUDE_PLUGIN_ROOT}/${REL}`) problems.push(`first probe is ${JSON.stringify(probed[0] ?? null)}, not \${CLAUDE_PLUGIN_ROOT}/${REL}`);
-    if (!probed.includes(`$HOME/.claude/${REL}`)) problems.push(`the $HOME/.claude route is not probed: ${JSON.stringify(probed)}`);
-    if (!/plugins\/cache\/codex-delegate\/codex-delegate\/\*\/skills\/codex-delegate\/scripts\/driver\.mjs/.test(agent))
-      problems.push("the plugins/cache route an isolated plugin install actually uses is not probed");
-    // The doubled segment names the marketplace and then the plugin; the document explains both.
-    if (!/the marketplace name and the plugin name are both `codex-delegate`/.test(flat))
-      problems.push("nothing explains the doubled codex-delegate/codex-delegate path segment");
+    for (const [label, text] of [["SKILL.md", skill], ["orchestrate/SKILL.md", orchestrate]]) {
+      if (/CLAUDE_SKILL_DIR\s*:-/.test(text))
+        problems.push(`${label} writes \${CLAUDE_SKILL_DIR:-...}, which Claude Code does not substitute: the seat would run the default, not the installed driver`);
+      for (const p of [...text.matchAll(/"([^"\n]*driver\.mjs)"/g)].map((m) => m[1]))
+        if (p !== `\${CLAUDE_SKILL_DIR}/scripts/driver.mjs`)
+          problems.push(`${label} names the driver as ${JSON.stringify(p)}, not "\${CLAUDE_SKILL_DIR}/scripts/driver.mjs"`);
+    }
+    // The placeholder resolves to the skill directory, so the path below it is the shipped layout's.
+    if (!fs.existsSync(path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs")))
+      problems.push("scripts/driver.mjs is not where ${CLAUDE_SKILL_DIR} would resolve it");
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the exit-90 sentinel is distinct from every code the driver can return",
-  "node's own exit 1 for a missing module is indistinguishable from the driver's documented 'the turn did not complete', which is why DRIVER_NOT_FOUND has a code of its own",
-  () => {
-    if (!/DRIVER_NOT_FOUND/.test(agent) || !/exit 90/.test(agent)) return "the agent lost the DRIVER_NOT_FOUND sentinel";
-    const codes = [...driver.matchAll(/const EXIT = \{([^}]*)\}/g)].flatMap((m) => [...m[1].matchAll(/: (\d+)/g)].map((x) => Number(x[1])));
-    return !codes.includes(90) || "the driver now uses exit 90 too, so the sentinel is ambiguous";
-  });
-
-test("the collect loop repeats ONE literal command, bounded, on the one condition that means `still running`",
-  "the envelope hands the relay a complete collect command; the relay repeats it only while the running handle says exitCode: 10 and includes a collect line",
-  () => {
-    const problems = [];
-    if (!/If the output's FIRST line is `exitCode: 10` AND it carries a `collect:` line/.test(flat))
-      problems.push("the loop's condition is not `exitCode: 10` AND a collect: line");
-    if (!/run that command VERBATIM/.test(flat)) problems.push("the collect command is not run verbatim");
-    if (!/it is complete, absolute and quoted/.test(flat)) problems.push("nothing says the collect command needs no substitution");
-    if (!/at most 24 times/.test(flat)) problems.push("the repeat cap (24, about four hours) is missing");
-    if (!/Repeat while both hold, at most 24 times/.test(flat)) problems.push("the loop does not say when to stop repeating");
-    // Measured: a resumed thread whose turn is still open, and a held write lock, both return exit 10
-    // with no thread and therefore no collect: line. A rule keyed on the code alone leaves the relay
-    // holding a final answer it thinks it must poll.
-    if (!/an `exitCode: 10` with no `collect:` line is final — relay it/.test(flat))
-      problems.push("an exit 10 with no collect: line has no rule, so the relay would poll a final answer");
-    // And the driver must actually emit that line, absolute and quoted, with the thread in it.
-    if (!/collect: node \$\{JSON\.stringify\(DRIVER_PATH\)\} --relay-collect \$\{report\.threadId\}/.test(driver))
-      problems.push("the driver's envelope no longer renders a literal collect: command");
-    if (!/turnStatus: "running"/.test(driver)) problems.push("the driver no longer emits a running handle");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("the relay returns the output verbatim and adds nothing above or below it",
-  "a failed seat can still carry an answer and receipt; the relay must preserve them and keep stderr outside the answer block",
-  () => {
-    const problems = [];
-    if (!/Your entire final message is that output, VERBATIM/.test(flat)) problems.push("the final message is not pinned to the command's output");
-    if (!/nothing above the `exitCode:` line and nothing below the `--- answer` line/.test(flat))
-      problems.push("the agent does not forbid text above `exitCode:` and below the answer marker");
-    if (!/GATE's verdict on a turn that RAN/.test(flat)) problems.push("a non-zero exit with an envelope is not named a gate verdict");
-    if (!/never call it a seat failure/.test(flat)) problems.push("the agent no longer forbids calling a gate verdict a seat failure");
-    if (!/Do not summarise, reorder, re-count the bytes or add a caveat/.test(flat))
-      problems.push("the agent no longer forbids summarising, reordering and re-counting");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("the relay carries no field list of its own: the envelope is rendered by the driver",
-  "the relay copies bytes it does not parse, so naming report keys here creates a second contract that can drift",
-  () => {
-    const owned = ["receiptPath", "filesTouched", "answerTruncated", "outputSchemaOk", "worktreePath",
-                   "worktreeRepo", "worktreeBase", "worktreeRestored", "worktreeDiffPath", "timing",
-                   "commentaryPath", "answerPartialPath", "jobPath", "turnError"];
-    const named = owned.filter((k) => new RegExp(`\\b${k}\\b`).test(body));
-    const problems = [];
-    if (named.length) problems.push(`the relay body names report keys it does not parse: ${named.join(", ")}`);
-    // They have to be somewhere, and that somewhere is the one rendering function.
-    const envelope = /function renderEnvelope\(([\s\S]*?)\n}/.exec(driver)?.[1] ?? "";
-    if (!envelope) problems.push("the driver has no renderEnvelope, so nothing renders the envelope at all");
-    for (const k of ["answerPath", "answerPartialPath", "commentaryPath", "resumedFrom", "worktreeDiffPath",
-                     "worktreeUntrackedPath", "worktreeCommitsRef", "worktreePreserved", "worktreeRemoveCommand",
-                     "schemaErrors", "receiptOk", "commandsSucceeded", "turnStatus", "threadId", "reportPath", "hint"])
-      if (!new RegExp(`\\b${k}\\b`).test(envelope)) problems.push(`renderEnvelope no longer carries ${k}`);
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("the one failure the relay composes itself is the shape a coordinator can still parse",
-  "the driver cannot report a driver it could not start, or a Bash call the tool killed: those two are the relay's, and they must render as the same three-part envelope so `fields, then --- answer` holds for every result a coordinator ever sees",
-  () => {
-    const i = body.indexOf("    exitCode: null");
-    if (i < 0) return "no `exitCode: null` failure envelope";
-    const block = body.slice(i, body.indexOf("--- answer (0 bytes) ---", i) + 24);
-    const problems = [];
-    if (!/DRIVER_NOT_FOUND` \/ exit 90, and a Bash result whose first line is not `exitCode:`/.test(flat))
-      problems.push("the two cases the relay composes for are not both named");
-    if (!/Then, and only then/.test(flat)) problems.push("nothing limits the composed envelope to those two cases");
-    const stderrAt = block.indexOf("--- stderr (last 20 lines) ---"), zeroAt = block.indexOf("--- answer (0 bytes)");
-    if (stderrAt < 0) problems.push("the failure envelope has no `--- stderr (last 20 lines) ---` block");
-    else if (stderrAt > zeroAt) problems.push("the stderr tail is placed below `--- answer`, where the coordinator reads it as Codex's answer");
-    // The same shape the driver renders for a pre-thread failure, so the two are one format: rendered,
-    // not grepped out of the source, so the driver may spell the marker any way it likes.
-    const rendered = renderEnvelope(null, { exitCode: 4, stderrTail: "x" });
-    if (!rendered.includes(block.slice(stderrAt, block.indexOf("\n", stderrAt)).trim()))
-      problems.push("the driver's own no-report envelope no longer renders the `--- stderr (last 20 lines) ---` block");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("a failing seat declaration is relayed, never repaired",
+test("a failing seat declaration is reported, never repaired",
   "creating a missing directory can turn a refusal into a seat with unintended rights; path validation belongs to the driver, and its exit 2 is the answer",
   () => /Never create a directory, change a level or re-run with different flags to make a refused seat succeed/.test(flat)
-    || "the no-repair rule is gone from the relay body");
+    || "the no-repair rule is gone from the page");
 
 test("the bounds, the transport and the injection fields are refused, and no table offers them",
-  "a newline in a relayed value can inject a field: VERIFY runs a shell and ATTACH uploads a file. Bounds and transport knobs belong to the CLI; SKILL.md must not offer refused fields as usable headers",
+  "a newline in a copied value can inject a field: VERIFY runs a shell, ATTACH uploads a file and REPORT_FILE redirects the run's whole evidence. Bounds and delivery belong to the CLI; SKILL.md must not offer refused fields as usable headers",
   () => {
     const problems = [];
     // Named by the driver's own map, so a knob quietly promoted back to a field fails here rather than in
-    // a live seat: the message the refusal prints is what tells a relay to use the flag instead.
-    if (cliOnly.length !== 6) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 6`);
+    // a live seat: the message the refusal prints is what tells a caller to use the flag instead.
+    if (cliOnly.length !== 4) problems.push(`read ${cliOnly.length} command-line-only fields out of the driver, expected 4`);
     for (const [f, flag] of cliOnly) {
       if (seatFields.includes(f)) problems.push(`${f} is a seat field again`);
       if (documented.includes(f)) problems.push(`${f} is back in the coordinator's field table as usable`);
@@ -269,6 +140,27 @@ test("the bounds, the transport and the injection fields are refused, and no tab
     return problems.length === 0 || problems.join("; ");
   });
 
+test("the report file is what the coordinator reads, and a missing one is unknown rather than success",
+  "the pipe is not held while a background task runs, so the file IS the delivery: a page that told the coordinator to read the task's output would lose a report whose stdout broke, and one that read a missing file as 'nothing went wrong' would report a seat killed mid-turn as a clean run",
+  () => {
+    const problems = [];
+    for (const phrase of [
+      "The task's exit notification is the seat's completion",
+      "`<DIR>/report.json` is the report, the same JSON the run also wrote to `<DIR>/out.json`",
+      "it is written whole or not at all, and a missing one means unknown, never success",
+      "with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed",
+      "To stop a seat, stop its Bash task, or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`",
+    ]) if (!flat.includes(phrase)) problems.push(`the page no longer says: ${JSON.stringify(phrase)}`);
+    // Each of those is a promise the driver has to keep.
+    if (!/publishReport/.test(driver)) problems.push("the driver no longer publishes the report to a file");
+    if (!/mode: 0o600, flag: "wx"/.test(driver)) problems.push("the report file is no longer written 0600, or no longer refuses an existing name");
+    if (!/function preTurnReport/.test(driver)) problems.push("a refusal before the turn no longer reaches the report file");
+    if (!/pid=\$\{process\.pid\}/.test(driver)) problems.push("the driver no longer announces the pid the page tells the coordinator to signal");
+    if (!/for \(const sig of \["SIGINT", "SIGTERM", "SIGHUP"\]\)/.test(driver))
+      problems.push("the driver no longer handles the signal the page says stops a seat");
+    return problems.length === 0 || problems.join("; ");
+  });
+
 test("SEAT is first and required, and `read` with no directory is the current one",
   "a seat file whose rights line is not first can have one supplied by an injected later line; and a header-less prompt has no SEAT line at all, which is the case the default is FOR",
   () => {
@@ -281,44 +173,12 @@ test("SEAT is first and required, and `read` with no directory is the current on
     return problems.length === 0 || problems.join("; ");
   });
 
-test("BRIEF is decided by the header, not forced by the relay",
+test("BRIEF is decided by the header, not forced by the caller",
   "a forced --brief caps the detail the model generates and contradicts OUTPUT_SCHEMA, which needs one whole JSON object; the header must decide BRIEF",
   () => {
-    if (/always `?BRIEF: yes`?|forced on/.test(agent)) return "the relay still forces BRIEF on";
+    if (/always `?BRIEF: yes`?|forced on/.test(skill)) return "the page still forces BRIEF on";
     if (!documented.includes("BRIEF")) return "BRIEF is not in the coordinator's table";
     return /--brief/.test(driver) || "the driver no longer has --brief";
-  });
-
-test("the relay body names no header field but SEAT",
-  "the relay decides no fields and needs no field vocabulary; it may name the SEAT line whose absence the driver resolves",
-  () => {
-    const vocabulary = [...seatFields, ...cliOnly.map(([f]) => f), "ATTACH"];
-    const named = [...new Set(vocabulary)].filter((f) => f !== "SEAT" && new RegExp(`\\b${f}\\b`).test(body));
-    const problems = [];
-    if (named.length) problems.push(`the relay body names header fields it never writes: ${named.join(", ")}`);
-    if (!/A prompt with no `SEAT:` line is a read seat in the current directory/.test(body))
-      problems.push("the one field the relay may name — the missing SEAT: line the driver defaults — is gone");
-    return problems.length === 0 || problems.join("; ");
-  });
-
-test("the relay body stays the numbered steps and nothing else",
-  "the numbered steps are read in full on every seat launch; keeping the body within its line cap limits prose that can drift while the driver enforces the rest",
-  () => {
-    const n = body.replace(/^\n+|\n+$/g, "").split("\n").length;
-    return n <= 40 || `the relay body is ${n} lines, over the 40-line ceiling`;
-  });
-
-test("the description keeps model, effort and schema out of the Agent tool's options",
-  "those options act on the relay — a schema reshapes the relay's return and a model downgrade replaces the sonnet the relay eval pinned — while the seat runs on whatever the header said",
-  () => {
-    const desc = front.slice(front.indexOf("description:"), front.indexOf("\nmodel:"));
-    const problems = [];
-    if (!/never in the Agent tool's own options/.test(desc)) problems.push("the description does not forbid passing model/effort/schema as Agent-tool options");
-    for (const f of ["MODEL", "EFFORT", "OUTPUT_SCHEMA"]) if (!desc.includes(f)) problems.push(`${f} is not named as the header route in the description`);
-    if (!/attach-pasted\.mjs|--attach/.test(desc)) problems.push("the description does not say an image or audio seat has to leave the native route");
-    if (!/^model: sonnet$/m.test(front)) problems.push("the model pin is no longer sonnet");
-    if (!/^tools: Bash, Write, Read$/m.test(front)) problems.push("the tool list is no longer Bash, Write, Read");
-    return problems.length === 0 || problems.join("; ");
   });
 
 process.exit(summarize(await runCases(CASES), CASES.length));

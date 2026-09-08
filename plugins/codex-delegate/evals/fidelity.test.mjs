@@ -538,12 +538,26 @@ async function liveTurns() {
     const log = path.join(dir, "stream.jsonl");
     const state = freshDir("live-state");
     const shim = teeShim(dir, codexBin, log);
+    // The delivery a coordinator actually reads, exercised on the one live turn this suite spends: the
+    // file is what a background task leaves behind, and a run that agreed with stdout in the fixture and
+    // not against the real server is exactly what this suite exists to catch.
+    const reportFile = path.join(dir, "report.json");
     const { code, out, err } = await runDriver(
-      ["--level", "read", "--cwd", dir, "--effort", "low", "--timeout", "300", "--prompt", LIVE_PROMPT],
+      ["--level", "read", "--cwd", dir, "--effort", "low", "--timeout", "300",
+       "--report-file", reportFile, "--prompt", LIVE_PROMPT],
       { ...process.env, CODEX_DELEGATE_CODEX: shim, CODEX_DELEGATE_STATE_DIR: state }, 330000);
     let r = null;
     try { r = JSON.parse(out); } catch {}
     if (!r) report("live turn", `the driver produced no JSON report (exit ${code}): ${err.trim().slice(-300)}`);
+    else if (!fs.existsSync(reportFile))
+      report("live turn: --report-file is written", `the run exited ${code} and left nothing at ${reportFile}`);
+    else if (fs.readFileSync(reportFile, "utf8") !== out)
+      report("live turn: --report-file carries the same bytes as stdout",
+        `the file is ${fs.statSync(reportFile).size} bytes and stdout ${Buffer.byteLength(out)}`);
+    else if ((fs.statSync(reportFile).mode & 0o777) !== 0o600)
+      report("live turn: --report-file is 0600", `mode ${(fs.statSync(reportFile).mode & 0o777).toString(8)}`);
+    else if (!/^codex-delegate: pid=\d+ identity=/m.test(err))
+      report("live turn: the pid a caller signals is announced first", err.trim().slice(0, 200));
     else {
       const items = completedItems(log);
       const cmds = r.commands ?? [];
@@ -563,12 +577,12 @@ async function liveTurns() {
       // three live runs took three — the patch tool (an approval this driver declines, exit 6), the
       // shell (denied by the sandbox, a failed command), and not attempting it at all. So the file's
       // absence is the assertion, and the route is reported rather than demanded. The exit code is
-      // still pinned: `false` fails on every run, which is the command-failed rung unless a refused
-      // approval outranks it.
+      // still pinned, and it is 0 or 6 rather than a rung of its own: a failed command is a report
+      // field and no exit code, so only a refused approval outranks the completed turn here.
       else if (fs.existsSync(LIVE_PROBE_FILE))
         report("live turn: nothing was written outside the sandbox", `${LIVE_PROBE_FILE} exists`);
-      else if (!(code === 11 || code === 6))
-        report("live turn: a failed command is exit 11, a refused approval exit 6 — never 0", shape);
+      else if (!(code === 0 || code === 6))
+        report("live turn: a failed command is a report field, a refused approval is exit 6", shape);
       else if (r.receiptOk !== true)
         report("live turn: the rollout receipt names this thread", `${shape} why=${JSON.stringify(r.receiptWhy)}`);
       else console.log(`ok    live turn ${shape}`);

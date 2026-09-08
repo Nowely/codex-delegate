@@ -20,21 +20,30 @@ The **user** requests the work; the **coordinator** chooses and synthesises the 
 
 ## One call
 
-For a read seat, send the task with no header:
+One background Bash task per seat. Write the prompt to a file with the Write tool, then run this, with
+`run_in_background: true` and no `&` of your own:
 
-    Agent(subagent_type: "codex-seat", prompt: "TASK: …\nCHECK: …\nRETURN: …")
+    node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<DIR>/report.json" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
-For an isolated writer, add one rights line (the tree starts from HEAD: commit or stash first, or
+`<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
+so they need the absolute path it prints. The task's exit notification is the seat's completion, and
+`<DIR>/report.json` is what to read then.
+
+A read seat's prompt needs no header at all:
+
+    TASK: …
+    CHECK: …
+    RETURN: …
+
+For an isolated writer, one rights line above it (the tree starts from HEAD: commit or stash first, or
 the seat sees none of your uncommitted work):
 
-    Agent(subagent_type: "codex-seat", prompt: "SEAT: worktree <repo>\nTASK: …\nCHECK: …\nRETURN: …")
+    SEAT: worktree <repo>
 
-Under a plugin install use `codex-delegate:codex-seat`. The relay writes this prompt verbatim to one
-file, runs `driver.mjs --relay <file>`, and returns the driver's envelope verbatim. A header-less prompt
-is a read seat in the current directory; the relay adds nothing. The driver launches and waits; if one
-wait expires, the envelope supplies the complete `collect:` command and the relay repeats it. Only after
-24 repeats, about four hours, can the call return `exitCode: 10` while the seat is still running. The
-relay's only own failure shape is `exitCode: null`, for a driver it could not start or a killed tool call.
+Write a prompt you were handed VERBATIM: not a quote, not a `$`, not a header line it has, and add
+nothing. A prompt with no `SEAT:` line is a read seat in the current directory; the driver decides that,
+not you. Never create a directory, change a level or re-run with different flags to make a refused seat
+succeed: measured, a wrapper that created the missing directory ran Codex with rights nobody granted.
 
 ## Composition
 
@@ -73,10 +82,10 @@ Choose the smallest `SEAT` that can complete and check the work:
 
 `NETWORK: yes` and each `WRITABLE: <dir>` widen a write seat. Settle every one with the
 user before adding it. Never translate a refusal into broader rights. Every field is in
-[Header fields](#header-fields) below; model, effort, gates, review, continuation,
-and answer-shape choices belong in that header, not in Agent-tool options. Never pass the Agent tool's
-model option either: it moves the relay off its pinned model, and a relay on a small model widens
-malformed rights and reports false success
+[Header fields](#header-fields) below; model, effort, gates, continuation and answer-shape choices
+belong in that header, and the seat's rights in its `SEAT:` line, which is why the prompt is copied
+into the file rather than rewritten: measured, a wrapper that rewrote one widened malformed rights and
+reported false success
 ([A relay on a small model](references/incidents.md#a-relay-on-a-small-model)).
 
 Read seats may share one cwd, but a repository whose tooling keeps a daemon, a socket, or a pid/state
@@ -113,21 +122,21 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 
 ## Reading the result
 
-- `exitCode: 0` means the completed turn passed its declared evidence gates.
+- `<DIR>/report.json` is the report, the same JSON the run also wrote to `<DIR>/out.json`. Read the file:
+  it is written whole or not at all, and a missing one means unknown, never success.
+- `exitCode: 0` means the completed turn passed its declared evidence gates. `answer` is the seat's text;
+  with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed.
 - `exitCode: 3` is a cut; read the retained answer or partial and the `RESUME:` hint.
-- `exitCode: 10` with a `collect:` line: still running, run that command; `10` without one: a held lock
-  or a busy resumed thread, read the stderr block.
-- Exit 4 and a pre-turn exit 2, 3 or 10 print no report; read the envelope's stderr block.
+- `exitCode: 10` is a held lock or a busy resumed thread: the report says `ok: false` and carries the
+  refusal in `error`, and `<DIR>/err.txt` has it in full.
+- Exit 2 and 4 the same way: no turn ran, so there is an `error` and no receipt to read.
 - Any other non-zero is a gate verdict on the run; read the answer before deciding what to do.
-- The `--- answer (N bytes) ---` marker states the answer's size. The relay is a small model copying
-  text: when fewer bytes follow the marker, or a JSON answer does not parse, read `answerPath`.
-  Measured, a Sonnet relay cut two 13-16 KB answers to 9 KB and altered escapes in two 3 KB ones.
 - `receiptOk: false` on a run that claims success is a red flag; what the receipt proves and does not
   prove is in
   [environment-and-internals.md](references/environment-and-internals.md#receipt-validation-and-reporting).
 - Evidence of success is root-thread-only: a Codex subagent thread's commands are liveness, not evidence.
-- To stop a seat, run `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --jobs --cwd <dir>` for its
-  `threadId`, then `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --cancel <threadId>`.
+- To stop a seat, stop its Bash task, or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`:
+  the driver interrupts the turn, writes the report it had earned and sweeps the codex process group.
 
 ## Prompt shape
 
@@ -155,7 +164,7 @@ commands, so it also needs `ALLOW_NO_COMMANDS: yes` (`--allow-no-commands` on a 
 ## References
 
 - `node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --help` is the canonical inventory of the flags a coordinator sets; `--help-all` adds the rarely needed ones, the `CODEX_DELEGATE_*` variables and the internals.
-- Flags, fields, relay transport, bounds, environment, receipts, and worktree internals:
+- Flags, fields, delivery, bounds, environment, receipts, and worktree internals:
   [environment-and-internals.md](references/environment-and-internals.md).
 - Evidence gates and verifier semantics: [result-gates.md](references/result-gates.md).
 - Capability and concurrency parity: [parity.md](references/parity.md).

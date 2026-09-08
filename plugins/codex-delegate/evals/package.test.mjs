@@ -97,7 +97,7 @@ test("every file the plugin needs to run is in the payload",
     const required = [
       ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json",
       "skills/codex-delegate/schemas/review-output.schema.json",
-      "agents/codex-seat.md", "LICENSE", "README.md",
+      "LICENSE", "README.md",
       ...skillPages,
       ...under(path.relative(ROOT, SCRIPTS)),
       ...under(path.relative(ROOT, EVALS)), ...under(path.relative(ROOT, path.join(EVALS, "lib"))),
