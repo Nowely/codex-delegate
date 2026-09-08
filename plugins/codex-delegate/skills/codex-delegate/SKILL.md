@@ -25,7 +25,8 @@ One background Bash task per seat. Write the prompt to a file with the Write too
 
     CODEX_DELEGATE_STATE_DIR="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<DIR>/report.json" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
-`<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
+The call's `description` is `Codex seat <id>, <model>: <task in a few words>`, so the row the user sees names the
+seat and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
 so they need the absolute path it prints. The task's exit notification is the seat's completion, and
 `<DIR>/report.json` is what to read then.
 
@@ -81,7 +82,7 @@ Choose the smallest `SEAT` that can complete and check the work:
 
 | Prompt header | Codex may | Settle first? |
 | --- | --- | --- |
-| `SEAT: read [<dir>]` or no header | read any readable path, run commands, write only `$TMPDIR` | no |
+| `SEAT: read [<dir>]` or no header | read any readable path, run commands, write only `$TMPDIR`; a write elsewhere or a browser launch asks an approval nobody is there to give, and the run exits 6 | no |
 | `SEAT: worktree <repo>` | write in a driver-managed detached tree | say that a worktree will be made |
 | `SEAT: write <dir>` | write under the live directory | yes; this chooses the blast radius |
 
@@ -159,7 +160,9 @@ Write a concrete, checkable body:
     CHECK:  the ground truth, preferably something the seat cannot guess
     RETURN: exactly what to hand back
 
-Give one deliverable per seat. Split a return that asks for unrelated artifacts or decisions.
+Give one deliverable per seat. Split a return that asks for unrelated artifacts or decisions. Whatever `RETURN:`
+asks for, its first line is one sentence a human can read on its own, the seat, its model, its status and what it
+did, because that line is what the user is told; the rest is the return's own shape.
 
 The standing rules are already on the thread — unattended, local shell only, no web search unless
 granted, `COMMAND_BLOCKED` for a step that cannot run, never claim a test passed without the count — so
