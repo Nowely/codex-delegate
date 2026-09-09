@@ -20,10 +20,12 @@ import { SHIM, REVIEW_SCHEMA, assertKnownScenarios, attachFile, attachFile2, flo
 
 const shimDir = SHIM;
 
-// The prompt the stalled-reader row echoes back, sized past what a paused pipe holds: measured at 128 KB
-// on this platform — 64 KB in the pipe itself and 64 KB in the reader's own buffer — under which a report
-// reaches even a consumer that never reads, and the drain watchdog is never armed at all.
-const STALLED_READER_BODY = "y".repeat(200000);
+// The prompt the stalled-reader row echoes back, sized past what a paused pipe holds: the pipe itself
+// (64 KB by default), the reader's own buffer and the chunks libuv has in flight when pause() lands,
+// which together absorbed 200 KB on Linux under one Node version. Under that much a report reaches even
+// a consumer that never reads, and the drain watchdog is never armed. Bounded above by the seat-file
+// prompt cap of 512 KB, so 480 KB: 2.5 times the largest absorption measured.
+const STALLED_READER_BODY = "y".repeat(480000);
 const CASES = [
   { scenario: "model-unknown",    expect: EXIT.USAGE, args: ["--effort", "minimal"],
     env: { FAKE_RPC_LOG: modelListLog },
