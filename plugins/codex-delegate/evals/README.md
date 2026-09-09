@@ -11,8 +11,8 @@ npm test                      # every suite, cheapest first, stopping at the fir
 node evals/cli.test.mjs       # one suite, when it is the thing being worked on
 ```
 
-`run-all.mjs` lists the eleven, cheapest first: orchestrate, package, agent-contract, attach-pasted,
-worktree, cli, conformance, lock, protocol, then the two that need a live binary, fidelity and
+`run-all.mjs` lists the twelve, cheapest first: orchestrate, package, agent-contract, attach-pasted,
+clear, worktree, cli, conformance, lock, protocol, then the two that need a live binary, fidelity and
 orchestrate-live. It refuses to start when that list disagrees with the directory, so a suite nobody
 listed cannot go unrun. A suite killed by a signal is a failure, not a pass: a killed child reports
 `code` null and `process.exit(null)` exits 0. A suite that skipped or never ran is deducted from the
@@ -22,7 +22,9 @@ Each suite's header comment says what it measures, and a suite that spends real 
 the variable that arms it there. Where a case belongs follows two splits: `cli.test.mjs` is what the
 driver does with its ARGUMENTS and its output surface, `protocol.test.mjs` what it does with the
 SERVER's events; `worktree.test.mjs` owns the managed tree and its ledger, `lock.test.mjs` the acquire
-path, signals and teardown.
+path, signals and teardown, and `clear.test.mjs` what the cleanup script inventories, keeps and removes —
+it drives `scripts/clear.mjs`, never the driver, and every fixture it plants lives under a scratch state
+directory, config directory and `TMPDIR` of its own.
 
 The counts are deliberately not written down here — the last one was wrong twice in two days. The
 `CASES` arrays are the inventory, and each suite states its own count in its last line. A case that

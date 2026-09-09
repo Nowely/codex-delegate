@@ -3832,9 +3832,13 @@ const RUN_AS_MAIN = (() => {
   if (import.meta.url === pathToFileURL(entry).href) return true;
   try { return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href; } catch { return false; }
 })();
-// Exactly what a suite imports, plus the two a suite compares against itself: an export nothing reads
-// is a second interface to keep true.
-export { EXIT, FIELDS, LADDER, PINNED_CODEX, SEAT_FIELDS, VERSION, lockKey };
+// Exactly what a suite imports, plus the two a suite compares against itself, plus what clear.mjs asks
+// this driver rather than reimplementing: an export nothing reads is a second interface to keep true,
+// and a second copy of "is this pid still the holder" is a second answer that can disagree with the
+// lock it is about. Every name here is already a module-scope binding, so exporting them changes no
+// behaviour, and RUN_AS_MAIN above keeps an import from starting a turn, a handler or a state directory.
+export { EXIT, FIELDS, LADDER, PINNED_CODEX, SEAT_FIELDS, VERSION, canonPath, holderAlive, lockKey,
+         processIdentity, reclaimable };
 
 if (RUN_AS_MAIN) {
   process.stdout.on("error", stdoutFailed);

@@ -3,6 +3,161 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+Measured against codex-cli 0.153.4 on macOS. No driver behaviour changes: this release is a third skill
+and the script behind it.
+
+### Added
+
+- A third skill, `codex-delegate:clear`, invoked by the user only (`disable-model-invocation: true`),
+  and `skills/codex-delegate/scripts/clear.mjs` beside `attach-pasted.mjs`. It lists what the plugin
+  has left on this machine, says of each item why it can go or is being kept, and removes only what
+  the user picked by number. `--list`, `--list --json`, `--delete --from <listing.json> <number>...`,
+  `--help`.
+- Four kinds are removable, all of them plain directories: an orchestrate run directory of THIS
+  project, a seat's scratch directory of this project, the test suites' scratch directories under
+  `$TMPDIR`, and the saved conversations the suites leave in `<config>/projects/`. Four more are
+  REPORTED and never removed — the managed worktrees and their ledger, the write locks, the shared
+  Codex home, and the data directory of another copy of this plugin — because the driver reconciles
+  the first two itself on its next worktree or lock run, the third is shared by every seat, and the
+  last is the user's own to remove, with a ready `rm -rf` in the JSON's `manual` list. The script
+  never runs git.
+- Two statuses, and nothing between them. `removable` means nothing the plugin records under the item
+  is in use and everything under it could be read; `kept` is everything else. Unreadable is not a
+  status but a reason to keep, and the walk classifies every entry to establish it: a directory it
+  can list, a regular file it can read, or a symlink, which is an entry and never followed. A read
+  that permissions refuse, a FIFO, a socket, a device, malformed JSON, a symlink anywhere on the path
+  from the root down, or a walk that could not be finished each keep the item and say so.
+- ONE way to read anything, and one shape for the answer: a value, or the reason it could not be had.
+  ENOENT is the only error that becomes a value, because "it is not there" is a fact the program has
+  and every other error is a fact it does NOT have; every caller answers a reason by keeping the item.
+  Four rounds of review each found another instance of the same shape — a permission error read as an
+  empty directory, so a state directory whose permissions were refused became "no job records" and
+  everything a live job protected was suggested and deleted; a name resolution that failed halfway and
+  offered a transcript anyway; an ordinary file where a directory belonged, read as nothing there. The
+  helper also stats before it reads, so a named pipe standing where a seat's startup record belongs
+  can no longer block the whole listing on an open that never returns.
+- One rule for "in use", asked of the driver's own exported helpers — `holderAlive`,
+  `holderGroupAlive`, `reclaimable`, `processIdentity` — never of a second copy of the rule: a live
+  pid recorded under the item or naming it. The recorded places are a seat directory's `err.txt`
+  first line, a run's seat subdirectory with no `report.json` (the driver makes that directory at
+  admission, so it is an unfinished marker) or ANY seat item whose report path points into the run
+  and is itself in use, a job record under `<state>/jobs/` whose `cwd` or `repo` is the item or
+  inside it, and, for the test rows only, a running suite. A record that cannot be read or parsed
+  means in use, never absent; a failed process listing keeps every test row; and a seat whose own
+  startup line cannot be read names no run this can see, so it keeps all of them.
+- Every liveness fact is taken before anything is classified, so protection travels one way: from any
+  live evidence outward to everything that contains it. A run judged before the job records that
+  protect its seats were read was deleted while a live task held the seat writing into it.
+- The claim is exactly as wide as that list, and the page and `--help` now say so. A process holding a
+  directory open with no seat, job record or suite name behind it is invisible here, and so is a
+  record in another copy's data directory.
+- Numbers and a snapshot are the whole selection protocol: `--delete` takes the numbers the user
+  chose and the file `--list --json` wrote, and removes a number only when the row it finds now
+  matches the snapshot on kind, name, status, the set of paths, the `dev:ino` of each of them, the
+  member count, the size and both ends of the last-change span. Anything else is refused untouched
+  with a sentence saying it changed since it was listed. The identities are there because a
+  replacement directory of the same size at the same second answered to the old snapshot otherwise;
+  the lower end of the span is there because the listing shows it. There is no reference grammar, no
+  fingerprint to copy and no file of ids.
+- ONE inventory answers every number, and no number is acted on until all of them have been verified
+  against it, so the order the user typed cannot decide the outcome. A fresh inventory per number made
+  it decide: removing a run renamed the seat that pointed into it, and the seat's own number was then
+  refused as changed, while the same two numbers the other way round removed both.
+- Freshness is not what an inventory is for. Every liveness fact — the job records, the walk, a seat's
+  startup line, a run's seat directories, AND the process listing — is re-taken immediately before
+  each member goes, not once per row and not once per number. A suite that starts, or a job record
+  that is written, while an earlier member of a collapsed row is being removed protects every member
+  that has not gone yet.
+- The item removed is the one the listing measured: its `dev:ino` is compared again at the removal, so
+  a directory taken away and another put in its place after that inventory is refused rather than
+  removed in the original's stead.
+- The user's "yes" covers the suggested rows and nothing else: removable seat directories of this
+  project and removable test scratch directories. A run or a saved conversation is deleted only when
+  the user says its number. Another project's rows, everything in use or unreadable and the four
+  reported kinds are never selectable, and age is never a criterion — it is displayed and never
+  consulted.
+- Rows of the same kind whose displayed name is identical collapse into one numbered row with a
+  count, a total size, the span of their last-change times and all their paths. A collapsed row is
+  removable only when every member is, and picking its number removes every member. On this machine
+  the listing is 98 lines for 239 artifacts.
+
+### Notes
+
+- A slug is never proof of ownership. `<state>/orchestrate/<slug>/` is the coordinator's working
+  directory with every non-alphanumeric character replaced by `-`, and `a-b` and `a_b` share one, so
+  a run belongs to this project only when its slug matches AND every `<seat>/report.json` that parses
+  carries a `cwd` under this project. A run no record names is called that in the listing rather than
+  being assigned to anybody. A seat belongs to the project of the run its report path names, else of
+  the job record naming the same pid, else nobody.
+- A test suite is recognised as a process that IS one — `node` running a file named `<name>.test.mjs`
+  or `run-all.mjs` — rather than by the file name appearing anywhere on a command line: a monitoring
+  shell whose line merely mentioned `evals/clear.test.mjs` marked all 178 test scratch directories as
+  live (measured 2026-09-09). `ps` joins argv with spaces, so every leading run of words is tried as
+  the executable: an interpreter installed under a path that holds a space is still `node`, and
+  missing one deleted a running suite's scratch.
+- Nothing this tool prints executes when it is pasted. The `rm -rf` it hands the user for another
+  copy's data directory is single-quoted, as is the `find` for the entries outside this cleanup: a
+  directory named `codex-delegate-$(touch PWNED)` is data, and JSON quoting is not shell quoting.
+- Removal, in order: re-verify against the snapshot; re-take the item's liveness; walk the path from
+  its kind's canonical root down, one `lstat` per component, refusing on any symlink or any component
+  that is not a directory; `chdir` into the directory that holds it and compare that directory's
+  `dev:ino` with what the walk saw; `lstat` and then `open`/`fstat` the leaf BY ITS BARE NAME,
+  refusing unless its `dev:ino` is the one the walk saw; then `rm -rf` that bare name, which never
+  follows a symlink inside — a link inside is unlinked, its target untouched. A root,
+  `<state>/{answers,jobs,tmp,pasted,locks,worktrees,home,orchestrate}` and anything that resolved
+  outside its own root are never removal targets, and an item that CONTAINS one of them is refused at
+  the listing rather than suggested and then refused at the removal.
+- The bare name is what closes the ancestor swap. `rm -rf` on an absolute path re-resolves every
+  component, so an ancestor renamed after the check redirected the removal outside the root and
+  deleted an unselected directory — measured, in all four kinds. `chdir` resolves the parent once and
+  pins it to that inode; the kernel then resolves the bare name from that handle, and no later rename
+  of an ancestor can move it — also measured, in the same fixture, which now survives.
+- An emptied slug directory is left where it is. Sweeping it removed a directory the user never chose,
+  and once the pinned parent had been renamed away the sweep removed whatever now stood in its place.
+- Every chain starts at the OUTERMOST canonical root — `<state>` for a run, `<config>` for a saved
+  conversation — so a link at `orchestrate` or at `projects` is met on the way down and keeps
+  everything beneath it. `<config>/projects` replaced by a link elsewhere canonicalises to that
+  elsewhere, and a chain that began there would have found nothing wrong with removing a personal
+  directory outside the config tree. Those items are still listed, and each says it is reached through
+  a link, rather than vanishing from a listing that claims to cover them.
+- A saved conversation is offered on the SHAPE of its name and on nothing else. A slug is lossy —
+  `/`, `-`, `_`, `.` and a space all become `-` — so `<tmp>/orchestrate-live-x` and
+  `<tmp>-orchestrate-live-x` are one string, and a test that merely looked for the marker anywhere
+  reached the second, which is somebody's own project and somebody's own transcripts. The rule is now:
+  the slug must begin with the temp root's own slug and a separator, and the tail below it must have a
+  shape a suite itself writes — `orchestrate-live-<ISO stamp>-<n>-<case>[-scratch]`
+  (evals/orchestrate-live.test.mjs:87 builds the artifact directory, :88-89 the case directory,
+  :167-168 the clone inside it) or `cdx-permprobe-<one bare word>` (Claude Code's own permission probe,
+  pinned from what it leaves behind). A directory a person named `my-orchestrate-live-notes` under the
+  temp root has neither shape. Nothing outside the temp root is read; in fact nothing is read at all,
+  and whether the directory still exists changes nothing — a suite deletes its scratch when it ends,
+  so requiring it to be there hid 28 of this machine's 44 conversations, exactly the ones worth
+  removing.
+- A number is consent for WHAT it named. Because the inventory is re-run per number, removing one row
+  renumbers everything after it, so the snapshot's row is found in the fresh listing by its kind and
+  name and then compared in full — never by its position.
+- Exit codes: 0 everything asked for was removed; 1 a removal was attempted and failed; 2 bad
+  arguments, an unreadable or stale snapshot, or no state directory; 10 something was refused and
+  nothing about it was touched. 10 outranks 1, which outranks 0.
+- What remains is one instruction wide: between the final `fstat` of the bare name and the `rm` of
+  that same bare name, a same-user process could replace that entry inside the pinned parent. Every
+  wider version of that race — an ancestor renamed, a parent swapped, a directory replaced between
+  the listing and the removal — is closed by the pinned parent, the identity comparison and the
+  snapshot's `dev:ino`.
+- Run for real on the author's machine (2026-09-10), against 22 rows standing for 240 artifacts:
+  `--list` exit 0, 103 lines, nothing on stderr, 152 ms, its text byte-identical to the JSON `text`;
+  the suggested set removed 185 directories under `$TMPDIR` in one call, exit 0, and the listing
+  printed after it. Kept, unasked: five seat directories of another project, that project's run, the
+  shared Codex home, the uninstalled copy's data, and a seat directory made one minute earlier by
+  another session in this project, which read "the seat using these files is still running". A run
+  planted under the plugin's own data directory was then listed, selected by number and removed at
+  exit 0 with the three real runs beside it untouched — which is also what measures that a subprocess
+  may remove a directory under `~/.claude/plugins/data`, the last thing about the delivery route that
+  was still unmeasured. Whether `${CLAUDE_PLUGIN_ROOT}` is substituted in a skill body remains
+  unmeasured: it needs an installed copy that carries this page.
+
 ## 0.11.1 — 2026-09-09
 
 The 0.11.0 release commit failed CI on both Node 18 jobs while both Node 24 jobs passed. The declared floor moves to
