@@ -140,9 +140,10 @@ agent reads mid-task, including when to give a panel seat to Codex at all. With 
 is `codex-delegate:codex-delegate` (the clone-and-symlink spellings are under Install). A seat is one
 background Bash call of that same driver: the prompt in a file named by `--seat-file`, the report at
 `--report-file`; add `SEAT: worktree <repo>` above `TASK:` for a managed writer. The
-driver parses that header, launches one seat, waits as long as the work takes, and publishes the report
-by hard link, never over an existing entry: the coordinator reads the file when the call's exit
-notification arrives, and a missing file means unknown, never success.
+driver parses that header, launches one seat, waits as long as the work takes, makes the directories the
+report path needs at 0700, and publishes the report there by hard link, never over an existing entry: the
+coordinator reads the file when the call's exit notification arrives, and a missing file means unknown,
+never success.
 
 ## Rights, per call
 

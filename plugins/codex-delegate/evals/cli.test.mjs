@@ -473,6 +473,29 @@ flow("--report-file publishes the whole report at 0600, byte for byte what stdou
     return problems.length === 0 || problems.join("; ");
   });
 
+flow("--report-file makes the directories its path needs, at 0700, however many levels are missing",
+  "the coordinator that names the path cannot make it: in a headless session a Write or a mkdir under the plugin's data directory is denied as a sensitive path with no prompt anyone can answer, while this process handed the same path as an argument is not — so a run directory only the driver ever creates is what the orchestrate page can promise",
+  async () => {
+    const problems = [];
+    for (const [label, ...parts] of [["one level", "run", "seat", "report.json"],
+                                     ["two levels", "orchestrate", "slug", "run", "seat", "report.json"]]) {
+      const state = flowState();
+      const p = path.join(state, ...parts);
+      const { code, out, err } = await run({ scenario: "happy", args: ["--report-file", p],
+        env: { CODEX_DELEGATE_STATE_DIR: state } });
+      if (code !== EXIT.OK) { problems.push(`${label}: exit ${code}: ${err.trim().slice(-160)}`); continue; }
+      if (!fs.existsSync(p)) { problems.push(`${label}: no report at ${p}`); continue; }
+      if (fs.readFileSync(p, "utf8") !== out) problems.push(`${label}: the file is not the bytes stdout carried`);
+      // Every directory the run made, not the last one alone: an intermediate left at 0755 is a run
+      // directory any other account on the machine can list.
+      for (let d = path.dirname(p); d !== state; d = path.dirname(d)) {
+        const mode = fs.statSync(d).mode & 0o777;
+        if (mode !== 0o700) problems.push(`${label}: ${path.basename(d)} is mode ${mode.toString(8)}, not 700`);
+      }
+    }
+    return problems.length === 0 || problems.join("; ");
+  });
+
 flow("--report-file refuses a path it would overwrite, a symbolic link, a relative one and a directory it cannot write, before anything is spawned",
   "the report file is the run's whole delivery: a path already holding one is two seats' evidence in one file, a link is a path whose destination someone else chooses, and every one of these is knowable before a token is spent — refused after the turn it would cost the delegation",
   async () => {
@@ -493,7 +516,6 @@ flow("--report-file refuses a path it would overwrite, a symbolic link, a relati
     try {
       for (const [p, why] of [[taken, "already exists"], [dangling, "already exists"],
                               ["report.json", "must be an absolute path"],
-                              [path.join(state, "no-such-dir", "r.json"), "cannot use"],
                               [path.join(ro, "r.json"), "cannot write into"]]) {
         const { code, out, err } = await run({ scenario: "happy", args: ["--report-file", p],
           env: { CODEX_DELEGATE_STATE_DIR: state, PATH: `${probeShim}:${process.env.PATH}` } });

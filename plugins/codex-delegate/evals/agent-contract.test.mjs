@@ -110,7 +110,7 @@ test("the ONE call is --seat-file with --report-file, in a background task, and 
     }
     const call = commands.find((c) => c.includes("driver.mjs")) ?? "";
     if (!call) problems.push("no indented `node \"...driver.mjs\"` line is on the page at all");
-    for (const part of ['--seat-file "<DIR>/prompt.txt"', '--report-file "<DIR>/report.json"',
+    for (const part of ['--seat-file "<DIR>/prompt.txt"', '--report-file "<REPORT>"',
                         '> "<DIR>/out.json"', '2> "<DIR>/err.txt"'])
       if (!call.includes(part)) problems.push(`the call does not carry ${part}: ${JSON.stringify(call)}`);
     if (/(^|[^&])&\s*$/.test(call)) problems.push("the call ends in an `&` of its own, which hides the run from the task");
@@ -203,7 +203,8 @@ test("the report file is what the coordinator reads, and a missing one is unknow
     const problems = [];
     for (const phrase of [
       "The task's exit notification is the seat's completion",
-      "`<DIR>/report.json` is the report, the same JSON the run also wrote to `<DIR>/out.json`",
+      "`<REPORT>` is an absolute path of this seat's own, `<DIR>/report.json` where nothing else chooses it; the driver makes every directory that path needs, at 0700",
+      "`<REPORT>` is the report, the same JSON the run also wrote to `<DIR>/out.json`",
       "it is written whole or not at all, and a missing one means unknown, never success",
       "with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed",
       "To stop a seat, stop its Bash task, or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`",

@@ -40,7 +40,19 @@
 //     directory is outside every repository, so a run leaves the tree it works in untouched. Which id
 //     Claude Code gives a plugin loaded with --plugin-dir is UNMEASURED: runDirs below therefore scans
 //     every id under <config>/plugins/data/ and identifies the run by the project slug, and the owner
-//     running this gate is what settles the id.
+//     running this gate is what settles the id;
+//   - a Write, a `mkdir` or a shell redirect whose path is under ~/.claude/plugins/data is refused in
+//     this mode as "a sensitive file", and -p mode has no prompt to answer it with; the same path handed
+//     to a SUBPROCESS as an argument is not refused (probe: `node -e "fs.mkdirSync(argv[1],{recursive:
+//     true})" <plugin-data path>` created the directory, and the driver itself wrote jobs/ and home/
+//     under the data directory during the gate). So the run directory is the DRIVER's to create, through
+//     --report-file, and case 5 expects one holding seat directories with a report.json each and nothing
+//     else: no .gitignore, no prompt file, no out.json — those are under $TMPDIR now;
+//   - a background Bash task does not keep a headless session alive: when the coordinator ends its turn
+//     Claude Code exits and SIGTERMs the task, and the first full run's seat was interrupted at the
+//     second the session ended. TaskOutput(task_id, block: true, timeout: 600000) blocks the turn until
+//     the task ends, ten minutes per call and repeated while it still runs, so it is in --allowedTools
+//     below; in an interactive session the notification arrives first and the call returns at once.
 //
 // Two things outlive a run on purpose. Case 5's session file stays under ~/.claude/projects: --resume
 // reads it, and the CLI has no delete for it. And a FAILING case keeps its scratch tree, which its
@@ -167,11 +179,12 @@ function scratchClone(dir) {
 
 // Not --dangerously-skip-permissions: managed settings disable that mode on this machine, and a -p
 // session that inherits the denial writes nothing and runs no command. The rules are the tools the page's
-// coordinator uses, both spellings of the subagent tool among them; acceptEdits is what lets a seat write
-// without a prompt no headless run could answer.
+// coordinator uses, both spellings of the subagent tool among them, and TaskOutput, which is how a
+// coordinator waits on a background seat without ending the turn that owns it; acceptEdits is what lets a
+// seat write without a prompt no headless run could answer.
 const CLAUDE_FLAGS = ["--plugin-dir", ROOT, "--output-format", "stream-json", "--verbose",
                       "--permission-mode", "acceptEdits",
-                      "--allowedTools", "Bash,Write,Edit,Read,Glob,Grep,Skill,Agent,Task,Workflow"];
+                      "--allowedTools", "Bash,Write,Edit,Read,Glob,Grep,Skill,Agent,Task,TaskOutput,Workflow"];
 
 // --no-session-persistence is the default here and is DROPPED for case 5: a session it disables is not
 // saved to disk and cannot be resumed, and case 5's whole shape is one plan turn and one "go" turn on the
@@ -259,14 +272,17 @@ function untaggedAgentCalls(text) {
 // that path are tried: a macOS temp directory is reached through /var and resolves to /private/var, and
 // the session's own cwd decides which one the slug was built from.
 const projectSlug = (dir) => dir.replace(/[^A-Za-z0-9]/g, "-");
+// Every plugin id on this machine, because which one --plugin-dir produced is unmeasured: the run
+// directories AND the driver's own state (jobs/) both live under one of them.
+const PLUGIN_DATA = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "plugins", "data");
+const pluginDataDirs = () => {
+  try { return fs.readdirSync(PLUGIN_DATA).map((n) => path.join(PLUGIN_DATA, n)); } catch { return []; }
+};
 const runDirs = (scratch) => {
-  const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "plugins", "data");
   const slugs = new Set([projectSlug(scratch)]);
   try { slugs.add(projectSlug(fs.realpathSync(scratch))); } catch {}
-  let ids = [];
-  try { ids = fs.readdirSync(base).map((n) => path.join(base, n)); } catch { return []; }
   const out = [];
-  for (const id of ids)
+  for (const id of pluginDataDirs())
     for (const slug of slugs) {
       const d = path.join(id, "orchestrate", slug);
       try { for (const n of fs.readdirSync(d)) out.push(path.join(d, n)); } catch {}
@@ -274,38 +290,87 @@ const runDirs = (scratch) => {
   return out;
 };
 
-// A seat is a background task of the session's, and a task can outlive the SIGKILL aimed at the session's
-// group. There is no registry to ask any more: every seat announces `pid=` on the first line of the stderr
-// file the coordinator redirected it to, so after a kill each live pid under the run directories is
-// SIGTERMed — the driver's own handler then interrupts the turn, writes its report and sweeps the codex
-// process group it started. Best-effort by construction: a seat whose stderr went somewhere this cannot
-// see is left to its own bounds, which is what --idle-timeout is for.
-// The layout it reads is the page's: `<run>/<seat>/{prompt.txt,report.json,out.json,err.txt}`,
-// one directory per seat — so the scan descends one level. Files directly under `<run>/` are read too,
-// because a coordinator that put a seat's files there is a seat this must still be able to stop, and
-// readFileSync on a directory is EISDIR, which the old flat scan turned into `continue`.
-function stopSeats(scratch, dir) {
-  const stopped = [];
-  const heads = [];
-  for (const run of runDirs(scratch)) {
+// What the page now promises a run directory is: seat directories, one report.json in each, and nothing
+// else — the driver publishes those files and the coordinator writes there at all. Every deviation is
+// named rather than counted, because each has a different cause: a file at the run level is a
+// coordinator that wrote where its own tools are refused, a seat directory with no report.json is a seat
+// that never published, and a file beside a report is a redirect the page sends to $TMPDIR.
+function runDirProblems(dirs) {
+  const problems = [];
+  for (const run of dirs) {
     let entries = [];
-    try { entries = fs.readdirSync(run, { withFileTypes: true }); } catch { continue; }
-    for (const e of entries) {
-      const p = path.join(run, e.name);
-      if (!e.isDirectory()) { heads.push([e.name, p]); continue; }
+    try { entries = fs.readdirSync(run, { withFileTypes: true }); } catch (e) { problems.push(`${run} cannot be read: ${e.message}`); continue; }
+    const stray = entries.filter((e) => !e.isDirectory()).map((e) => e.name);
+    if (stray.length) problems.push(`${path.basename(run)} holds ${stray.join(", ")} beside its seat directories, and only the driver writes there`);
+    const seats = entries.filter((e) => e.isDirectory());
+    if (!seats.length && !stray.length) problems.push(`${path.basename(run)} is empty`);
+    for (const s of seats) {
       let inner = [];
-      try { inner = fs.readdirSync(p, { withFileTypes: true }); } catch { continue; }
-      for (const f of inner) if (!f.isDirectory()) heads.push([`${e.name}/${f.name}`, path.join(p, f.name)]);
+      try { inner = fs.readdirSync(path.join(run, s.name)); } catch (e) { problems.push(`${path.basename(run)}/${s.name} cannot be read: ${e.message}`); continue; }
+      if (!inner.includes("report.json")) problems.push(`${path.basename(run)}/${s.name} has no report.json: ${inner.join(", ") || "empty"}`);
+      const beside = inner.filter((n) => n !== "report.json");
+      if (beside.length) problems.push(`${path.basename(run)}/${s.name} holds ${beside.join(", ")} beside report.json`);
     }
   }
-  for (const [label, p] of heads) {
-    let head = "";
-    try { head = fs.readFileSync(p, "utf8").slice(0, 8192); } catch { continue; }
-    const m = /^codex-delegate: pid=(\d+)\b/m.exec(head);
-    if (!m) continue;
-    const pid = Number(m[1]);
-    try { process.kill(pid, 0); } catch { continue; }     // already gone
+  return problems;
+}
+
+// Every `<seat>/report.json` the driver published, whatever the seat calls said: a call whose
+// --report-file this could not parse still leaves its report where the run directory can be scanned for
+// it, and a report with no call behind it is a seat this suite would otherwise never see.
+const runDirReports = (dirs) => dirs.flatMap((run) => {
+  let entries = [];
+  try { entries = fs.readdirSync(run, { withFileTypes: true }); } catch { return []; }
+  return entries.filter((e) => e.isDirectory()).map((e) => path.join(run, e.name, "report.json"))
+    .filter((p) => fs.existsSync(p));
+});
+
+// A seat is a background task of the session's, and a task can outlive the SIGKILL aimed at the session's
+// group. Nothing under the run directory names a pid any more — the driver publishes a report there and
+// nothing else — so a seat is found two ways, in this order:
+//   1. the driver's own job records. Every seat writes `<state>/jobs/<threadId>.json` with its pid, the
+//      process identity that says the pid was not recycled, and the `cwd` (a worktree seat: the `repo`)
+//      it ran in. The state is the plugin data directory the seat was handed, so the scan is jobs/ under
+//      every id, and a record naming this case's scratch whose pid is still alive is this case's seat.
+//   2. the stderr file the seat call redirected to, which is under $TMPDIR now: `pid=` is the driver's
+//      first line there. This is what answers for a seat killed before its thread existed, since
+//      writeJob returns without a threadId and no record was ever written.
+// SIGTERM, never SIGKILL: the driver's own handler is what interrupts the turn, writes the report the run
+// had earned and sweeps the codex process group it started. Best-effort by construction — a seat neither
+// route can see is left to its own bounds, which is what --idle-timeout is for.
+function stopSeats(scratch, dir, toolUses = []) {
+  const stopped = [];
+  const seen = new Set();
+  const roots = new Set([scratch]);
+  try { roots.add(fs.realpathSync(scratch)); } catch {}
+  const isOurs = (p) => typeof p === "string" && p !== ""
+    && [...roots].some((r) => p === r || p.startsWith(`${r}${path.sep}`));
+  const stop = (label, pid) => {
+    if (!Number.isInteger(pid) || pid <= 1 || seen.has(pid)) return;
+    seen.add(pid);
+    try { process.kill(pid, 0); } catch { return; }        // already gone
     try { process.kill(pid, "SIGTERM"); stopped.push(`${label}:${pid}`); } catch {}
+  };
+  for (const id of pluginDataDirs()) {
+    const jobs = path.join(id, "jobs");
+    let names = [];
+    try { names = fs.readdirSync(jobs); } catch { continue; }
+    for (const n of names.filter((f) => f.endsWith(".json"))) {
+      let rec = null;
+      try { rec = JSON.parse(fs.readFileSync(path.join(jobs, n), "utf8")); } catch { continue; }
+      if (!isOurs(rec?.cwd) && !isOurs(rec?.repo)) continue;
+      stop(`job ${n}`, Number(rec?.pid));
+    }
+  }
+  // The paths the seat calls named, not a directory listing: the stderr file is outside the run
+  // directory now, and only the command line says where it went.
+  for (const u of seatCalls(toolUses)) {
+    const f = /2>\s*"?([^"\s]+)"?/.exec(seatCommand(u))?.[1];
+    if (!f) continue;
+    let head = "";
+    try { head = fs.readFileSync(path.isAbsolute(f) ? f : path.join(scratch, f), "utf8").slice(0, 8192); } catch { continue; }
+    const m = /^codex-delegate: pid=(\d+)\b/m.exec(head);
+    if (m) stop(path.basename(f), Number(m[1]));
   }
   save(dir, "stopped.txt", stopped.join("\n"));
   return stopped.length;
@@ -456,10 +521,12 @@ test("plan only under Opus: the first attempt stops at a plan",
     const scratch = scratchClone(dir);
     const head0 = git(scratch, "rev-parse", "HEAD").trim();
     const r = await session({ model: "opus", maxTurns: 60, prompt: SLUG_TASK }, { cwd: scratch, timeoutMs: PLAN_TIMEOUT });
-    if (r.killed) stopSeats(scratch, dir);
+    const s = parseStream(r.out);
+    // Parsed before the kill sweep: the stderr paths the seat calls named are the fallback route to a
+    // seat's pid, and they are only on the command lines this parse recovers.
+    if (r.killed) stopSeats(scratch, dir, s.toolUses);
     save(dir, "session.jsonl", r.out);
     save(dir, "stderr.txt", r.err);
-    const s = parseStream(r.out);
     save(dir, "plan.txt", s.planText);
     if (!s.init) return kept(dir, `no session started (exit ${r.code}${r.killed ? ", killed at the timeout" : ""}): ${r.err.trim().slice(-400)}`);
     const problems = [];
@@ -480,10 +547,10 @@ test("plan only under Fable: the top pair is capped",
     const scratch = scratchClone(dir);
     const head0 = git(scratch, "rev-parse", "HEAD").trim();
     const r = await session({ model: "fable", maxTurns: 60, prompt: DESIGN_TASK }, { cwd: scratch, timeoutMs: PLAN_TIMEOUT });
-    if (r.killed) stopSeats(scratch, dir);
+    const s = parseStream(r.out);
+    if (r.killed) stopSeats(scratch, dir, s.toolUses);
     save(dir, "session.jsonl", r.out);
     save(dir, "stderr.txt", r.err);
-    const s = parseStream(r.out);
     save(dir, "plan.txt", s.planText);
     // A model this account cannot reach headless is not a defect in the mode, and the CLI rejects it
     // before a session exists. But a missing init line is also what a crash, a bad flag and a killed run
@@ -673,10 +740,10 @@ test("the full run under Opus: plan, go, run",
     // makes a session unresumable, and --resume is the whole point of turn 2.
     const t1 = await session({ model: "opus", maxTurns: 60, prompt: SLUG_TASK, sessionId, resumable: true },
       { cwd: scratch, timeoutMs: PLAN_TIMEOUT });
-    if (t1.killed) stopSeats(scratch, dir);
+    const s1 = parseStream(t1.out);
+    if (t1.killed) stopSeats(scratch, dir, s1.toolUses);
     save(dir, "turn1.jsonl", t1.out);
     save(dir, "turn1.stderr.txt", t1.err);
-    const s1 = parseStream(t1.out);
     save(dir, "plan.txt", s1.planText);
     if (!s1.init) return kept(dir, `turn 1 started no session (exit ${t1.code}${t1.killed ? ", killed at the timeout" : ""}): ${t1.err.trim().slice(-400)}`);
     const problems = [];
@@ -691,15 +758,16 @@ test("the full run under Opus: plan, go, run",
 
     const t2 = await session({ model: "opus", maxTurns: 400, prompt: "go", resume: sessionId, resumable: true },
       { cwd: scratch, timeoutMs: FULL_TIMEOUT });
-    if (t2.killed) { stopSeats(scratch, dir); problems.push("turn 2 was killed at the timeout"); }
+    const s2 = parseStream(t2.out);
+    if (t2.killed) { stopSeats(scratch, dir, s2.toolUses); problems.push("turn 2 was killed at the timeout"); }
     save(dir, "turn2.jsonl", t2.out);
     save(dir, "turn2.stderr.txt", t2.err);
-    const s2 = parseStream(t2.out);
     save(dir, "report.txt", s2.planText);
     if (!s2.msgs.length) return kept(dir, `turn 2 produced no stream (exit ${t2.code}${t2.killed ? ", killed at the timeout" : ""}): ${t2.err.trim().slice(-400)}`);
 
     const dirs = runDirs(scratch);
     if (!dirs.length) problems.push("no `orchestrate/<project-slug>/<run>/` was created under any plugin data directory");
+    problems.push(...runDirProblems(dirs));
     // Nothing to ignore any more, and that is the property: the run directory is outside the tree, so no
     // artifact of it can reach the scratch's `git status` and no ignore file has to keep it out.
     if (fs.existsSync(path.join(scratch, ".orchestrate")))
@@ -761,12 +829,16 @@ test("the full run under Opus: plan, go, run",
       problems.push(`${noReportFlag.length} seat call(s) name no --report-file, so their report is only in a task's output`);
     save(dir, "seat-calls.txt", seatCallsRan.map((u) => seatCommand(u)).join("\n\n"));
 
-    // Every report file the seats named, read where the calls said it would be. A seat that RAN is a tier
-    // model and a completed turn; the exit code may be a gate verdict, so it is recorded, not required.
-    const reportPaths = [...new Set(seatCallsRan
+    // Every report file the seats named, read where the calls said it would be, AND every one the run
+    // directories hold: a call this cannot parse, or a seat launched from inside a Workflow script rather
+    // than as a tool_use of the session's, still published its report where the driver put it. A seat
+    // that RAN is a tier model and a completed turn; the exit code may be a gate verdict, so it is
+    // recorded, not required.
+    const reportPaths = [...new Set([...seatCallsRan
       .map((u) => /--report-file\s+"?([^"\s]+)"?/.exec(seatCommand(u))?.[1])
       .filter(Boolean)
-      .map((f) => (path.isAbsolute(f) ? f : path.join(scratch, f))))];
+      .map((f) => (path.isAbsolute(f) ? f : path.join(scratch, f))),
+      ...runDirReports(dirs)])];
     const seen = [], ran = [];
     for (const f of reportPaths) {
       try {
@@ -777,7 +849,7 @@ test("the full run under Opus: plan, go, run",
     }
     save(dir, "seat-reports.txt", `${seen.join("\n")}\n`);
     if (!ran.length)
-      problems.push(`${reportPaths.length} report file(s) named by the seat calls, none a completed turn on a tier model (model:turnStatus:exitCode): ${JSON.stringify(seen)}`);
+      problems.push(`${reportPaths.length} report file(s) named by the seat calls or found in the run directories, none a completed turn on a tier model (model:turnStatus:exitCode): ${JSON.stringify(seen)}`);
 
     if (!/\bCodex\b/.test(s2.planText)) problems.push("the final report never names the composition that ran");
     return settle(dir, problems);

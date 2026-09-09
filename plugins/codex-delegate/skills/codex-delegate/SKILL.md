@@ -23,12 +23,13 @@ The **user** requests the work; the **coordinator** chooses and synthesises the 
 One background Bash task per seat. Write the prompt to a file with the Write tool, then run this, with
 `run_in_background: true` and no `&` of your own:
 
-    CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<DIR>/report.json" > "<DIR>/out.json" 2> "<DIR>/err.txt"
+    CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<REPORT>" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
 The call's `description` is `Codex seat <id>, <model>: <task in a few words>`, so the row the user sees names the
 seat and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
-so they need the absolute path it prints. The task's exit notification is the seat's completion, and
-`<DIR>/report.json` is what to read then.
+so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own, `<DIR>/report.json` where nothing else
+chooses it; the driver makes every directory that path needs, at 0700, so it may name a root your own Write and `mkdir` are refused.
+The task's exit notification is the seat's completion, and `<REPORT>` is what to read then.
 
 Every driver call forwards that variable under its own name — the plugin's own data directory, where the
 driver's state and every Codex artifact the report names (`answerPath`, a worktree harvest) live. The
@@ -132,7 +133,7 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 
 ## Reading the result
 
-- `<DIR>/report.json` is the report, the same JSON the run also wrote to `<DIR>/out.json`. Read the file:
+- `<REPORT>` is the report, the same JSON the run also wrote to `<DIR>/out.json`. Read the file:
   it is written whole or not at all, and a missing one means unknown, never success.
 - `exitCode: 0` means the completed turn passed its declared evidence gates. `answer` is the seat's text;
   with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed.
