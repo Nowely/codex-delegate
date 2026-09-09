@@ -15,6 +15,11 @@ deleting, and on every refusal or error. Read the JSON yourself for the
 numbers; never read it, paths or exit codes to the user, and never retell the
 listing in your own words.
 
+Every sentence quoted below is a model of what to say, not text to copy out.
+Say it in the user's own language, keeping the names, counts and reasons the
+command gave and inventing none; a listing block is the one thing shown
+exactly as the command printed it.
+
 ## The cycle
 
 1. Run the listing with the Bash description "List files left by
@@ -32,7 +37,7 @@ listing in your own words.
    selectable by its number or kept, and why. Say nothing about the items
    yourself. An empty inventory is "I found no items covered by this cleanup."
 2. Propose in one sentence exactly what `proposed` holds, by those rows' names
-   and their total size: "I suggest deleting the temporary files for seat
+   and their total size: "I suggest deleting the temporary files for agent
    u1-astra and 172 temporary directories from the lock tests, about 11 MB;
    shall I?" When `selectable` holds numbers that are not in `proposed`, add
    one sentence naming them: "Item 1, the 9 September 2026 clear, and item 18,
@@ -57,8 +62,9 @@ listing in your own words.
    snapshot is what binds each number to what was shown, and an item that
    changed since then is left in place and reported.
 4. The command prints one paragraph per outcome, then the fresh listing.
-   Report the outcomes in your own message using those sentences as written —
-   "I deleted the temporary files for seat u1-astra and 172 temporary
+   Report every outcome it printed in your own message, keeping its names and
+   reasons and adding none —
+   "I deleted the temporary files for agent u1-astra and 172 temporary
    directories from the lock tests, and left the 9 September 2026 clear in
    place because it changed since it was listed." Then show the fresh listing
    in a code block when anything remains, and say "I have no further cleanup
@@ -72,12 +78,12 @@ Use the listing's names; omit outcomes that did not occur.
 
 | Result | What to say and do |
 | --- | --- |
-| 0 | the deletion sentences the command printed, then the fresh listing |
+| 0 | every deletion the command reported, then the fresh listing |
 | 1 | "I could not remove <name> because <reason>; check it by hand." beside the confirmed deletions |
 | 2, no data directory | "Cleanup could not start because this session has no plugin data directory configured; nothing was deleted." |
 | 2, a stale or unreadable snapshot | "The list I showed you is no longer usable, so nothing was deleted; here is the current list." Then start again at step 1 |
 | 2, invalid command | "Cleanup could not start because the command was invalid; nothing was deleted." Correct the call |
-| 10 | each refusal in its own sentence, from the command's own wording: it changed since it was listed; it is being kept and cannot be chosen; it changed while it was being removed |
+| 10 | each refusal in its own sentence, carrying the command's own reason: it changed since it was listed; it is being kept and cannot be chosen; it changed while it was being removed |
 | no readable result | "Cleanup did not return a readable result, so I cannot yet confirm what was deleted." Establish the outcome first |
 
 ## What it never touches

@@ -35,10 +35,10 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 ## The plan
 
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
-2. Show the plan and stop: the tasks; every seat with its side (Claude or Codex) and its model; the run directory path; and every `SEAT: write`, `SEAT: worktree`, `NETWORK:` and `WRITABLE:` a seat
-   needs, a worktree seat named as such because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's
+2. Show the plan and stop, in the user's own language and in ordinary words: what will be done, who does each part by model name, what each may write, whether it needs the network, and that
+   artifacts land outside the repository. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's
    [Browser-mode sandbox](../codex-delegate/references/parity.md#browser-mode-sandbox) section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).
-   Announce the composition here, and the pool beside it: your own model and the default caps below, one Fable, one `gpt-6-astra`, six alive. A cap the user overrides in words ("two Fable")
+   Announce the composition here, and the caps beside it in a sentence: your own model, one Fable and one `gpt-6-astra` at a time, six alive. A cap the user overrides in words ("two Fable")
    replaces the default for this run; composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches are viable, show them all with a
    recommendation and let the user pick.
 3. The user's "go" covers only what the plan listed. After it, live-tree implementers write in the live working directory and a
@@ -51,7 +51,7 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
    commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
    restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait,
    unless the plan said "land the winner".
-5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped. After any seat returns, Claude or Codex, tell the user in one short paragraph what that seat found, naming the seat and its model, in the same shape for both sides; never paste a five-field block into user-facing text.
+5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped. After any seat returns, Claude or Codex, write one short paragraph of your own, in the user's language and naming the agent by its model, in the same shape for both sides; the five fields are your own input, so never paste a five-field block, a header field name or a path into user-facing text.
 
 ## Model tiers
 
@@ -101,7 +101,7 @@ code, or from you under the redirect rule.
 
 ## Mechanism
 
-A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex seat <id>, <model>: <task in a few words>", so the row the user sees names the seat, not the command line.
+A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex <model> <id>: <task in a few words>", so the row the user sees names the agent by its model, not the command line.
 Wait on every seat you launch in the background, Claude or Codex, with `TaskOutput(<task_id>, block: true, timeout: 600000)`, again while the task still runs, and never end your turn with a seat alive: a headless session ends with the turn and the task is killed with it (measured 2026-09-08).
 Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated
@@ -135,7 +135,7 @@ that round fails too.
 ## The seat's return
 
 Ask every prompt seat, Claude and Codex alike, for exactly these five fields, and send no `BRIEF:` line: the template is the bound, and `BRIEF:` would clip the answer at 20 lines. The first line of `result` is one sentence a
-human can read on its own: the seat's id and model, its status and what it did ("Seat W5, Sonnet: done, four flaky width checks replaced by threshold checks"); the rest of the fields follow unchanged.
+reader can take on its own: the agent's model and id, its status and what it did ("Sonnet W5: done, four flaky width checks replaced by threshold checks"); the rest of the fields follow unchanged, and all five are yours to read, never to forward.
 
     status:    done | partial | blocked
     result:    at most 30 lines

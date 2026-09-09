@@ -135,11 +135,12 @@ test("C1 one plan, or all of them",
   "picking silently between viable approaches is the choice the user came to make; the plan step is where that choice is offered or lost",
   () => says("One plan when there is one; when several approaches are viable, show them all with a recommendation and let the user pick"));
 
-test("C2 the plan is shown and the run stops, with every right a seat needs",
-  "rights declared per call are the sibling's guarantee, and they are worth nothing if the user first sees them in the transcript of a seat that already wrote",
+test("C2 the plan is shown and the run stops, with every right a seat needs, in words and not as field names",
+  "rights declared per call are the sibling's guarantee, and they are worth nothing if the user first sees them in the transcript of a seat that already wrote; but a plan that recites `SEAT: write` and a run directory path at a person is machinery pointed at the one reader who cannot act on it (the owner read one and called it uninformative, 2026-09-09), so the rights have to survive in ordinary words and the field names have to go",
   () => says(
     "Show the plan and stop",
-    "`SEAT: write`, `SEAT: worktree`, `NETWORK:` and `WRITABLE:` a seat needs",
+    "what each may write, whether it needs the network, and that artifacts land outside the repository",
+    "Name no path and no header field",
   ));
 
 test("C3 \"go\" covers the plan and nothing else, and never a live-tree commit",
@@ -167,13 +168,13 @@ test("C5 the harvest is landed by proposal, naming the three envelope handles",
 test("C6 the plan states the pool and the user overrides it in words",
   "the caps are settings the user owns: a plan that launched under the page's defaults without showing them gave the user nothing to overrule, and \"two Fable\" or \"only codex\" said after the first seat is a word too late",
   () => says(
-    "Announce the composition here, and the pool beside it: your own model and the default caps below, one Fable, one `gpt-6-astra`, six alive.",
+    "Announce the composition here, and the caps beside it in a sentence: your own model, one Fable and one `gpt-6-astra` at a time, six alive.",
     "A cap the user overrides in words (\"two Fable\") replaces the default for this run; composition words (\"only codex\", \"no codex\") follow the sibling's table.",
   ));
 
 test("C7 every seat's return is retold to the user in one short paragraph, the same shape for both sides",
-  "the five fields are the orchestrator's input, not the user's: pasted whole they read in the transcript as the coordinator's own words (observed on 0.10.0), and a Codex seat, whose only visible row is a Bash call and an exit code, otherwise reaches the user having said nothing at all",
-  () => says("After any seat returns, Claude or Codex, tell the user in one short paragraph what that seat found, naming the seat and its model, in the same shape for both sides; never paste a five-field block into user-facing text."));
+  "the five fields are the orchestrator's input, not the user's: pasted whole they read in the transcript as the coordinator's own words (observed on 0.10.0, and again on 0.11.1 after this rule shipped), and a Codex seat, whose only visible row is a Bash call and an exit code, otherwise reaches the user having said nothing at all; the retelling is written, not forwarded, which is why the ban names the field names and the paths that rode in with the block",
+  () => says("After any seat returns, Claude or Codex, write one short paragraph of your own, in the user's language and naming the agent by its model, in the same shape for both sides; the five fields are your own input, so never paste a five-field block, a header field name or a path into user-facing text."));
 
 test("C8 browser and end-to-end runs go to a Claude seat or a write seat with the browser grants",
   "Chromium needs rights a read seat does not have, so a browser task sent to one buys a refused approval and exit 6 (measured 2026-09-08) instead of a result; the grants that do work are one section of parity.md and not something to rediscover per run",
@@ -327,9 +328,9 @@ test("F4 every row of the Result table",
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,
   ));
 
-test("F5 the Bash call's description names the seat and its model",
-  "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming the seat there",
-  () => says("The Bash call carries a `description` of the form \"Codex seat <id>, <model>: <task in a few words>\", so the row the user sees names the seat, not the command line."));
+test("F5 the Bash call's description names the agent by its model",
+  "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming it there, and the model is the name a person can use, where the word this page calls it by is one they cannot",
+  () => says("The Bash call carries a `description` of the form \"Codex <model> <id>: <task in a few words>\", so the row the user sees names the agent by its model, not the command line."));
 
 test("F6 a background seat is waited on with TaskOutput, and no turn ends with one alive",
   "a background task does not keep a headless session alive: when the coordinator ends its turn Claude Code exits and kills the task, which is how the live gate lost a seat mid-turn (measured 2026-09-08); TaskOutput blocking is the native wait, and without the timeout named the coordinator cannot know one call covers ten minutes and no more",
@@ -369,12 +370,12 @@ test("G3 the run directory: its path, why it needs no .gitignore, kept after the
     "Codex artifacts are the paths the seat's own report names",
   ));
 
-test("G4 the first line of `result` is one human sentence: the seat, its model, its status, what it did",
-  "both the synthesis and the paragraph the user reads are built out of returns; a `result` that opens mid-analysis has to be read whole before it can be retold, and the five-field shape alone is not something a human reads",
+test("G4 the first line of `result` is one readable sentence, and the five fields are read rather than forwarded",
+  "both the synthesis and the paragraph the user reads are built out of returns; a `result` that opens mid-analysis has to be read whole before it can be retold, and the five-field shape alone is not something a human reads. The first line is an aid to the coordinator, not a message already addressed to the user: read the other way it licenses forwarding the block, which is how the ban in C7 was satisfied on paper and broken in the transcript",
   () => says(
-    "The first line of `result` is one sentence a human can read on its own: the seat's id and model, its status and what it did",
-    "(\"Seat W5, Sonnet: done, four flaky width checks replaced by threshold checks\")",
-    "the rest of the fields follow unchanged",
+    "The first line of `result` is one sentence a reader can take on its own: the agent's model and id, its status and what it did",
+    "(\"Sonnet W5: done, four flaky width checks replaced by threshold checks\")",
+    "the rest of the fields follow unchanged, and all five are yours to read, never to forward",
   ));
 
 test("G5 a read seat is never asked to write: its artifact is its report",
