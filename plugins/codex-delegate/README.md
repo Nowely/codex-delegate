@@ -24,6 +24,17 @@ turns the main conversation into an orchestrator that scouts inline, agrees one 
 verbose step onto Claude and Codex seats; it is prompt only, adds no flag or field, and is a delta over
 this skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md)).
 
+A third, `/codex-delegate:clear`, is the cleanup: it lists what the plugin has left on this machine and
+removes only what you pick by number ([skills/clear/SKILL.md](skills/clear/SKILL.md)). It removes four
+kinds — this project's orchestrate run directories and seat scratch, the test suites' scratch
+directories and the saved conversations they leave behind — and only ever reports the other four:
+managed worktrees and their ledger, write locks, the shared Codex home, and the data of another copy of
+the plugin, which is yours to remove with the shell-quoted command the listing hands you. It suggests
+nothing that is running or that it could not fully read, never another project's, never a run or a saved
+conversation without your number, and never on age. It runs no git. "Running" means what this plugin
+records — a seat's startup line, a run's unreported seat, a job record, a live test suite — so a process
+holding one of these open with none of that behind it is not something it can see.
+
 ## Prerequisites
 
 - **`codex` CLI, installed and authenticated.** `codex` must be on `PATH` and signed in — check with
@@ -52,8 +63,9 @@ As a plugin — the full set: both skills, the driver and the suites (the repo i
 /plugin install codex-delegate@codex-delegate
 ```
 
-This route exposes the skill as `codex-delegate:codex-delegate` and the orchestrator mode as
-`codex-delegate:orchestrate`, which only the user can turn on.
+This route exposes the skill as `codex-delegate:codex-delegate`, the orchestrator mode as
+`codex-delegate:orchestrate` and the cleanup as `codex-delegate:clear`; the last two only the user can
+turn on.
 
 The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then
 `claude plugin install codex-delegate@codex-delegate`. To update, refresh the marketplace clone and
@@ -73,10 +85,12 @@ cd codex-delegate
 mkdir -p ~/.claude/skills                           # absent on a machine that has never run Claude Code
 ln -s "$PWD/skills/codex-delegate" ~/.claude/skills/codex-delegate
 ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
+ln -s "$PWD/skills/clear" ~/.claude/skills/clear
 ```
 
-On this clone-and-symlink route the skill is `codex-delegate` and the mode is `/orchestrate`; on the
-plugin route they are `codex-delegate:codex-delegate` and `/codex-delegate:orchestrate`.
+On this clone-and-symlink route the skill is `codex-delegate` and the modes are `/orchestrate` and
+`/clear`; on the plugin route they are `codex-delegate:codex-delegate`, `/codex-delegate:orchestrate`
+and `/codex-delegate:clear`.
 
 The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`
 on a fresh account, which is exactly the account this route is written for.
@@ -85,7 +99,8 @@ on a fresh account, which is exactly the account this route is written for.
 Claude Code substitutes into the skill's recipes and which this install resolves to
 `~/.claude/plugins/data/codex-delegate-codex-delegate/`. The answers and the isolated Codex home, the
 write locks, the worktree ledger and the orchestrator mode's run directories are all there. It survives
-plugin updates; an uninstall deletes it unless you pass `claude plugin uninstall --keep-data`. The driver
+plugin updates; an uninstall deletes it unless you pass `claude plugin uninstall --keep-data`, and
+`/codex-delegate:clear` lists what is in it and removes what you choose. The driver
 keeps no default of its own: with neither that variable nor `CODEX_DELEGATE_STATE_DIR` it exits 2. In
 every permission mode but auto and bypass, a write outside the working directory prompts, so add that
 directory to `permissions.additionalDirectories` once — this plugin adds no rules on your behalf. On the
@@ -224,6 +239,8 @@ skills/codex-delegate/           the skill: SKILL.md (the operating manual), scr
                                  its companions, each self-describing under --help), references/
 skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the codex-delegate skill,
                                  prompt only
+skills/clear/SKILL.md            the cleanup mode: runs scripts/clear.mjs, shows its listing and
+                                 deletes what the user chose
 .claude-plugin/                  plugin + marketplace manifests
 evals/                           the suites, one file each; run-all.mjs lists them and runs them
                                  cheapest first, lib/harness.mjs and lib/scenarios.mjs are their
@@ -244,6 +261,7 @@ Canonical homes for repeated stories:
 | --- | --- |
 | composition, rights, workflow | [`SKILL.md`](skills/codex-delegate/SKILL.md) |
 | orchestration: tiers, Codex share, seat bounds, returns | [`skills/orchestrate/SKILL.md`](skills/orchestrate/SKILL.md) |
+| what the plugin leaves behind, and removing it | [`skills/clear/SKILL.md`](skills/clear/SKILL.md), `node skills/codex-delegate/scripts/clear.mjs --help` |
 | flags and field formats | `node skills/codex-delegate/scripts/driver.mjs --help` (`--help-all` for the rest) |
 | environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/codex-delegate/references/environment-and-internals.md) |
 | native capability parity and dated measurements | [`parity.md`](skills/codex-delegate/references/parity.md) |
