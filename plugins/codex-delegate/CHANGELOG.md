@@ -22,11 +22,13 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   remains, private, as what `--resume last` and a worktree rebuild need, and loses its obsolete keys the
   first time this driver rewrites it: it is resume metadata only (`JOB_FIELDS`, fourteen keys), and what a
   run measured is in the report.
-- `--report-file FILE` is new, and is the delivery that counts: an absolute path whose parent exists and
-  which does not exist yet, each of those exit 2 before anything is spawned, written to a sibling at 0600
-  and published by hard link before stdout, never over an existing entry, so a broken pipe neither loses
-  the report nor changes the verdict. A second run that named the same path and lost the race says so on
-  stderr, keeps the first run's file and exits 4 with its own report on stdout. A refusal reached before the turn — a usage error, an abort, a signal — writes
+- `--report-file FILE` is new, and is the delivery that counts: an absolute path that does not exist yet,
+  under a parent the run creates at 0700, all the way down, when it is absent; a relative path, a name
+  already taken and a parent that cannot be made or written each exit 2 before anything is spawned. It is
+  written to a sibling at 0600 and published by hard link before stdout, never over an existing entry, so
+  a broken pipe neither loses the report nor changes the verdict. A second run that named the same path
+  and lost the race says so on stderr, keeps the first run's file and exits 4 with its own report on
+  stdout. A refusal reached before the turn — a usage error, an abort, a signal — writes
   `{ok:false, exitCode, threadId, turnStatus:null, answer:"", error, reportPath}` to the same path, so a
   missing file means unknown and never success. It is command-line-only: `REPORT_FILE:` in a header is
   exit 2 naming the flag.
@@ -109,6 +111,13 @@ Codex seat is now a direct background call of the driver, and the flags no live 
   `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`, where the slug is the working directory's
   path as Claude Code spells it under `~/.claude/projects/`. A run therefore leaves the tree it works in
   untouched, and the self-ignoring `.gitignore` the old `.orchestrate/<run>/` needed is gone with it.
+- The orchestrate run directory is made by the driver, through `--report-file`, and holds the seats'
+  report files and nothing else: a seat's prompt, stdout and stderr go to a `mktemp -d` under `$TMPDIR`.
+  A headless session refuses the coordinator's own `mkdir`, Write and shell redirect under the plugin's
+  data directory as a sensitive file, with no prompt anyone can answer, while the driver handed the same
+  path as an argument is not refused (measured 2026-09-08). The same session ends its background tasks
+  with the turn that started them, so a headless coordinator waits on a seat with
+  `TaskOutput(<task_id>, block: true, timeout: 600000)` and never ends a turn with one alive.
 - The orchestrate page prefers background Agent calls, one notification per seat, over a Workflow, which
   reports nothing until its last agent returns (measured 2026-09-08: a seat's exit at minute 9 surfaced
   only when the user asked, while its sibling ran 18 minutes). Workflow stays for a chain a script must

@@ -127,8 +127,9 @@ line, because verification runs an unsandboxed `/bin/sh` with the coordinator's 
   `--brief` controls answer size and context consumption without stopping a turn.
 - The bounds are command-line-only because their defaults let a seat run with no sizing header at all.
 - `--report-file` is validated off the raw command line before the seat file is expanded and before
-  anything is spawned: an absolute path, a parent directory that exists and is writable, and a name that
-  does not exist yet. Nothing prunes the files it writes; the caller that named one owns it.
+  anything is spawned: an absolute path, a writable parent — created at 0700, all the way down, when it
+  is absent — and a name that does not exist yet. Nothing prunes the directories or the files it makes;
+  the caller that named the path owns them.
 - A second signal escalates teardown, while `SIGKILL` of the driver can strand descendants. In the
   sub-second window before a turn id exists there is nothing to interrupt: the run exits 4, and the
   pre-turn refusal still reaches `--report-file`.

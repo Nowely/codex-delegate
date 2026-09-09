@@ -285,8 +285,8 @@ test("F1 a Codex seat is a background Bash task and no agentType, and the Workfl
     const prose = says(
       "authorises Workflow",
       "A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true",
-      "with `<DIR>` = `<run>/<seat>/` under the run directory above in place of the sibling's `mktemp`, so prompt, `report.json`, `out.json` and `err.txt` all land there",
-      "the task's exit notification is when you read that report",
+      "`<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates",
+      "The task's exit notification is when you read that report",
       "It is not an `agentType` and there is no other route to it",
       "Launch independent Claude seats as background Agent calls, one notification each",
       "Load the `workflow-authoring` skill before writing the script when the session lists it.",
@@ -331,6 +331,13 @@ test("F5 the Bash call's description names the seat and its model",
   "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming the seat there",
   () => says("The Bash call carries a `description` of the form \"Codex seat <id>, <model>: <task in a few words>\", so the row the user sees names the seat, not the command line."));
 
+test("F6 a background seat is waited on with TaskOutput, and no turn ends with one alive",
+  "a background task does not keep a headless session alive: when the coordinator ends its turn Claude Code exits and kills the task, which is how the live gate lost a seat mid-turn (measured 2026-09-08); TaskOutput blocking is the native wait, and without the timeout named the coordinator cannot know one call covers ten minutes and no more",
+  () => says(
+    "Wait on every seat you launch in the background, Claude or Codex, with `TaskOutput(<task_id>, block: true, timeout: 600000)`, again while the task still runs",
+    "never end your turn with a seat alive: a headless session ends with the turn and the task is killed with it",
+  ));
+
 // ------------------------------------------------------------------ G: the seat's return, the run directory
 
 test("G1 the five template lines, their indentation, the inline schema, and no BRIEF: line",
@@ -354,7 +361,7 @@ test("G1 the five template lines, their indentation, the inline schema, and no B
 test("G3 the run directory: its path, why it needs no .gitignore, kept after the task, and what a Codex seat's artifacts are",
   "one directory per run is what keeps a seat's artifacts findable and out of the tree the run works in; the plugin's data directory is outside every repository, so nothing has to be ignored and nothing lands in a payload, and `.claude/` is the one path whose writes prompt however the permissions are set",
   () => says(
-    "create `<state>/orchestrate/<project-slug>/<run>/`, `<state>` the driver's state directory (`${CLAUDE_PLUGIN_DATA}` on a plugin install, the exported `CODEX_DELEGATE_STATE_DIR` on the clone route)",
+    "The run directory is `<state>/orchestrate/<project-slug>/<run>/`, `<state>` the driver's state directory (`${CLAUDE_PLUGIN_DATA}` on a plugin install, the exported `CODEX_DELEGATE_STATE_DIR` on the clone route)",
     "the working directory's absolute path with every character that is not a letter or a digit replaced by `-`",
     "It is outside every repository, so no `.gitignore`",
     "not the repository root, not the project's `.claude/`, whose writes prompt whatever the allow rules say",
@@ -375,6 +382,14 @@ test("G5 a read seat is never asked to write: its artifact is its report",
   () => says(
     "A read seat is never asked to write, not under the repository and not in the run directory: its artifact is its report",
     "costs a refused write and exit 6 (measured 2026-09-08)",
+  ));
+
+test("G6 the driver makes the run directory, the coordinator writes nothing there, and a Claude seat's artifact is its text",
+  "a headless session refuses a Write, a `mkdir` and a redirect under the plugin's data directory as a sensitive file, with no prompt anyone can answer, so a coordinator told to create the directory itself stops at the first seat; the driver, handed the path as an argument, is not refused (measured 2026-09-08), and a Claude seat pointed at that directory hits the same wall the coordinator did",
+  () => says(
+    "The driver creates it, through `--report-file`, and it is what those report files make of it: nothing else is written there",
+    "Never run `mkdir`, Write or a shell redirect under that data directory yourself, because a headless session refuses each of them as a sensitive file with no prompt anyone can answer, while a subprocess handed the same path as an argument writes it unopposed (measured 2026-09-08)",
+    "A Claude seat's artifact is its returned text, and a file it must leave goes under `$TMPDIR` with the path in that text",
   ));
 
 // ------------------------------------------------------------------ the schema, and the links

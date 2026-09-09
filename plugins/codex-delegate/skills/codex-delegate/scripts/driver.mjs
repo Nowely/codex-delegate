@@ -428,7 +428,8 @@ const HELP = [
   { s: "Run",
     text: `  --report-file F    write the JSON report to F as well as to stdout, and make F
                      the delivery that counts: an ABSOLUTE path that does not
-                     exist yet, published by hard link at 0600, never over an
+                     exist yet, under a parent this run creates at 0700 when it
+                     is absent, published by hard link at 0600, never over an
                      existing entry, so a reader finds either the whole report or
                      no file at all. A caller that
                      stopped reading stdout then costs the run nothing — the file
@@ -908,9 +909,13 @@ function openReportFile(p) {
   if (!path.isAbsolute(p))
     fail(EXIT.USAGE, `--report-file must be an absolute path — it is read by a caller with a directory of its own — got ${JSON.stringify(p)}`);
   const dir = path.dirname(p);
-  let st = null;
-  try { st = fs.statSync(dir); } catch (e) { fail(EXIT.USAGE, `--report-file cannot use ${dir}: ${e.message}`); }
-  if (!st.isDirectory()) fail(EXIT.USAGE, `--report-file: ${dir} is not a directory`);
+  // A missing parent is MADE here, at 0700 and all the way down, rather than refused. A headless
+  // coordinator's own Write and mkdir under the plugin's data directory are denied as a sensitive path,
+  // with no prompt anyone can answer, while this process handed the same path as an argument is not
+  // (measured 2026-09-08) — so the driver is what creates a run's directory. mkdir -p over a directory
+  // already there changes nothing, and a file in the way is EEXIST or ENOTDIR, refused like any parent.
+  try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); }
+  catch (e) { fail(EXIT.USAGE, `--report-file cannot use ${dir}: ${e.message}`); }
   try { fs.accessSync(dir, fs.constants.W_OK); }
   catch (e) { fail(EXIT.USAGE, `--report-file cannot write into ${dir}: ${e.message}`); }
   // lstat, not existsSync: existsSync FOLLOWS the link, so a dangling symlink at the path reads as
