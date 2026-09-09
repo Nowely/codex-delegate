@@ -3,7 +3,7 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
-## 0.11.0 — 2026-09-08
+## 0.11.0 — 2026-09-09
 
 Measured against codex-cli 0.153.4 on macOS. An orchestrated review on 2026-09-08 — two scouts, five
 reviewers, three cross-side refuters, a judge and a completeness critic, half of them Codex seats — made
