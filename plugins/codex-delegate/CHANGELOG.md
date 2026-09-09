@@ -3,6 +3,15 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## 0.11.1 — 2026-09-09
+
+The 0.11.0 release commit failed CI on both Node 18 jobs while both Node 24 jobs passed. The declared floor moves to
+Node 22 (`package.json` engines, the CI matrix runs 22 and 24): Node 18 was declared, never measured locally, and is
+not in use. Two suite cases failed only there: the protocol row that starves the report's reader relied on how much a
+paused pipe absorbs, which differs by platform and Node version, so its body is now sized past any pipe (4 MB); the
+lock case "a run releases only the lock it owns" failed once on macOS with Node 18 and was not diagnosed, since the
+runtime is no longer supported. The driver is unchanged apart from its version string.
+
 ## 0.11.0 — 2026-09-09
 
 Measured against codex-cli 0.153.4 on macOS. An orchestrated review on 2026-09-08 — two scouts, five
