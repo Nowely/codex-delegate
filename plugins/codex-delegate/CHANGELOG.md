@@ -5,8 +5,8 @@ forensics remain in the repository references and release notes.
 
 ## Unreleased
 
-Measured against codex-cli 0.153.4 on macOS. No driver behaviour changes: this release is a third skill
-and the script behind it.
+Measured against codex-cli 0.153.4 on macOS. No driver behaviour changes: this release is a third skill,
+the script behind it, and a pass over everything the three skills put in front of a person.
 
 ### Added
 
@@ -82,6 +82,36 @@ and the script behind it.
   count, a total size, the span of their last-change times and all their paths. A collapsed row is
   removable only when every member is, and picking its number removes every member. On this machine
   the listing is 98 lines for 239 artifacts.
+
+### Changed
+
+- What the user reads is now stated once, in a `What the user reads` section on the delegation page:
+  the coordinator writes that prose itself, in the user's own language, and names an agent by its
+  model and id. A header field name, a status block, an internal table's row name and an absolute
+  path are machinery and stay out of it; rights are the exception that must survive the translation,
+  in ordinary words, because rights are what the user is being asked to approve. Measured on 0.11.1
+  (2026-09-09): a Russian-speaking owner was shown a seat's raw five-field block, a plan reciting
+  `SEAT: write` and a run-directory path, and this vocabulary's own noun translated into a Russian
+  word meaning a chair.
+- The three user-facing templates name the model instead. A Codex seat's Bash row is
+  `Codex <model> <id>: <task in a few words>` on both pages, and the example first line of `result`
+  is `"Sonnet W5: done, ..."`. The five fields are named the coordinator's own input, to be read and
+  never forwarded, which settles a contradiction the two pages carried: one called a subagent's final
+  text a return value and not a message to a human, the other called its first line what the user is
+  told.
+- The orchestrate plan is prose again. It states what will be done, who does each part by model name,
+  what each may write, whether it needs the network, and that artifacts land outside the repository —
+  and it names no path and no header field. The caps and the coordinator's own model are announced in
+  a sentence rather than as a settings dump.
+- `clear` no longer tells the model to repeat its example sentences as written: they are models of
+  what to say, said in the user's language, keeping the command's own names, counts and reasons. Only
+  a listing block is still shown exactly as printed.
+- The live orchestrate gate stops requiring the plan to print a run directory, since a path is the
+  thing being removed; the in-repository `.orchestrate/` check that needs no path and no English
+  survives. Three of its heuristics read English words only and so changed their own verdict on a
+  non-English plan — a self-description excluded from the seat count, a stated sequencing, a wave
+  column — and each now carries the stems of both languages. Measured: `Я сам работаю на Fable как
+  координатор.` counted as a second Fable seat and failed a cap the plan honoured.
 
 ### Notes
 

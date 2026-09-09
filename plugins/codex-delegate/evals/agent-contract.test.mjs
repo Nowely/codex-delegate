@@ -244,4 +244,31 @@ test("BRIEF is decided by the header, not forced by the caller",
     return /--brief/.test(driver) || "the driver no longer has --brief";
   });
 
+test("what the user reads is prose the coordinator writes, in the user's language, naming an agent by its model",
+  "measured on 0.11.1 (2026-09-09): a Russian-speaking owner was shown a seat's raw five-field block, a plan reciting `SEAT: write` and an absolute run-directory path, and the page's own noun translated word-for-word into a Russian one that means a chair. Every one of those is this page's vocabulary reaching the one reader it was never written for, so the page has to say once that the coordinator writes the user's text rather than forwarding its own inputs, and that the name a person can use is the model",
+  () => {
+    const problems = [];
+    const section = skill.split(/^## /m).find((s) => s.startsWith("What the user reads")) ?? "";
+    if (!section) problems.push("the page has no `What the user reads` section");
+    const sectionFlat = section.replace(/\s+/g, " ");
+    for (const phrase of [
+      "What reaches the user is prose the coordinator writes",
+      "in the user's own language",
+      "naming an agent by its model and id",
+      "A header field name, a status block, an internal table's row name and an absolute path are machinery",
+      "say what an agent may write, and where, in ordinary words",
+    ]) if (!sectionFlat.includes(phrase)) problems.push(`the section no longer says: ${JSON.stringify(phrase)}`);
+    // The two user-facing templates, on both pages, are the only places the word reached the user by
+    // instruction rather than by accident: the Bash row's description and the example first line. They
+    // are pinned as a pair because a fix to one page alone leaves the other still teaching the old form.
+    for (const [name, text] of [["codex-delegate", flat], ["orchestrate", orchestrate.replace(/\s+/g, " ")]]) {
+      if (!text.includes("`Codex <model> <id>: <task in a few words>`")
+          && !text.includes("\"Codex <model> <id>: <task in a few words>\""))
+        problems.push(`${name} no longer carries the model-first description template`);
+      if (/seat <id>, <model>|Seat W5, Sonnet/.test(text))
+        problems.push(`${name} still teaches a user-facing template built on the page's own noun`);
+    }
+    return problems.length === 0 || problems.join("; ");
+  });
+
 process.exit(summarize(await runCases(CASES), CASES.length));

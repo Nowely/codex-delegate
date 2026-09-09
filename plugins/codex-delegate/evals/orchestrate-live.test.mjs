@@ -412,11 +412,11 @@ function planProblems({ text, toolUses, scratch, head0 }) {
   const skills = skillCalls(toolUses);
   if (!skills.some((s) => SIBLING_SKILLS.includes(s)))
     problems.push(`the sibling skill was never loaded; Skill calls: ${skills.join(", ") || "none"}`);
-  // The plan states the run directory it will create; the resolved path is what the coordinator prints,
-  // so `orchestrate/` under a data directory is what is asked for, and the retired in-repository one is
-  // named as a failure of its own.
-  if (!/orchestrate\/[^\s`]*[/-]/.test(text))
-    problems.push("the plan names no `orchestrate/<project-slug>/<run>/` run directory");
+  // The plan no longer prints the run directory. A resolved path is machinery aimed at the one reader who
+  // cannot act on it, and the page now asks for the fact in ordinary words instead, so there is nothing
+  // language-independent left to match: measured, every natural phrasing of "outside the repository" fails
+  // the old `/orchestrate\/[^\s`]*[/-]/`, and the only text that passes it is the path itself. What
+  // survives of the pair is the negative below, which needs no path to fire and no English to read.
   if (text.includes(".orchestrate/"))
     problems.push("the plan puts the run directory back inside the repository as `.orchestrate/`");
   if (!CODEX_MODELS.some((m) => text.includes(m)))
@@ -440,9 +440,13 @@ function planProblems({ text, toolUses, scratch, head0 }) {
   // wave; a single top seat. So the count is taken per wave when the table has a wave/stage/phase/step
   // column, else per plan, and a stated sequencing exempts a plan-level count. A self-description is not a
   // seat: "you are Fable" and "under Fable" are excluded before counting.
-  const isSeat = (l) => !/under fable|fable session|orchestrator|coordinator|powered by|you are/i.test(l);
+  // The plan is written in the user's language now, so every heuristic below that reads English words
+  // reads nothing at all on a Russian plan and silently changes its own verdict. Measured: "Я сам работаю
+  // на Fable как координатор." was not excluded here and counted as a second Fable seat, failing a cap the
+  // plan honoured. Each alternation therefore carries the stems of the languages this plugin is used in.
+  const isSeat = (l) => !/under fable|fable session|orchestrator|coordinator|powered by|you are|координ|оркестр|под fable|сам работаю|эта сессия|текущая сессия|я на fable|вне пула/i.test(l);
   const header = rows[0] ? rows[0].split("|").map((c) => c.trim().toLowerCase()) : [];
-  const waveCol = header.findIndex((c) => /^(wave|stage|phase|step|order|round|batch|when)$/.test(c));
+  const waveCol = header.findIndex((c) => /^(wave|stage|phase|step|order|round|batch|when|волна|этап|фаза|шаг|порядок|очередь|раунд|когда)$/.test(c));
   const groupOf = (l) => (waveCol >= 0 ? (l.split("|")[waveCol] ?? "").trim() : "");
   const capMax = (re) => {
     const per = new Map();
@@ -454,7 +458,7 @@ function planProblems({ text, toolUses, scratch, head0 }) {
   };
   const tagged = seatLines.filter((l) => /\bfable\b/i.test(l) && isSeat(l));
   const count = tagged.reduce((n, l) => n + [...l.matchAll(/\bfable\b/gi)].length, 0);
-  const sequenced = /alive at a time|one at a time|one after the other|sequential|runs after|then the (second|other)/i.test(text);
+  const sequenced = /alive at a time|one at a time|one after the other|sequential|runs after|then the (second|other)|по очереди|последовательн|не одновременно|друг за другом|после (перв|первого)|сначала .{0,40}(затем|потом)/i.test(text);
   for (const [name, re] of [["fable", /\bfable\b/gi], ["gpt-6-astra", /gpt-6-astra/g]]) {
     const max = capMax(re);
     if (max > 1 && !sequenced)

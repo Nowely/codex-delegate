@@ -25,8 +25,8 @@ One background Bash task per seat. Write the prompt to a file with the Write too
 
     CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<REPORT>" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
-The call's `description` is `Codex seat <id>, <model>: <task in a few words>`, so the row the user sees names the
-seat and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
+The call's `description` is `Codex <model> <id>: <task in a few words>`, so the row the user sees names the
+agent by its model and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
 so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own, `<DIR>/report.json` where nothing else
 chooses it; the driver makes every directory that path needs, at 0700, so it may name a root your own Write and `mkdir` are refused.
 The task's exit notification is the seat's completion, and `<REPORT>` is what to read then.
@@ -164,13 +164,23 @@ Write a concrete, checkable body:
     RETURN: exactly what to hand back
 
 Give one deliverable per seat. Split a return that asks for unrelated artifacts or decisions. Whatever `RETURN:`
-asks for, its first line is one sentence a human can read on its own, the seat, its model, its status and what it
-did, because that line is what the user is told; the rest is the return's own shape.
+asks for, its first line is one sentence a reader can take on its own, the agent's model and id, its status and
+what it did; it is what the coordinator retells, and not itself a message to the user; the rest is the return's
+own shape.
 
 The standing rules are already on the thread — unattended, local shell only, no web search unless
 granted, `COMMAND_BLOCKED` for a step that cannot run, never claim a test passed without the count — so
 do not repeat them. A follow-up continues a thread with `RESUME: <threadId>`; a recall-only one runs no
 commands, so it also needs `ALLOW_NO_COMMANDS: yes` (`--allow-no-commands` on a command line).
+
+## What the user reads
+
+Every word on this page is addressed to the coordinator, and a seat's return is too. What reaches the user is
+prose the coordinator writes: in the user's own language, naming an agent by its model and id ("Sonnet W5",
+"Codex gpt-5.6-sol A1") and not by this page's own vocabulary. A header field name, a status block, an internal
+table's row name and an absolute path are machinery; they belong in a prompt or a report, and putting them in
+front of a person says nothing they can act on. Rights are the one thing that must survive the translation: say
+what an agent may write, and where, in ordinary words, because that is what the user is being asked to approve.
 
 ## Traps
 
