@@ -86,10 +86,10 @@ test("A3 the sibling is loaded first and this page re-cuts only what the mode ch
   "rights, header fields, the worktree lifecycle and the exit ladder have exactly one home; a copy here is a second copy to drift, so the page has to send the reader there and say what it does not restate",
   () => {
     const problems = [];
-    const raw = shows(/\[codex-delegate\]\(\.\.\/codex-delegate\/SKILL\.md\)/);
+    const raw = shows(/\[seat\]\(\.\.\/seat\/SKILL\.md\)/);
     if (raw !== true) problems.push(raw);
     const prose = says(
-      "(Skill tool, `codex-delegate:codex-delegate`; bare `codex-delegate` on a clone-and-symlink install)",
+      "(Skill tool, `codex-delegate:seat`; bare `seat` on a clone-and-symlink install)",
       "this page re-cuts only what the mode changes",
       "1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.",
     );
@@ -183,7 +183,7 @@ test("C8 browser and end-to-end runs go to a Claude seat or a write seat with th
       "Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's",
       "section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).",
     );
-    const link = shows(/\[Browser-mode sandbox\]\(\.\.\/codex-delegate\/references\/parity\.md#browser-mode-sandbox\)/);
+    const link = shows(/\[Browser-mode sandbox\]\(\.\.\/seat\/references\/parity\.md#browser-mode-sandbox\)/);
     return prose === true && link === true || [prose, link].filter((r) => r !== true).join("; ");
   });
 
@@ -253,7 +253,7 @@ test("E2 cross-review runs both directions, and each seat is a prompt seat with 
 
 test("E3 the composition table is linked at its anchor",
   "everything the mode does not replace lives in that section; a link to the page without the anchor sends the reader to the top of a manual and the rules that still hold go unread",
-  () => shows(/\[composition table\]\(\.\.\/codex-delegate\/SKILL\.md#composition\)/));
+  () => shows(/\[composition table\]\(\.\.\/seat\/SKILL\.md#composition\)/));
 
 test("E4 the three bound rows: alive at once, the top pair, the Codex write seat per directory",
   "these are the numbers that decide whether a fan-out runs or deadlocks: a second Codex write seat on one directory exits 10 before its turn ever runs",

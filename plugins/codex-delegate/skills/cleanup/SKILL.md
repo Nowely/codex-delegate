@@ -1,5 +1,5 @@
 ---
-name: clear
+name: cleanup
 description: >-
   Lists files left by codex-delegate, suggests what to remove, and deletes the
   user's selection after approval.
@@ -25,8 +25,8 @@ exactly as the command printed it.
 1. Run the listing with the Bash description "List files left by
    codex-delegate."
 
-       F="$(mktemp "${TMPDIR:-/tmp}/codex-delegate-clear.XXXXXXXX")"
-       CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_PLUGIN_ROOT}/skills/codex-delegate/scripts/clear.mjs" --list --json >"$F" && cat "$F" && echo "snapshot: $F"
+       F="$(mktemp "${TMPDIR:-/tmp}/codex-delegate-cleanup.XXXXXXXX")"
+       CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_PLUGIN_ROOT}/skills/seat/scripts/cleanup.mjs" --list --json >"$F" && cat "$F" && echo "snapshot: $F"
 
    `mktemp` gives each listing its own file. A name built from the shell's
    `$$` does not: two listings in one shell would share it, and a number from
@@ -40,7 +40,7 @@ exactly as the command printed it.
    and their total size: "I suggest deleting the temporary files for agent
    u1-astra and 172 temporary directories from the lock tests, about 11 MB;
    shall I?" When `selectable` holds numbers that are not in `proposed`, add
-   one sentence naming them: "Item 1, the 9 September 2026 clear, and item 18,
+   one sentence naming them: "Item 1, the 9 September 2026 cleanup, and item 18,
    43 saved conversations from the tests, can go too if you say their
    numbers." Then wait. With nothing suggested and nothing else selectable,
    say "I have no cleanup to suggest; the listed items are being kept for the
@@ -56,7 +56,7 @@ exactly as the command printed it.
    leave it out. Then run, with the description "Delete the cleanup items the
    user selected.":
 
-       CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_PLUGIN_ROOT}/skills/codex-delegate/scripts/clear.mjs" --delete --from "<SNAPSHOT>" <numbers>
+       CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_PLUGIN_ROOT}/skills/seat/scripts/cleanup.mjs" --delete --from "<SNAPSHOT>" <numbers>
 
    Do not run the listing again between the user's word and this call: the
    snapshot is what binds each number to what was shown, and an item that
@@ -65,7 +65,7 @@ exactly as the command printed it.
    Report every outcome it printed in your own message, keeping its names and
    reasons and adding none —
    "I deleted the temporary files for agent u1-astra and 172 temporary
-   directories from the lock tests, and left the 9 September 2026 clear in
+   directories from the lock tests, and left the 9 September 2026 cleanup in
    place because it changed since it was listed." Then show the fresh listing
    in a code block when anything remains, and say "I have no further cleanup
    to suggest." only when its last lines say nothing is suggested and nothing
@@ -99,4 +99,4 @@ them, run this command." and show `notCovered.listCommand`; for removal,
 
 Forward `CLAUDE_PLUGIN_DATA` as shown. The script uses
 `CODEX_DELEGATE_STATE_DIR` first, then `CLAUDE_PLUGIN_DATA`; setup follows the
-sibling's [One call](../codex-delegate/SKILL.md#one-call).
+sibling's [One call](../seat/SKILL.md#one-call).

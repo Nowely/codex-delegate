@@ -25,7 +25,7 @@
 //   - the init line's tool list names the subagent tool `Task` while the tool_use blocks in the same
 //     build's stream carry `Agent`, so both spellings count and neither alone is safe;
 //   - the last line is {type:"result"} and its `result` is the final text;
-//   - --plugin-dir loaded codex-delegate:codex-delegate and codex-delegate:orchestrate. There is no
+//   - --plugin-dir loaded codex-delegate:seat and codex-delegate:orchestrate. There is no
 //     codex-seat agent any more: a Codex seat is a background Bash task running the driver, so a seat is
 //     counted here as a Bash tool_use whose command names driver.mjs and --seat-file;
 //   - this machine's managed settings set disableBypassPermissionsMode: "disable", so
@@ -105,7 +105,7 @@ const note = (line) => console.log(`      ${line}`);
 // --------------------------------------------------------------- the vocabulary the page owns
 
 const CODEX_MODELS = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"];
-const SIBLING_SKILLS = ["codex-delegate:codex-delegate", "codex-delegate"];
+const SIBLING_SKILLS = ["codex-delegate:seat", "seat"];
 // A Codex seat is one Bash call: the driver, a seat file and a report file. Both flags, because a Bash
 // call that merely mentions the driver is `--help`, a probe, or the coordinator reading a report back.
 const seatCommand = (u) => (u.name === "Bash" ? String(u.input.command ?? "") : "");

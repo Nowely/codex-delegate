@@ -12,7 +12,7 @@ node evals/cli.test.mjs       # one suite, when it is the thing being worked on
 ```
 
 `run-all.mjs` lists the twelve, cheapest first: orchestrate, package, agent-contract, attach-pasted,
-clear, worktree, cli, conformance, lock, protocol, then the two that need a live binary, fidelity and
+cleanup, worktree, cli, conformance, lock, protocol, then the two that need a live binary, fidelity and
 orchestrate-live. It refuses to start when that list disagrees with the directory, so a suite nobody
 listed cannot go unrun. A suite killed by a signal is a failure, not a pass: a killed child reports
 `code` null and `process.exit(null)` exits 0. A suite that skipped or never ran is deducted from the
@@ -22,8 +22,8 @@ Each suite's header comment says what it measures, and a suite that spends real 
 the variable that arms it there. Where a case belongs follows two splits: `cli.test.mjs` is what the
 driver does with its ARGUMENTS and its output surface, `protocol.test.mjs` what it does with the
 SERVER's events; `worktree.test.mjs` owns the managed tree and its ledger, `lock.test.mjs` the acquire
-path, signals and teardown, and `clear.test.mjs` what the cleanup script inventories, keeps and removes —
-it drives `scripts/clear.mjs`, never the driver, and every fixture it plants lives under a scratch state
+path, signals and teardown, and `cleanup.test.mjs` what the cleanup script inventories, keeps and removes —
+it drives `scripts/cleanup.mjs`, never the driver, and every fixture it plants lives under a scratch state
 directory, config directory and `TMPDIR` of its own.
 
 The counts are deliberately not written down here — the last one was wrong twice in two days. The
@@ -59,7 +59,7 @@ which checks the `subagentThreads` of a seat that took the invitation. Without
 A delegation skill fails in two directions, and both are quiet. If it never fires, work that wanted a
 second, decorrelated opinion silently gets one Claude's opinion instead. If it fires on everything, every
 trivial question pays a whole seat's turn overhead and memory (the figures are in
-[parity.md](../skills/codex-delegate/references/parity.md#fan-out-and-reporting)). Neither shows up as an error.
+[parity.md](../skills/seat/references/parity.md#fan-out-and-reporting)). Neither shows up as an error.
 
 The negative cases matter as much as the positive ones. Case 9 is the sharp one: `codex` appearing as part
 of a filename must not pull in the whole skill.
@@ -83,12 +83,12 @@ it is a test, then read its transcript rather than its self-report:
 ```bash
 # after running a case, count actual Skill tool calls in the agent transcript
 grep -o '"name":"Skill"' <transcript>.jsonl | wc -l
-grep -oE '"skill":"(codex-delegate:)?codex-delegate"' <transcript>.jsonl | wc -l   # plugin input is codex-delegate:codex-delegate
+grep -oE '"skill":"(codex-delegate:)?seat"' <transcript>.jsonl | wc -l   # plugin input is codex-delegate:seat
 ```
 
-The count is the verdict. Do not grep for the string `codex-delegate` alone: it appears in every
-transcript as part of the available-skills listing in the system prompt, so a skill that never fired still
-matches twice.
+The count is the verdict. Match the whole `"skill":"…"` value, never the bare word `seat`: it appears in
+every transcript as part of the available-skills listing in the system prompt, and again throughout this
+repository's own prose, so a skill that never fired still matches.
 
 Ask the agent to self-report as well, but treat that as a cross-check only. An agent's account of which
 tools it used is exactly the kind of claim this skill exists to distrust.
@@ -106,7 +106,7 @@ passed while nothing actually ran, because those files are loaded automatically.
 to be fetched — a branch name that contradicts the documented default, a hash of a file you just wrote.
 
 Run the machine, not the memory. Memory is the binding constraint: an isolated delegation costs a fraction
-of a `--host-home` one (figures in [parity.md](../skills/codex-delegate/references/parity.md#fan-out-and-reporting))
+of a `--host-home` one (figures in [parity.md](../skills/seat/references/parity.md#fan-out-and-reporting))
 — the difference being a private copy of every MCP server in `~/.codex/config.toml`. Run these in waves
 rather than all at once. A case killed by the OS reports as a trigger failure and is not one.
 

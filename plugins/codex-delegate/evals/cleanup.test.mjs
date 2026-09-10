@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The suite for scripts/clear.mjs — the script behind /codex-delegate:clear.
+// The suite for scripts/cleanup.mjs — the script behind /codex-delegate:cleanup.
 //
 // The script inventories what this plugin leaves behind, says which of it can go, and removes only the
 // rows the user picks BY NUMBER against the snapshot `--list --json` wrote. Four kinds can be removed —
@@ -8,12 +8,12 @@
 // directory of this plugin. A row is `removable` or `kept`, and there is no third value. These cases pin
 // that contract, one case per rule a wrong implementation could break.
 //
-//   node evals/clear.test.mjs
+//   node evals/cleanup.test.mjs
 //
 // Nothing here can reach the caller's own data. Every invocation points HOME, CLAUDE_CONFIG_DIR, TMPDIR
 // and CODEX_DELEGATE_STATE_DIR into a scratch world under one harness temp directory, unsets
 // CLAUDE_PLUGIN_DATA so no fallback can reach ~/.claude/plugins/data, and takes its process listing from
-// the CODEX_DELEGATE_CLEAR_PS seam rather than the machine's process table. need() then asserts, on EVERY
+// the CODEX_DELEGATE_CLEANUP_PS seam rather than the machine's process table. need() then asserts, on EVERY
 // listing, that each root the script resolved and each path it printed lies inside that world — so a
 // script that reached the real ~/.claude/projects, $TMPDIR/codex-seat.* or ~/.codex fails the case that
 // saw it rather than quietly deleting the owner's work.
@@ -29,9 +29,9 @@ import { EXIT, PINNED_CODEX, SCRIPTS, registry, runCases, skip, spawnNode, summa
          tempDir } from "./lib/harness.mjs";
 // A NAMESPACE import, not named bindings: the liveness helpers are the driver's, and a named import of
 // one it stops exporting would fail at load and report nothing at all rather than failing case by case.
-import * as driver from "../skills/codex-delegate/scripts/driver.mjs";
+import * as driver from "../skills/seat/scripts/driver.mjs";
 
-const CLEAR = path.join(SCRIPTS, "clear.mjs");
+const CLEANUP = path.join(SCRIPTS, "cleanup.mjs");
 // The ladder the contract names: 0 everything went, 10 something was refused and untouched, 1 a removal
 // was attempted and failed, 2 bad arguments or no state directory.
 const REFUSED = EXIT.BUSY, FAILED = EXIT.TURN_NOT_COMPLETED, USAGE = EXIT.USAGE;
@@ -42,7 +42,7 @@ const processIdentity = typeof driver.processIdentity === "function" ? driver.pr
 
 // One tree for every world. Canonicalised once, so a fixture path and the path the script prints are
 // the same string on a machine where /var is a link to /private/var.
-const BASE = fs.realpathSync(tempDir("codex-clear-"));
+const BASE = fs.realpathSync(tempDir("codex-cleanup-"));
 const inside = (p) => typeof p === "string" && (p === BASE || p.startsWith(BASE + path.sep));
 let worldSeq = 0;
 
@@ -54,7 +54,7 @@ function makeWorld(name) {
   const root = path.join(BASE, `${String(++worldSeq).padStart(2, "0")}-${name}`);
   const w = { root, state: path.join(root, "state"), tmp: path.join(root, "tmp"),
               config: path.join(root, "config"), home: path.join(root, "home"),
-              project: path.join(root, "clearproj"), outside: path.join(root, "outside"),
+              project: path.join(root, "cleanupproj"), outside: path.join(root, "outside"),
               ps: path.join(root, "ps.txt") };
   w.data = path.join(w.config, "plugins", "data");
   w.projects = path.join(w.config, "projects");
@@ -80,22 +80,22 @@ async function stopChild(c) {
   await ended;
 }
 
-// Every run of the script. A missing clear.mjs THROWS rather than skipping: runCases turns a throw into
+// Every run of the script. A missing cleanup.mjs THROWS rather than skipping: runCases turns a throw into
 // a failed case with its message, so an unwritten script reads as a wall of failures naming the file,
 // which is what it is — never as a green suite that measured nothing.
-function runClear(w, args, { cwd, env = {}, unsetEnv = [], killAfterMs = 120_000 } = {}) {
-  if (!fs.existsSync(CLEAR)) throw new Error(`${CLEAR} does not exist yet`);
+function runCleanup(w, args, { cwd, env = {}, unsetEnv = [], killAfterMs = 120_000 } = {}) {
+  if (!fs.existsSync(CLEANUP)) throw new Error(`${CLEANUP} does not exist yet`);
   const base = { HOME: w.home, CLAUDE_CONFIG_DIR: w.config, TMPDIR: w.tmp,
-                 CODEX_DELEGATE_STATE_DIR: w.state, CODEX_DELEGATE_CLEAR_PS: w.ps };
+                 CODEX_DELEGATE_STATE_DIR: w.state, CODEX_DELEGATE_CLEANUP_PS: w.ps };
   // A variable the case names itself is the case's to set or to unset; the rest are pointed at the world.
   const unset = ["CLAUDE_PLUGIN_DATA", ...unsetEnv].filter((k) => !(k in env));
-  return spawnNode([CLEAR, ...args], { cwd: cwd ?? w.project, env: { ...base, ...env },
+  return spawnNode([CLEANUP, ...args], { cwd: cwd ?? w.project, env: { ...base, ...env },
                                        unsetEnv: unset, killAfterMs }).done;
 }
 const mkfifo = (p) => spawnSync("mkfifo", [p]).status === 0;
 const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
 async function list(w, opts) {
-  const r = await runClear(w, ["--list", "--json"], opts);
+  const r = await runCleanup(w, ["--list", "--json"], opts);
   return { ...r, j: parse(r.out) };
 }
 let snapSeq = 0;
@@ -108,7 +108,7 @@ async function snapshot(w, opts) {
   return { ...r, file };
 }
 const pick = (w, file, numbers, opts) =>
-  runClear(w, ["--delete", "--from", file, ...numbers.map(String)], opts);
+  runCleanup(w, ["--delete", "--from", file, ...numbers.map(String)], opts);
 
 // What every listing must be true of, asserted on every listing every case takes: the world it stayed
 // inside, the two statuses, the numbering, and the two sets agreeing with the rows' own flags.
@@ -315,8 +315,8 @@ function denied(p) {
 const { cases: CASES, test } = registry();
 
 test("the script this suite measures exists where the recipe names it",
-  "every other case throws on a missing clear.mjs, which reads as a wall of failures; this one says the single fact behind them in one line",
-  async () => (fs.existsSync(CLEAR) ? true : `${CLEAR} does not exist`));
+  "every other case throws on a missing cleanup.mjs, which reads as a wall of failures; this one says the single fact behind them in one line",
+  async () => (fs.existsSync(CLEANUP) ? true : `${CLEANUP} does not exist`));
 
 test("1 · a seat's line parses whole: running it is kept, gone it is suggested",
   "the identity holds spaces on macOS and a run name may hold them too; a parser that splits the line on whitespace loses the report path and with it the project, and the scratch of a RUNNING seat then reads as something to suggest",
@@ -619,7 +619,7 @@ test("9 · the eval scratch: an empty listing is an answer, a running suite is n
       m.ok(row && row.status === "kept" && row.proposed === false,
         `${path.basename(d)} while a suite is running: ${JSON.stringify({ status: row?.status, proposed: row?.proposed })}`);
     }
-    r = await list(w, { env: { CODEX_DELEGATE_CLEAR_PS: path.join(w.root, "no-such-listing") } });
+    r = await list(w, { env: { CODEX_DELEGATE_CLEANUP_PS: path.join(w.root, "no-such-listing") } });
     bad = need(w, r); if (bad) return bad;
     for (const d of dirs) {
       const row = rowAt(r.j, d);
@@ -973,7 +973,7 @@ test("16 · the listing is three lines a person reads, and --json carries the sa
     const m = misses();
     const j = await list(w);
     const bad = need(w, j); if (bad) return bad;
-    const human = await runClear(w, ["--list"]);
+    const human = await runCleanup(w, ["--list"]);
     m.eq(human.code, EXIT.OK, `--list exited ${human.code}: ${human.err.trim().slice(0, 200)}`);
     m.eq(human.out, j.j.text, "the human listing and the text field of --list --json are not the same bytes");
     const lines = String(j.j.text ?? "").split("\n");
@@ -1013,7 +1013,7 @@ test("16 · the listing is three lines a person reads, and --json carries the sa
       m.has(tail, String(j.j.notCovered.count), "the closing lines do not carry the count of what is not covered");
     m.ok(!/rm -rf/.test(String(j.j.text)), "the manual commands are in the listing without the user asking for them");
     // The same listing at a narrower terminal.
-    const narrow = await list(w, { env: { CODEX_DELEGATE_CLEAR_COLUMNS: "60" } });
+    const narrow = await list(w, { env: { CODEX_DELEGATE_CLEANUP_COLUMNS: "60" } });
     const badNarrow = need(w, narrow); if (badNarrow) return badNarrow;
     for (const l of String(narrow.j.text ?? "").split("\n"))
       if (l.length > 60) m.ok(false, `at 60 columns a line is ${l.length} columns: ${JSON.stringify(l)}`);
@@ -1025,7 +1025,7 @@ test("17 · the roots it must have, and the arguments it refuses",
   async () => {
     const w = makeWorld("roots-and-args");
     const m = misses();
-    const noState = await runClear(w, ["--list"], { env: { CODEX_DELEGATE_STATE_DIR: undefined } });
+    const noState = await runCleanup(w, ["--list"], { env: { CODEX_DELEGATE_STATE_DIR: undefined } });
     m.eq(noState.code, USAGE, `--list with no state directory exited ${noState.code}`);
     m.eq(noState.out, "", "stdout was not empty");
     m.has(noState.err, "CODEX_DELEGATE_STATE_DIR", "the refusal names the variable it looked at first");
@@ -1040,7 +1040,7 @@ test("17 · the roots it must have, and the arguments it refuses",
     if (bad) m.ok(false, `with only CLAUDE_PLUGIN_DATA set: ${bad}`);
     else m.ok(rowAt(viaPluginData.j, path.join(alt, "orchestrate", w.slug, "run-1")),
       `the run under CLAUDE_PLUGIN_DATA is not listed: ${shown(viaPluginData.j)}`);
-    const noTmp = await runClear(w, ["--list"], { unsetEnv: ["TMPDIR"] });
+    const noTmp = await runCleanup(w, ["--list"], { unsetEnv: ["TMPDIR"] });
     m.eq(noTmp.code, USAGE, `--list with TMPDIR unset exited ${noTmp.code}`);
     const s = await snapshot(w);
     for (const [what, args] of [
@@ -1052,10 +1052,10 @@ test("17 · the roots it must have, and the arguments it refuses",
       ["a snapshot file that is not JSON", ["--delete", "--from", w.ps, "1"]],
       ["a number that is not one", ["--delete", "--from", s.file, "seven"]],
     ]) {
-      const r = await runClear(w, args);
+      const r = await runCleanup(w, args);
       m.eq(r.code, USAGE, `${what} exited ${r.code}: ${(r.err || r.out).trim().slice(0, 160)}`);
     }
-    const help = await runClear(w, ["--help"]);
+    const help = await runCleanup(w, ["--help"]);
     m.eq(help.code, EXIT.OK, `--help exited ${help.code}`);
     for (const flag of ["--list", "--delete", "--from", "--json"]) m.has(help.out, flag, "--help");
     return m.done();

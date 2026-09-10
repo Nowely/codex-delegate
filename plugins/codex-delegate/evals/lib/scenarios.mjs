@@ -11,7 +11,7 @@ import path from "node:path";
 import { SCENARIOS } from "../fake-app-server.mjs";
 import { DRIVER, ROOT, codexShim, readJson, spawnNode, tempDir } from "./harness.mjs";
 
-const REVIEW_SCHEMA = path.join(ROOT, "skills", "codex-delegate", "schemas", "review-output.schema.json");
+const REVIEW_SCHEMA = path.join(ROOT, "skills", "seat", "schemas", "review-output.schema.json");
 
 const shimDir = tempDir("codex-delegate-test-");
 // Use a unique name per run to avoid collisions in the shared $TMPDIR.

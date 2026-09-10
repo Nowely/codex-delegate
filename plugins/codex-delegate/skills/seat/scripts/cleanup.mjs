@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// clear — lists what codex-delegate leaves behind that nothing else removes, and deletes only the
+// cleanup — lists what codex-delegate leaves behind that nothing else removes, and deletes only the
 // numbers the user picked.
 //
-//   node clear.mjs --list [--json]
-//   node clear.mjs --delete --from <listing.json> <number>...
+//   node cleanup.mjs --list [--json]
+//   node cleanup.mjs --delete --from <listing.json> <number>...
 //
 // Four kinds of artifact can be removed here: an orchestrate run directory, a seat's scratch
 // directory, the suites' scratch directories and the saved conversations the suites leave behind.
@@ -67,11 +67,11 @@ const WIDTH_MAX = 76, WIDTH_MIN = 60;
 // is not measured but kept, so a size the user was shown cannot cover only part of what would go.
 const MAX_WALK_ENTRIES = 200_000;
 
-const USAGE = `clear — list what codex-delegate left behind, and remove only what was chosen.
+const USAGE = `cleanup — list what codex-delegate left behind, and remove only what was chosen.
 
-  node clear.mjs --list [--json]
-  node clear.mjs --delete --from <listing.json> <number>...
-  node clear.mjs --help
+  node cleanup.mjs --list [--json]
+  node cleanup.mjs --delete --from <listing.json> <number>...
+  node cleanup.mjs --help
 
 --list prints a numbered listing: what each item is, its size, when it last changed, whether it is
 suggested, selectable by its number or kept, and why. It writes nothing at all. --delete takes the
@@ -264,7 +264,7 @@ function resolveRoots() {
 // deliberately no scan of Claude Code sessions — a closed session can be resumed and go on
 // orchestrating, so session liveness proves nothing and the price of the wrong answer is a run.
 function suiteScan() {
-  const seam = process.env.CODEX_DELEGATE_CLEAR_PS;
+  const seam = process.env.CODEX_DELEGATE_CLEANUP_PS;
   let text;
   if (seam) {
     const t = textAt(seam);
@@ -642,7 +642,7 @@ function wrap(text, width, indent) {
 }
 
 function columns() {
-  const seam = Number(process.env.CODEX_DELEGATE_CLEAR_COLUMNS);
+  const seam = Number(process.env.CODEX_DELEGATE_CLEANUP_COLUMNS);
   if (Number.isInteger(seam) && seam > 0) return Math.max(WIDTH_MIN, seam);
   const term = process.stdout.columns;
   return Number.isInteger(term) && term > 0 ? Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, term)) : WIDTH_MAX;
@@ -1202,7 +1202,7 @@ if (RUN_AS_MAIN) {
   try { process.exitCode = main(process.argv.slice(2)); }
   catch (e) {
     if (!(e instanceof Usage)) throw e;
-    process.stderr.write(`clear: ${e.message}\n`);
+    process.stderr.write(`cleanup: ${e.message}\n`);
     process.exitCode = EXIT.USAGE;
   }
 }

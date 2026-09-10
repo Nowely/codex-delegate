@@ -17,7 +17,7 @@ notes; never move or recreate a published tag.
    every suite:
 
    ```bash
-   for f in skills/codex-delegate/scripts/*.mjs evals/*.mjs evals/lib/*.mjs; do node --check "$f"; done
+   for f in skills/seat/scripts/*.mjs evals/*.mjs evals/lib/*.mjs; do node --check "$f"; done
    npm test
    ```
 

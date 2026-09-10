@@ -1,5 +1,5 @@
 {
-  "skill_name": "codex-delegate",
+  "skill_name": "seat",
   "how_these_run": "By hand. No runner reads this file: run-all.mjs discovers only *.test.mjs, and `claude plugin eval` is early access and absent from this build. The method — give an agent the prompt verbatim, then count Skill calls in its transcript rather than believing its self-report — is in evals/README.md under 'The trigger cases'.",
   "evals": [
     {
@@ -8,7 +8,7 @@
       "expected_output": "Fires. The user named Codex explicitly; run at --level read against the repo.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Chooses --level read, because a review needs no write access",
         "Does NOT use the openai-codex plugin (codex:rescue / codex-companion.mjs)"
       ],
@@ -20,7 +20,7 @@
       "expected_output": "Fires. 'The other model' names a second opinion without saying Codex.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Chooses --level read"
       ],
       "covers": "trigger: indirect reference to a second model"
@@ -31,7 +31,7 @@
       "expected_output": "Fires. A panel of only Claudes shares one bias; the dissenting seat should be Codex.",
       "files": [],
       "expectations": [
-        "Considers giving at least one seat to Codex via codex-delegate",
+        "Considers giving at least one seat to Codex via the seat skill",
         "Does NOT hand the whole panel to Codex",
         "Keeps the remaining seats as Claude subagents"
       ],
@@ -43,7 +43,7 @@
       "expected_output": "Fires. Two failed hypotheses, and the premise is true by construction — the bug is in the prompt.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Hands the seat both refuted hypotheses, so the turn does not spend itself re-testing them",
         "Chooses --level read: the function is in the prompt, and no repository, test suite or dependency was named"
       ],
@@ -55,7 +55,7 @@
       "expected_output": "Fires. A second implementation for comparison, with the subject supplied so the premise holds.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Uses an isolated worktree rather than the main working tree"
       ],
       "covers": "trigger: second implementation for comparison (self-contained)"
@@ -66,7 +66,7 @@
       "expected_output": "Does NOT fire. Trivia.",
       "files": [],
       "expectations": [
-        "Does NOT invoke the codex-delegate skill",
+        "Does NOT invoke the seat skill",
         "Answers directly"
       ],
       "covers": "negative: trivia"
@@ -77,7 +77,7 @@
       "expected_output": "Does NOT fire for a Codex seat. Mechanical fact-gathering is where the default composition is ZERO: decorrelation buys nothing when there is nothing to disagree about, and each seat costs real memory and a turn-overhead floor (the measured figures are in parity.md, 'Fan-out and reporting').",
       "files": [],
       "expectations": [
-        "Does NOT invoke the codex-delegate skill",
+        "Does NOT invoke the seat skill",
         "Uses local search tools instead",
         "Does NOT read 'fan out' as a reason to add a Codex seat"
       ],
@@ -89,7 +89,7 @@
       "expected_output": "Does NOT fire. A one-identifier rename in code supplied in the prompt is faster done directly than delegated.",
       "files": [],
       "expectations": [
-        "Does NOT invoke the codex-delegate skill",
+        "Does NOT invoke the seat skill",
         "Performs the rename directly, on the code given"
       ],
       "covers": "negative: trivial edit (self-contained — the earlier version named an identifier that does not exist in this repo, so the expectation was unachievable and the case measured nothing)"
@@ -100,7 +100,7 @@
       "expected_output": "Does NOT fire. 'codex' appears only as part of a filename, not as a request for the tool.",
       "files": [],
       "expectations": [
-        "Does NOT invoke the codex-delegate skill",
+        "Does NOT invoke the seat skill",
         "Treats 'codex' as part of a path, not as a tool name"
       ],
       "covers": "negative: the word codex as a substring, adversarial"
@@ -111,7 +111,7 @@
       "expected_output": "Fires, and must pick the worktree path and dispose of the tree itself.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Creates a git worktree and passes --level write with --network, because a fresh tree installs its own dependencies",
         "Removes the worktree itself after harvesting, and does not ask Codex to remove it"
       ],
@@ -135,7 +135,7 @@
       "expected_output": "Fires, passes the named model, and does not silently accept an unsupported effort.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill with --model gpt-5.6-sol",
+        "Invokes the seat skill with --model gpt-5.6-sol",
         "Passes --effort max through: the driver validates against the advertised ladder (up to max/ultra), and a value the server refuses comes back as exit 2 carrying the server's own list",
         "Does NOT hardcode a model when the user has not named one"
       ],
@@ -159,7 +159,7 @@
       "expected_output": "Fires, but must cap the fan-out on memory grounds rather than obeying the number.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Warns that concurrency is memory-bound, from the per-seat figures parity.md records under 'Fan-out and reporting' rather than a number of its own",
         "Proposes running in waves instead of ten at once, or checks free memory first"
       ],
@@ -233,7 +233,7 @@
       "expected_output": "Fires. The user names Codex and states the mix (half); Russian phrasing must trigger like English.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Honours the stated half-codex mix",
         "Announces the composition before the seats run"
       ],
@@ -245,7 +245,7 @@
       "expected_output": "Fires. A review panel needs a decorrelated seat; no English keyword present — semantic match must carry it.",
       "files": [],
       "expectations": [
-        "Considers giving at least one seat to Codex via codex-delegate",
+        "Considers giving at least one seat to Codex via the seat skill",
         "Does NOT hand the whole panel to Codex"
       ],
       "covers": "trigger (ru): panel with no codex/gpt token"
@@ -256,7 +256,7 @@
       "expected_output": "Fires. 'через gpt' is in the description's trigger list verbatim.",
       "files": [],
       "expectations": [
-        "Invokes the codex-delegate skill",
+        "Invokes the seat skill",
         "Chooses --level read"
       ],
       "covers": "trigger (ru): user names GPT"
@@ -267,7 +267,7 @@
       "expected_output": "Stays silent. 'codex' as part of a filename is not a delegation request — the Russian mirror of case 9.",
       "files": [],
       "expectations": [
-        "Does NOT invoke the codex-delegate skill",
+        "Does NOT invoke the seat skill",
         "Just renames the file"
       ],
       "covers": "negative (ru): skill name inside a filename"
