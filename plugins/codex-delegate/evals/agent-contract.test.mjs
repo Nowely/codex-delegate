@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DRIVER, FIELDS, ROOT, SEAT_FIELDS, registry, runCases, summarize, tempDir } from "./lib/harness.mjs";
 
-const SKILL = path.join(ROOT, "skills", "codex-delegate", "SKILL.md");
+const SKILL = path.join(ROOT, "skills", "seat", "SKILL.md");
 const ORCHESTRATE = path.join(ROOT, "skills", "orchestrate", "SKILL.md");
 
 const skill = fs.readFileSync(SKILL, "utf8");
@@ -136,7 +136,7 @@ test("the scratch directory comes from one mktemp call, not from an unexpandable
 test("every driver path and every state directory on both pages is the exact ${...} placeholder",
   "Claude Code substitutes that exact form inline in a skill body and exports nothing to the Bash tool, so a ${VAR:-default} is never substituted, expands to the default, and makes every plugin-installed seat fail to find the driver at all — and the same form is what carries the state directory the driver now has no default for: a seat that lost it exits 2 before its turn",
   () => {
-    const REL = "skills/codex-delegate/scripts/driver.mjs";
+    const REL = "skills/seat/scripts/driver.mjs";
     if (path.relative(ROOT, DRIVER).split(path.sep).join("/") !== REL) return `the shipped layout moved: ${path.relative(ROOT, DRIVER)}`;
     const problems = [];
     for (const [label, text] of [["SKILL.md", skill], ["orchestrate/SKILL.md", orchestrate]]) {
@@ -162,7 +162,7 @@ test("every driver path and every state directory on both pages is the exact ${.
     if (!/CLAUDE_PLUGIN_DATA="\$\{CLAUDE_PLUGIN_DATA\}" node "\$\{CLAUDE_SKILL_DIR\}\/scripts\/driver\.mjs"/.test(skill))
       problems.push("the One call recipe no longer forwards CLAUDE_PLUGIN_DATA=\"${CLAUDE_PLUGIN_DATA}\" ahead of the driver");
     // The placeholder resolves to the skill directory, so the path below it is the shipped layout's.
-    if (!fs.existsSync(path.join(ROOT, "skills", "codex-delegate", "scripts", "driver.mjs")))
+    if (!fs.existsSync(path.join(ROOT, "skills", "seat", "scripts", "driver.mjs")))
       problems.push("scripts/driver.mjs is not where ${CLAUDE_SKILL_DIR} would resolve it");
     return problems.length === 0 || problems.join("; ");
   });
@@ -261,7 +261,7 @@ test("what the user reads is prose the coordinator writes, in the user's languag
     // The two user-facing templates, on both pages, are the only places the word reached the user by
     // instruction rather than by accident: the Bash row's description and the example first line. They
     // are pinned as a pair because a fix to one page alone leaves the other still teaching the old form.
-    for (const [name, text] of [["codex-delegate", flat], ["orchestrate", orchestrate.replace(/\s+/g, " ")]]) {
+    for (const [name, text] of [["seat", flat], ["orchestrate", orchestrate.replace(/\s+/g, " ")]]) {
       if (!text.includes("`Codex <model> <id>: <task in a few words>`")
           && !text.includes("\"Codex <model> <id>: <task in a few words>\""))
         problems.push(`${name} no longer carries the model-first description template`);

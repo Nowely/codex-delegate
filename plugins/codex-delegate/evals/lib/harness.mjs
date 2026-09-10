@@ -15,11 +15,11 @@ import { fileURLToPath } from "node:url";
 // vocabulary or of the lock's key has a copy that can disagree with the thing it is testing. Importing
 // is safe because driver.mjs runs main() only as an entry point.
 export { EXIT, FIELDS, LADDER, PINNED_CODEX, SEAT_FIELDS, VERSION, lockKey }
-  from "../../skills/codex-delegate/scripts/driver.mjs";
+  from "../../skills/seat/scripts/driver.mjs";
 
 export const EVALS = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const ROOT = path.dirname(EVALS);
-export const SCRIPTS = path.join(ROOT, "skills", "codex-delegate", "scripts");
+export const SCRIPTS = path.join(ROOT, "skills", "seat", "scripts");
 export const DRIVER = path.join(SCRIPTS, "driver.mjs");
 export const FAKE = path.join(EVALS, "fake-app-server.mjs");
 

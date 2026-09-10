@@ -35,7 +35,7 @@ jobs:
       # not arrive disguised as a broken test. The list is the directories, so a new script is covered
       # the day it is added.
       - name: Parse every shipped script under this engine
-        run: for f in skills/codex-delegate/scripts/*.mjs evals/*.mjs evals/lib/*.mjs; do node --check "$f"; done
+        run: for f in skills/seat/scripts/*.mjs evals/*.mjs evals/lib/*.mjs; do node --check "$f"; done
       # No install step: the driver, the suites and the fixture import node: builtins only.
       # The suites that need the real `codex` or `claude` are not run here: without the binary or the
       # opt-in variable each skips, says so, and exits 0. They stay LOCAL pre-release steps (RELEASING.md):

@@ -1,5 +1,5 @@
 ---
-name: codex-delegate
+name: seat
 description: >-
   Delegates tasks to Codex as a subagent with per-call rights: read-only analysis or writing and tests
   in a managed git worktree. Use when a panel, refuters, or competing designs need a seat that does not

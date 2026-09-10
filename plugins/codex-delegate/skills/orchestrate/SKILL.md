@@ -9,7 +9,7 @@ metadata:
 license: MIT
 ---
 
-Load [codex-delegate](../codex-delegate/SKILL.md) now (Skill tool, `codex-delegate:codex-delegate`; bare `codex-delegate` on a
+Load [seat](../seat/SKILL.md) now (Skill tool, `codex-delegate:seat`; bare `seat` on a
 clone-and-symlink install) and follow it for every Codex seat: rights, header fields, worktree lifecycle, the report and the exit
 ladder live there and stay authoritative; this page re-cuts only what the mode changes. The mode is prompt only: no driver
 change, no new header field or flag, the seat's own prompt file and the driver's state directory unchanged. You are the
@@ -37,7 +37,7 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
 2. Show the plan and stop, in the user's own language and in ordinary words: what will be done, who does each part by model name, what each may write, whether it needs the network, and that
    artifacts land outside the repository. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's
-   [Browser-mode sandbox](../codex-delegate/references/parity.md#browser-mode-sandbox) section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).
+   [Browser-mode sandbox](../seat/references/parity.md#browser-mode-sandbox) section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).
    Announce the composition here, and the caps beside it in a sentence: your own model, one Fable and one `gpt-6-astra` at a time, six alive. A cap the user overrides in words ("two Fable")
    replaces the default for this run; composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches are viable, show them all with a
    recommendation and let the user pick.
@@ -77,7 +77,7 @@ the top-row roles in turn, architect for one task and judge for the next, and th
 
 ## Composition and bounds
 
-This mode replaces one row of the sibling's [composition table](../codex-delegate/SKILL.md#composition), the "nothing" row:
+This mode replaces one row of the sibling's [composition table](../seat/SKILL.md#composition), the "nothing" row:
 when the user states no allocation, half the seats beyond the implementers, rounded up, are Codex, in the judgement roles: plan
 critique, review, skeptics and refuters, judges. A one-seat task has no judgement seat and so no Codex seat unless cross-review
 adds one. Everything else there holds: an allocation or refusal the user states, the announcement, attribution, no backfill, no
