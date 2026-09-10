@@ -3,7 +3,7 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
-## Unreleased
+## 0.12.0 — 2026-09-10
 
 Measured against codex-cli 0.153.4 on macOS. No driver behaviour changes: this release is a third skill,
 the script behind it, a pass over everything the three skills put in front of a person, and a rename of
