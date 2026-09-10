@@ -6,12 +6,14 @@ forensics remain in the repository references and release notes.
 ## Unreleased
 
 Measured against codex-cli 0.153.4 on macOS. No driver behaviour changes: this release is a third skill,
-the script behind it, and a pass over everything the three skills put in front of a person.
+the script behind it, a pass over everything the three skills put in front of a person, and a rename of
+every name a user types or reads. **Upgrading is not `plugin update`** — the marketplace is now `nowely`,
+so remove the old marketplace and add it again (below).
 
 ### Added
 
-- A third skill, `codex-delegate:clear`, invoked by the user only (`disable-model-invocation: true`),
-  and `skills/codex-delegate/scripts/clear.mjs` beside `attach-pasted.mjs`. It lists what the plugin
+- A third skill, `codex-delegate:cleanup`, invoked by the user only (`disable-model-invocation: true`),
+  and `skills/seat/scripts/cleanup.mjs` beside `attach-pasted.mjs`. It lists what the plugin
   has left on this machine, says of each item why it can go or is being kept, and removes only what
   the user picked by number. `--list`, `--list --json`, `--delete --from <listing.json> <number>...`,
   `--help`.
@@ -85,6 +87,21 @@ the script behind it, and a pass over everything the three skills put in front o
 
 ### Changed
 
+- **Renamed, everything a user types or reads.** The marketplace is `nowely` instead of a second copy
+  of the plugin's own name, so the install is `codex-delegate@nowely` and the plugin's data directory
+  is `~/.claude/plugins/data/codex-delegate-nowely/`. The main skill is `seat`, so the Skill tool takes
+  `codex-delegate:seat` instead of `codex-delegate:codex-delegate` (bare `seat` on the clone-and-symlink
+  route). The cleanup is `cleanup`, not `clear`, which is a built-in Claude Code command that discards
+  the conversation: `/codex-delegate:cleanup`, `skills/seat/scripts/cleanup.mjs`, and the seam variables
+  `CODEX_DELEGATE_CLEANUP_PS` and `CODEX_DELEGATE_CLEANUP_COLUMNS`. The plugin's own name, the repository,
+  `CODEX_DELEGATE_STATE_DIR` and the sandbox profile are unchanged.
+- **Upgrade path.** `claude plugin marketplace remove codex-delegate`, then
+  `claude plugin marketplace add Nowely/codex-delegate` (it registers as `nowely`), then
+  `claude plugin install codex-delegate@nowely`. The data directory moves with the marketplace name, so
+  move `codex-delegate-codex-delegate/` to `codex-delegate-nowely/` first, with no seat running; a stale
+  copy left behind is listed by `/codex-delegate:cleanup` as another copy's data.
+- The pitch says what ships: three skills, only the first model-invoked, and a receipt per *completed*
+  turn — a refusal before the turn has none.
 - What the user reads is now stated once, in a `What the user reads` section on the delegation page:
   the coordinator writes that prose itself, in the user's own language, and names an agent by its
   model and id. A header field name, a status block, an internal table's row name and an absolute

@@ -1,11 +1,12 @@
 # codex-delegate
 
-A Claude Code skill that hands coding work to OpenAI Codex as a subagent, with the rights for each call
-declared up front: analysis that reads and runs but writes nothing of yours, or writing and running
-tests inside a git worktree the driver manages itself. Every run leaves a receipt — a rollout the driver
-locates, opens and checks — and the exit code is derived from what actually happened rather than from a
-process status that says nothing about the task, so a seat that did nothing cannot report as though it
-had.
+A Claude Code plugin whose main skill hands coding work to OpenAI Codex as a subagent, with the rights
+for each call declared up front: analysis that reads and runs but writes nothing of yours, or writing
+and running tests inside a git worktree the driver manages itself. Every completed turn leaves a receipt
+— a rollout the driver locates, opens and checks — and the exit code is derived from what actually
+happened rather than from a process status that says nothing about the task, so a seat that did nothing
+cannot report as though it had. Two more skills ship beside it, both described below and both invoked by
+the user rather than by the model.
 
 ## Goal
 
@@ -24,8 +25,8 @@ turns the main conversation into an orchestrator that scouts inline, agrees one 
 verbose step onto Claude and Codex seats; it is prompt only, adds no flag or field, and is a delta over
 this skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md)).
 
-A third, `/codex-delegate:clear`, is the cleanup: it lists what the plugin has left on this machine and
-removes only what you pick by number ([skills/clear/SKILL.md](skills/clear/SKILL.md)). It removes four
+A third, `/codex-delegate:cleanup`, is the cleanup: it lists what the plugin has left on this machine and
+removes only what you pick by number ([skills/cleanup/SKILL.md](skills/cleanup/SKILL.md)). It removes four
 kinds — this project's orchestrate run directories and seat scratch, the test suites' scratch
 directories and the saved conversations they leave behind — and only ever reports the other four:
 managed worktrees and their ledger, write locks, the shared Codex home, and the data of another copy of
@@ -47,33 +48,33 @@ holding one of these open with none of that behind it is not something it can se
 - **macOS and Linux are both measured.** CI runs every suite that needs no `codex` binary on both;
   the macOS-only call (the managed-preferences plist) is guarded. A stock Linux shell leaves `TMPDIR`
   unset, and at `--level read` it *is* the grant: the driver then makes a private one and names it in
-  the report as `tmpDir` ([Environment](skills/codex-delegate/references/environment-and-internals.md#environment)).
+  the report as `tmpDir` ([Environment](skills/seat/references/environment-and-internals.md#environment)).
   Export your own to put the seat's scratch files elsewhere.
 - **Your `~/.codex/config.toml` is the default policy.** Model, reasoning effort and the other keys
-  the driver inherits ([the isolated home](skills/codex-delegate/references/environment-and-internals.md#the-isolated-home))
+  the driver inherits ([the isolated home](skills/seat/references/environment-and-internals.md#the-isolated-home))
   come from it unless overridden per call (`--model`, `--effort`); the driver deliberately sets no
   defaults of its own.
 
 ## Install
 
-As a plugin — the full set: both skills, the driver and the suites (the repo is its own marketplace):
+As a plugin — the full set: all three skills, the driver and the suites (the repo is its own marketplace):
 
 ```
 /plugin marketplace add Nowely/codex-delegate
-/plugin install codex-delegate@codex-delegate
+/plugin install codex-delegate@nowely
 ```
 
-This route exposes the skill as `codex-delegate:codex-delegate`, the orchestrator mode as
-`codex-delegate:orchestrate` and the cleanup as `codex-delegate:clear`; the last two only the user can
+This route exposes the skill as `codex-delegate:seat`, the orchestrator mode as
+`codex-delegate:orchestrate` and the cleanup as `codex-delegate:cleanup`; the last two only the user can
 turn on.
 
 The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then
-`claude plugin install codex-delegate@codex-delegate`. To update, refresh the marketplace clone and
+`claude plugin install codex-delegate@nowely`. To update, refresh the marketplace clone and
 then the plugin, and restart Claude Code:
 
 ```bash
-claude plugin marketplace update codex-delegate
-claude plugin update codex-delegate@codex-delegate
+claude plugin marketplace update nowely
+claude plugin update codex-delegate@nowely
 ```
 
 Or from source — clone and symlink, so the checkout stays the single source of truth (the `orchestrate`
@@ -83,24 +84,25 @@ symlink is only needed for the orchestrator mode):
 git clone https://github.com/Nowely/codex-delegate.git
 cd codex-delegate
 mkdir -p ~/.claude/skills                           # absent on a machine that has never run Claude Code
-ln -s "$PWD/skills/codex-delegate" ~/.claude/skills/codex-delegate
+ln -s "$PWD/skills/seat" ~/.claude/skills/seat
 ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
-ln -s "$PWD/skills/clear" ~/.claude/skills/clear
+ln -s "$PWD/skills/cleanup" ~/.claude/skills/cleanup
 ```
 
-On this clone-and-symlink route the skill is `codex-delegate` and the modes are `/orchestrate` and
-`/clear`; on the plugin route they are `codex-delegate:codex-delegate`, `/codex-delegate:orchestrate`
-and `/codex-delegate:clear`.
+On this clone-and-symlink route the skill is `seat` and the modes are `/orchestrate` and
+`/cleanup`; on the plugin route they are `codex-delegate:seat`, `/codex-delegate:orchestrate`
+and `/codex-delegate:cleanup`.
 
 The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`
 on a fresh account, which is exactly the account this route is written for.
 
 **Where the driver's state lives.** `${CLAUDE_PLUGIN_DATA}`, the plugin's own data directory, which
 Claude Code substitutes into the skill's recipes and which this install resolves to
-`~/.claude/plugins/data/codex-delegate-codex-delegate/`. The answers and the isolated Codex home, the
+`~/.claude/plugins/data/codex-delegate-nowely/` (the plugin's name, then the marketplace's). The
+answers and the isolated Codex home, the
 write locks, the worktree ledger and the orchestrator mode's run directories are all there. It survives
 plugin updates; an uninstall deletes it unless you pass `claude plugin uninstall --keep-data`, and
-`/codex-delegate:clear` lists what is in it and removes what you choose. The driver
+`/codex-delegate:cleanup` lists what is in it and removes what you choose. The driver
 keeps no default of its own: with neither that variable nor `CODEX_DELEGATE_STATE_DIR` it exits 2. In
 every permission mode but auto and bypass, a write outside the working directory prompts, so add that
 directory to `permissions.additionalDirectories` once — this plugin adds no rules on your behalf. On the
@@ -137,7 +139,7 @@ work. Resolve the link, or use the install path announced when the skill loads, 
 From the checkout, with the state directory exported as Install says:
 
 ```bash
-node skills/codex-delegate/scripts/driver.mjs --cwd . --brief \
+node skills/seat/scripts/driver.mjs --cwd . --brief \
   --prompt 'TASK: describe this repository in two sentences, after listing its files.
 CHECK: name three real files.
 RETURN: the two sentences.'
@@ -147,12 +149,12 @@ The JSON report — the only report — ends with the verdict: `exitCode: 0` mea
 declared check passed, and a command really ran; anything else is a specific complaint — the driver's
 `--help` documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and
 `receiptOk` locate and validate the run's rollout
-([receipt details](skills/codex-delegate/references/environment-and-internals.md#receipt-validation-and-reporting)
+([receipt details](skills/seat/references/environment-and-internals.md#receipt-validation-and-reporting)
 say what that does and does not prove).
 
 Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
 agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed it
-is `codex-delegate:codex-delegate` (the clone-and-symlink spellings are under Install). A seat is one
+is `codex-delegate:seat` (the clone-and-symlink spellings are under Install). A seat is one
 background Bash call of that same driver: the prompt in a file named by `--seat-file`, the report at
 `--report-file`; add `SEAT: worktree <repo>` above `TASK:` for a managed writer. The
 driver parses that header, launches one seat, waits as long as the work takes, makes the directories the
@@ -165,7 +167,7 @@ never success.
 | Call | Codex may |
 | --- | --- |
 | `--level read` (the default; `--cwd DIR` is optional and defaults to the current directory) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests |
-| `--worktree REPO` | write level in a managed detached tree the driver creates, harvests and removes; what it starts from and lacks is in [parity.md](skills/codex-delegate/references/parity.md#read-and-isolated-write) |
+| `--worktree REPO` | write level in a managed detached tree the driver creates, harvests and removes; what it starts from and lacks is in [parity.md](skills/seat/references/parity.md#read-and-isolated-write) |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
 | `+ --network` / `--writable DIR` | egress or an extra root — each an explicit opt-in |
 
@@ -187,12 +189,12 @@ interrupted, the report it had earned is written anyway, and the codex process g
   that does not, or add `--verify-sandboxed` to put it behind the read-only profile;
   `--expect-command <regex>` demands the work matched a declared signature;
   `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can
-  be fooled: the driver's `--help` and [references/result-gates.md](skills/codex-delegate/references/result-gates.md).
+  be fooled: the driver's `--help` and [references/result-gates.md](skills/seat/references/result-gates.md).
 - **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
   were asked for, and a mismatch refuses the run instead of proceeding under an unknown sandbox.
 - **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout and check it names this thread;
   what that does and does not prove is in
-  [the internals reference](skills/codex-delegate/references/environment-and-internals.md#receipt-validation-and-reporting).
+  [the internals reference](skills/seat/references/environment-and-internals.md#receipt-validation-and-reporting).
 - **Isolation by default.** Runs use a private `CODEX_HOME`, so your plugins, skills and MCP servers
   stay out of the turn and no trust records are written back; `--host-home` opts out.
 
@@ -204,15 +206,15 @@ approval policy that managed (MDM) machines clamp into deny-everything, and it a
 `sandbox` parameter, which suppresses the permission profile that makes read-level test runs possible —
 on every machine, managed or not. Both defects are silent: the run still exits 0. The `codex
 exec`-based skills and the official SDK hit the same walls. Full forensics, upstream issue state, and
-what the plugin does better: [references/why-not-the-plugin.md](skills/codex-delegate/references/why-not-the-plugin.md).
+what the plugin does better: [references/why-not-the-plugin.md](skills/seat/references/why-not-the-plugin.md).
 
 ## Limitations
 
 Read level cannot run browser-mode tests (vitest's server binds loopback TCP; the profile refuses it) —
 they run at write level with a one-file Chromium workaround
-([Browser-mode sandbox](skills/codex-delegate/references/parity.md#browser-mode-sandbox)). Node-environment vitest at read level
+([Browser-mode sandbox](skills/seat/references/parity.md#browser-mode-sandbox)). Node-environment vitest at read level
 needs `--configLoader runner`. Concurrency is memory-bound (figures in
-[parity.md](skills/codex-delegate/references/parity.md#fan-out-and-reporting)) and exceeding the machine
+[parity.md](skills/seat/references/parity.md#fan-out-and-reporting)) and exceeding the machine
 budget gets runs killed by the OS, not throttled. The app-server protocol is `[experimental]` and
 carries no stability promise — hence the pinned schema and the fidelity suite.
 
@@ -230,16 +232,15 @@ own: that commit holds the full tree the next upgrade diffs against, so replace 
 `schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new
 directory to the files [conformance](evals/conformance.test.mjs) loads in a second commit, and delete the old one. Then
 `npm test` and `node evals/fidelity.test.mjs --require-live`, inspect any fixture/live difference, and
-re-check [the dated parity reference](skills/codex-delegate/references/parity.md).
+re-check [the dated parity reference](skills/seat/references/parity.md).
 
 ## Layout
 
 ```
-skills/codex-delegate/           the skill: SKILL.md (the operating manual), scripts/ (the driver and
-                                 its companions, each self-describing under --help), references/
-skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the codex-delegate skill,
-                                 prompt only
-skills/clear/SKILL.md            the cleanup mode: runs scripts/clear.mjs, shows its listing and
+skills/seat/                     the main skill: SKILL.md (the operating manual), scripts/ (the driver
+                                 and its companions, each self-describing under --help), references/
+skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the seat skill, prompt only
+skills/cleanup/SKILL.md          the cleanup mode: runs scripts/cleanup.mjs, shows its listing and
                                  deletes what the user chose
 .claude-plugin/                  plugin + marketplace manifests
 evals/                           the suites, one file each; run-all.mjs lists them and runs them
@@ -259,13 +260,13 @@ Canonical homes for repeated stories:
 
 | Subject | Canonical home |
 | --- | --- |
-| composition, rights, workflow | [`SKILL.md`](skills/codex-delegate/SKILL.md) |
+| composition, rights, workflow | [`SKILL.md`](skills/seat/SKILL.md) |
 | orchestration: tiers, Codex share, seat bounds, returns | [`skills/orchestrate/SKILL.md`](skills/orchestrate/SKILL.md) |
-| what the plugin leaves behind, and removing it | [`skills/clear/SKILL.md`](skills/clear/SKILL.md), `node skills/codex-delegate/scripts/clear.mjs --help` |
-| flags and field formats | `node skills/codex-delegate/scripts/driver.mjs --help` (`--help-all` for the rest) |
-| environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/codex-delegate/references/environment-and-internals.md) |
-| native capability parity and dated measurements | [`parity.md`](skills/codex-delegate/references/parity.md) |
-| measured failures behind rules | [`incidents.md`](skills/codex-delegate/references/incidents.md) |
+| what the plugin leaves behind, and removing it | [`skills/cleanup/SKILL.md`](skills/cleanup/SKILL.md), `node skills/seat/scripts/cleanup.mjs --help` |
+| flags and field formats | `node skills/seat/scripts/driver.mjs --help` (`--help-all` for the rest) |
+| environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/seat/references/environment-and-internals.md) |
+| native capability parity and dated measurements | [`parity.md`](skills/seat/references/parity.md) |
+| measured failures behind rules | [`incidents.md`](skills/seat/references/incidents.md) |
 | suite coverage and mutations | [`evals/README.md`](evals/README.md) |
 
 ## Status
