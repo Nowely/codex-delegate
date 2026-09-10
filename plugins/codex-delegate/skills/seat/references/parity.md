@@ -12,20 +12,20 @@ and one qualification.
 | Native capability | Codex equivalent | Parity |
 | --- | --- | --- |
 | `Explore` (read-only) | `--cwd <repo>` | reads and runs node tests with constraints; see `--help` |
-| agent with `isolation: "worktree"` | `--worktree <repo>` | writes from HEAD without implicit network; see `--help` |
+| agent with `isolation: "worktree"` | `--worktree <repo>` | writes from HEAD rather than from the live tree; see `--help` |
 | the same, committing | none | a seat's sandbox ends at its own tree; the work returns as a diff ([Git-directory grant](environment-and-internals.md#git-directory-grant)) |
 | one-call wrapped subagent | one background Bash call, `--seat-file` in and `--report-file` out | the call is the seat's lifetime and the file is the delivery; see `--help` |
 | fan-out of many agents | concurrent driver invocations | memory-bound rather than throttled; see [Fan-out and reporting](#fan-out-and-reporting) |
 | stopping a running agent | `SIGTERM` to the announced pid, or stopping its task | the turn is interrupted and the report it earned is still written; see `--help` |
 | continuing an agent's context | `--resume <threadId\|last>` | rights are declared again per call; see `--help` |
 | a subagent's MCP tools | `--host-home` | the caller's whole host configuration comes with them; see `--help-all` |
-| web search | `--web-search <mode>` | off unless requested; see `--help-all` |
+| web search | `--web-search <mode>` | the provider's own tool is off unless requested; the shell reaches the network either way; see `--help-all` |
 | a local image or audio file | `--attach <file>` | repeatable and command-line only; see `--help` |
 | an image the user pasted | `scripts/attach-pasted.mjs` | decodes transcript images before delegation; see `--help` |
 | a schema-validated return | `--output-schema <file>` | spends one corrective turn before exit 13; see `--help` |
 | a short return plus transcript | `--brief` | full generated text remains at `answerPath`; see `--help` |
 | a review pass | [adversarial-review.md](adversarial-review.md) plus [`review-output.schema.json`](../schemas/review-output.schema.json) | one prompt seat under a strict schema, grounded ship/no-ship |
-| a permission prompt | none — refused, recorded, exit 6 | widen only the rights settled with the user |
+| a permission prompt | none — refused, recorded, exit 6 | widen only what the user settled: an extra writable root, or a `NETWORK: no` taken back out |
 
 Settle rights through [SKILL.md's rights rules](../SKILL.md#rights).
 
@@ -34,16 +34,17 @@ Settle rights through [SKILL.md's rights rules](../SKILL.md#rights).
 ### Read and isolated write
 
 A read seat matches native reading, grep, git, node, lint, and node-environment vitest when vitest uses
-`--configLoader runner`. Browser-mode vitest cannot run because loopback TCP is refused, and a
-composite-project `tsc --noEmit` fails when it writes `tsbuildinfo`.
+`--configLoader runner`. Browser-mode vitest cannot run because Chromium needs the override
+[Browser-mode sandbox](#browser-mode-sandbox) puts at the tree root, and a composite-project
+`tsc --noEmit` fails when it writes `tsbuildinfo`: both are writes outside `$TMPDIR`.
 
 `--worktree` starts from repository HEAD, not the live tree: commit or stash relevant WIP first, or use
 `--level write --cwd <repo>` after settling that blast radius with the user. Dependencies and ignored
 files are absent; a verifier that needs them exits 1 unless they are installed in the seat's tree.
-Browser tests need `--network`, the serial Chromium override in
-[Browser-mode sandbox](#browser-mode-sandbox), and no file parallelism. Install egress is separate from the base
-isolation choice: `npm install --cache "$PWD/.npm-cache"` keeps its cache in the tree, while
-`pnpm install --frozen-lockfile` works against a warm store.
+Browser tests need the serial Chromium override in
+[Browser-mode sandbox](#browser-mode-sandbox) and no file parallelism. Egress is not what makes an install
+work: the caches live under `$HOME`, which no level grants, so `npm install --cache "$PWD/.npm-cache"`
+keeps its cache in the tree, while `pnpm install --frozen-lockfile` works against a warm store.
 
 A seat cannot commit under the grant a `SEAT:` line makes, so `worktreeCommitsRef` carries commits only
 where the caller's own `--verify` made them; a completed seat retains them even when the tree is
@@ -55,6 +56,11 @@ settle first ([Git-directory grant](environment-and-internals.md#git-directory-g
 Isolation is described in [environment-and-internals.md](environment-and-internals.md#the-isolated-home);
 what matters for parity is that the private home carries none of the caller's MCP servers, and that
 `--host-home` restores the whole host configuration, its servers and its nondeterminism together.
+
+A seat reaches the network at both levels, which is what a native subagent has, and no host list narrows
+it; `NETWORK: no` is the whole of the opposite, and the applied sandbox is asserted either way. Nothing
+about files moves with it — a read seat still writes only `$TMPDIR` — and whatever a seat can read it
+can send.
 
 Supplying a model or effort triggers `model/list` validation before the thread starts. The driver also
 reads `account/rateLimits/read` once: an exhausted primary window is refused, while an unavailable
@@ -144,7 +150,7 @@ for (const project of config.test.projects) {
 export default config
 ```
 
-Then run with `--network` and `--no-file-parallelism` (both mandatory). `--network` is necessary but not
+Then run with `--no-file-parallelism`, which is mandatory. Egress is there by default and is not
 sufficient for `pnpm install`: the store under `$HOME` is not writable at write level and the driver
 refuses to grant `$HOME`, so a COLD store fails even with egress — the run below assumes a warm one.
 
@@ -156,8 +162,9 @@ pnpm install --frozen-lockfile && pnpm -w exec vitest run --config vite.codex.co
 thread, and it supports exactly ONE BrowserContext — a second context, a popup or a real second tab kills
 the browser rather than failing a test. That is a Chromium limit, reproduced identically outside the
 sandbox, which is why `--no-file-parallelism` is mandatory and the whole run is serial (~1.6× slower).
-`--network` is needed twice over: for `pnpm install`, and because vitest's Vite server binds loopback TCP,
-which the base profile refuses. The override casts the imported config to `any` and mutates
+The network is needed twice over — for `pnpm install`, and because vitest's Vite server binds loopback
+TCP, which is `EPERM` without the network grant at either level (measured 2026-09-10 on 0.153.4) — so
+`NETWORK: no` ends a browser run before it starts. The override casts the imported config to `any` and mutates
 `test.projects[].test.browser`. If the repo's `vite.config.ts` is refactored into a FUNCTION, `config.test`
 is undefined and the config load throws a `TypeError` — vitest never starts, which is loud. The silent
 path is the `project.test?.browser` guard: reshape `test.projects` and the loop quietly becomes a no-op,

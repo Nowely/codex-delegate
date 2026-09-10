@@ -435,8 +435,10 @@ test("a write sandbox that grants more than was asked for is refused",
   "write level must check the reported network setting as read level does; accepting an unexpected setting changes the granted rights",
   async () => {
     const d = freshDir("write-widened");
-    const { code, err } = await run(d, { scenario: "write-networked" });
-    if (code !== EXIT.TRANSPORT) return `expected 4 for a sandbox granting unrequested egress, got ${code}`;
+    // The denial is what the widening is measured against: egress is granted unless the caller refuses
+    // it, so a fixture that hands back networkAccess:true to a seat that asked for it is agreement.
+    const { code, err } = await run(d, { scenario: "write-networked", args: ["--no-network"] });
+    if (code !== EXIT.TRANSPORT) return `expected 4 for a sandbox granting refused egress, got ${code}`;
     if (!/networkAccess/.test(err)) return `the refusal must name what differed; got: ${err.trim().slice(0, 140)}`;
     return true;
   });
@@ -969,7 +971,7 @@ test("a signal during --verify kills the verifier's process group and still repo
   });
 
 test("--verify-sandboxed runs the verifier through `codex sandbox` under the read profile",
-  "an opt-in sandbox that silently ran the verifier with the caller's own rights would be worse than none: the invocation has to carry the profile, both of its -c definitions and the cwd, and hand the verifier's own exit code back",
+  "an opt-in sandbox that silently ran the verifier with the caller's own rights would be worse than none: the invocation has to carry the profile, every one of its -c definitions and the cwd, and hand the verifier's own exit code back. Which SETTING the egress definition carries is measured in cli.test.mjs, at both of them; what is checked here is that none of the three is missing",
   async () => {
     const d = freshDir("verify-sandbox");
     const rpcLog = path.join(d, "sandbox.log");
@@ -980,7 +982,8 @@ test("--verify-sandboxed runs the verifier through `codex sandbox` under the rea
     if (!line) return "the verifier did not go through `codex sandbox`";
     for (const needle of ["-P codex_delegate_read", `-C ${fs.realpathSync(d)}`,
                           'permissions.codex_delegate_read.extends=":read-only"',
-                          'permissions.codex_delegate_read.filesystem={":tmpdir"="write"}'])
+                          'permissions.codex_delegate_read.filesystem={":tmpdir"="write"}',
+                          "permissions.codex_delegate_read.network={enabled=true}"])
       if (!line.includes(needle)) return `the sandbox invocation lacks ${needle}: ${line}`;
     let report = null;
     try { report = JSON.parse(out); } catch {}

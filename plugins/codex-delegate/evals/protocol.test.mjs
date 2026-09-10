@@ -207,8 +207,15 @@ const CASES = [
     why: "the id reads back correctly while the $TMPDIR grant is gone — a name-only check passes here, which is why the check is on the effect" },
   { scenario: "profile-widened",  expect: EXIT.TRANSPORT,
     why: "more writable roots than asked for is also a sandbox nobody reasoned about; widening must fail as loudly as narrowing" },
-  { scenario: "profile-networked", expect: EXIT.TRANSPORT,
-    why: "`--level read --network` is a usage error because read never grants egress; a profile that grants it anyway must not slip past the guard holding that very field" },
+  // Both of these are refused at thread/start, so no turn is ever started and the fixture has no
+  // turn/start handler for either name. The stderr assertion is what tells that refusal from a fixture
+  // that died in its own default branch, which is TRANSPORT too and would read as a pass.
+  { scenario: "profile-networked", expect: EXIT.TRANSPORT, args: ["--no-network"],
+    why: "a seat that denied egress and was given it anyway is under a sandbox nobody reasoned about; the profile's own network table is the field the guard holds, and it is the only evidence the denial took effect",
+    assertStderr: (t) => /networkAccess/.test(t) || `the refusal must name what differed: ${t.trim().slice(0, 160)}` },
+  { scenario: "profile-network-dropped", expect: EXIT.TRANSPORT,
+    why: "the mirror of the widening, and the one the default makes reachable: the profile id reads back correctly while its network table was dropped, so a seat whose task was written around egress would run the whole turn without it and report the failures as findings",
+    assertStderr: (t) => /networkAccess/.test(t) || `the refusal must name what differed: ${t.trim().slice(0, 160)}` },
   { scenario: "write-root-widened", expect: EXIT.TRANSPORT, args: ["--level", "write"],
     why: "write level must reject a writable root the driver never sent, even when every other sandbox field matches",
     assertStderr: (t) => /writable roots/.test(t) || `stderr did not name the writable roots: ${JSON.stringify(t)}` },
@@ -396,6 +403,14 @@ const CASES = [
       || `a multi-line script was read as a probe: ${JSON.stringify({ probe: r.commandsProbeNegative, failed: r.commandsFailed })}` },
 
   // --- the standing rules the driver puts on the thread ---
+  { scenario: "echo-instructions", expect: EXIT.OK,
+    why: "a seat holding egress and told to use the local shell and filesystem only does not use it: the standing rules are what the turn plans against, so a grant they do not name is a grant that was paid for and left unspent",
+    assert: (r) => (/network/i.test(String(r.answer)) && !/no network access/i.test(String(r.answer)))
+      || `the default seat was not told it has egress: ${String(r.answer).slice(0, 300)}` },
+  { scenario: "echo-instructions", expect: EXIT.OK, args: ["--no-network"],
+    why: "the denied seat has to be told too, or it spends the turn on fetches the sandbox refuses and reports the refusals as findings",
+    assert: (r) => /no network access/i.test(String(r.answer))
+      || `a seat with egress denied was not told: ${String(r.answer).slice(0, 300)}` },
   { scenario: "echo-instructions", expect: EXIT.OK, args: ["--brief"],
     why: "--brief's second sentence is what keeps a capped answer from losing its detail; it must still be sent when it is not contradicted",
     assert: (r) => /Put anything longer/.test(String(r.answer))
@@ -570,9 +585,9 @@ const CASES = [
       return (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT"
         || `a body line was read as a header field: ${JSON.stringify(r.seatFileFields)}` } },
   { scenario: "echo-input", expect: EXIT.OK, noPrompt: true,
-    seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: do it\nNETWORK: yes\nMODEL: gpt-5\n",
-    why: "below the body's first line nothing is a header however field-like it looks — otherwise a task that quotes a header, or a copied value carrying a newline, silently re-declares the seat's rights",
-    assert: (r) => (r.network === false && r.model !== "gpt-5" && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
+    seat: "SEAT: read <CWD>\nEXPECT: echo\nTASK: do it\nNETWORK: no\nMODEL: gpt-5\n",
+    why: "below the body's first line nothing is a header however field-like it looks — otherwise a task that quotes a header, or a copied value carrying a newline, silently re-declares the seat's rights. The line is a NEGATIVE because an ignored positive lands on the default and proves nothing",
+    assert: (r) => (r.network === true && r.model !== "gpt-5" && (r.seatFileFields ?? []).join(",") === "SEAT,EXPECT")
       || `a line below TASK: was read as a field: ${JSON.stringify({ net: r.network, model: r.model, fields: r.seatFileFields })}` },
   { scenario: "resume-active", expect: EXIT.BUSY, noPrompt: true,
     seat: "SEAT: read <CWD>\nRESUME: thr_root\nTASK: continue the thread\n",

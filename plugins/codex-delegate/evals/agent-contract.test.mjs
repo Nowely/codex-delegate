@@ -218,7 +218,7 @@ test("the report file is what the coordinator reads, and a missing one is unknow
   });
 
 test("SEAT is first where it appears, and a header without one is a read seat in the current directory",
-  "a seat file whose rights line is not first can have one supplied by an injected later line; a header that declares no rights at all is the case the default is FOR, and it never widens anything — cli.test.mjs measures the accepted half against the fixture",
+  "a seat file whose rights line is not first can have one supplied by an injected later line; a header that declares no rights at all is the case the default is FOR, and that default is the narrowest level there is — read, in the current directory, with no writable root beyond $TMPDIR — cli.test.mjs measures the accepted half against the fixture",
   () => {
     const problems = [];
     // Run, not grepped: the refusal is the behaviour, and a source string can survive the code.

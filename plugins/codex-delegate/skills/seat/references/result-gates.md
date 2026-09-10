@@ -46,12 +46,14 @@ turns it into a verdict.
 
 ## What `--verify` can and cannot measure
 
-The verifier runs under `/bin/sh` in its own process group. It gets the cap `--help` states for `--verify` unless a
+The verifier runs under `/bin/sh` in its own process group, with the coordinator's own rights, env and
+network whatever the seat's egress was. It gets the cap `--help` states for `--verify` unless a
 `--timeout` you set leaves less (`verify.budgetMs`); at the deadline the group is killed with `SIGKILL` and
 `verify.timedOut` says so. Output streams while a bounded tail is retained, so a verifier that prints
 hundreds of megabytes and exits 0 passes. `--verify-sandboxed` runs it through `codex sandbox` under the
-read-only profile: the tree is readable, `$TMPDIR` is writable, and a tree-writing verifier fails;
-`verify.sandboxed` records the mode.
+read profile: the tree is readable, `$TMPDIR` is writable, a tree-writing verifier fails, and it reaches
+the network exactly as the seat did — a seat that was denied egress cannot have its work vouched for by
+a verifier that fetches. `verify.sandboxed` records the mode.
 
 `verify.measured` splits "your verifier broke" from "the work is not there", because those call for
 opposite responses — one means fix the check, the other means redo the work. It is decided by the observed

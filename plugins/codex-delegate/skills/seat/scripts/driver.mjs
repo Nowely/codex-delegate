@@ -19,7 +19,7 @@
 //
 // Escalation policy: an escalation request means the sandbox was sized wrong for the task, so it is
 // surfaced loudly rather than silently waved through or silently refused. Widen the sandbox with
-// --writable / --network instead of trying to approve your way out of it.
+// --writable, or drop the --no-network the seat was given, instead of trying to approve your way out.
 
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -177,6 +177,9 @@ class Bail extends Error {}
 // run rather than declaring its rights, and each has a default a seat launched with nothing configured
 // can live with, so a header able to set one is a knob every wrapped seat would have to size.
 //
+// A bool carrying `off` is granted by default, so its negative has a flag of its own: without one, "no"
+// would be indistinguishable from an absent line and would grant exactly what it was written to refuse.
+//
 // SEAT is first because the parser refuses a header that does not open with it, and because --help
 // prints this order.
 const FIELDS = [
@@ -184,7 +187,7 @@ const FIELDS = [
   { name: "EFFORT", kind: "value", flag: "--effort" },
   { name: "EXPECT", kind: "value", flag: "--expect-command" },
   { name: "VERIFY", kind: "value", flag: "--verify" },
-  { name: "NETWORK", kind: "bool", flag: "--network" },
+  { name: "NETWORK", kind: "bool", flag: "--network", off: "--no-network" },
   { name: "MODEL", kind: "value", flag: "--model" },
   { name: "WEB_SEARCH", kind: "value", flag: "--web-search" },
   { name: "OUTPUT_SCHEMA", kind: "value", flag: "--output-schema" },
@@ -202,6 +205,7 @@ const SEAT_FIELDS = new Set(FIELDS.filter((f) => f.kind !== "cli-only").map((f) 
 const CLI_ONLY_FIELDS = flagsOfKind("cli-only");
 // Hoisted out of argvFromSeatFile's per-line loop, where they were rebuilt for every header line.
 const BOOLS = flagsOfKind("bool");
+const OFF_FLAGS = Object.fromEntries(FIELDS.filter((f) => f.off).map((f) => [f.name, f.off]));
 const FLAGS = flagsOfKind("value");
 // The extensions the server takes, and which item kind each becomes.
 const ATTACH_KINDS = { png: "localImage", jpg: "localImage", jpeg: "localImage", gif: "localImage",
@@ -308,7 +312,9 @@ const HELP = [
                      stash first, or run on the live tree with
                      --level write --cwd REPO
   --writable DIR     grant one more root (write level only, repeatable)
-  --network          allow egress (write level only)
+  --no-network       deny egress. BOTH levels have it by default, as Claude's own
+                     subagents do; --network says so explicitly. There is no host
+                     allowlist — name the hosts in the prompt
   every write-level root — --cwd and --writable — refuses ~/.codex and
   <state>, which hold the receipts and this driver's own state`,
     more: `  $TMPDIR IS the read-level grant. An explicit one is honoured and takes the
@@ -622,8 +628,10 @@ function argvFromSeatFile(file, allowSeatVerify) {
       continue;
     }
     if (BOOLS[field]) {
-      // A negative header value omits the flag, just as omitting the line does.
-      if (/^(no|false|0)$/i.test(value)) continue;
+      // A negative header value omits the flag, just as omitting the line does — except where the field
+      // is granted by default, where omitting it is what GRANTS the thing the line refused: there the
+      // negative has a flag of its own and must be sent.
+      if (/^(no|false|0)$/i.test(value)) { if (OFF_FLAGS[field]) out.push(OFF_FLAGS[field]); continue; }
       if (!/^(yes|true|1)$/i.test(value)) fail(EXIT.USAGE, `--seat-file: ${field} must be yes|true|1, no|false|0, or omitted, got ${JSON.stringify(value)}`);
       out.push(BOOLS[field]);
       continue;
@@ -639,8 +647,9 @@ function argvFromSeatFile(file, allowSeatVerify) {
   if (seen.has("SEAT") && declared[0] !== "SEAT")
     fail(EXIT.USAGE, `--seat-file: the first field must be SEAT, not ${declared[0]} — a seat file that does not open with its rights declaration lets a later line supply them`);
   // A file carrying a coordinator's prompt as it was written may have no header at all, and nothing may
-  // be added to that prompt, not even a rights line. The default it stands in for never widens anything:
-  // read level in the current directory, and the header is only the LEADING run of fields, so a later
+  // be added to that prompt, not even a rights line. The default it stands in for is the narrowest level
+  // there is — read, in the current directory, with no writable root beyond $TMPDIR; egress it carries
+  // because every seat does, header or none. The header is only the LEADING run of fields, so a later
   // SEAT: line is body. A file that DOES declare rights still declares them first, refused above.
   if (!seen.has("SEAT")) out.push("--level", "read");
   // In the report, so a coordinator reading a wrapped seat can see what the FILE declared rather than
@@ -653,7 +662,12 @@ function parseArgs(argv) {
   // No effort override by default: config.toml chooses the model and effort.
   // No wall clock by default: --idle-timeout bounds silence and --max-commands bounds volume;
   // --timeout is a budget the caller opts into.
-  const o = { level: "read", timeout: 0, idleTimeout: LIMITS.DEFAULT_IDLE_TIMEOUT_S, maxCommands: LIMITS.DEFAULT_MAX_COMMANDS, writable: [], attach: [] };
+  // Egress at both levels by default, because Claude's own subagents hold web tools and run on the
+  // coordinator's network: a seat that has to be asked for it is a rule a caller must know to succeed.
+  // It is a definite boolean from here on, so every reader downstream states the effective grant rather
+  // than an option nobody set. --no-network is the whole of the opt-out; there is no host allowlist,
+  // because the hosts a task may reach are the task's to name.
+  const o = { level: "read", network: true, timeout: 0, idleTimeout: LIMITS.DEFAULT_IDLE_TIMEOUT_S, maxCommands: LIMITS.DEFAULT_MAX_COMMANDS, writable: [], attach: [] };
   const need = (i, flag) => {
     const v = argv[i];
     if (v === undefined || v === "" || v.startsWith("--")) fail(EXIT.USAGE, `${flag} requires a non-empty value`);
@@ -685,6 +699,7 @@ function parseArgs(argv) {
       case "--verify": o.verify = need(++i, a); break;
       case "--verify-sandboxed": o.verifySandboxed = true; break;
       case "--network": o.network = true; break;
+      case "--no-network": o.network = false; break;
       case "--web-search": o.webSearch = need(++i, a); break;
       case "--answer-json": o.answerJson = true; break;
       case "--output-schema": o.outputSchemaFile = need(++i, a); break;
@@ -1937,12 +1952,20 @@ function assertSandbox(thread) {
 const refuseSandbox = (level, why) => fail(EXIT.TRANSPORT,
   `the ${level} sandbox is not what was asked for (${why}); refusing to continue rather than run under an unknown sandbox`);
 // The cwd is the primary grant and the one the caller reasoned about, so it is checked at BOTH levels:
-// it decides where a write seat writes and which repository a read seat reads. Everything else about
-// the two grants differs, which is why only this check is shared.
+// it decides where a write seat writes and which repository a read seat reads. The writable-root sets
+// differ between the levels, which is why only these two checks are shared.
 function assertWorkspaceRoot(thread, refuse) {
   const workspace = (thread.runtimeWorkspaceRoots ?? []).map(canonPath);
   if (!workspace.includes(canonPath(cwd)))
     refuse(`the workspace roots are ${JSON.stringify(thread.runtimeWorkspaceRoots ?? [])}, which do not include --cwd ${cwd}`);
+}
+// Egress is the other grant both levels carry, and each level asks for it through a different key — a
+// `network` table inside the read profile, a sandbox setting at write level — so the response is the
+// only place they can be checked the same way. A difference either way is a sandbox nobody asked for:
+// granted where the caller refused it, or withheld from a task written around having it.
+function assertEgress(sb, refuse) {
+  if (Boolean(sb.networkAccess) !== opts.network)
+    refuse(`networkAccess is ${Boolean(sb.networkAccess)}, and this seat was started with egress ${opts.network ? "granted" : "denied"}`);
 }
 
 // At write level the server reports the grant differently, measured against the live binary: the cwd is
@@ -1953,9 +1976,7 @@ function assertWriteSandbox(thread) {
   const refuse = (why) => refuseSandbox("write", why);
   const sb = thread.sandbox ?? null;
   if (sb?.type !== "workspaceWrite") refuse(`sandbox type is ${JSON.stringify(sb?.type ?? null)}`);
-  // Egress is opt-in and the flag is the whole of the opt-in; a server granting it unasked is a widening.
-  if (Boolean(sb.networkAccess) !== Boolean(opts.network))
-    refuse(`networkAccess is ${Boolean(sb.networkAccess)} but --network was ${opts.network ? "given" : "not given"}`);
+  assertEgress(sb, refuse);
   const want = [...roots].map(canonPath).sort();
   const got = (sb.writableRoots ?? []).map(canonPath).sort();
   if (want.length !== got.length || want.some((r, i) => r !== got[i]))
@@ -1971,10 +1992,10 @@ function assertReadSandbox(thread) {
   if (applied !== READ_PROFILE) refuse(`server reports profile ${JSON.stringify(applied)}`);
   const sb = thread.sandbox ?? null;
   if (sb?.type !== "workspaceWrite") refuse(`sandbox type is ${JSON.stringify(sb?.type ?? null)}, so the $TMPDIR grant did not apply`);
-  // Egress is the level's headline promise — `--level read --network` is a hard usage error precisely
-  // because read never grants it. A `network` table in the user's own permissions profile turns it back
-  // on, and the server says so right here in the object this guard already holds.
-  if (sb.networkAccess === true) refuse("the sandbox has network access, which --level read never grants");
+  // The read level's egress is the profile's own `network` table, and a typo in that key drops it while
+  // the id still reads back correctly — the same silent failure the $TMPDIR grant has. The server says
+  // which way it went right here, in the object this guard already holds.
+  assertEgress(sb, refuse);
   // Check that setup() supplied TMPDIR before resolving it: path.resolve("") would substitute the cwd
   // and misidentify the expected writable root.
   const tmp = process.env.TMPDIR;
@@ -2059,11 +2080,16 @@ async function setup() {
   //         and /tmp all stay unwritable; the temp dir is what tools need to start at all. Without it a
   //         reader cannot run the test suite, which Claude's own read-only subagent can — that gap is the
   //         whole reason the profile is here rather than a plain sandbox: "read-only".
-  // write : workspace-write with cwd as the writable root, plus --writable / --network.
+  // write : workspace-write with cwd as the writable root, plus --writable.
+  //
+  // The level says what may be WRITTEN, and egress crosses it: both levels reach the network unless the
+  // caller denied it, which is what Claude's own subagents do. A reader that must ask for it is a rule
+  // to be known, and the read level's promise — your files stay untouched — is unaffected by it: with
+  // egress granted, a write outside the temp dir is still "Operation not permitted".
   sandbox = opts.level === "read" ? null : "workspace-write";
 
-  if (opts.level === "read" && (opts.network || opts.writable.length))
-    fail(EXIT.USAGE, "--network and --writable belong to --level write");
+  if (opts.level === "read" && opts.writable.length)
+    fail(EXIT.USAGE, "--writable belongs to --level write");
 
   if (opts.worktree) {
     const repo = resolveDir(opts.worktree, "--worktree");
@@ -2127,9 +2153,13 @@ async function setup() {
     ["web_search", opts.webSearch ?? "disabled"],
     // A reader that cannot write $TMPDIR cannot start vitest at all (it mkdirs there before running).
     // Extending ":read-only" opens exactly that and nothing else — /tmp stays excluded.
+    // The `network` entry is a TABLE: `network=true` is rejected as `expected struct NetworkToml`. It is
+    // sent at both settings, like the write-level keys below, so the level's egress depends only on the
+    // declared flag and not on a profile of this name in the caller's own config.
     ...(opts.level === "read" ? [
       [`permissions.${READ_PROFILE}.extends`, '":read-only"'],
       [`permissions.${READ_PROFILE}.filesystem`, '{":tmpdir"="write"}'],
+      [`permissions.${READ_PROFILE}.network`, `{enabled=${opts.network}}`],
       ["default_permissions", `"${READ_PROFILE}"`]
     ] : []),
     // Omitted entirely when the caller did not name one, so ~/.codex/config.toml decides.
@@ -2137,7 +2167,7 @@ async function setup() {
     // Send write-level sandbox settings unconditionally, unlike the optional --effort above:
     // the sandbox must depend only on the declared flags, which assertWriteSandbox checks against the response.
     ...(opts.level === "write" ? [
-      ["sandbox_workspace_write.network_access", String(Boolean(opts.network))],
+      ["sandbox_workspace_write.network_access", String(opts.network)],
       ["sandbox_workspace_write.writable_roots", `[${roots.map((r) => JSON.stringify(r)).join(",")}]`]
     ] : [])
   ];
@@ -3135,11 +3165,14 @@ const killVerifier = () => { if (verifyChild) killGroupOf(verifyChild, "SIGKILL"
 // The verifier is the caller's command, run in the seat's tree. --verify-sandboxed puts it behind the
 // same read profile the read level uses (`codex sandbox -P <profile> -C <cwd>`): exit codes pass
 // through, the tree is readable, $TMPDIR is writable and nothing else is — measured on codex 0.150.1.
+// The same profile means the same egress, including the caller's denial of it: a verifier that can reach
+// what the turn could not is not checking the work the turn was allowed to do.
 function verifyArgv() {
   if (!opts.verifySandboxed) return ["/bin/sh", ["-c", opts.verify]];
   return [codexBin, ["sandbox",
     "-c", `permissions.${READ_PROFILE}.extends=":read-only"`,
     "-c", `permissions.${READ_PROFILE}.filesystem={":tmpdir"="write"}`,
+    "-c", `permissions.${READ_PROFILE}.network={enabled=${opts.network}}`,
     "-P", READ_PROFILE, "-C", cwd, "--", "/bin/sh", "-c", opts.verify]];
 }
 // Spawn asynchronously so signals and deadlines can reach the verifier's process group.
@@ -3344,8 +3377,9 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const report = {
     ok: code === EXIT.OK, exitCode: code, level: opts.level, sandbox: effectiveSandbox, cwd,
     // Report requested roots separately from sandbox.writableRoots, which is the grant the server applied;
-    // assertWriteSandbox refuses any difference.
-    writableRootsRequested: roots, network: Boolean(opts.network),
+    // assertWriteSandbox refuses any difference. `network` is the effective grant, not a flag someone
+    // passed: it is on unless the seat denied it, and sandbox.networkAccess is asserted to agree.
+    writableRootsRequested: roots, network: opts.network,
     // The run's own $TMPDIR when the driver made one, so a path the answer names can still be opened
     // after the run; null when the caller exported a TMPDIR of his own.
     tmpDir,
@@ -3523,9 +3557,16 @@ function developerInstructions() {
       : `There is no wall-clock limit on this turn`
         + `; it is cut only ${opts.idleTimeout ? `after ${opts.idleTimeout} seconds of silence or ` : ""}by the coordinator. `
         + `Take the time the work needs, keep working visibly rather than pausing, and say what you did not get to if you are cut.`,
+    // Two grants, so two sentences: web search is the server's own tool and egress is the sandbox's, and
+    // a seat can hold either without the other. Both are named whichever way they went, because a grant
+    // the standing rules do not mention is one the turn does not spend, and a denial they do not mention
+    // is a turn spent on fetches the sandbox refuses.
     opts.webSearch
       ? "Prefer the local shell and filesystem; use web search only for what is not in this checkout, and cite the source."
-      : "Use the local shell and filesystem only. Do not use web search; cite files you actually read.",
+      : "Do not use web search.",
+    opts.network
+      ? "You have network access: use it for what is not in this checkout, keep to the hosts this task names, and cite what you fetched."
+      : "You have no network access; cite files you actually read.",
     "If a command cannot run, reply with the single token COMMAND_BLOCKED for that step and continue.",
     "Never report a test as passing unless you ran it and saw the count in this turn.",
     "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful.",
