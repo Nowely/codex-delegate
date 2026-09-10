@@ -166,10 +166,16 @@ never success.
 
 | Call | Codex may |
 | --- | --- |
-| `--level read` (the default; `--cwd DIR` is optional and defaults to the current directory) | read any readable path, run commands, write only `$TMPDIR` — enough to run tests |
+| `--level read` (the default; `--cwd DIR` is optional and defaults to the current directory) | read any readable path, reach the network, run commands, write only `$TMPDIR` — enough to run tests |
 | `--worktree REPO` | write level in a managed detached tree the driver creates, harvests and removes; what it starts from and lacks is in [parity.md](skills/seat/references/parity.md#read-and-isolated-write) |
 | `--level write --cwd DIR` | write anywhere under a directory you chose |
-| `+ --network` / `--writable DIR` | egress or an extra root — each an explicit opt-in |
+| `+ --writable DIR` / `--no-network` | an extra root, an explicit opt-in; or a sandbox that reaches nothing |
+
+Egress is on at both levels, as it is for a native subagent, and no host list narrows it; `--no-network`
+is what takes it away, from the sandbox — the provider's own web search is a separate channel, off until
+`--web-search` asks for it, and a denied sandbox and a granted search mode are accepted together. Egress
+moves nothing on disk — a read seat still writes only `$TMPDIR` — but whatever a seat can read it can
+send, and at read level that is every path you can read.
 
 ## The run's lifetime
 
@@ -186,7 +192,8 @@ interrupted, the report it had earned is written anyway, and the codex process g
 - **Evidence gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
   the model — but with the coordinator's own rights, env and network, so a verifier that executes tree
   contents (`npm test` runs the seat's `package.json` script) is running the seat's code; prefer one
-  that does not, or add `--verify-sandboxed` to put it behind the read-only profile;
+  that does not, or add `--verify-sandboxed` to put it behind the read profile, which confines its
+  writes to `$TMPDIR` and hands it the seat's own egress, a denial included;
   `--expect-command <regex>` demands the work matched a declared signature;
   `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can
   be fooled: the driver's `--help` and [references/result-gates.md](skills/seat/references/result-gates.md).
@@ -210,8 +217,8 @@ what the plugin does better: [references/why-not-the-plugin.md](skills/seat/refe
 
 ## Limitations
 
-Read level cannot run browser-mode tests (vitest's server binds loopback TCP; the profile refuses it) —
-they run at write level with a one-file Chromium workaround
+Read level cannot run browser-mode tests: Chromium needs a one-file override at the tree root, which is
+a write a read seat does not have — they run at write level
 ([Browser-mode sandbox](skills/seat/references/parity.md#browser-mode-sandbox)). Node-environment vitest at read level
 needs `--configLoader runner`. Concurrency is memory-bound (figures in
 [parity.md](skills/seat/references/parity.md#fan-out-and-reporting)) and exceeding the machine

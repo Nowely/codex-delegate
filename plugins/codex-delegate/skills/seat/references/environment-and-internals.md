@@ -105,7 +105,10 @@ an injected field could otherwise upload, truncate or redirect a run that the us
 naming one exits 2 and names the flag to use.
 
 The refused names, and the flag each must be passed as instead, are listed under `--help-all`. Boolean
-fields take `yes|true|1`; `no|false|0` is the same as omitting the line.
+fields take `yes|true|1` and `no|false|0`, and omitting the line leaves the field's own default. That
+default is off everywhere except `NETWORK:`, where it is egress: `NETWORK: no` denies the sandbox its
+network and an absent line grants it, so dropping that line is the opposite of writing it, not a
+shorter way to write it.
 
 ### The injection limit
 
@@ -288,7 +291,7 @@ grant, while the profile still applies under its correct id:
 ```
 
 This is why the driver's read-level assert checks the **effect** as well as the name: sandbox type
-`workspaceWrite`, no network access, the cwd present in `runtimeWorkspaceRoots`, and `writableRoots`
+`workspaceWrite`, the network access that was asked for, the cwd present in `runtimeWorkspaceRoots`, and `writableRoots`
 equal to exactly `[$TMPDIR]` — or exactly empty when `--cwd` IS `$TMPDIR`, where the server moves it to
 `runtimeWorkspaceRoots` instead — canonicalised on both sides. The profile id is asserted first, but a
 name-only check passes in both cases above; verified live, introducing exactly this typo now exits 4
@@ -298,9 +301,12 @@ before any model turn. ($TMPDIR itself also goes through the protected-root guar
 ```bash
 codex sandbox -c 'permissions.codex_delegate_read.extends=":read-only"' \
   -c 'permissions.codex_delegate_read.filesystem={":tmpdir"="write"}' \
+  -c 'permissions.codex_delegate_read.network={enabled=true}' \
   -P codex_delegate_read -C /tmp -- /bin/sh -c \
-  'printf x > "$TMPDIR/p" && echo TMPDIR_OK; printf x > /tmp/p 2>/dev/null && echo SLASHTMP_LEAK; true'
-# expect TMPDIR_OK and no SLASHTMP_LEAK.
+  'printf x > "$TMPDIR/p" && echo TMPDIR_OK; printf x > /tmp/p 2>/dev/null && echo SLASHTMP_LEAK;
+   curl -sS -o /dev/null -w "NET_%{http_code}\n" https://example.com || echo NET_DENIED; true'
+# expect TMPDIR_OK, no SLASHTMP_LEAK, and NET_200.
 # TMPDIR_DENIED -> the grant stopped applying; read-level vitest is broken again.
 # SLASHTMP_LEAK -> ":read-only" widened upstream; re-check what else the profile now grants.
+# NET_DENIED   -> the `network` table stopped applying, and every read seat is silently offline.
 ```

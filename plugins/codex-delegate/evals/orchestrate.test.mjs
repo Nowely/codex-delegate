@@ -139,7 +139,7 @@ test("C2 the plan is shown and the run stops, with every right a seat needs, in 
   "rights declared per call are the sibling's guarantee, and they are worth nothing if the user first sees them in the transcript of a seat that already wrote; but a plan that recites `SEAT: write` and a run directory path at a person is machinery pointed at the one reader who cannot act on it (the owner read one and called it uninformative, 2026-09-09), so the rights have to survive in ordinary words and the field names have to go",
   () => says(
     "Show the plan and stop",
-    "what each may write, whether it needs the network, and that artifacts land outside the repository",
+    "what each may write, that the seats reach the network and any you are keeping off it, and that artifacts land outside the repository",
     "Name no path and no header field",
   ));
 
@@ -177,11 +177,11 @@ test("C7 every seat's return is retold to the user in one short paragraph, the s
   () => says("After any seat returns, Claude or Codex, write one short paragraph of your own, in the user's language and naming the agent by its model, in the same shape for both sides; the five fields are your own input, so never paste a five-field block, a header field name or a path into user-facing text."));
 
 test("C8 browser and end-to-end runs go to a Claude seat or a write seat with the browser grants",
-  "Chromium needs rights a read seat does not have, so a browser task sent to one buys a refused approval and exit 6 (measured 2026-09-08) instead of a result; the grants that do work are one section of parity.md and not something to rediscover per run",
+  "Chromium needs rights a read seat does not have — the grants are a file written INTO the tree, which is the one thing that level never does, and egress being on at both levels now does not change it; the grants that do work are one section of parity.md and not something to rediscover per run",
   () => {
     const prose = says(
-      "Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's",
-      "section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).",
+      "Browser and end-to-end runs go to a Claude seat, or to a write seat with the grants parity.md's",
+      "section names; a read seat cannot, because that section's Chromium override is a file in the tree it may not write.",
     );
     const link = shows(/\[Browser-mode sandbox\]\(\.\.\/seat\/references\/parity\.md#browser-mode-sandbox\)/);
     return prose === true && link === true || [prose, link].filter((r) => r !== true).join("; ");

@@ -16,6 +16,28 @@ forensics remain in the repository references and release notes.
 
 ### Changed
 
+- **The network is on by default, at both levels.** A read seat had no egress at all and a write seat
+  had it only when the caller asked; both reach the network now, and `NETWORK: no` (`--no-network`) is
+  the only thing that takes it away. No host list narrows it. The reason is parity: a native Claude Code
+  subagent holds web tools and runs with the coordinator's own rights and network, so a seat that cannot
+  resolve a host was a defect here — and where a knob and a default compete, the default wins. Measured
+  on 0.153.4: a seat launched with no rights line at all was given a sandbox with network access and
+  fetched `example.com` at HTTP 200 and `google.com` at 301, no approval requested at any point, while a
+  write outside its one writable root was still refused with `Operation not permitted`; with the network
+  denied the same fetch cannot resolve the host. The
+  read level's promise about files is therefore intact and only its promise about egress changed, which
+  is what the rights tables now say in as many words: whatever a seat can read it can send, and at read
+  level that is every readable path.
+- Loopback TCP comes with the grant, at either level: vitest's Vite server binds where it used to get
+  `EPERM`, so a browser run no longer has to ask for egress, and the reason a read seat still cannot
+  run browser-mode tests is the one write it cannot make — the Chromium override at the tree root.
+- Two channels, named apart. `NETWORK: no` denies the sandbox its network and leaves the provider's web
+  search alone, which is `WEB_SEARCH:`'s own: a denied sandbox and a granted search mode are accepted
+  together, and the standing rules name each whichever way it went. `--verify-sandboxed` hands the
+  verifier the seat's egress, a denial included, so work a seat could not fetch for cannot be vouched
+  for by a verifier that can, while the plain `--verify` keeps the coordinator's own rights, env and
+  network. And since an absent line now grants egress, taking a settled `NETWORK: no` back out is a
+  widening to agree with the user, like an extra writable root, rather than a return to the default.
 - The identity's limit is stated where it is relied on instead of assumed away. `dev:ino` is the whole
   of it, so a filesystem that recycles inode numbers can present a replacement that answers to the old
   snapshot when the name, the paths, the count, the size and both ends of the time span also match; the

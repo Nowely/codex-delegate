@@ -35,9 +35,9 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 ## The plan
 
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
-2. Show the plan and stop, in the user's own language and in ordinary words: what will be done, who does each part by model name, what each may write, whether it needs the network, and that
-   artifacts land outside the repository. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with `NETWORK:` and the grants parity.md's
-   [Browser-mode sandbox](../seat/references/parity.md#browser-mode-sandbox) section names; a Codex read seat asked to launch a browser is refused and exits 6 (measured 2026-09-08).
+2. Show the plan and stop, in the user's own language and in ordinary words: what will be done, who does each part by model name, what each may write, that the seats reach the network and any you are keeping off it, and that
+   artifacts land outside the repository. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with the grants parity.md's
+   [Browser-mode sandbox](../seat/references/parity.md#browser-mode-sandbox) section names; a read seat cannot, because that section's Chromium override is a file in the tree it may not write.
    Announce the composition here, and the caps beside it in a sentence: your own model, one Fable and one `gpt-6-astra` at a time, six alive. A cap the user overrides in words ("two Fable")
    replaces the default for this run; composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches are viable, show them all with a
    recommendation and let the user pick.

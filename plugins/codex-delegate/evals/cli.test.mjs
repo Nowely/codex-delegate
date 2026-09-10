@@ -28,6 +28,21 @@ const pluginData = path.join(shimDir, "plugin-data");
 const decoyHome = path.join(shimDir, "decoy-home");
 fs.mkdirSync(decoyHome, { recursive: true });
 
+// One log per row that reads it: the fixture APPENDS its `codex sandbox` argv, so a shared file would
+// let one row match the other's invocation and both settings would look present whichever was sent.
+const sandboxNetLog = path.join(shimDir, "sandbox-verify-net.log");
+const sandboxNoNetLog = path.join(shimDir, "sandbox-verify-nonet.log");
+// The argv the driver built for `codex sandbox`, read back out of the fixture's log. The verifier's own
+// rights appear in no report field, so a -c the driver stopped sending leaves every other verifier case
+// green: the exit code still passes through, the profile is still applied, and nothing measures the
+// grant that was dropped.
+const sandboxArgvHas = (log, needle) => {
+  const line = (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "")
+    .split("\n").find((l) => l.startsWith("sandbox:")) ?? "";
+  if (!line) return `the verifier did not go through \`codex sandbox\` at all: ${log}`;
+  return line.includes(needle) || `the sandbox invocation lacks ${needle}: ${line}`;
+};
+
 const CASES = [
   { scenario: "happy",            expect: EXIT.OK,                  why: "a real command succeeded and a final answer arrived" },
   { scenario: "happy",            expect: EXIT.USAGE, args: ["--model", "missing-model"],
@@ -171,9 +186,9 @@ const CASES = [
     assert: (r) => (r.level === "read" && r.expectationOk === true && r.answerTruncated === false)
       || `seat file did not map cleanly: ${JSON.stringify({ l: r.level, e: r.expectationOk })}` },
   { scenario: "happy",            expect: EXIT.NO_COMMANDS,
-    seat: "SEAT: read <CWD>\nEXPECT: x' --level write --cwd / --writable / --network '\n",
-    why: "THE reason this flag exists: a hostile header value must stay one value. Interpolated into a shell command line the same characters would have granted write level, the filesystem root and egress",
-    assert: (r) => (r.level === "read" && r.network === false && r.sandbox?.type === "workspaceWrite"
+    seat: "SEAT: read <CWD>\nEXPECT: x' --level write --cwd / --writable / --no-network '\n",
+    why: "THE reason this flag exists: a hostile header value must stay one value. Interpolated into a shell command line the same characters would have granted write level and the filesystem root, and taken away the egress the seat runs with. The NEGATIVE is what makes the egress half of this case bite: an escaped --network would leave a sandbox indistinguishable from the default one",
+    assert: (r) => (r.level === "read" && r.network === true && r.sandbox?.type === "workspaceWrite"
         && (r.sandbox?.writableRoots ?? []).length <= 1 && String(r.expectCommand).includes("--writable"))
       || `a seat-file value escaped into flags: ${JSON.stringify({ l: r.level, n: r.network, roots: r.sandbox?.writableRoots })}` },
   { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWDSP>\nEXPECT: echo\n",
@@ -185,9 +200,44 @@ const CASES = [
   { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nSEAT: write /tmp\n",
     why: "a repeated SEAT is a contradiction about rights; last-wins would let an appended line quietly upgrade the seat",
     assertStderr: (t) => /SEAT appears more than once/.test(t) || `stderr did not reject the duplicate: ${t.slice(0, 120)}` },
-  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nNETWORK: yes\n",
-    why: "the file goes through the same flag guards as the CLI, so a read seat asking for egress fails exactly as --level read --network does",
-    assertStderr: (t) => /--network and --writable belong to --level write/.test(t) || `the level guard did not fire: ${t.slice(0, 120)}` },
+  { scenario: "happy",            expect: EXIT.USAGE, seat: "SEAT: read <CWD>\nWRITABLE: /tmp\n",
+    why: "the file goes through the same flag guards as the CLI, so a read seat asking for a second writable root fails exactly as --level read --writable does",
+    assertStderr: (t) => /--writable belongs to --level write/.test(t) || `the level guard did not fire: ${t.slice(0, 120)}` },
+
+  // --- egress: on at both levels, off only where the caller says so ---
+  { scenario: "happy",            expect: EXIT.USAGE, args: ["--writable", "/tmp"],
+    why: "--writable grants a second root to WRITE in, and read level has none; the flag egress used to be paired with is now a default, and this half of the rule is untouched by that",
+    assertStderr: (t) => /--writable belongs to --level write/.test(t) || `the level guard did not fire: ${t.slice(0, 140)}` },
+  { scenario: "happy",            expect: EXIT.OK,
+    why: "a seat that names no network gets one, as a Claude subagent does: a grant the coordinator has to know to ask for is a rule to be told, and the whole claim of this level is that there is none",
+    assert: (r) => (r.network === true && r.sandbox?.networkAccess === true)
+      || `a read seat that named nothing got no egress: ${JSON.stringify({ n: r.network, sb: r.sandbox })}` },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--no-network"],
+    why: "the negative is the whole of the opt-out, so it has to reach the permission profile the read level runs under and not only the report field",
+    assert: (r) => (r.network === false && r.sandbox?.networkAccess === false)
+      || `--no-network did not reach the read sandbox: ${JSON.stringify({ n: r.network, sb: r.sandbox })}` },
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWD>\nNETWORK: yes\n",
+    why: "egress is not a level any more, so a read seat may declare it out loud; what it gets is the sandbox it would have got by saying nothing",
+    assert: (r) => (r.level === "read" && r.network === true && r.sandbox?.networkAccess === true)
+      || `an explicit positive did not reach a read seat: ${JSON.stringify({ l: r.level, n: r.network, sb: r.sandbox })}` },
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: read <CWD>\nNETWORK: no\n", args: ["--network"],
+    why: "an explicit flag still outranks the file's field, and with a two-sided grant that promise is testable in both directions rather than only in the one the default already occupies",
+    assert: (r) => (r.network === true && r.sandbox?.networkAccess === true)
+      || `the header's negative outranked the command line: ${JSON.stringify({ n: r.network, sb: r.sandbox })}` },
+  // The write level asks for egress through a different key — a sandbox setting rather than the read
+  // profile's `network` table — so every one of the three shapes above is a separate question there.
+  { scenario: "happy",            expect: EXIT.OK, args: ["--level", "write"],
+    why: "the level decides what may be WRITTEN, not what may be reached; a fresh tree that has to install its own dependencies would otherwise need a flag whose absence looks like a working seat until the install fails",
+    assert: (r) => (r.level === "write" && r.network === true && r.sandbox?.networkAccess === true)
+      || `a write seat that named nothing got no egress: ${JSON.stringify({ l: r.level, n: r.network, sb: r.sandbox })}` },
+  { scenario: "happy",            expect: EXIT.OK, args: ["--level", "write", "--no-network"],
+    why: "the negative has to reach sandbox_workspace_write.network_access, at the level where that key is the only thing standing between the turn and the internet",
+    assert: (r) => (r.level === "write" && r.network === false && r.sandbox?.networkAccess === false)
+      || `--no-network did not reach the write sandbox: ${JSON.stringify({ l: r.level, n: r.network, sb: r.sandbox })}` },
+  { scenario: "happy",            expect: EXIT.OK, seat: "SEAT: write <CWD>\nNETWORK: no\n",
+    why: "the seat file is how a coordinator declares a seat, and the level is part of that declaration: a negative honoured at read level and dropped at write would leave the one level whose turn can also WRITE reaching the network it was told to stay off",
+    assert: (r) => (r.level === "write" && r.network === false && r.sandbox?.networkAccess === false)
+      || `the header's negative did not reach the write sandbox: ${JSON.stringify({ l: r.level, n: r.network, sb: r.sandbox })}` },
 
   // --- token accounting and verifier execution errors ---
   { scenario: "happy",            expect: EXIT.OK,
@@ -311,9 +361,10 @@ const CASES = [
 
   // --- the seat file is written by a program, so it must take the shapes a program writes ---
   { scenario: "happy", seat: "SEAT: read <CWD>\nEXPECT: echo\nNETWORK: no\nALLOW_NO_COMMANDS: false\nBRIEF: 0\n", expect: EXIT.OK,
-    why: "NETWORK/ALLOW_NO_COMMANDS/BRIEF must accept explicit false values in a header template without enabling the flag or rejecting the seat",
-    assert: (r) => (r.network === false && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,ALLOW_NO_COMMANDS,BRIEF")
-      || `a negated boolean did not read as omission: ${JSON.stringify({ net: r.network, fields: r.seatFileFields })}` },
+    why: "NETWORK/ALLOW_NO_COMMANDS/BRIEF must accept explicit false values in a header template: for the two whose default is off that is a flag not added, and for NETWORK, whose default is on, it is egress actually denied — reading it as omission is the one shape that grants what the template said to withhold",
+    assert: (r) => (r.network === false && r.sandbox?.networkAccess === false
+        && r.seatFileFields?.join(",") === "SEAT,EXPECT,NETWORK,ALLOW_NO_COMMANDS,BRIEF")
+      || `a negated boolean was mishandled: ${JSON.stringify({ net: r.network, sb: r.sandbox?.networkAccess, fields: r.seatFileFields })}` },
 
   // --- --verify: the budget that killed it, and the sandbox that is opt-in ---
   { scenario: "happy",            expect: EXIT.VERIFY_UNMEASURABLE, args: ["--timeout", "3", "--verify", "sleep 20"],
@@ -332,6 +383,14 @@ const CASES = [
     why: "`codex sandbox` passes the command's exit code through — measured live, exit 7 came back as 7 — so a sandboxed verifier's verdict is the verifier's, not the sandbox's",
     assert: (r) => (r.verify?.exitCode === 3 && r.verify?.sandboxed === true && r.verify?.measured === true)
       || `the sandboxed verifier's exit code was not passed through: ${JSON.stringify(r.verify)}` },
+  { scenario: "happy",            expect: EXIT.OK, env: { FAKE_SANDBOX: "1", FAKE_RPC_LOG: sandboxNetLog },
+    args: ["--verify", "true", "--verify-sandboxed"],
+    why: "the sandboxed verifier runs under the profile the READ level runs under, so it has to be handed the seat's egress and not a fixed setting: a verifier that reaches what the turn could not is measuring the work under rights the turn never held",
+    assert: () => sandboxArgvHas(sandboxNetLog, "permissions.codex_delegate_read.network={enabled=true}") },
+  { scenario: "happy",            expect: EXIT.OK, env: { FAKE_SANDBOX: "1", FAKE_RPC_LOG: sandboxNoNetLog },
+    args: ["--no-network", "--verify", "true", "--verify-sandboxed"],
+    why: "and the denial has to travel with it, which is the direction a fixed `{enabled=true}` would pass: the caller who took egress away from the seat did not hand it to the check that judges the seat",
+    assert: () => sandboxArgvHas(sandboxNoNetLog, "permissions.codex_delegate_read.network={enabled=false}") },
   { scenario: "happy",            expect: EXIT.OK,
     why: "and it must not fire where the reserve does not fit: on a 20 s seat a wrap-up steer would land in the first tick, which is an interruption rather than a warning — the rung is armed only when it leaves the model real time to write",
     assertStderr: (e) => !/wrap-up:/.test(e) || `a short seat was steered anyway: ${e.slice(0, 200)}` },

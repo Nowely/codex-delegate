@@ -270,6 +270,7 @@ function captureDriver(spec) {
     "--effort", "high", "--prompt", "fidelity probe"];
   for (const root of spec.writable ?? []) driverArgs.push("--writable", root);
   if (spec.network) driverArgs.push("--network");
+  if (spec.noNetwork) driverArgs.push("--no-network");
   const baseEnv = spec.env ?? process.env;
   const driverEnv = {
     ...baseEnv,
@@ -436,10 +437,26 @@ const CASES = [
     why: "networkAccess must follow the flag and nothing else",
     build: () => ({ level: "write", cwd: freshDir("wrnet"), network: true }) },
 
+  { name: "write level, egress denied",
+    why: "the negative is the only way off a default that is otherwise on, so the key it sends has to land",
+    build: () => ({ level: "write", cwd: freshDir("wrnonet"), noNetwork: true }) },
+
+  // The read level's egress is a `network` table INSIDE the permission profile rather than a
+  // sandbox_workspace_write key, so it is a different server rule from the two write cases above and
+  // needs both of its answers measured. "read level, ordinary cwd" already carries the granted one.
+  { name: "read level, egress denied",
+    why: "`{enabled=false}` in the profile is what the driver sends for --no-network, and a value the server ignored would read back as the granted default",
+    build: () => ({ level: "read", cwd: freshDir("readnonet"), noNetwork: true }) },
+
   { name: "read level, the filesystem grant misspelled",
     why: "a typo inside the profile silently drops the grant while the id still reads back correctly",
     build: () => ({ level: "read", cwd: freshDir("typo"),
       mutate: (r) => misspellConfig(r, `permissions.${READ_PROFILE}.filesystem`, `permissions.${READ_PROFILE}.filesysten`) }) },
+
+  { name: "read level, the network table misspelled",
+    why: "the same typo one field over: the id and the $TMPDIR grant both read back correctly while the egress the seat was told it has is gone",
+    build: () => ({ level: "read", cwd: freshDir("nettypo"),
+      mutate: (r) => misspellConfig(r, `permissions.${READ_PROFILE}.network`, `permissions.${READ_PROFILE}.netwerk`) }) },
 ];
 
 // ---------------------------------------------------------------- the live turn

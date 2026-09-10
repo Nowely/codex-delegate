@@ -112,7 +112,7 @@
       "files": [],
       "expectations": [
         "Invokes the seat skill",
-        "Creates a git worktree and passes --level write with --network, because a fresh tree installs its own dependencies",
+        "Creates a git worktree and passes --level write, and does NOT reach for a network flag: a fresh tree installs its own dependencies and egress is already on",
         "Removes the worktree itself after harvesting, and does not ask Codex to remove it"
       ],
       "covers": "behaviour: worktree lifecycle"

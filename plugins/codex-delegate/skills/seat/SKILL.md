@@ -1,9 +1,10 @@
 ---
 name: seat
 description: >-
-  Delegates tasks to Codex as a subagent with per-call rights: read-only analysis or writing and tests
-  in a managed git worktree. Use when a panel, refuters, or competing designs need a seat that does not
-  share Claude's bias; when fanning out reviewers or adversarial verifiers; after two hypotheses fail;
+  Delegates tasks to Codex as a subagent with per-call rights: analysis that writes nothing of yours, or
+  writing and tests in a managed git worktree, each reaching the network unless the call denies it. Use
+  when a panel, refuters, or competing designs need a seat that does not share Claude's bias;
+  when fanning out reviewers or adversarial verifiers; after two hypotheses fail;
   when a second independent implementation is wanted; or when the user names Codex, GPT, or "the other
   model" (через codex, через gpt, вторая имплементация, панель ревьюеров). It also governs requested
   mixes ("one of them codex", "half codex", "only codex") and refusals ("no codex", "just you"). Skip
@@ -85,12 +86,15 @@ Choose the smallest `SEAT` that can complete and check the work:
 
 | Prompt header | Codex may | Settle first? |
 | --- | --- | --- |
-| `SEAT: read [<dir>]` or no header | read any readable path, run commands, write only `$TMPDIR`; a write elsewhere or a browser launch asks an approval nobody is there to give, and the run exits 6 | no |
+| `SEAT: read [<dir>]` or no header | read any readable path, reach the network, run commands, write only `$TMPDIR`; a write elsewhere asks an approval nobody is there to give, and the run exits 6 | no |
 | `SEAT: worktree <repo>` | write in a driver-managed detached tree | say that a worktree will be made |
 | `SEAT: write <dir>` | write under the live directory | yes; this chooses the blast radius |
 
-`NETWORK: yes` and each `WRITABLE: <dir>` widen a write seat. Settle every one with the
-user before adding it. Never translate a refusal into broader rights. Every field is in
+Every level reaches the network, as a native subagent does, and `NETWORK: no` denies the sandbox that —
+not the provider's web search, which is `WEB_SEARCH:`'s own channel. Egress moves nothing on disk:
+whatever a seat can read it can send, which at read level is every readable path. Each `WRITABLE: <dir>`
+widens a write seat, as does removing a `NETWORK: no` the user settled: settle each with the user before
+adding it, and never translate a refusal into broader rights. Every field is in
 [Header fields](#header-fields) below; model, effort, gates, continuation and answer-shape choices
 belong in that header, and the seat's rights in its `SEAT:` line, which is why the prompt is copied
 into the file rather than rewritten: measured, a wrapper that rewrote one widened malformed rights and
@@ -106,10 +110,10 @@ sandbox refusal.
 The header is the leading run of upper-case `NAME: value` lines at column 0; the body starts at `TASK:` or
 at the first line that is not one; a non-field upper-case `NAME:` above it is exit 2 naming it.
 
-| Field (`VERIFY` is refused in a seat file without `--allow-seat-verify`) | Value (booleans: `yes`, `true` or `1`; no line means off) | A coordinator sets it when |
+| Field (`VERIFY` is refused in a seat file without `--allow-seat-verify`) | Value (booleans: `yes`, `true` or `1`; no line means off, and for `NETWORK:` means on) | A coordinator sets it when |
 | --- | --- | --- |
 | `SEAT:` | `read [<dir>]`, `worktree <repo>`, `write <dir>` | first, or not at all: no header is a read seat in the current directory |
-| `NETWORK:` | `yes` | the seat cannot finish without egress; write levels only, and settle it with the user first |
+| `NETWORK:` | `no` | this seat's own commands must not reach the network; no line leaves it the egress every level has, and `WEB_SEARCH:` is untouched either way |
 | `WRITABLE:` | `<dir>`, repeatable | a write seat needs one more root than the directory it was given |
 | `RESUME:` | `<threadId>`, `last` | this seat continues an earlier thread instead of opening one |
 | `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran |
@@ -168,10 +172,11 @@ asks for, its first line is one sentence a reader can take on its own, the agent
 what it did; it is what the coordinator retells, and not itself a message to the user; the rest is the return's
 own shape.
 
-The standing rules are already on the thread — unattended, local shell only, no web search unless
-granted, `COMMAND_BLOCKED` for a step that cannot run, never claim a test passed without the count — so
-do not repeat them. A follow-up continues a thread with `RESUME: <threadId>`; a recall-only one runs no
-commands, so it also needs `ALLOW_NO_COMMANDS: yes` (`--allow-no-commands` on a command line).
+The standing rules are already on the thread — unattended, its egress and its web search each named
+whichever way they went, `COMMAND_BLOCKED` for a step that cannot run, never claim a test passed without
+the count — so do not repeat them. A follow-up continues a thread with `RESUME: <threadId>`; a
+recall-only one runs no commands, so it also needs `ALLOW_NO_COMMANDS: yes` (`--allow-no-commands` on a
+command line).
 
 ## What the user reads
 

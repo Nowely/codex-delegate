@@ -58,7 +58,8 @@ export const SCENARIOS = {
   "write-root-widened": {}, "write-full-access": {},
   // Decided at thread/start, so the turn/start switch never sees them.
   "profile-missing": {}, "profile-wrong": {}, "profile-effect-dropped": {}, "profile-widened": {},
-  "profile-networked": {}, "write-networked": {}, "workspace-elsewhere": {}, "policy-clamped": {},
+  "profile-networked": {}, "profile-network-dropped": {}, "write-networked": {},
+  "workspace-elsewhere": {}, "policy-clamped": {},
   "reviewer-auto": {},
   // Each needs a flag before its interesting messages are emitted at all.
   // The three rungs of the wall clock, each needing a budget the fixture cannot guess from the scenario
@@ -446,6 +447,11 @@ function onLine(line) {
     const readRoots = (!granted || canon(tmp) === m.params?.cwd) ? [] : [canon(tmp)];
     const writeRoots = [...new Set(JSON.parse(CFG["sandbox_workspace_write.writable_roots"] ?? "[]"))]
       .filter((r) => r !== m.params?.cwd);
+    // At read level egress is the profile's own `network` table, as the $TMPDIR grant is its `filesystem`
+    // one: a table, never a bare boolean, which the server rejects as `expected struct NetworkToml`. The
+    // grant survives a dropped filesystem entry, so it is read on both branches below rather than only
+    // on the granted one.
+    const readNetwork = defined && /enabled\s*=\s*true/.test(CFG[`permissions.${wantId}.network`] ?? "");
 
     let sb = writeLevel
       ? { type: "workspaceWrite", writableRoots: writeRoots,
@@ -453,13 +459,14 @@ function onLine(line) {
           excludeTmpdirEnvVar: false, excludeSlashTmp: false }
       : granted
         ? { type: "workspaceWrite", writableRoots: readRoots,
-            networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: true }
+            networkAccess: readNetwork, excludeTmpdirEnvVar: false, excludeSlashTmp: true }
         // No filesystem grant means a plain read-only sandbox with no roots at all.
-        : { type: "readOnly", networkAccess: false };
+        : { type: "readOnly", networkAccess: readNetwork };
     // Deliberate server misbehaviours, each overriding the derived value so the override is obvious.
     if (SCENARIO === "profile-effect-dropped") sb = { type: "readOnly", networkAccess: false };
     if (SCENARIO === "profile-widened") sb = { ...sb, writableRoots: [...(sb.writableRoots ?? []), process.cwd()] };
     if (SCENARIO === "profile-networked" || SCENARIO === "write-networked") sb = { ...sb, networkAccess: true };
+    if (SCENARIO === "profile-network-dropped") sb = { ...sb, networkAccess: false };
     // The widened root is derived from the requested cwd, rather than a fixture-only literal that could
     // accidentally agree with a driver bug. Its parent exists and is strictly broader than the cwd.
     if (SCENARIO === "write-root-widened")

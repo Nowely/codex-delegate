@@ -1,7 +1,7 @@
 {
   "name": "codex-delegate",
   "version": "0.12.0",
-  "description": "Run Codex as a subagent from Claude Code: rights declared per call, exit codes derived from evidence, a receipt per completed turn. Adds an orchestration mode over Claude and Codex seats, and an approved cleanup.",
+  "description": "Run Codex as a subagent from Claude Code: rights declared per call, the network on by default at both levels and off by one line, exit codes derived from evidence, a receipt per completed turn. Adds an orchestration mode over Claude and Codex seats, and an approved cleanup.",
   "author": {
     "name": "Nowely"
   },
