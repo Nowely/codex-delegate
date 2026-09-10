@@ -783,8 +783,13 @@ function collapse(rows) {
   for (const g of out) {
     const m = g.members;
     g.count = m.length;
-    // Path and identity travel together, so the snapshot binds WHICH directory was shown and not
-    // only where it sat: a replacement of the same size at the same second is a different inode.
+    // Path and identity travel together, so the snapshot binds WHICH directory was shown and not only
+    // where it sat. The identity is `dev:ino` and nothing more, which bounds the claim: a filesystem
+    // that recycles inode numbers hands the freed one to the next create, so a replacement that also
+    // matches the name, the paths, the count, the size and BOTH ends of the time span answers to the
+    // old snapshot (measured on ext4, 2026-09-10; macOS gives a new inode). The times are what makes
+    // that improbable outside a test, since a replacement made in the ordinary way carries the current
+    // one. This is consent, not a security boundary. evals case 35 pins it on whichever platform runs.
     const pairs = m.flatMap((x) => [[x.path, x.ident],
                                     ...(x.alsoPaths ?? []).map((p) => [p, identAt(p)])])
       .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
@@ -987,7 +992,8 @@ function removeOne(roots, m) {
     return { failed: "it holds one of this cleanup's own directories" };
   // The directory the LISTING measured, not merely a directory of that name: one taken away and
   // another put in its place between the listing and this instant is a different item, and consent
-  // was given for the first.
+  // was given for the first — as far as `dev:ino` can tell them apart, which on a filesystem that
+  // recycles inode numbers is not always (see the identity note above).
   if (m.ident !== null && identOf(chk.st) !== m.ident)
     return { refused: "it changed since it was listed" };
   // Taken again here, immediately before this member and not once for its row: a seat admitted, a
