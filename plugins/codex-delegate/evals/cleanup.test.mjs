@@ -145,6 +145,9 @@ function need(w, r) {
 }
 
 const rowAt = (j, p) => (j.rows ?? []).find((row) => (row.paths ?? []).includes(p)) ?? null;
+// A line a case prints beside its verdict: what the platform did, where the platform is the thing
+// under measurement and a pass alone would not say which way it went.
+const note = (line) => console.log(`      ${line}`);
 // For the four kinds that are only ever reported, whose row may reasonably name the record, the
 // directory holding it or the tree it describes: any of the three answers the question this suite asks
 // of them, which is that they are shown and never offered.
@@ -769,13 +772,21 @@ test("12 · the snapshot binds every field it carries, one field at a time",
       // The same name, the same size, the same times: a different directory in the same place.
       { what: "its identity alone: another directory of the same name, size and time", field: "ids",
         prefix: "codex-delegate-test-SWAP",
+        // Built beside the original and renamed over it, never removed and rebuilt where it stood.
+        // A freed inode is handed straight back to the next create on ext4: measured 2026-09-10, both
+        // Linux jobs rebuilt this tree with the SAME dev:ino, `differing` returned [] and the case
+        // measured nothing it claimed. Allocating the replacement while the original still holds its
+        // inode is what makes the two different on every filesystem; case 35 pins the platform fact
+        // this one must not depend on.
         mutate: (w, dir) => {
           const f = path.join(dir, "case-state", "0", "scratch.txt");
           const body = fs.readFileSync(f), fWas = fs.statSync(f), dWas = fs.statSync(dir);
-          const inner = path.dirname(f);
+          const spare = path.join(w.root, "swap-spare");
+          fs.mkdirSync(path.join(spare, "case-state", "0"), { recursive: true });
+          fs.writeFileSync(path.join(spare, "case-state", "0", "scratch.txt"), body);
           fs.rmSync(dir, { recursive: true, force: true });
-          fs.mkdirSync(inner, { recursive: true });
-          fs.writeFileSync(f, body);
+          fs.renameSync(spare, dir);
+          const inner = path.dirname(f);
           fs.utimesSync(f, fWas.atime, fWas.mtime);
           for (const p of [inner, path.dirname(inner), dir]) fs.utimesSync(p, dWas.atime, dWas.mtime);
         } },
@@ -1608,6 +1619,47 @@ test("34 · a run's sentence names the project it found, and invents none",
       m.eq(orphanRow.selectable, false, "a run this project cannot claim");
       m.re(`${orphanRow.name} ${orphanRow.reason}`, /another project|could not|cannot|unknown|not identif|no .*project/i,
         "the row does not say that its project is not known");
+    }
+    return m.done();
+  });
+
+test("35 · identity is `dev:ino`, and a filesystem that recycles one is the whole of its limit",
+  "the snapshot's last discriminator is the identity, and the code beside it asserted that a replacement of the same size at the same second is a different inode. On ext4 it is not: measured 2026-09-10, both Linux jobs handed the freed inode straight back, while macOS gave a new one. The rule the tool states is the same on both — a number consents to the identity the listing measured — so the case asserts THAT against whichever identity the platform hands back, and prints which way it went. It also prints what the creation time did, which is the evidence for deciding later whether the identity should carry more than `dev:ino`",
+  async () => {
+    const w = makeWorld("inode-recycled");
+    const dir = plantEval(w, "codex-delegate-test-REUSE");
+    const m = misses();
+    const s = await snapshot(w);
+    const bad = need(w, s); if (bad) return bad;
+    const row = rowAt(s.j, dir);
+    m.ok(row, `no row names the item: ${shown(s.j)}`);
+    if (!row) return m.done();
+    // Removed and rebuilt exactly where it stood, every displayed field restored: the shape whose
+    // identity the platform, not this suite, decides.
+    const f = path.join(dir, "case-state", "0", "scratch.txt");
+    const dWas = fs.statSync(dir), fWas = fs.statSync(f), body = fs.readFileSync(f);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, body);
+    fs.utimesSync(f, fWas.atime, fWas.mtime);
+    for (const p of [path.dirname(f), path.dirname(path.dirname(f)), dir]) fs.utimesSync(p, dWas.atime, dWas.mtime);
+    const dNow = fs.statSync(dir);
+    const ident = (st) => `${st.dev}:${st.ino}`;
+    const recycled = ident(dWas) === ident(dNow);
+    note(`${recycled ? "the inode was RECYCLED" : "a new inode"}: ${ident(dWas)} -> ${ident(dNow)}`);
+    note(`creation time ${dWas.birthtimeMs === dNow.birthtimeMs ? "unchanged" : "changed"}: `
+       + `${dWas.birthtimeMs} -> ${dNow.birthtimeMs}`);
+    const d = await pick(w, s.file, [row.n]);
+    if (recycled) {
+      // The documented limit, asserted rather than left to be inferred from a red job: every field the
+      // snapshot binds still matches, the identity included, so the number still consents and the
+      // directory goes. What makes this improbable outside a test is the times, which nothing but a
+      // test puts back.
+      m.eq(d.code, 0, `an identity equal to the one the listing measured is a consented removal: ${(d.err || d.out).trim().slice(0, 200)}`);
+      m.ok(!fs.existsSync(dir), "it survived although every field the snapshot binds still matched");
+    } else {
+      m.eq(d.code, REFUSED, `a different identity is a different item: ${(d.err || d.out).trim().slice(0, 200)}`);
+      m.ok(fs.existsSync(dir), "it was removed although the identity the listing measured is gone");
     }
     return m.done();
   });

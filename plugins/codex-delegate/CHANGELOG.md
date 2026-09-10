@@ -3,6 +3,28 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+### Fixed
+
+- The snapshot case that proves a number consents to an identity and not to a path could not build its
+  own premise on Linux. It removed the directory and rebuilt it where it stood; ext4 hands a freed inode
+  straight back, so the rebuilt tree carried the SAME `dev:ino`, the case's own precondition caught it
+  and both Linux jobs went red the first time these commits reached CI. The replacement is now built
+  beside the original, while the original still holds its inode, and renamed over it, which cannot
+  collide on any filesystem.
+
+### Changed
+
+- The identity's limit is stated where it is relied on instead of assumed away. `dev:ino` is the whole
+  of it, so a filesystem that recycles inode numbers can present a replacement that answers to the old
+  snapshot when the name, the paths, the count, the size and both ends of the time span also match; the
+  times are what makes that improbable outside a test, and the snapshot is consent, not a security
+  boundary. A new case pins the behaviour against whichever identity the platform hands back and prints
+  which way it went, so the fact is measured on both platforms rather than inferred from a red job. It
+  also prints what the creation time did, which is the evidence for deciding whether the identity should
+  one day carry more than `dev:ino`; nothing is promised there until it is measured.
+
 ## 0.12.0 — 2026-09-10
 
 Measured against codex-cli 0.153.4 on macOS. No driver behaviour changes: this release is a third skill,
