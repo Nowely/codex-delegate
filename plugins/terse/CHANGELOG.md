@@ -83,6 +83,12 @@ forensics remain in the repository references and release notes.
   never which. It answers a real complaint — both metaphor items in the first sitting came back as ties
   with a note saying the difference was invisible — and it changes the question the session asks, which
   `SKILL.md` now states in place rather than leaving to be discovered.
+- **A white page was the tool's answer to every failure.** Restarting the server under an open tab left
+  the fetch rejected, the container never filled and nothing on screen: no cause, no instruction, on a
+  measurement meant to run five hours. Every failure now renders what happened, says that answers are
+  saved one at a time and are not lost, and offers a reload; a rejected promise or a thrown error
+  anywhere on the page reaches the same place. The page is also served `no-store`, because it is edited
+  between sittings on one fixed port, and a cached copy is a copy of a different instrument.
 - Building that bank found two defects in `session.mjs` that a four-item fixture could not show, and both
   are fixed. Groups of unequal size were dealt one per round, which put every whole-text item in the
   opening third; each group is now spread across the whole session, with the six Latin orders still

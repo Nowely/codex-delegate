@@ -409,8 +409,24 @@ function draw(){
   scrollTo(0, 0)
 }
 
+// A white page is the worst answer this tool can give: it is what the reader saw when the server was
+// restarted under an open tab, because the fetch rejected and nothing ever filled the container. Any
+// failure now says what happened and what to do about it.
+function fail(what, e){
+  $('#wrap').innerHTML = '<div class="centre"><strong>' + esc(what) + '</strong><br><br>'
+    + esc(String(e && e.message || e || '')) + '<br><br>'
+    + 'Nothing was lost — answers are saved one at a time on the server.<br>'
+    + 'Reload this page. If it stays broken, the terminal running the session has the reason.'
+    + '<br><br><button class="go" onclick="location.reload()">reload</button></div>'
+}
+addEventListener('error', function(ev){ fail('The page hit an error.', ev.error || ev.message) })
+addEventListener('unhandledrejection', function(ev){ fail('The page could not reach the session.', ev.reason) })
+
 function load(){
-  fetch('/api/next').then(function(r){ return r.json() }).then(function(c){
+  fetch('/api/next').then(function(r){
+    if (!r.ok) throw new Error('the session answered ' + r.status)
+    return r.json()
+  }).then(function(c){
     var fresh = !cur || cur.trial !== c.trial
     cur = c
     if (fresh){ choice = null; chosenAt = 0; flags = {loserAlsoGood:false, bothWeak:false}; note = ''; noteOpen = false; clearDraft() }
@@ -420,7 +436,7 @@ function load(){
     shown = Date.now(); busy = false
     draw()
     $('#live').textContent = 'Item ' + (c.answered + 1) + ' of ' + c.total
-  })
+  }).catch(function(e){ fail('The session is not answering. It may have been stopped or restarted.', e) })
 }
 function submit(){
   if (!choice || busy || paused) return
@@ -480,7 +496,10 @@ const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/
 // this server's memory between saves; a bad payload costs one answer, never the run.
 const server = http.createServer(async (req, res) => {
  try {
-  if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(PAGE) }
+  // The page is edited between sittings and served from one fixed port, so a cached copy is a copy of
+  // a different instrument. It is never cached.
+  if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(PAGE) }
+  if (req.url === '/favicon.ico') { res.writeHead(204); return res.end() }
   if (req.url === '/api/next') { res.setHeader('cache-control', 'no-store'); return json(res, present(nextTrial())) }
   if (req.url === '/api/undo' && req.method === 'POST') {
     const gone = session.answers.pop()
