@@ -24,7 +24,7 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 | plan | design: the Fable seat, whatever your own model |
 | synthesise, attributing every finding to the seat that produced it | verify: you never grade your own work, a fresh seat does |
 
-Scouting is the only exploration you do; report a failed seat and never backfill it. The run directory is
+Scouting is the only repository exploration you do, and targeted bounded checks stay allowed inline after it; report a failed seat and never backfill it. The run directory is
 `<state>/orchestrate/<project-slug>/<run>/`, `<state>` the driver's state directory (`${CLAUDE_PLUGIN_DATA}` on a plugin install, the exported `CODEX_DELEGATE_STATE_DIR` on the clone route), `<run>` unique and `<project-slug>` the working directory's absolute path with every character that is not a letter or
 a digit replaced by `-`, the name Claude Code gives it under `~/.claude/projects/`. It is outside every repository, so no `.gitignore`; not the repository root, not the project's
 `.claude/`, whose writes prompt whatever the allow rules say. The driver creates it, through `--report-file`, and it is what those report files make of it: nothing else is written there. Never run `mkdir`, Write or a shell redirect under that data directory yourself, because a headless session refuses each of them as a sensitive file with no prompt anyone can answer, while a subprocess handed the same path as an argument writes it unopposed (measured 2026-09-08).
@@ -55,12 +55,12 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 
 ## Model tiers
 
-| Tier | Claude | Codex `MODEL:` | Work |
-| --- | --- | --- | --- |
-| top | Fable | `gpt-6-astra` | design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts. Never implementation |
-| strong | Opus | `gpt-5.6-sol` | write seats, non-trivial analysis |
-| cheap | Sonnet | `gpt-5.6-terra` | mechanical, hard-to-get-wrong work |
-| unused | Haiku | `gpt-5.6-luna` | not used |
+| Tier | Claude | Codex `MODEL:` | Codex short name | Work |
+| --- | --- | --- | --- | --- |
+| top | Fable | `gpt-6-astra` | Astra | design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts. Never implementation |
+| strong | Opus | `gpt-5.6-sol` | Sol | write seats, non-trivial analysis |
+| cheap | Sonnet | `gpt-5.6-terra` | Terra | mechanical, hard-to-get-wrong work |
+| unused | Haiku | `gpt-5.6-luna` | Luna | not used |
 
 Your own model is in your system prompt ("You are powered by the model named ..."); nothing else carries it. You are outside the
 pool, and the pool is the same whatever you are: at most one Fable seat and one `gpt-6-astra` seat alive at a time, each taking
@@ -98,7 +98,7 @@ Allocate inside those bounds by judgement, not to fill a band. Several writers a
 
 ## Mechanism
 
-A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex <model> <id>: <task in a few words>", so the row the user sees names the agent by its model, not the command line.
+A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex <short name> <id>: <task in a few words>", so the row the user sees names the agent, its vendor and its task, not the command line.
 Wait on every seat you launch in the background, Claude or Codex, with `TaskOutput(<task_id>, block: true, timeout: 600000)`, again while the task still runs, and never end your turn with a seat alive: a headless session ends with the turn and the task is killed with it (measured 2026-09-08).
 Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated

@@ -19,6 +19,34 @@ license: MIT
 The **user** requests the work; the **coordinator** chooses and synthesises the composition; one Codex
 **seat** performs one deliverable under rights declared in its prompt.
 
+Everything below is addressed to the coordinator. What reaches the user is prose you write in their own
+language: name the agent, say what it did, and say in ordinary words what it may write and where.
+
+## Composition
+
+Apply all five rules:
+
+1. Announce the composition **before** starting any Codex run, naming the count and which seats are Codex.
+2. Treat refusal as composition: for “no codex” or “just you”, run zero Codex seats and say the resulting
+   panel is all-Claude and shares one model bias.
+3. Attribute every finding; if a Codex seat failed or returned nothing, say so and never backfill it with
+   a Claude answer.
+4. Knowing the answer is not a reason to skip a requested second opinion.
+5. Never add allow-rules on the user's behalf.
+
+| What the user says | Composition |
+| --- | --- |
+| “no codex”, “just you” | zero Codex seats |
+| nothing | panels, refutation, competing designs: one dissenting Codex seat; mechanical fan-out or one ordinary task: zero |
+| “a codex seat”, “one of them codex” | exactly one |
+| “half codex” | half the seats, rounded up |
+| “mostly codex” | every seat except the coordinator |
+| “only codex”, “all codex” | every seat, including a one-agent task |
+| “two of five codex” | exactly as stated |
+
+A dissenting seat pays for decorrelation; mechanical fan-out does not. “Only codex” means Codex does the
+task while the coordinator orchestrates and checks it.
+
 ## One call
 
 One background Bash task per seat. Write the prompt to a file with the Write tool, then run this, with
@@ -26,8 +54,9 @@ One background Bash task per seat. Write the prompt to a file with the Write too
 
     CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<REPORT>" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
-The call's `description` is `Codex <model> <id>: <task in a few words>`, so the row the user sees names the
-agent by its model and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
+The call's `description` is `Codex <short name> <id>: <task in a few words>` — `Astra` for `gpt-6-astra`, `Sol`
+for `gpt-5.6-sol`, `Terra` for `gpt-5.6-terra`, `Luna` for `gpt-5.6-luna` — so the row the user sees names the
+agent, its vendor and its task, and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
 so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own and never under `<DIR>`:
 `<DIR>` sits in `$TMPDIR`, the one root a read seat may write, and a file the seat leaves at that name blocks publication
 and then sits where you would read it as the seat's own report. Put it under the driver's state directory,
@@ -57,31 +86,6 @@ Write a prompt you were handed VERBATIM: not a quote, not a `$`, not a header li
 nothing. A prompt with no `SEAT:` line is a read seat in the current directory; the driver decides that,
 not you. Never create a directory, change a level or re-run with different flags to make a refused seat
 succeed: measured, a wrapper that created the missing directory ran Codex with rights nobody granted.
-
-## Composition
-
-Apply all five rules:
-
-1. Announce the composition **before** starting any Codex run, naming the count and which seats are Codex.
-2. Treat refusal as composition: for “no codex” or “just you”, run zero Codex seats and say the resulting
-   panel is all-Claude and shares one model bias.
-3. Attribute every finding; if a Codex seat failed or returned nothing, say so and never backfill it with
-   a Claude answer.
-4. Knowing the answer is not a reason to skip a requested second opinion.
-5. Never add allow-rules on the user's behalf.
-
-| What the user says | Composition |
-| --- | --- |
-| “no codex”, “just you” | zero Codex seats |
-| nothing | panels, refutation, competing designs: one dissenting Codex seat; mechanical fan-out or one ordinary task: zero |
-| “a codex seat”, “one of them codex” | exactly one |
-| “half codex” | half the seats, rounded up |
-| “mostly codex” | every seat except the coordinator |
-| “only codex”, “all codex” | every seat, including a one-agent task |
-| “two of five codex” | exactly as stated |
-
-A dissenting seat pays for decorrelation; mechanical fan-out does not. “Only codex” means Codex does the
-task while the coordinator orchestrates and checks it.
 
 ## Rights
 
@@ -125,7 +129,7 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 | `RESUME:` | `<threadId>`, `last` | this seat continues an earlier thread instead of opening one |
 | `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran AND succeeded; a matching command that exited non-zero does not count, and none matching is exit 5. Do not point it at a check whose failure IS the finding |
 | `OUTPUT_SCHEMA:` | `<path to a strict JSON Schema file>` | the answer must parse as one JSON object |
-| `MODEL:` | `<slug>` | this seat needs a model other than the configured default |
+| `MODEL:` | `<slug>`: `gpt-6-astra` (Astra), `gpt-5.6-sol` (Sol), `gpt-5.6-terra` (Terra), `gpt-5.6-luna` (Luna) | this seat needs a model other than the configured default; the short name is for prose, the slug for this line |
 | `EFFORT:` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | the task is worth more or less thinking |
 | `WEB_SEARCH:` | `cached`, `indexed`, `live` | the seat needs sources it cannot read locally |
 | `BRIEF:` | `yes` | a short answer is enough; omit it beside an output schema — it clips only the inline `answer` (`answerJson` is parsed from the whole one) yet still asks the model for 20 lines |
@@ -199,16 +203,17 @@ what it did; it is what the coordinator retells, and not itself a message to the
 own shape.
 
 The standing rules are already on the thread — unattended, its egress and its web search each named
-whichever way they went, `COMMAND_BLOCKED` for a step that cannot run, never claim a test passed without
-the count — so do not repeat them. A follow-up continues a thread with `RESUME: <threadId>`; a
+whichever way they went, a one-line record for a step that cannot run (the command, whether it started, its
+exit status if any, the exact diagnostic), never claim a test passed without the count — so do not repeat them. A follow-up continues a thread with `RESUME: <threadId>`; a
 recall-only one runs no commands, so it also needs `ALLOW_NO_COMMANDS: yes` (`--allow-no-commands` on a
 command line).
 
 ## What the user reads
 
 Every word on this page is addressed to the coordinator, and a seat's return is too. What reaches the user is
-prose the coordinator writes: in the user's own language, naming an agent by its model and id ("Sonnet W5",
-"Codex gpt-5.6-sol A1") and not by this page's own vocabulary. A header field name, a status block, an internal
+prose the coordinator writes: in the user's own language, naming an agent by its model and id and saying what it
+did ("Sonnet W5 replaced four flaky width checks", "Codex Astra A6 reviewed the retry instructions") and not by
+this page's own vocabulary. Keep `Codex` on a Codex seat: it is the only word in the name that says whose model ran. A header field name, a status block, an internal
 table's row name and an absolute path are machinery; they belong in a prompt or a report, and putting them in
 front of a person says nothing they can act on. Rights are the one thing that must survive the translation: say
 what an agent may write, and where, in ordinary words, because that is what the user is being asked to approve.

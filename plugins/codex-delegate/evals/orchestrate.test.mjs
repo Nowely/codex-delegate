@@ -70,10 +70,10 @@ test("the page stays inside its budget: 150 lines, one heading level, no fence",
 test("the tier table pairs all eight model names, one tier per row",
   "the pairing IS the table: a coordinator reads across a row to turn its own tier into a Codex `MODEL:` line, and a half-updated rename leaves it sending a name the driver rejects",
   () => shows(
-    /^\| top \| Fable \| `gpt-6-astra` \| design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts\. Never implementation \|$/m,
-    /^\| strong \| Opus \| `gpt-5\.6-sol` \| write seats, non-trivial analysis \|$/m,
-    /^\| cheap \| Sonnet \| `gpt-5\.6-terra` \| mechanical, hard-to-get-wrong work \|$/m,
-    /^\| unused \| Haiku \| `gpt-5\.6-luna` \| not used \|$/m,
+    /^\| top \| Fable \| `gpt-6-astra` \| Astra \| design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts\. Never implementation \|$/m,
+    /^\| strong \| Opus \| `gpt-5\.6-sol` \| Sol \| write seats, non-trivial analysis \|$/m,
+    /^\| cheap \| Sonnet \| `gpt-5\.6-terra` \| Terra \| mechanical, hard-to-get-wrong work \|$/m,
+    /^\| unused \| Haiku \| `gpt-5\.6-luna` \| Luna \| not used \|$/m,
   ));
 
 // ------------------------------------------------------------------ A: what the mode is
@@ -103,7 +103,7 @@ test("B1 scouting is the only exploration the orchestrator does",
   "the mode's one economy is that the big reads happen in a seat's context; an orchestrator that keeps exploring after the scout has spent the context the fan-out was meant to save",
   () => says(
     "scout the work-list with cheap commands (`ls`, `git status`, targeted `grep`) before any fan-out",
-    "Scouting is the only exploration you do",
+    "Scouting is the only repository exploration you do, and targeted bounded checks stay allowed inline after it",
   ));
 
 test("B2 the verbose work is a seat's",
@@ -333,7 +333,7 @@ test("F4 every row of the Result table",
 
 test("F5 the Bash call's description names the agent by its model",
   "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming it there, and the model is the name a person can use, where the word this page calls it by is one they cannot",
-  () => says("The Bash call carries a `description` of the form \"Codex <model> <id>: <task in a few words>\", so the row the user sees names the agent by its model, not the command line."));
+  () => says("The Bash call carries a `description` of the form \"Codex <short name> <id>: <task in a few words>\", so the row the user sees names the agent, its vendor and its task, not the command line."));
 
 test("F6 a background seat is waited on with TaskOutput, and no turn ends with one alive",
   "a background task does not keep a headless session alive: when the coordinator ends its turn Claude Code exits and kills the task, which is how the live gate lost a seat mid-turn (measured 2026-09-08); TaskOutput blocking is the native wait, and without the timeout named the coordinator cannot know one call covers ten minutes and no more",

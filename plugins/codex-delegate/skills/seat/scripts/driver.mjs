@@ -473,7 +473,8 @@ const HELP = [
   tokenUsage is the server's own accounting for the root thread,
   cumulative across --resume; cut is {kind, limit, observed, completedInGrace};
   timing is {wallMs, setupMs, commandMs, modelMs}, commandMs being the server's
-  own per-command durations, so modelMs is what is left for the model itself;
+  own per-command durations and modelMs the ARITHMETIC REMAINDER, wallMs minus
+  setup minus commands: residual time, never a measurement of thinking;
   answerPartial is what the model had written
   when the turn was cut, reassembled from the answer stream because the server
   discards the in-flight message — UNFINISHED text the model never delivered,
@@ -3377,8 +3378,9 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
           fullAnswer, schemaErrs, answerPath, answer, commentaryOnly, commentaryPath,
           answerPartial, answerPartialPath } = ev;
-  // Where the wall clock went. commandMs is the server's own per-command measurement, so modelMs is what
-  // is left after the driver's own setup and the work the model ordered — the part a budget must size.
+  // Where the wall clock went. commandMs is the server's own per-command measurement, so modelMs is the
+  // remainder after setup and the work the model ordered — the part a budget must size. A remainder, not a
+  // measurement: anything the server spent outside a command lands in it.
   const wallMs = Date.now() - startedAtMs;
   const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
   const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
@@ -3582,7 +3584,7 @@ function developerInstructions() {
     opts.network
       ? "You have network access: use it for what is not in this checkout, keep to the hosts this task names, and cite what you fetched."
       : "You have no network access; cite files you actually read.",
-    "If a command cannot run, reply with the single token COMMAND_BLOCKED for that step and continue.",
+    "If a command cannot run, record it in one line — the command, whether it started, its exit status if there was one, and the exact diagnostic — then continue. Write \"unknown\" for what you could not observe rather than inferring it.",
     "Never report a test as passing unless you ran it and saw the count in this turn.",
     "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful.",
     // The coordinator machine-reads this answer. Saying so is what makes the JSON arrive bare; without it

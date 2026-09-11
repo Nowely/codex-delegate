@@ -262,8 +262,8 @@ test("what the user reads is prose the coordinator writes, in the user's languag
     // instruction rather than by accident: the Bash row's description and the example first line. They
     // are pinned as a pair because a fix to one page alone leaves the other still teaching the old form.
     for (const [name, text] of [["seat", flat], ["orchestrate", orchestrate.replace(/\s+/g, " ")]]) {
-      if (!text.includes("`Codex <model> <id>: <task in a few words>`")
-          && !text.includes("\"Codex <model> <id>: <task in a few words>\""))
+      if (!text.includes("`Codex <short name> <id>: <task in a few words>`")
+          && !text.includes("\"Codex <short name> <id>: <task in a few words>\""))
         problems.push(`${name} no longer carries the model-first description template`);
       if (/seat <id>, <model>|Seat W5, Sonnet/.test(text))
         problems.push(`${name} still teaches a user-facing template built on the page's own noun`);
