@@ -21,6 +21,10 @@ At least two questions must be ones the current text already answers correctly. 
 A rewrite that raises the score while breaking a control has traded one failure for another, and without
 controls that trade is invisible.
 
+Plant at least one question the documentation does not answer at all, keyed as unanswerable. A confident
+answer to it is a failure of the reader, not of the text, and it is the cheapest way to catch a reader
+answering from what it already knew rather than from what it read.
+
 ## The reader's rights
 
 One reader per question. A reader that answers two questions has learned the file from the first
@@ -63,14 +67,41 @@ hint and keep it out of the score.
 The `quote` field is what makes a wrong answer diagnosable. It names the line that misled the reader, and
 that line is where the repair goes.
 
+## The no-document arm
+
+The baseline runs every question twice: once through the documentation, once with no files at all, same
+model, same brief minus the corpus. **The score this audit reports is the difference.**
+
+Without it a document that teaches cannot be told from a document about something the reader has already
+seen. Two benchmarks that ran this arm found the gap large — one scored between .56 and .68
+closed-book on tasks built to require documentation, and treats a high closed-book score as contamination. A third of
+our questions could plausibly sit there, which is more than the whole effect we have ever measured.
+
+It doubles the reader seats, so it runs at the baseline only. A re-measurement after a rewrite reuses the
+same no-document score; the questions have not changed, and neither has what the reader already knew.
+
 ## Scoring
 
-Right answers over questions. Beside it, two numbers that are not the score but predict it: steps taken,
-and how many readers departed from the documentation. A right answer found by reading the source is a
-documentation failure with a correct answer attached.
+Right answers over questions, and then the delta against the no-document arm. Beside it, two numbers that
+are not the score but predict it: steps taken, and how many readers departed from the documentation. A
+right answer found by reading the source is a documentation failure with a correct answer attached.
 
-Then give every wrong answer a cause — lie, placement, or findability. The causes are defined in
-[truth-pass.md](truth-pass.md) and the ledger entry in [ledgers.md](ledgers.md) records which one.
+Then give every wrong answer a cause — refuted, missing, placement or findability. The four are defined
+in Step 6 of [SKILL.md](../SKILL.md), the evidence rules behind `refuted` are in
+[truth-pass.md](truth-pass.md), and the ledger entry in [ledgers.md](ledgers.md) records which one.
+`missing` is the one most easily mistaken for `findability`: if the answer is nowhere in the `.md` files,
+no path leads to it and no rewrite of the path will help.
+
+**Say when the instrument has no room.** A baseline of every question right, or every question wrong,
+cannot register a repair. Report that and stop rather than producing a number that cannot move.
+
+## Establishing this instrument's own noise floor
+
+Optional, and worth it once per project. Run the unchanged document through the same questions two or
+three times under blinded version labels and count how many answers flip. That flip rate is **this**
+instrument's noise floor, and until it exists, "the score fell" in a re-measure is being judged against a
+threshold borrowed from somebody else's benchmark. Six questions × two labels × three repeats is 36
+cheap calls.
 
 ## Re-measuring after a rewrite
 
@@ -79,9 +110,9 @@ comparable; a new question set is a new measurement with a new baseline, not a r
 
 Three ways a rewrite fails the re-measure:
 
-- the score falls
+- the score falls by more than the measured noise floor, or by anything at all if no floor was measured
 - a control question that passed now fails
-- a claim confirmed before is refuted now, which means the rewrite introduced a lie
+- a claim confirmed before is refuted now, which means the rewrite introduced a false statement
 
 ## Keeping the number as a regression test
 
@@ -93,7 +124,8 @@ means writing into their tree. The run file keeps it either way.
 
 **Measured, at the size of one run:** the four-part chain moved one README from 3/6 to 6/6, took
 departures from 1 to 0, and broke neither control. One trial per question; the result does not survive a
-significance test and must not be quoted as a rate. Two of the six failures were lies rather than findability.
+significance test and must not be quoted as a rate. Two of the six failures were refuted claims rather
+than findability failures.
 
 **Not measured:** which part of the chain produced the gain. The experiment that would isolate it —
 three writers given different subsets, eighteen readers — was designed and deliberately not run. Do not

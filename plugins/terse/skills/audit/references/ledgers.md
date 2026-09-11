@@ -76,7 +76,7 @@ source, only guessed at.
 ## What broke
 
 ```markdown
-### Failure 1 — "What is this?" — cause: lie
+### Failure 1 — "What is this?" — cause: refuted
 
 The reader answered "coding work" from README.md:3. The software takes any work. The same reader
 repeated two guarantees from README.md:5-9 that the code does not make (C02, C14).
@@ -84,8 +84,8 @@ repeated two guarantees from README.md:5-9 that the code does not make (C02, C14
 Repair must: correct the scope sentence and remove both guarantees at their source.
 ```
 
-Name the cause with one of the three words — lie, placement, findability — because `revise` treats them
-differently. Name the ledger entries involved. State what a repair must achieve, not how to word it.
+Name the cause with one of the four words — refuted, missing, placement, findability — because
+`revise` treats them differently. Name the ledger entries involved. State what a repair must achieve, not how to word it.
 
 ## The two ledgers `revise` returns
 

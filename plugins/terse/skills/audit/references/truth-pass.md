@@ -24,8 +24,8 @@ rule admitted in its own header: *citation existence checks are not runtime veri
 weakened to what levels 1 and 2 support. There is no third option, because a guarantee is a claim about
 all runs, and reading one function proves nothing about all runs.
 
-Both lies found on 2026-09-10 had this shape, and both survived two earlier rewrites that made the
-prose cleaner:
+Both false claims found on 2026-09-10 had this shape, and both survived two earlier rewrites that made
+the prose cleaner:
 
 - *"Every completed turn leaves a receipt the driver checks"* and *"a seat that did nothing cannot
   report as though it had."* The check reads the opening metadata of a session record for a matching
@@ -41,9 +41,9 @@ prose cleaner:
 - **refuted**, with the file and line that contradicts it.
 - **unconfirmed** — you could not settle it.
 
-Unconfirmed is not neutral. It is how both lies above reached readers: nobody proved them false, so they
-stayed. Work to refute rather than to confirm, and when you are unsure, write unconfirmed rather than
-confirmed. A run whose ledger is entirely confirmed at level 1 has measured nothing.
+Unconfirmed is not neutral. It is how both false claims above reached readers: nobody proved them
+false, so they stayed. Work to refute rather than to confirm, and when you are unsure, write
+unconfirmed rather than confirmed. A run whose ledger is entirely confirmed at level 1 has measured nothing.
 
 ## True, but not where it is read
 

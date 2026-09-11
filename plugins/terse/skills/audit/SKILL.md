@@ -57,7 +57,8 @@ verdicts. Use the entry format in [ledgers.md](references/ledgers.md).
 Two habits decide whether this step is worth running:
 
 - Work to refute, not to confirm. When in doubt, the verdict is **unconfirmed**, and unconfirmed is the
-  dangerous one: it survives because nobody proved it false. Both lies found on 2026-09-10 lived there.
+  dangerous one: it survives because nobody proved it false. Both false claims found on 2026-09-10
+  lived there.
 - A citation that resolves proves only that a line exists. Reading the code proves what it says.
   Running it proves what it does. Do not report the first as the third.
 
@@ -72,6 +73,10 @@ and the line, so the key costs nothing extra here and is impossible to reconstru
 At least two of the questions must be ones the current text answers correctly. These are the controls.
 Without them a later rewrite can raise the score by breaking something nobody asked about.
 
+Plant at least one question the documentation genuinely does not answer, and record it as unanswerable in
+the key. A confident answer to it is a failure, and it is the only thing that separates a reader who read
+from a reader who knew. Benchmarks that do this plant about one in ten.
+
 ## Step 5. The readers
 
 Announce the plan before spawning anything: how many readers, which model, roughly what it costs. Wait
@@ -81,6 +86,14 @@ One fresh reader per question, per [measure.md](references/measure.md). Each one
 file, may open only `.md` files, may not read source, and may not see another reader's work. It returns
 its answer, the files it opened, how many steps from the entry file it took, and whether it left the
 documentation to find out.
+
+**The baseline measurement runs a second arm with no documentation at all**: the same questions, the same
+model, no files. Its score is what a reader already knew, and the number this audit reports is the
+difference between the two. A raw score without that arm cannot tell a document that teaches from a
+document that is merely about something the reader has seen before; the two published benchmarks that ran
+this arm found the effect large enough to swallow a result our size. It doubles the reader seats, so it
+runs once, at the baseline. A re-measurement after a rewrite reuses the same no-document score and does
+not pay again.
 
 Never ask a reader whether the text was clear. On 2026-09-10 the self-report ran against the truth: two
 readers who reported no confusion answered wrong, and the one who called the section scattered and
@@ -96,14 +109,30 @@ Give every wrong answer a cause, because the cause decides what a rewrite must d
 
 | Cause | What happened | What a rewrite must do |
 |---|---|---|
-| lie | the text states what the code does not do | correct the claim at its source |
-| placement | the sentence is true and sits where it misleads | move it to the decision it belongs to |
+| refuted | the text states what the code does not do | correct the claim at its source |
+| missing | the documentation does not answer the question anywhere | write the answer, and say where it goes |
+| placement | the sentence is true and sits where it misleads | put it at the decision — by moving it, or by repeating it there |
 | findability | true, in the right place, not found | change the path to it |
 
-Keep the causes apart. Two of six failures on 2026-09-10 were lies, and a rewrite aimed at findability
-would have carried both forward in cleaner prose. A true sentence under the wrong heading is not fixed
-by making it truer: readers turned "you need not create this file" into a requirement because it sat
-under Prerequisites.
+Keep the causes apart. Two of six failures on 2026-09-10 were refuted claims, and a rewrite aimed at
+findability would have carried both forward in cleaner prose. A true sentence under the wrong heading is
+not fixed by making it truer: readers turned "you need not create this file" into a requirement because
+it sat under Prerequisites.
+
+**Missing is the largest class, not the rarest.** In the one study that counted — 805,939 candidates
+mined, 878 classified by hand — the answer being absent accounted for 268 of 485 documentation defects,
+against 190 stale and 72 wrong. A question the documentation never answers is not a findability failure,
+and sending a rewrite to improve the path to an answer that does not exist wastes the run.
+
+**Placement is repaired by repetition as often as by relocation.** Written procedure in the field where
+a misreading kills settles it this way: state the fact early, and require it again at the point of use.
+A local warning belongs immediately before its action; a global one is stated once and repeated locally.
+Do not move a fact away from where it is currently read correctly in order to put it where it is also
+needed — put it in both places.
+
+Report the score with its own limits beside it. If the baseline is a perfect score or a zero, say so and
+stop: an instrument with no room left cannot register a repair, and a later "the score did not fall" will
+mean nothing.
 
 Write the run file to `$RUN/audit.md` using the section contract in
 [ledgers.md](references/ledgers.md), then report to the user: the score, the failures with their

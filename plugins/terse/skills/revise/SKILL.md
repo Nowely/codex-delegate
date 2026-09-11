@@ -97,7 +97,7 @@ questions, the same key, the same entry file and the same model. Three outcomes 
 
 - the score fell
 - a control question that passed now fails
-- a claim that was confirmed is now refuted — the rewrite introduced a lie
+- a claim that was confirmed is now refuted — the rewrite introduced a false statement
 
 Report the two scores side by side. Then stop: applying the candidate to the user's files needs their
 word, and a diff they have read is what earns it.

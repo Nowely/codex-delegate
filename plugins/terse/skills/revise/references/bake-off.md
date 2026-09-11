@@ -80,7 +80,7 @@ else it does well.
 
 | Row | Question | Weight |
 |---|---|---|
-| new lies | does any behavioural claim contradict the code, or exceed the evidence level its source supports? | veto |
+| new false claims | does any behavioural claim contradict the code, or exceed the evidence level its source supports? | veto |
 | protected passages | was a condition, limit or warning at a decision point cut or weakened? was a passage the audit recorded as working damaged? | veto |
 | failures repaired | how many of the measured failures are repaired, at their source, with the line shown? | primary |
 | prerequisites | does the text answer the inventory's items where the reader meets them? | secondary |
@@ -95,8 +95,10 @@ sheets.
 
 ## Choosing and grafting
 
-The winner is the surviving candidate with the most failures repaired. Length breaks a tie and nothing
-else.
+The winner is the surviving candidate with the most failures repaired. A tie there stays a tie: word
+count is reported and never selects, because the bias it would encode has been measured and runs toward
+length rather than against it. Break a real tie by re-auditing each surviving candidate and taking the
+one with the higher score, no broken control and no new false claim; if that also ties, say so.
 
 Then graft: where a loser repaired a failure the winner did not, take that repair into the winner. Take
 the repair, not the paragraph around it — a wholesale merge of two prose styles produces a text neither
