@@ -244,7 +244,7 @@ const LADDER = [
   { code: EXIT.INTERACTION, help: "the turn wanted input no sandbox change can supply",
     when: (c) => c.interactions.length > 0 },
   // Above NO_COMMANDS: a refused approval explains the missing command, and "nothing ran" would hide why.
-  { code: EXIT.ESCALATED, help: "an approval was refused: the sandbox was sized too small",
+  { code: EXIT.ESCALATED, help: "an approval request was declined; inspect the report, if delivered, before judging task completeness",
     when: (c) => c.escalations.length > 0 },
   // Above every proxy below it, and distinct from "the check said no". Two shapes of the same finding,
   // so one rung: a check the budget left no room for never ran, and a check that ran without an
@@ -2347,6 +2347,19 @@ function shutdown() {
 // Not funnelled, deliberately: abort(), which prints the child's stderr tail and must let the loop drain
 // it (a process.exit behind an asynchronous pipe write truncates that tail), and the --help exit, which
 // has no child, no lock and no record and leaves through Bail.
+// Exit 6 is the one post-turn verdict whose NUMBER reads as total loss while the turn completed and its
+// answer is on disk: four signals say failure at once and none of them says the answer survived. Said
+// once, last, and only when every part of it holds — a looser condition would promise a retained answer
+// on a cut turn, on one that answered nothing, or on a report that never reached the caller.
+function announceDeclinedApproval(reportCode, finalCode) {
+  if (reportCode !== EXIT.ESCALATED || finalCode !== EXIT.ESCALATED) return;
+  if (!reportFileWritten || closingFields === null) return;
+  if (closingFields.turnStatus !== "completed" || !closingFields.answerPath) return;
+  if (escalations.length === 0) return;
+  process.stderr.write(`codex-delegate: turn completed; final answer saved at ${closingFields.answerPath}; `
+    + `approval requests declined: ${escalations.length}; read the answer before judging task completeness.\n`);
+}
+
 function exitWith(code, { stdout = null, durable = false } = {}) {
   settled = true;
   process.exitCode = code;
@@ -2356,6 +2369,7 @@ function exitWith(code, { stdout = null, durable = false } = {}) {
   const leave = (finalCode) => {
     if (left) return;
     left = true;
+    announceDeclinedApproval(code, finalCode);
     closeJobRecord(finalCode);
     shutdown().then(() => process.exit(finalCode));
   };
@@ -3293,8 +3307,8 @@ function subagentCause() {
     + `(${shown ? `${shown}, ` : ""}${cmds} commands): liveness, not evidence`;
 }
 
-// The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
-// sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
+// The ordered exit ladder, first match wins. A declined approval records an unmet permission request;
+// it does not establish task incompleteness or answer loss, and the report is what settles either.
 function decideExitCode(ev, verifySkipped) {
   // Everything any rung reads, in one object: the turn's outcome (ev), the verifier's, and the module
   // state the rungs used to reach around their argument for.
