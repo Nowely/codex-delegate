@@ -17,6 +17,11 @@ jobs:
     name: suites (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    # This repository is a marketplace: the workflow lives at its root, the plugin's tree does not.
+    # Every path below is the plugin's own, so the whole job runs from inside it.
+    defaults:
+      run:
+        working-directory: plugins/codex-delegate
     strategy:
       fail-fast: false
       matrix:
@@ -25,8 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # evals/package.test.mjs compares the tree's version against a v* tag on HEAD, and a shallow
-          # checkout carries no tags at all.
+          # evals/package.test.mjs compares the tree's version against a codex-delegate@ tag on HEAD,
+          # and a shallow checkout carries no tags at all.
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:

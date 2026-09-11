@@ -1,14 +1,15 @@
 # Releasing codex-delegate
 
-Do not publish from an unclean tree. Releases use annotated `vX.Y.Z` tags and matching GitHub release
-notes; never move or recreate a published tag.
+Do not publish from an unclean tree. Releases use annotated `codex-delegate@X.Y.Z` tags and matching
+GitHub release notes; never move or recreate a published tag. The repository is a marketplace and one
+tag namespace serves every plugin in it, so the plugin's name is part of the tag.
 
 ## Checklist
 
-1. Choose the version and set it in the four places `evals/package.test.mjs` compares:
+1. Choose the version and set it everywhere `evals/package.test.mjs` compares it:
    `.claude-plugin/plugin.json`, the `metadata.version` line of every `skills/*/SKILL.md`, and the
    driver's `VERSION`. Its version case fails naming the one you missed. Confirm the value and the
-   intended `vX.Y.Z` tag match: the package eval compares them once a `v*` tag is on `HEAD`, and
+   intended `codex-delegate@X.Y.Z` tag match: the package eval compares them once such a tag is on `HEAD`, and
    announces itself as skipped before that (this checklist tags at step 8, after `npm test` at step 4).
 2. Record user-visible changes in `CHANGELOG.md`, including compatibility or breaking-contract notes.
 3. For a Codex CLI upgrade, follow README.md › After a codex upgrade, then update the pinned-version
@@ -65,7 +66,7 @@ notes; never move or recreate a published tag.
 8. Create one annotated tag form only:
 
    ```bash
-   git tag -a vX.Y.Z -m 'codex-delegate X.Y.Z'
+   git tag -a codex-delegate@X.Y.Z -m 'codex-delegate X.Y.Z'
    ```
 
 9. Push the commit and tag only after the checks above, then create a GitHub release from that tag. Use

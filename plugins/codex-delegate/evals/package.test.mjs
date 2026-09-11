@@ -3,9 +3,9 @@
 //
 //   node evals/package.test.mjs
 //
-// marketplace.json declares `source: "./"`, so the payload IS this repository: everything git tracks is
-// installed into a user's plugin cache. Nothing asserted what must be in it, and nothing compared the
-// places the version is written against each other or against the tag that was cut.
+// The marketplace entry names this directory as the plugin's source, so the payload IS this subtree:
+// everything git tracks under it is installed into a user's plugin cache. Nothing asserted what must be
+// in it, and nothing compared the places the version is written against each other or against the tag.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -49,31 +49,42 @@ test("marketplace.json describes the same plugin as plugin.json",
   "the marketplace entry is a second copy of the plugin's name and description, and a marketplace listing that names a plugin the manifest does not is an install that fails at the last step",
   () => {
     const plugin = JSON.parse(read(".claude-plugin/plugin.json"));
-    const entry = JSON.parse(read(".claude-plugin/marketplace.json")).plugins.find((p) => p.name === plugin.name);
+    // The catalogue is the repository's, not the plugin's: one file lists every plugin, so it sits two
+    // levels above this tree. An installed plugin is a copy of this directory alone, with no marketplace
+    // above it, so the case announces itself there rather than failing on a file that was never shipped.
+    const catalogue = path.join(ROOT, "..", "..", ".claude-plugin", "marketplace.json");
+    if (!fs.existsSync(catalogue)) return skip("no marketplace above this tree, so there is no entry to compare");
+    const entry = JSON.parse(fs.readFileSync(catalogue, "utf8")).plugins.find((p) => p.name === plugin.name);
     if (!entry) return `marketplace.json lists no plugin named ${plugin.name}`;
     return entry.description === plugin.description || "the two descriptions differ";
   });
 
-test("a v* tag on HEAD is the version the tree claims",
-  "the tag is what a user installs at; a tree that says 0.6.0 under a v0.7.0 tag ships the wrong driver under the right name",
+test("a codex-delegate@ tag on HEAD is the version the tree claims",
+  "the tag is what a user installs at; a tree that says 0.6.0 under a codex-delegate@0.7.0 tag ships the wrong driver under the right name",
   () => {
     if (!hasRepo) return skip("no git repository here, so no tag names this tree");
-    const tags = git(["tag", "--list", "v*", "--points-at", "HEAD"]);
+    // One tag namespace serves every plugin here, so a sibling's release must not answer for this
+    // tree: `<plugin>@<version>` is the form the multi-package release tools generate.
+    const tags = git(["tag", "--list", "codex-delegate@*", "--points-at", "HEAD"]);
     if (tags.status !== 0) return `git tag --points-at failed: ${tags.error?.message ?? String(tags.stderr).trim()}`;
-    const onHead = tags.stdout.split("\n").map((t) => t.trim()).filter((t) => /^v\d+\.\d+\.\d+$/.test(t));
+    const named = tags.stdout.split("\n").map((t) => t.trim()).filter(Boolean);
+    const onHead = named.filter((t) => /^codex-delegate@\d+\.\d+\.\d+$/.test(t));
+    const malformed = named.filter((t) => !onHead.includes(t));
+    if (malformed.length) return `HEAD carries ${malformed.join(", ")}, which is not <plugin>@<version>`;
     // Only the tag ON HEAD, because RELEASING.md cuts it at step 8 and runs `npm test` at step 4: the
     // newest tag in the repository names the PREVIOUS release for the whole of a release preparation,
     // and comparing against that makes every such run red. A shallow clone (actions/checkout's default)
     // fetches no tags and lands here too. Announced rather than silently counted as agreement, so a
     // green run cannot come to mean "there was nothing to check".
-    if (!onHead.length) return skip("HEAD carries no v* tag; the version is compared at the tag, not before it");
-    const wrong = onHead.filter((t) => t.slice(1) !== VERSION);
+    if (!onHead.length) return skip("HEAD carries no codex-delegate@ tag; the version is compared at the tag, not before it");
+    const wrong = onHead.filter((t) => t.slice("codex-delegate@".length) !== VERSION);
     return wrong.length === 0 || `HEAD carries ${wrong.join(", ")} and the tree says ${VERSION}`;
   });
 
 // ------------------------------------------------------------------ content
 
-// Everything git tracks, which under `source: "./"` is exactly what an install copies.
+// Everything git tracks under this plugin's directory, which is exactly what an install copies: the
+// marketplace source names that directory, and `git -C ROOT ls-files` lists it and nothing above it.
 const tracked = (() => {
   const r = git(["ls-files", "-z"]);
   return r.status === 0 ? r.stdout.split("\0").filter(Boolean) : null;
@@ -95,7 +106,7 @@ test("every file the plugin needs to run is in the payload",
     // user's install.
     const under = (rel) => fs.readdirSync(path.join(ROOT, rel)).filter((f) => f.endsWith(".mjs")).map((f) => `${rel}/${f}`);
     const required = [
-      ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json",
+      ".claude-plugin/plugin.json",
       "skills/seat/schemas/review-output.schema.json",
       "LICENSE", "README.md",
       ...skillPages,
@@ -181,7 +192,7 @@ test("this suite is green from a plugin root that has no .git",
     return Number(m[2]) >= 3 || `expected the git cases to announce themselves; got ${summary}`;
   });
 
-test("a v* tag on HEAD that disagrees with the tree is a failure",
+test("a codex-delegate@ tag on HEAD that disagrees with the tree is a failure",
   "the tag comparison now waits for a tagged HEAD, so between releases nothing exercises it: without this case the gate could rot silently and ship a tree whose version is not the tag it was cut at",
   async () => {
     if (NESTED) return skip("this run IS the copy");
@@ -191,10 +202,10 @@ test("a v* tag on HEAD that disagrees with the tree is a failure",
                                           "-c", "user.name=evals", ...a], { encoding: "utf8" });
     if (g("init", "-q").status !== 0) return skip("git init does not work here");
     if (g("add", "-A").status !== 0 || g("commit", "-q", "-m", "payload").status !== 0) return skip("git commit does not work here");
-    if (g("tag", "v9.9.9").status !== 0) return "git tag failed in the scratch repository";
+    if (g("tag", "codex-delegate@9.9.9").status !== 0) return "git tag failed in the scratch repository";
     const { code, out } = await runSuiteIn(d);
-    if (code === 0) return `a v9.9.9 tag over ${VERSION} left the suite green: ${out.trim().split("\n").at(-1)}`;
-    return /HEAD carries v9\.9\.9 and the tree says/.test(out)
+    if (code === 0) return `a codex-delegate@9.9.9 tag over ${VERSION} left the suite green: ${out.trim().split("\n").at(-1)}`;
+    return /HEAD carries codex-delegate@9\.9\.9 and the tree says/.test(out)
       || `it went red for another reason: ${out.match(/^FAIL.*/m)?.[0] ?? out.trim().slice(-200)}`;
   });
 
