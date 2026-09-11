@@ -17,9 +17,17 @@ probability of that under chance is 2^(1−k) for k choices:
 | 6 | **0.031** |
 | 8 | 0.008 |
 
-**Six is the floor.** Below it, a perfect run still cannot be told from a coin at any conventional
-threshold, and reporting one as a preference is reporting noise. A factor that splits four to two
-concludes nothing at six and needs more items before it concludes anything.
+**Six is the floor for detecting a perfect preference, and that is a much smaller claim than it looks.**
+The table above answers "how surprising is a clean run under chance". It does not answer "how often will
+this design find a preference that is really there", and the second question is the one that matters.
+The power of a sign test at six items is **0.26** against a true preference of 0.8 and **0.12** against
+0.7: three real preferences in four would be missed. Eighty percent power at 0.8 needs sixteen items per
+factor; a preference of 0.7 needs about thirty and is probably out of reach in one sitting.
+
+**This file shipped the smaller claim as though it were the larger one.** The error was found by its own
+author after it was committed, and a review of the whole design against the paired-comparison literature
+is running; the numbers below stand until that lands, and the design above them may not. Do not build an
+item bank on the six-per-factor figure.
 
 This is the same arithmetic that showed this plugin's own headline result — three improvements, no
 reversals, six paired questions — sits at p = 0.25.

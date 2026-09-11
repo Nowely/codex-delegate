@@ -66,14 +66,17 @@ which factors reached enough observations and which did not.
 
 ## Step 3. What can be concluded
 
-The arithmetic is in [scoring-and-transfer.md](references/scoring-and-transfer.md), and it is short
-enough to state here: a factor needs **six observations** before a perfect run of choices reaches
-two-sided significance, and a self-consistency below about four fifths means the instrument is measuring
-noise rather than the person. Report both numbers beside every conclusion.
+**This step is under review and its numbers are known to be wrong.** It said a factor needs six
+observations, which is the number at which a *perfect* run stops looking like chance. The power of that
+design against a real preference of 0.8 is 0.26: it would miss three real preferences in four. Sixteen
+items per factor buys 0.80 power at 0.8, and a preference of 0.7 needs roughly thirty. Do not build an
+item bank on six. The full arithmetic, and the correction notice, are in
+[scoring-and-transfer.md](references/scoring-and-transfer.md).
 
-A factor that reached six observations and went one way becomes a rule, written in the person's own
-terms. A factor that split is recorded as split — that is information about the factor, not a failure of
-the run.
+What survives the correction: a self-consistency rate is the ceiling on everything else and is reported
+beside every conclusion; a factor that splits is recorded as split, which is information about the
+factor rather than a failure of the run; and no factor is ever aggregated with another into a single
+score.
 
 ## Step 4. Calibrating a judge
 
