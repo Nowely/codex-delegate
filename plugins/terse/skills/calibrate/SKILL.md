@@ -66,11 +66,12 @@ which factors reached enough observations and which did not.
 
 ## Step 3. What can be concluded
 
-**This step is under review and its numbers are known to be wrong.** It said a factor needs six
-observations, which is the number at which a *perfect* run stops looking like chance. The power of that
-design against a real preference of 0.8 is 0.26: it would miss three real preferences in four. Sixteen
-items per factor buys 0.80 power at 0.8, and a preference of 0.7 needs roughly thirty. Do not build an
-item bank on six. The full arithmetic, and the correction notice, are in
+**This step is under review and has already been wrong twice.** It first said a factor needs six
+observations — the number at which a *perfect* run stops looking like chance, which is not the same as
+finding a preference that is there. The power of six items against a true preference of 0.8 is 0.26.
+The correction to that then quoted a one-sided figure beside a two-sided rule. Recomputed: **twenty
+items** per factor for 0.80 power at 0.8, and **forty-nine** at 0.7, which no sitting will hold. Do not
+build an item bank until the review lands; the arithmetic and both corrections are in
 [scoring-and-transfer.md](references/scoring-and-transfer.md).
 
 What survives the correction: a self-consistency rate is the ceiling on everything else and is reported

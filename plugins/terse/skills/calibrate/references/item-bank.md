@@ -32,8 +32,9 @@ is expected to prefer.
 
 ## The three factors of the first bank
 
-Three, not eight. Six observations per factor is the floor for a conclusion, so eight factors in one
-sitting means eight things nobody can conclude anything about.
+Three, not eight — and the honest count per factor is twenty, not the six an earlier draft of this bank
+asserted. Eight factors in one sitting means eight things nobody can conclude anything about. See
+[scoring-and-transfer.md](scoring-and-transfer.md), which is under review: the design may not survive it.
 
 | Factor | The two instructions | Why this one |
 |---|---|---|
@@ -43,8 +44,9 @@ sitting means eight things nobody can conclude anything about.
 
 ## The three item types
 
-**Single-factor pairs.** Same content, one instruction different. Six per factor. Short — forty to sixty
-words a side — because a long passage varies in more than one way whatever the instruction said.
+**Single-factor pairs.** Same content, one instruction different. Twenty per factor for a conclusion
+about that factor; fewer makes a lead, not a finding. Short — forty to sixty words a side — because a
+long passage varies in more than one way whatever the instruction said.
 
 **Whole-text pairs.** A real passage against a real rewrite of it, both a screen or less. These do not
 isolate anything; they check that the instrument registers a difference at all, and they answer the

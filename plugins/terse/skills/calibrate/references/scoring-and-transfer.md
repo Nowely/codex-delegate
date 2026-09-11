@@ -17,17 +17,31 @@ probability of that under chance is 2^(1−k) for k choices:
 | 6 | **0.031** |
 | 8 | 0.008 |
 
-**Six is the floor for detecting a perfect preference, and that is a much smaller claim than it looks.**
-The table above answers "how surprising is a clean run under chance". It does not answer "how often will
-this design find a preference that is really there", and the second question is the one that matters.
-The power of a sign test at six items is **0.26** against a true preference of 0.8 and **0.12** against
-0.7: three real preferences in four would be missed. Eighty percent power at 0.8 needs sixteen items per
-factor; a preference of 0.7 needs about thirty and is probably out of reach in one sitting.
+**The table above answers the wrong question, and the first correction to it was also wrong.** It says
+how surprising a clean run is under chance. What matters is how often a design finds a preference that
+is really there, and against that question six items are nearly useless.
 
-**This file shipped the smaller claim as though it were the larger one.** The error was found by its own
-author after it was committed, and a review of the whole design against the paired-comparison literature
-is running; the numbers below stand until that lands, and the design above them may not. Do not build an
-item bank on the six-per-factor figure.
+Two-sided sign test, α = 0.05, power to detect a true preference:
+
+| Items per factor | Reject at | α | Power at 0.8 | Power at 0.7 |
+|---|---|---|---|---|
+| 6 | 6 of 6 | 0.031 | **0.26** | 0.12 |
+| 16 | 13 of 16 | 0.021 | 0.60 | 0.25 |
+| **20** | 15 of 20 | 0.041 | **0.80** | 0.42 |
+| 30 | 21 of 30 | 0.043 | 0.94 | 0.59 |
+| **49** | 32 of 49 | 0.044 | 0.99 | **0.81** |
+
+**Twenty items** per factor for 0.80 power against a strong preference; **forty-nine** against a
+moderate one, which no sitting will hold. Six items would miss roughly three real preferences in four.
+
+The history of this paragraph is the point. It first stated six as a floor for a conclusion, which
+confused surprise with power. The first correction then quoted sixteen — a **one-sided** power figure
+placed beside a **two-sided** decision rule in the same file. A reviewing seat caught it and both
+numbers above were recomputed from scratch. Nobody should build an item bank on this section until the
+design review that is running has landed.
+
+One further caution, from the same review. "No preference" answers are not free: they reduce the
+informative n, so a session must present more items than the number of decisions it needs.
 
 This is the same arithmetic that showed this plugin's own headline result — three improvements, no
 reversals, six paired questions — sits at p = 0.25.
@@ -43,10 +57,10 @@ this task — and it is recorded as a convention, not as a finding.
 
 ## What a result may say
 
-- **"Prefers X over Y, six of six, self-consistency four of five."** A rule.
+- **"Prefers X over Y, 15 of 20, self-consistency four of five."** A rule.
 - **"Split, four to two."** Not a rule. Recorded, with the count.
 - **"Four observations, all one way."** Not a rule, and not evidence. Recorded as a lead for more items.
-- **"No preference on five of six."** The factor does not matter to this person. This is a useful result
+- **"No preference on most of the set."** The factor does not matter to this person. This is a useful result
   and it should delete a rule, including one of ours.
 
 Never aggregate across factors into a single score. Factors are not commensurable, and a total would
