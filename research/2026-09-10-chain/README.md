@@ -47,6 +47,13 @@ This is the raw material behind the finding that decided most of the plugin's sh
 writing standards put against two unguided controls, models hidden from the judges, both controls
 winning. If that finding is ever challenged, it is challenged here.
 
+## These files are artifacts, not documents
+
+Everything under `chain/` is a copy of a document written for another repository, kept at the state it
+was in. Their relative links point where they pointed then — at `skills/seat/…` and the rest of
+`codex-delegate` — and resolve to nothing from here. Do not repair them. A link checker run over this
+directory will report a hundred dead links and every one of them is the archive working correctly.
+
 ## What was left behind
 
 The source directory also held release-note drafts and a work-in-progress copy of the plugin, neither of

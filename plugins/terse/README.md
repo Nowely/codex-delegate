@@ -4,11 +4,13 @@ A Claude Code plugin that measures whether your documentation gives readers the 
 repairs what it measured. It sends fresh readers through your `.md` files and checks every claim about
 behaviour against the code, so a failure arrives with a line number and a cause rather than an opinion.
 
-Two skills, run in that order. You invoke both; neither starts on its own.
+Three skills. You invoke all three; none starts on its own.
 
 ```
 /terse:audit   →  run file  →  /terse:revise  →  candidate + diff  →  /terse:audit again
    what broke                    what to write                          did it hold
+
+/terse:calibrate  →  which forms you prefer, measured on you, blind
 ```
 
 ## What each one does
@@ -26,7 +28,15 @@ diff, a list of every cut of twenty words or more with its reason, and the file 
 behavioural claim. It writes into its own run directory. Applying anything to your files needs your
 word.
 
-Both skills announce how many agents they are about to spawn, on which model, and wait.
+**`/terse:calibrate`** measures something the other two cannot see. A right answer is not the same as a
+text you would rather read, and in the field studies that report both, the two sometimes move in
+opposite directions. It shows you pairs of passages — same content, one thing different, sides shuffled,
+nothing labelled — and asks which you prefer. Repeated items measure you against yourself, so a real
+preference can be told from a coin toss. The result is a set of rules in your own terms, plus a number
+for how far each model judge agrees with you, so a cheap screen can stand in for you without pretending
+to be you. A preference never overrides a measured comprehension failure; it settles ties.
+
+All three skills announce how many agents they are about to spawn, on which model, and wait.
 
 ## Install
 

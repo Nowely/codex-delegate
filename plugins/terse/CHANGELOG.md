@@ -24,6 +24,16 @@ forensics remain in the repository references and release notes.
   that Anthropic's `doc-coauthoring` skill already tests a document with a fresh reader.
 - `references/practices-full.md`, all 271 practices the survey returned, unranked and unedited, so a
   judgement to drop one stays reversible.
+- A third skill, `calibrate`, which measures which forms of writing a particular person prefers by blind
+  paired choice with repeated items, and turns the result into rules a writer can follow and a known
+  error rate for each model judge. It exists because a right answer and a text somebody would rather
+  read are different measurements that sometimes disagree. Its arithmetic is written down before its
+  first run: six observations before a factor can conclude anything, repeats to tell a preference from a
+  coin, a held-out set so the rules are tested on text nobody saw while deriving them. A preference
+  never overrides a measured comprehension failure.
+- `research/2026-09-10-chain/`, the evidence every 2026-09-10 claim rests on, which until now lived in a
+  directory under no version control and was named nowhere here. The two blocks `revise` reproduces byte
+  for byte now carry the SHA-256 of their own text.
 - The numbers this plugin publishes now carry their sample size and their uncertainty, in `README.md` and
   in every reference that quotes them. The plugin's own rule — no number without an n and an interval —
   applies to the plugin.
