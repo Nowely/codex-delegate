@@ -1,0 +1,53 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Find out what the world actually knows about writing the first screen of a README, and bring back the
+rules, not the opinions.
+
+The question is narrow on purpose. Not "how to write documentation": there is a mountain of that and an
+earlier survey already brought it back. This one: what does a person see in the first ten lines, in what
+order should those lines come, and what is known about which orderings work. The reader in question has
+never seen the project, has about thirty seconds, and is deciding whether to stay.
+
+WHERE TO LOOK, and your shell reaches the network so fetch the sources rather than recalling them:
+  - Guides written specifically about README structure and the opening: the widely copied README
+    templates and checklists, awesome-readme style collections, standard-readme, readme.so, GitHub's and
+    GitLab's own guidance, Make a README, and whatever else the search turns up.
+  - What large projects actually do. Take the opening ten lines of a dozen well-regarded repositories'
+    READMEs and look at what the first sentence does in each: names a category, names a problem, shows a
+    command, makes a claim. Report the distribution you actually observe, not an impression.
+  - Anything measured rather than asserted: research or write-ups on documentation first impressions,
+    time-to-comprehension, developer onboarding, or A/B results on project pages. If nothing measured
+    exists, say so plainly.
+  - Technical-writing guidance specifically about ordering and emphasis: what belongs first, what belongs
+    never, how audience is stated. The Google and Microsoft style guides both have material here.
+
+These four routes were verified working from this machine today, 2026-09-10:
+  - `curl -sL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`
+  - `curl -sL "https://api.github.com/repos/<owner>/<repo>/git/trees/<branch>?recursive=1"`, unauthenticated,
+    about 60 calls an hour; the code-search endpoint returns 401 and is not worth trying
+  - `curl -sL https://skills.sh/<owner>/<repo>/<skill>` and `npx -y skills find "<query>"`
+  - plain `curl` to a documentation site
+Do not use a provider web-search tool: this device's policy refuses the live tier and the cached tier
+answers 429.
+
+CHECK:
+a) Give a URL for every claim. Where you report what a project's README does, name the repository and
+   quote its first sentence.
+b) Separate a rule somebody asserts from a rule somebody demonstrates. Most of this material is the
+   first kind; say which is which every time.
+c) If the honest finding is that the field has conventions but no evidence, report that. Do not pad.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra S1), your status and what you did. Then: the ordering rules
+             for a README's first screen that you can actually support, best supported first, each with
+             its source; the distribution you observed across real repositories' first sentences; and
+             what the field asserts without evidence.
+  evidence:  URLs, quoted first sentences with their repositories, and the counts behind any distribution.
+  artifacts: anything you left in your own temporary directory.
+  open:      what you could not find, and where convention is masquerading as knowledge.

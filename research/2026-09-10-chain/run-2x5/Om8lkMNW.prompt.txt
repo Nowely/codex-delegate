@@ -1,0 +1,50 @@
+MODEL: gpt-6-astra
+EXPECT: (grep|rg|sed|cat|node|git)
+TASK:
+You are giving an independent second opinion. Do not assume any prior analysis is correct; there is none in this prompt on purpose.
+
+The repository is /Users/ruliny/Git/codex-delegate. It is a Claude Code plugin that delegates work to Codex. Two skills matter: skills/orchestrate/SKILL.md (a user-invoked orchestrator mode) and skills/codex-delegate/SKILL.md (the delegation mechanics). Their eval suites are evals/orchestrate.test.mjs and evals/agent-contract.test.mjs. The installed copy the user actually ran is under /Users/ruliny/.claude/plugins/cache/codex-delegate/codex-delegate/0.11.1/.
+
+The owner of the repo ran the orchestrate mode in a real session and reported three complaints about what he read in the chat. He speaks Russian; the assistant answered him in Russian. His complaints, verbatim:
+
+COMPLAINT 1. The plan the orchestrator printed before starting looked unnatural, carried too much unnecessary technical information, and was uninformative for a human. This is what it printed (Russian):
+
+  План orchestrate на раунд 2 (после ответов и «go», сейчас ничего не запущено). Пул: я Fable 5.1, вне пула; капы по умолчанию: один Fable, один gpt-6-astra, шесть живых. Ран: ~/.claude/plugins/data/codex-delegate-codex-delegate/orchestrate/-Users-ruliny-Git-codex-delegate/clear-2026-09-09/.
+  Если A: два read-сидения Claude Sonnet, ноль Codex (механический сбор фактов, строка «nothing» таблицы композиции). F1: полная опись каждого пути, куда пишут драйвер, оба навыка и evals, с тем, кто и когда его чистит, со ссылками на строки. F2: измерить, отказывает ли headless Bash в rm -rf под data dir так же, как в Write, и есть ли у claude plugin подкоманда для данных. F2 делает одну запись: probe-файл через subprocess под <run>/f2-probe/, потом удаляет.
+  Если B: одно read-сидение Sonnet: что нужно возобновлённой сессии из каталога рана и чего там сегодня нет.
+  После того как дерево сойдётся: Fable-сидение пишет черновик страницы, одно read-сидение gpt-6-astra его критикует. Без SEAT: write, без worktree, без NETWORK:.
+
+COMPLAINT 2. The English word "seat" and the header field name SEAT read badly. In Russian the assistant rendered "seat" as "сиденье" and as "место", which is nonsense in Russian. The owner wants something simpler: just say "агент" (agent) or name the model. He also asked, about one particular sentence the assistant wrote, "Пятое место вернулось." -- why does it say that, what is it even supposed to mean in Russian?
+
+COMPLAINT 3. Messages like this arrive in the chat under the assistant's own name, and the owner says this is information for the orchestrator, not for him, and he does not think he should be shown it at all:
+
+  Все данные собраны, формирую отчёт.
+  status: done
+  result: Место S5, Sonnet: done, разобрал 3 новых visual-теста, layout.test.ts и i18n (i18n.ts + .statuses/baremetal.json) ветки CLOUDFRONT-62071.
+  shared/lib/layout.ts:8-9 -- комментарий "их совпадение проверяет тест getMainWidth" ложный: layout.test.ts (grep на scss/readFileSync/require = 0 совпадений) вообще не читает _layout.scss и даже не импортирует getMainWidth ...
+  [about twenty more lines of the same]
+  evidence:
+  npx vitest run src/components/baremetal/shared/lib/__tests__/layout.test.ts -> 1 test file passed, 5 tests passed.
+  [more]
+  artifacts:
+  /Users/ruliny/arcadia/data-ui/cloud-components/src/components/baremetal/shared/lib/layout.ts
+  [more paths]
+  open:
+  [more]
+
+CHECK:
+Work from the files, not from these quotes. For each of the three complaints establish, with the file and line numbers as evidence:
+ (a) which sentence or rule in which page actually produced the behaviour, quoting it;
+ (b) whether that rule is current in the installed 0.11.1 copy or has already been superseded in the working tree -- diff the installed copy against the repo and check git log, because the owner asked specifically whether some of this is already stale;
+ (c) whether an eval case pins the offending wording verbatim, and which case id, because that decides what a fix costs.
+Run the eval suites to get a baseline. Note any constraint a fix would have to respect, such as a size budget the suite enforces on a page. Distinguish the protocol identifier SEAT: parsed by scripts/driver.mjs from the ordinary English noun "seat" used in prose; count how many of each there are, because renaming them are different jobs with different prices.
+
+Look for causes the complaints do not name. In particular, ask why a rule that already forbids the behaviour in COMPLAINT 3 failed to stop it, if such a rule exists, and whether anything in either page tells the assistant what language the user-facing prose is in.
+
+RETURN:
+Answer in Russian. Begin with one sentence a human can read on its own: your seat id (A1), your model, your status, and what you concluded. Then, in this order:
+ 1. Per complaint: root cause with file:line and the quoted sentence; live or already fixed; the eval case id that pins it, if any.
+ 2. Anything you found that the owner did not complain about but that belongs to the same defect.
+ 3. Two or three concrete options for fixing all three, each with its price in files, lines and eval cases touched, and your recommendation among them with the reason.
+ 4. Anything you could not verify, said plainly.
+Label every non-trivial conclusion proven or hypothesis. Be terse. Do not change any file; this is a read-only seat and its deliverable is this text.

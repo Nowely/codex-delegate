@@ -1,0 +1,63 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+EFFORT: xhigh
+
+TASK: Judge the naming and the positioning of this project, independently, and disagree with the
+coordinator where the evidence says so.
+
+The repository is a Claude Code plugin named `codex-delegate` at version 0.11.1. Read at least:
+README.md, .claude-plugin/plugin.json, .claude-plugin/marketplace.json, skills/codex-delegate/SKILL.md,
+skills/orchestrate/SKILL.md, skills/clear/SKILL.md, and enough of skills/codex-delegate/scripts/driver.mjs
+--help output and evals/README.md to know what the thing actually does.
+
+Two questions, in this order:
+
+1. NAMING. Is `codex-delegate` the right name for the product, and are `codex-delegate` (the main,
+   model-invoked skill), `orchestrate` and `clear` the right names for the three skills? Consider the
+   invocation surface a user actually types or reads on the plugin route (`codex-delegate:codex-delegate`,
+   `/codex-delegate:orchestrate`, `/codex-delegate:clear`), the state directory path the README names,
+   the six `CODEX_DELEGATE_*` environment variables, and the marketplace install id
+   `codex-delegate@codex-delegate`.
+
+2. POSITIONING. What is this product, in one sentence, as the artifacts actually justify — not as the
+   README claims? Then say whether the README's own first paragraph and the two manifest descriptions
+   state that or something narrower/wider, and what the cost of the mismatch is to a first-time reader
+   and to a coordinator model deciding whether to load the skill.
+
+The coordinator's own findings, for you to confirm, refute or extend — do not assume any of them are
+right, re-measure what you can:
+  (a) outside the product name and the CODEX_DELEGATE_ prefix, the word "delegate" appears 0 times in
+      skills/ and README.md, while "seat" appears ~536 times: the name describes a concept the product
+      never uses in its own prose.
+  (b) `codex-delegate:codex-delegate` stutters, appears in 8 places outside CHANGELOG.md, and the
+      stutter reaches the filesystem as the plugin data directory
+      `~/.claude/plugins/data/codex-delegate-codex-delegate/`.
+  (c) the skill named `clear` collides with Claude Code's built-in `/clear` command, which discards the
+      conversation, while this one deletes files from disk — the coordinator rates this the only naming
+      defect with real user-facing risk.
+  (d) README.md's opening calls the project "A Claude Code skill" (singular) while the repository ships
+      three skills, and skills/orchestrate/SKILL.md is a session-level orchestration mode that commands
+      Claude seats as well as Codex ones — so the positioning has drifted from "a Codex bridge" toward
+      "a seat layer in which Codex is the differentiated seat".
+
+Also answer the question the coordinator could not settle alone: is a full rename of the product
+(repository, marketplace id, env vars, state directory) ever worth it at 0.11.1 with tagged releases
+already published, or is the honest answer that the name is now load-bearing and only the skill names
+and the pitch should move?
+
+CHECK: quote at least four exact strings from files in the repository (file path plus the line as it is
+written) as the evidence for your verdicts, including at least one from a manifest and one from
+skills/orchestrate/SKILL.md. Re-run the coordinator's two counts (the "delegate" count and the "seat"
+count) with your own commands and state whether the numbers hold; if they do not, give yours. State any
+place where you contradict the coordinator explicitly, with the evidence.
+
+RETURN: first line, one sentence a human can read alone: who you are, your model, your status, and your
+single blunt verdict on whether the name should change. Then:
+  - NAME: keep or change, with the reason, and if change, the concrete new spellings for the product and
+    for each of the three skills, ranked, with the cost of each in the places named in TASK.
+  - POSITIONING: the one-sentence description the artifacts justify, then what the README and the two
+    manifests should say instead, quoted as replacement text.
+  - DISAGREEMENTS: each coordinator finding (a)-(d), marked confirmed / refuted / extended, with the
+    evidence.
+  - RENAME VERDICT: worth it at 0.11.1, or not, and the single condition that would flip your answer.
+Keep the whole return under 120 lines.

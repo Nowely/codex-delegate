@@ -1,0 +1,73 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.XKV9dtfL/schema.json
+
+TASK:
+Cross-review an uncommitted change written by a Claude seat. You are the other side of the house: you
+did not write it and you are not looking for balance. The suite is green, so a review that only reruns
+it is worth nothing. Find what green does not cover.
+
+The change, in the working tree at HEAD b2e25d0, uncommitted. Read it with git diff. Your half is
+`skills/seat/scripts/driver.mjs` and everything under `evals/`; a second seat changed README.md,
+CHANGELOG.md and the SKILL.md and reference pages, and those are not yours to judge except where a
+claim there contradicts the code.
+
+WHAT IT IS MEANT TO DO. Network egress becomes ON by default at both the read and the write level,
+denied only by an explicit `--no-network` on the command line or `NETWORK: no` in a seat's header
+file. No host allowlist. Nothing about approvals, escalations, the exit-6 rung or the refusal ladder
+may change. Web search stays off by default and is a separate mechanism.
+
+THE IMPLEMENTER'S OWN ACCOUNT, which you are checking rather than trusting:
+  - `opts.network` became a definite boolean defaulting to true, so every downstream reader states the
+    effective grant.
+  - The header parser gained the ability for a boolean field to carry an "off" flag, so a negative value
+    emits that flag instead of falling through and omitting the field, which is what it did before.
+  - The read level sends `permissions.<profile>.network={enabled=<bool>}` at both settings, a table
+    because a bare boolean is rejected, and the sandboxed verifier carries the same key.
+  - `--level read --network` stopped being a usage error; `--writable` at read level still is.
+  - The two per-level sandbox guards were merged into one shared symmetric assertion: a sandbox that
+    grants egress the seat denied, and one that withholds egress the seat holds, are both a hard failure.
+  - The standing instruction sent to the model now names egress either way.
+
+NINE EXISTING TESTS WERE CHANGED to make the new contract pass. This is the highest-risk part of the
+change and the first thing to audit. Each is claimed to have a reason; check whether the edit preserved
+what the case measured or hollowed it out:
+  1. cli: a seat-file injection row, where an injected `--network` became `--no-network` and the
+     assertion flipped, on the argument that with the default on, an injected positive would be
+     indistinguishable from the default and would measure nothing.
+  2. cli: a row asserting a read seat asking for egress exits 2 — replaced with a `WRITABLE:` case.
+  3. cli: a row about a negated boolean reading as omission — rationale rewritten, assertion strengthened.
+  4. protocol: a `profile-networked` row now run with the negative plus a stderr assertion.
+  5. protocol: a below-body injection row, same indistinguishability argument.
+  6. lock: a row about a write sandbox granting more than was asked for, now run with the negative.
+  7. orchestrate: two prose pins re-synced to the other seat's rewritten page.
+  8. evals.json: an expectation that no longer expects the coordinator to pass the positive flag.
+  9. the fake app server: read-level sandbox now derives its network state from the profile's table.
+
+CHECK:
+Run things. A claim you did not exercise is worth less than one you did.
+a) Audit those nine edits one by one. For each, state what the case measured before and what it
+   measures now, and whether any coverage was lost. Name every case where the edit made the case unable
+   to fail for its original reason.
+b) Hunt for paths where the new default does NOT hold or is stated untruthfully: a resumed thread, the
+   sandboxed verifier, the unsandboxed verifier, a worktree seat, a seat whose header and command line
+   disagree, a config the caller already had. Read the code rather than the summary above.
+c) The header parser now has a second way for a boolean to reach the command line. The repository has a
+   recorded incident where a newline inside a header value became a second field and executed a
+   verifier, which is why one field is command-line-only. Decide whether the new off-flag route widens
+   that surface, and give the concrete line that decides it either way.
+d) Verify the shared sandbox assertion really is symmetric and really fails closed. Construct the case
+   the implementer says is unpinned — a write-level sandbox that withholds egress the seat asked for —
+   and say whether the guard would catch it.
+e) One suite grew by about forty-seven lines for a change about egress. Establish why, and whether that
+   growth is warranted or is coverage bolted onto the wrong file.
+f) Confirm the untouched claim: that no approval, escalation, exit-code-6 or refusal-ladder behaviour
+   moved. Do not take the diff's silence as proof; check the call sites that read those structures.
+
+RETURN:
+Answer as one JSON object matching the supplied schema.
+`result`: first line is one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A6), your status and what you did. Then the findings, most serious first, at most 30 lines.
+Say plainly if you find nothing serious; a clean review stated with its evidence is a real result.
+`evidence`: what you ran, with counts, and file:line for every claim.
+`open`: what you could not settle and what would settle it.

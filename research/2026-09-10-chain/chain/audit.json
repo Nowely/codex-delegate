@@ -1,0 +1,1416 @@
+{
+  "repository": "/Users/ruliny/Git/codex-delegate",
+  "revision": "ad8cd99a08b944c02b50a40b7111f4dce346e7ad",
+  "inventory": [
+    [
+      "Scope",
+      "The reader may infer that an agent plugin only handles code. Name analysis, document review and designs in the opening."
+    ],
+    [
+      "Two installations",
+      "Claude Code being installed does not establish that Codex CLI is installed and authenticated. Name both, plus Node 22, in the first setup paragraph."
+    ],
+    [
+      "Configuration versus prerequisites",
+      "A reader treats every item under Prerequisites as mandatory. State that creating config.toml is unnecessary at the install decision; describe inheritance under settings."
+    ],
+    [
+      "Entry point",
+      "The reader cannot choose between plugin commands, symlinks and a shell invocation. Recommend the plugin; give a Claude-language first task; label source and terminal routes optional."
+    ],
+    [
+      "Names",
+      "A skill is instructions Claude reads, and a seat is one delegated assignment. Namespace spellings differ between plugin and source installations; show the mapping once."
+    ],
+    [
+      "Process environment",
+      "An export affects programs started from that shell. Plugin recipes forward one state variable; source shells must export another. Missing or relative state means exit 2."
+    ],
+    [
+      "Storage boundaries",
+      "TMPDIR, the plugin state directory and the real ~/.codex are distinct. Scratch writes, saved answers, shared credentials and session records have different locations and cleanup coverage."
+    ],
+    [
+      "Read permission",
+      "Read means a write boundary, not confinement to the chosen folder or denial of network. Retain the rights table and the readable-data/network warning."
+    ],
+    [
+      "Permission notation",
+      "DIR, REPO, cwd and worktree assume shell/Git knowledge. Define placeholders at the table and define the committed snapshot before choosing a worktree."
+    ],
+    [
+      "Worktree starting point",
+      "A fresh checkout does not include unsaved/uncommitted work or installed dependencies. A stash does not change HEAD. Harvesting and final exit are separate."
+    ],
+    [
+      "Instructions versus checks",
+      "TASK/CHECK/RETURN are prose for the model. CLI flags and leading seat-file headers configure the driver; a CHECK sentence is not an executable verifier."
+    ],
+    [
+      "Turn and thread",
+      "A thread is a Codex conversation; the report's command floor counts the main thread, not child agents. A session receipt can predate a resumed turn."
+    ],
+    [
+      "Verdict versus accomplishment",
+      "Exit 0 summarizes implemented checks. A recorded command item may have failed or lack an exit status. Inspect commands and deliverables."
+    ],
+    [
+      "Waiver",
+      "Both --allow-no-commands and ALLOW_NO_COMMANDS: yes permit exit 0 with no main-thread command items; neither cancels --expect-command."
+    ],
+    [
+      "Receipt",
+      "A rollout is a saved session record. Opening metadata proves a matching thread id only. A failed receipt check does not alter the exit verdict; an old session may evade the two-directory search."
+    ],
+    [
+      "Independent checks",
+      "A command-text match and a JSON schema are proxies. A verifier runs with caller rights unless sandboxed and can execute files the seat changed."
+    ],
+    [
+      "Report delivery",
+      "The report file must be absolute and unused. Failure to publish and an absent report cannot be interpreted as task success; neither is a receipt guaranteed."
+    ],
+    [
+      "Lifetime",
+      "No elapsed-time limit does not mean unbounded operation. Silence and command-volume limits still apply; a busy conversation may refuse resume."
+    ],
+    [
+      "Cleanup selection",
+      "Suggested cleanup excludes runs and saved conversations until their numbers are chosen. Selective cleanup is not complete uninstallation."
+    ],
+    [
+      "Cleanup visibility",
+      "Cleanup recognizes only its recorded activity; arbitrary open processes are invisible. It also needs the original temporary root and rejects stale snapshots."
+    ],
+    [
+      "Verification scope",
+      "Fixture tests, live protocol handshakes and real model turns measure different things. Skips are not passes; live-turn opt-ins can spend account usage."
+    ],
+    [
+      "Measurements and comparisons",
+      "Dated parity and official-plugin observations do not prove behavior of today's upstream release. Preserve dates, version numbers and pointers."
+    ],
+    [
+      "Repository-root commands",
+      "A symlinked skill directory is not the repository root. Maintenance commands must start at the checkout/plugin root."
+    ],
+    [
+      "Upgrade order",
+      "The conformance validator rejects unreferenced schema files. Preserve a full schema commit for future diffs, then prune before running conformance."
+    ]
+  ],
+  "claims": [
+    {
+      "id": "C01",
+      "claim": "Any work; per-call rights; structured observed-event report",
+      "anchor": "Get a second opinion",
+      "sources": [
+        "skills/seat/SKILL.md:4-10",
+        "skills/seat/scripts/driver.mjs:583-644",
+        "skills/seat/scripts/driver.mjs:670-705",
+        "skills/seat/scripts/driver.mjs:3483-3503"
+      ],
+      "qualification": null,
+      "readme_line": 3
+    },
+    {
+      "id": "C02",
+      "claim": "Exit success and matching receipt do not establish task success",
+      "anchor": "Neither a successful exit",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:232-275",
+        "skills/seat/scripts/driver.mjs:2914-2955",
+        "skills/seat/scripts/driver.mjs:3297-3303"
+      ],
+      "qualification": null,
+      "readme_line": 8
+    },
+    {
+      "id": "C03",
+      "claim": "Node 22; no package dependencies; CLI resolution and credentials",
+      "anchor": "You need Claude Code",
+      "sources": [
+        "package.json:1-9",
+        "skills/seat/scripts/driver.mjs:24-29",
+        "skills/seat/scripts/driver.mjs:1030-1044",
+        "skills/seat/scripts/driver.mjs:1216-1232"
+      ],
+      "qualification": null,
+      "readme_line": 12
+    },
+    {
+      "id": "C04",
+      "claim": "Codex login-status setup instruction",
+      "anchor": "Put `codex`",
+      "sources": [
+        "README.md:41-42",
+        "skills/seat/scripts/driver.mjs:1030-1044"
+      ],
+      "qualification": "External CLI recipe, not executed; this checkout does not implement codex login.",
+      "readme_line": 13
+    },
+    {
+      "id": "C05",
+      "claim": "Creating config.toml is unnecessary",
+      "anchor": "dependencies to install.",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1047-1098",
+        "skills/seat/scripts/driver.mjs:1252-1284"
+      ],
+      "qualification": null,
+      "readme_line": 14
+    },
+    {
+      "id": "C06",
+      "claim": "Pinned baseline and warning-only version comparison",
+      "anchor": "The protocol reference",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:34-36",
+        "skills/seat/scripts/driver.mjs:3743-3748"
+      ],
+      "qualification": null,
+      "readme_line": 16
+    },
+    {
+      "id": "C07",
+      "claim": "Plugin installation names and recipe",
+      "anchor": "/plugin marketplace add",
+      "sources": [
+        ".claude-plugin/marketplace.json:1-17",
+        ".claude-plugin/plugin.json:1-9",
+        "README.md:60-69"
+      ],
+      "qualification": "Local manifest and existing installation recipe; external plugin-manager behavior not executed.",
+      "readme_line": 22
+    },
+    {
+      "id": "C08",
+      "claim": "Required absolute state; precedence; early exit 2",
+      "anchor": "Every run needs a",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:995-1006",
+        "skills/seat/scripts/driver.mjs:2026-2065",
+        "skills/seat/scripts/driver.mjs:31",
+        "skills/seat/SKILL.md:27-40"
+      ],
+      "qualification": null,
+      "readme_line": 26
+    },
+    {
+      "id": "C09",
+      "claim": "Plugin forwards data variable; source needs exported alternative",
+      "anchor": "The plugin's skill recipe",
+      "sources": [
+        "skills/seat/SKILL.md:27-40"
+      ],
+      "qualification": null,
+      "readme_line": 27
+    },
+    {
+      "id": "C10",
+      "claim": "No automatic allow-rule changes is a skill instruction",
+      "anchor": "through your own permission settings.",
+      "sources": [
+        "skills/seat/SKILL.md:60-68"
+      ],
+      "qualification": "The README makes a conditional recommendation about host permission prompts; it does not claim a universal Claude Code permission-mode rule.",
+      "readme_line": 30
+    },
+    {
+      "id": "C11",
+      "claim": "Seat meaning, skill launch/report instructions and default permissions",
+      "anchor": "A **seat**",
+      "sources": [
+        "skills/seat/SKILL.md:19-40",
+        "skills/seat/scripts/driver.mjs:670",
+        "skills/seat/scripts/driver.mjs:2089-2092",
+        "skills/seat/scripts/driver.mjs:2152-2172"
+      ],
+      "qualification": null,
+      "readme_line": 36
+    },
+    {
+      "id": "C12",
+      "claim": "Plugin update instructions",
+      "anchor": "For plugin updates",
+      "sources": [
+        "README.md:71-78",
+        ".claude-plugin/marketplace.json:2",
+        ".claude-plugin/plugin.json:2"
+      ],
+      "qualification": "Retained host-tool recipe, not a locally executed update or verified update/uninstall guarantee.",
+      "readme_line": 40
+    },
+    {
+      "id": "C13",
+      "claim": "Working-folder selector and read default",
+      "anchor": "`DIR` is a folder path",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:670",
+        "skills/seat/scripts/driver.mjs:685",
+        "skills/seat/scripts/driver.mjs:751-755",
+        "skills/seat/scripts/driver.mjs:2102-2104"
+      ],
+      "qualification": null,
+      "readme_line": 49
+    },
+    {
+      "id": "C14",
+      "claim": "Rights table: read all readable paths; TMPDIR writes; network and commands",
+      "anchor": "| `--level read`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1989-2015",
+        "skills/seat/scripts/driver.mjs:2152-2163",
+        "skills/seat/scripts/driver.mjs:2593-2598"
+      ],
+      "qualification": null,
+      "readme_line": 54
+    },
+    {
+      "id": "C15",
+      "claim": "Rights table: managed detached worktree",
+      "anchor": "| `--worktree REPO`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:746-755",
+        "skills/seat/scripts/driver.mjs:1684-1738",
+        "skills/seat/scripts/driver.mjs:1795-1898"
+      ],
+      "qualification": null,
+      "readme_line": 55
+    },
+    {
+      "id": "C16",
+      "claim": "Rights table: chosen live write folder and extra roots",
+      "anchor": "| `--level write --cwd DIR`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:748-755",
+        "skills/seat/scripts/driver.mjs:1975-1986",
+        "skills/seat/scripts/driver.mjs:2089-2104",
+        "skills/seat/scripts/driver.mjs:2138-2172"
+      ],
+      "qualification": null,
+      "readme_line": 56
+    },
+    {
+      "id": "C17",
+      "claim": "Rights table: extra-root opt-in and sandbox network denial",
+      "anchor": "| `+ --writable DIR`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:694",
+        "skills/seat/scripts/driver.mjs:701-703",
+        "skills/seat/scripts/driver.mjs:2091-2092",
+        "skills/seat/scripts/driver.mjs:2152-2172"
+      ],
+      "qualification": null,
+      "readme_line": 57
+    },
+    {
+      "id": "C18",
+      "claim": "Read test-write limit and write-only --writable",
+      "anchor": "Tests that write outside",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:2091-2092",
+        "skills/seat/scripts/driver.mjs:2159-2163"
+      ],
+      "qualification": null,
+      "readme_line": 59
+    },
+    {
+      "id": "C19",
+      "claim": "Unset TMPDIR creation, existing grant and report tmpDir",
+      "anchor": "If `TMPDIR` is unset",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1137-1158",
+        "skills/seat/scripts/driver.mjs:2111-2123",
+        "skills/seat/scripts/driver.mjs:3383-3385"
+      ],
+      "qualification": null,
+      "readme_line": 60
+    },
+    {
+      "id": "C20",
+      "claim": "Network defaults, readable-data exposure and independent search",
+      "anchor": "Network access is on",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:665-670",
+        "skills/seat/scripts/driver.mjs:2144-2172"
+      ],
+      "qualification": null,
+      "readme_line": 63
+    },
+    {
+      "id": "C21",
+      "claim": "Reported sandbox/policy assertion and refusal",
+      "anchor": "The driver checks the server's",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1946-2015",
+        "skills/seat/scripts/driver.mjs:3794-3803"
+      ],
+      "qualification": null,
+      "readme_line": 68
+    },
+    {
+      "id": "C22",
+      "claim": "Approval requests refused and recorded",
+      "anchor": "A mismatch refuses",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:2514-2519",
+        "skills/seat/scripts/driver.mjs:2529-2541"
+      ],
+      "qualification": null,
+      "readme_line": 69
+    },
+    {
+      "id": "C23",
+      "claim": "Fresh worktree HEAD and exclusion of live uncommitted/untracked/ignored files",
+      "anchor": "A fresh worktree starts",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1688-1717"
+      ],
+      "qualification": "Derived from git worktree add --detach without a commit argument for a fresh seat; stashing does not alter HEAD.",
+      "readme_line": 71
+    },
+    {
+      "id": "C24",
+      "claim": "Harvest, ignored-file loss, preservation, independent exit verdict",
+      "anchor": "After a completed turn",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1795-1898",
+        "skills/seat/scripts/driver.mjs:3297-3303",
+        "skills/seat/scripts/driver.mjs:3354-3361"
+      ],
+      "qualification": null,
+      "readme_line": 75
+    },
+    {
+      "id": "C25",
+      "claim": "Exit 0 contract, applicable ladder, answer required",
+      "anchor": "Exit 0 means",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:232-275",
+        "skills/seat/scripts/driver.mjs:3297-3303"
+      ],
+      "qualification": null,
+      "readme_line": 83
+    },
+    {
+      "id": "C26",
+      "claim": "Main-thread command floor; child commands excluded; failed/unknown items count",
+      "anchor": "By default, the report",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:264-274",
+        "skills/seat/scripts/driver.mjs:2593-2598",
+        "skills/seat/scripts/driver.mjs:2701",
+        "skills/seat/scripts/driver.mjs:3092-3100"
+      ],
+      "qualification": null,
+      "readme_line": 86
+    },
+    {
+      "id": "C27",
+      "claim": "Both no-command waivers; declared expectation remains binding",
+      "anchor": "**Exit 0 can mean",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:194",
+        "skills/seat/scripts/driver.mjs:630-637",
+        "skills/seat/scripts/driver.mjs:697",
+        "skills/seat/scripts/driver.mjs:264-266"
+      ],
+      "qualification": null,
+      "readme_line": 91
+    },
+    {
+      "id": "C28",
+      "claim": "commands records text/status/exit; failed commands not standalone verdict",
+      "anchor": "| `commands`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:2593-2598",
+        "skills/seat/scripts/driver.mjs:271-274",
+        "skills/seat/scripts/driver.mjs:3483"
+      ],
+      "qualification": null,
+      "readme_line": 97
+    },
+    {
+      "id": "C29",
+      "claim": "Failed/unknown/pager counters and limits of piped output",
+      "anchor": "| `commandsFailed`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:3097-3130",
+        "skills/seat/scripts/driver.mjs:3404-3411"
+      ],
+      "qualification": "Pipeline semantics and concrete bypass also recorded in skills/seat/references/result-gates.md:21-26.",
+      "readme_line": 98
+    },
+    {
+      "id": "C30",
+      "claim": "Answer saving, possible null saved path",
+      "anchor": "| `answer`,",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:2968-2977",
+        "skills/seat/scripts/driver.mjs:3135-3149",
+        "skills/seat/scripts/driver.mjs:3476-3480"
+      ],
+      "qualification": null,
+      "readme_line": 99
+    },
+    {
+      "id": "C31",
+      "claim": "Receipt report fields",
+      "anchor": "| `receiptPath`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:3434-3442"
+      ],
+      "qualification": null,
+      "readme_line": 100
+    },
+    {
+      "id": "C32",
+      "claim": "Receipt window, bounded first-record read, thread id only; false leaves exit unchanged",
+      "anchor": "A **receipt**",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:89-92",
+        "skills/seat/scripts/driver.mjs:2914-2955",
+        "skills/seat/scripts/driver.mjs:3297-3303",
+        "skills/seat/scripts/driver.mjs:3359-3361",
+        "skills/seat/scripts/driver.mjs:3436-3442"
+      ],
+      "qualification": null,
+      "readme_line": 102
+    },
+    {
+      "id": "C33",
+      "claim": "Seat-file aliases; VERIFY requires explicit CLI opt-in",
+      "anchor": "Choose automated checks",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:185-197",
+        "skills/seat/scripts/driver.mjs:603-614",
+        "skills/seat/scripts/driver.mjs:683"
+      ],
+      "qualification": null,
+      "readme_line": 108
+    },
+    {
+      "id": "C34",
+      "claim": "Expectation requires successful main-thread command text match; bypasses",
+      "anchor": "- `--expect-command",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:264-266",
+        "skills/seat/scripts/driver.mjs:3095-3096",
+        "skills/seat/scripts/driver.mjs:3118-3126",
+        "skills/seat/references/result-gates.md:21-26"
+      ],
+      "qualification": null,
+      "readme_line": 112
+    },
+    {
+      "id": "C35",
+      "claim": "Verifier schedule, budget skip blocks exit 0, caller privileges",
+      "anchor": "- `--verify",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:254-257",
+        "skills/seat/scripts/driver.mjs:3170-3176",
+        "skills/seat/scripts/driver.mjs:3186-3193",
+        "skills/seat/scripts/driver.mjs:3240-3275"
+      ],
+      "qualification": null,
+      "readme_line": 115
+    },
+    {
+      "id": "C36",
+      "claim": "Sandboxed verifier write/network limit",
+      "anchor": "  with those rights.",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:3170-3176",
+        "skills/seat/scripts/driver.mjs:3190-3193"
+      ],
+      "qualification": null,
+      "readme_line": 118
+    },
+    {
+      "id": "C37",
+      "claim": "Output-schema object/strict requirements, unchecked keywords and factual limits",
+      "anchor": "- `--output-schema",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:775-831",
+        "skills/seat/scripts/driver.mjs:3399-3403"
+      ],
+      "qualification": null,
+      "readme_line": 120
+    },
+    {
+      "id": "C38",
+      "claim": "Driver help inventory and exit ladder",
+      "anchor": "`node skills/seat/scripts/driver.mjs --help` lists",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:232-276",
+        "skills/seat/scripts/driver.mjs:708-711"
+      ],
+      "qualification": null,
+      "readme_line": 125
+    },
+    {
+      "id": "C39",
+      "claim": "Orchestration workflow is instructions; both modes user-invoked",
+      "anchor": "Invoke `/codex-delegate:orchestrate`",
+      "sources": [
+        "skills/orchestrate/SKILL.md:1-16",
+        "skills/orchestrate/SKILL.md:35-54",
+        "skills/cleanup/SKILL.md:1-6"
+      ],
+      "qualification": null,
+      "readme_line": 129
+    },
+    {
+      "id": "C40",
+      "claim": "Cleanup consent, suggestion excludes run/session numbers",
+      "anchor": "In the project where",
+      "sources": [
+        "skills/cleanup/SKILL.md:25-63",
+        "skills/seat/scripts/cleanup.mjs:862-865"
+      ],
+      "qualification": "Consent behavior is the skill's instruction to Claude, while the script consumes an explicit number list.",
+      "readme_line": 135
+    },
+    {
+      "id": "C41",
+      "claim": "Cleanup four removable categories, four report-only categories",
+      "anchor": "| This project's orchestration",
+      "sources": [
+        "skills/seat/scripts/cleanup.mjs:846-865",
+        "skills/seat/scripts/cleanup.mjs:479-507"
+      ],
+      "qualification": null,
+      "readme_line": 141
+    },
+    {
+      "id": "C42",
+      "claim": "Cleanup read/liveness protection, stale snapshot refusal, no age selection or Git",
+      "anchor": "Cleanup preserves items",
+      "sources": [
+        "skills/seat/scripts/cleanup.mjs:191-213",
+        "skills/seat/scripts/cleanup.mjs:377-431",
+        "skills/seat/scripts/cleanup.mjs:814-869",
+        "skills/seat/scripts/cleanup.mjs:1035-1052",
+        "skills/seat/scripts/cleanup.mjs:1095-1154",
+        "skills/seat/scripts/cleanup.mjs:8-24"
+      ],
+      "qualification": null,
+      "readme_line": 143
+    },
+    {
+      "id": "C43",
+      "claim": "Cleanup activity visibility bounded by records",
+      "anchor": "unfinished run reports",
+      "sources": [
+        "skills/seat/scripts/cleanup.mjs:15-18",
+        "skills/seat/scripts/cleanup.mjs:397-431",
+        "skills/seat/scripts/cleanup.mjs:814-865",
+        "skills/seat/scripts/cleanup.mjs:1035-1052"
+      ],
+      "qualification": null,
+      "readme_line": 145
+    },
+    {
+      "id": "C44",
+      "claim": "Cleanup state and absolute TMPDIR required; incomplete coverage",
+      "anchor": "Cleanup uses the same",
+      "sources": [
+        "skills/seat/scripts/cleanup.mjs:218-258",
+        "skills/seat/scripts/cleanup.mjs:377-380",
+        "skills/seat/scripts/cleanup.mjs:479-495",
+        "skills/seat/scripts/cleanup.mjs:846-865"
+      ],
+      "qualification": null,
+      "readme_line": 148
+    },
+    {
+      "id": "C45",
+      "claim": "Source symlink instructions, existing-link warning and exported state",
+      "anchor": "Choose source installation",
+      "sources": [
+        "README.md:80-94",
+        "skills/seat/SKILL.md:37-40"
+      ],
+      "qualification": "Shell setup instructions are retained; clone/install/symlink creation not executed.",
+      "readme_line": 155
+    },
+    {
+      "id": "C46",
+      "claim": "Plugin/source invocation spelling",
+      "anchor": "| Install | Delegation skill",
+      "sources": [
+        ".claude-plugin/plugin.json:2",
+        "skills/seat/SKILL.md:1-2",
+        "skills/orchestrate/SKILL.md:1-6",
+        "skills/cleanup/SKILL.md:1-6",
+        "README.md:92-94"
+      ],
+      "qualification": null,
+      "readme_line": 171
+    },
+    {
+      "id": "C47",
+      "claim": "Source cleanup placeholder limitation and read-only list fallback",
+      "anchor": "If the cleanup skill's",
+      "sources": [
+        "skills/cleanup/SKILL.md:28-29",
+        "skills/seat/scripts/cleanup.mjs:70-93",
+        "skills/seat/scripts/cleanup.mjs:218-229"
+      ],
+      "qualification": "Placeholder expansion under a source install could not be live-tested; fallback invokes an actual checked-in script.",
+      "readme_line": 176
+    },
+    {
+      "id": "C48",
+      "claim": "Cleanup help describes snapshot-bound deletion",
+      "anchor": "Its `--help` describes",
+      "sources": [
+        "skills/seat/scripts/cleanup.mjs:70-98",
+        "skills/seat/scripts/cleanup.mjs:1071-1154"
+      ],
+      "qualification": null,
+      "readme_line": 183
+    },
+    {
+      "id": "C49",
+      "claim": "Direct example flags, required state, repository-root instruction",
+      "anchor": "For a direct terminal run",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:670-706",
+        "skills/seat/scripts/driver.mjs:995-1006",
+        "README.md:131-135",
+        "package.json:8"
+      ],
+      "qualification": null,
+      "readme_line": 187
+    },
+    {
+      "id": "C50",
+      "claim": "JSON stdout and prose CHECK not an automated gate",
+      "anchor": "The report is JSON",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:585-605",
+        "skills/seat/scripts/driver.mjs:693",
+        "skills/seat/scripts/driver.mjs:3483-3503"
+      ],
+      "qualification": null,
+      "readme_line": 200
+    },
+    {
+      "id": "C51",
+      "claim": "Seat-file default rights and background report delivery",
+      "anchor": "For Claude's normal background",
+      "sources": [
+        "skills/seat/SKILL.md:24-40",
+        "skills/seat/scripts/driver.mjs:645-655",
+        "skills/seat/scripts/driver.mjs:751-755"
+      ],
+      "qualification": null,
+      "readme_line": 203
+    },
+    {
+      "id": "C52",
+      "claim": "Absolute unused report path, directory mode, complete publication, absent-report interpretation",
+      "anchor": "must be absolute and unused.",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:923-963",
+        "skills/seat/scripts/driver.mjs:3498-3503",
+        "skills/seat/SKILL.md:140-141"
+      ],
+      "qualification": null,
+      "readme_line": 205
+    },
+    {
+      "id": "C53",
+      "claim": "Inherited settings and per-call model/effort overrides",
+      "anchor": "The driver inherits configured",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1047-1098",
+        "skills/seat/scripts/driver.mjs:1252-1284",
+        "skills/seat/scripts/driver.mjs:2165-2166",
+        "skills/seat/scripts/driver.mjs:3776"
+      ],
+      "qualification": null,
+      "readme_line": 211
+    },
+    {
+      "id": "C54",
+      "claim": "State precedence and stored artifacts",
+      "anchor": "The state directory is selected",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:216-224",
+        "skills/seat/scripts/driver.mjs:995-1006",
+        "skills/seat/scripts/driver.mjs:1522-1534"
+      ],
+      "qualification": null,
+      "readme_line": 215
+    },
+    {
+      "id": "C55",
+      "claim": "Shared isolated home, linked auth/sessions, host config exclusion/opt-out",
+      "anchor": "among this installation's runs.",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:1047",
+        "skills/seat/scripts/driver.mjs:1216-1251",
+        "skills/seat/scripts/driver.mjs:1272-1279",
+        "skills/seat/scripts/driver.mjs:2136",
+        "skills/seat/scripts/driver.mjs:3675-3678"
+      ],
+      "qualification": null,
+      "readme_line": 217
+    },
+    {
+      "id": "C56",
+      "claim": "No default wall limit, 900-second idle and 1000 root-command limits",
+      "anchor": "There is no elapsed-time limit",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:65-69",
+        "skills/seat/scripts/driver.mjs:670",
+        "skills/seat/scripts/driver.mjs:689-691",
+        "skills/seat/scripts/driver.mjs:2471-2479",
+        "skills/seat/scripts/driver.mjs:2603-2604"
+      ],
+      "qualification": null,
+      "readme_line": 223
+    },
+    {
+      "id": "C57",
+      "claim": "Stop signal pid, attempted report and teardown; resume and busy refusal",
+      "anchor": "Stop the background task",
+      "sources": [
+        "skills/seat/SKILL.md:159-160",
+        "skills/seat/scripts/driver.mjs:3730-3731",
+        "skills/seat/scripts/driver.mjs:3889-3931",
+        "skills/seat/scripts/driver.mjs:1572-1577",
+        "skills/seat/scripts/driver.mjs:3781-3784"
+      ],
+      "qualification": null,
+      "readme_line": 227
+    },
+    {
+      "id": "C58",
+      "claim": "npm test runner, first failure, skipped package cases",
+      "anchor": "The runner stops at",
+      "sources": [
+        "package.json:7-8",
+        "evals/run-all.mjs:23-24",
+        "evals/run-all.mjs:48-75",
+        "evals/package.test.mjs:60-92"
+      ],
+      "qualification": null,
+      "readme_line": 241
+    },
+    {
+      "id": "C59",
+      "claim": "Live opt-ins and CI configured OS/Node matrix",
+      "anchor": "Without the live-turn opt-ins",
+      "sources": [
+        "evals/fidelity.test.mjs:676-690",
+        "evals/orchestrate-live.test.mjs:876-879",
+        ".github/workflows/ci.yml:22-24",
+        ".github/workflows/ci.yml:39-49"
+      ],
+      "qualification": "CI configuration inspected; no CI or project-suite pass claimed.",
+      "readme_line": 243
+    },
+    {
+      "id": "C60",
+      "claim": "Fidelity handshake and missing-binary behavior; live turn separate",
+      "anchor": "This compares the real Codex",
+      "sources": [
+        "evals/fidelity.test.mjs:626-690",
+        "RELEASING.md:26-49"
+      ],
+      "qualification": null,
+      "readme_line": 252
+    },
+    {
+      "id": "C61",
+      "claim": "Scoped Node/browser constraints and dated concurrency reference",
+      "anchor": "For tests of your own project",
+      "sources": [
+        "skills/seat/references/parity.md:3-5",
+        "skills/seat/references/parity.md:34-47",
+        "skills/seat/references/parity.md:108-112",
+        "skills/seat/references/parity.md:127-171"
+      ],
+      "qualification": "Historical measurements referenced, not rerun or generalized to all browsers/platforms.",
+      "readme_line": 256
+    },
+    {
+      "id": "C62",
+      "claim": "on-request and read-level sandbox omission",
+      "anchor": "The driver requests `on-request`",
+      "sources": [
+        "skills/seat/scripts/driver.mjs:2152-2174",
+        "skills/seat/scripts/driver.mjs:3763-3803"
+      ],
+      "qualification": null,
+      "readme_line": 264
+    },
+    {
+      "id": "C63",
+      "claim": "Official-plugin comparison date, versions, observations and richer features",
+      "anchor": "The [comparison with the official",
+      "sources": [
+        "skills/seat/references/why-not-the-plugin.md:3-6",
+        "skills/seat/references/why-not-the-plugin.md:10-49",
+        "skills/seat/references/why-not-the-plugin.md:113-122"
+      ],
+      "qualification": "Historical local reference only; no claim about current external release.",
+      "readme_line": 267
+    },
+    {
+      "id": "C64",
+      "claim": "Schema generation and full historical tree recipe",
+      "anchor": "1. Generate the full new",
+      "sources": [
+        "README.md:230-242"
+      ],
+      "qualification": "git ls-tree inspected commit 7364f7b schema-0.153.4; generator not executed.",
+      "readme_line": 276
+    },
+    {
+      "id": "C65",
+      "claim": "Conformance override, unused-schema rejection and pin coherence",
+      "anchor": "3. Commit the full new",
+      "sources": [
+        "evals/conformance.test.mjs:21-42",
+        "evals/conformance.test.mjs:45-75",
+        "skills/seat/scripts/driver.mjs:34-36"
+      ],
+      "qualification": null,
+      "readme_line": 282
+    },
+    {
+      "id": "C66",
+      "claim": "Release gates and dated capability recheck instruction",
+      "anchor": "5. Run `npm test`",
+      "sources": [
+        "RELEASING.md:14-49"
+      ],
+      "qualification": null,
+      "readme_line": 288
+    },
+    {
+      "id": "C67",
+      "claim": "Reference layout, license and coverage pointers",
+      "anchor": "| Need | File |",
+      "sources": [
+        "skills/seat/SKILL.md:198-213",
+        "skills/seat/references/environment-and-internals.md:6-7",
+        "skills/seat/references/incidents.md:1-4",
+        "skills/seat/references/adversarial-review.md:1-5",
+        "evals/README.md:14-25",
+        "CHANGELOG.md:1-4",
+        "LICENSE:1-21"
+      ],
+      "qualification": null,
+      "readme_line": 293
+    }
+  ],
+  "passes": [
+    {
+      "part": 1,
+      "name": "Who reads this",
+      "file": "01-reader-pass.md",
+      "changes": "Rewrote the whole page around a Claude Code user's decisions: any-work scope, recommended plugin entry, same-session first task, rights, result inspection and cleanup. Replaced the Goal manifesto and moved maintainer/source material below the main path. Corrected already-confirmed overclaims rather than deliberately retaining them in a draft.",
+      "words_before": 2725,
+      "words_after": 2482,
+      "delta_words": -243
+    },
+    {
+      "part": 2,
+      "name": "Writing rules",
+      "file": "02-writing-pass.md",
+      "changes": "Cut repeated explanations and framing, reduced the orchestration summary, consolidated first-run prose, and kept state, verifier, cleanup and worktree conditions at their decisions. Removed 105 words from pass 1.",
+      "words_before": 2482,
+      "words_after": 2377,
+      "delta_words": -105
+    },
+    {
+      "part": 3,
+      "name": "Curse of knowledge",
+      "file": "03-prerequisite-pass.md",
+      "changes": "Inventoried 24 hidden prerequisites. Defined driver, seat, thread, worktree and path placeholders where needed; moved required state before the first task; distinguished optional config, prompt instructions, automated gates, source exports and the repository root. Added 105 words for missing framing rather than more implementation background.",
+      "words_before": 2377,
+      "words_after": 2482,
+      "delta_words": 105
+    },
+    {
+      "part": 4,
+      "name": "Six reader failures and accuracy floor",
+      "file": "README.md",
+      "changes": "Checked each measured failure against the draft, preserved the rights table verbatim, made the no-command waiver explicit beside exit 0, retained cleanup selection boundaries, and tightened version, worktree, verifier, schema, TMPDIR and upgrade claims against code. Final accuracy/reflow edits are part of this pass.",
+      "words_before": 2482,
+      "words_after": 2571,
+      "delta_words": 89
+    }
+  ],
+  "repairs": [
+    {
+      "reader": 1,
+      "question": "What is this?",
+      "anchors": [
+        "Get a second opinion",
+        "Neither a successful exit",
+        "A **receipt**"
+      ],
+      "change": "Any work, with analysis/document review/design examples; removed guaranteed-receipt and cannot-fake-success promises; receipt meaning and independence from exit are explicit.",
+      "readme_lines": [
+        3,
+        8,
+        102
+      ]
+    },
+    {
+      "reader": 2,
+      "question": "What must I install?",
+      "anchors": [
+        "You need Claude Code",
+        "The driver inherits configured"
+      ],
+      "change": "Names Node 22; says creating config.toml is unnecessary at the install decision and explains optional inheritance under settings.",
+      "readme_lines": [
+        12,
+        211
+      ]
+    },
+    {
+      "reader": 3,
+      "question": "How do I run it the first time?",
+      "anchors": [
+        "For a first install",
+        "Every run needs a",
+        "Then ask Claude",
+        "For a direct terminal run"
+      ],
+      "change": "Recommends plugin installation, provides a same-session task, explains critical state before launching, labels source/terminal routes optional, and embeds state in the complete terminal command.",
+      "readme_lines": [
+        19,
+        26,
+        32,
+        187
+      ]
+    },
+    {
+      "reader": 4,
+      "question": "What may it touch?",
+      "anchors": [
+        "| Call | Codex may |",
+        "Network access is on"
+      ],
+      "change": "Preserves the full rights table byte-for-byte and retains the read/network warning; adds nearby definitions and limits without changing the choice table.",
+      "readme_lines": [
+        52,
+        63
+      ]
+    },
+    {
+      "reader": 5,
+      "question": "How do I know the work happened?",
+      "anchors": [
+        "Exit 0 means",
+        "By default, the report",
+        "**Exit 0 can mean",
+        "A **receipt**",
+        "Choose automated checks"
+      ],
+      "change": "Separates a completed turn and applicable checks from task success; states both no-command waivers, root-thread counting, failed/unknown outcomes, metadata-only receipt and gate limitations.",
+      "readme_lines": [
+        83,
+        86,
+        91,
+        102,
+        108
+      ]
+    },
+    {
+      "reader": 6,
+      "question": "How do I remove what it left?",
+      "anchors": [
+        "## Remove what it left",
+        "Cleanup uses the same",
+        "| Install | Delegation skill"
+      ],
+      "change": "Gives cleanup its own heading and one recommended invocation; preserves numbered consent, four removable/four retained categories and liveness limits; unifies state terminology and maps source spellings once.",
+      "readme_lines": [
+        133,
+        148,
+        171
+      ]
+    }
+  ],
+  "kept": [
+    [
+      "Every run needs a",
+      "Required absolute state and variable forwarding before the first task; repeated in the independently usable terminal example."
+    ],
+    [
+      "| Call | Codex may |",
+      "The working rights table, including read scope and network access."
+    ],
+    [
+      "Network access is on",
+      "Readable files may be sent over the network; sandbox denial and provider web search are separate."
+    ],
+    [
+      "A fresh worktree starts",
+      "HEAD excludes uncommitted work and live-only dependencies; stashing is not committing."
+    ],
+    [
+      "After a completed turn",
+      "Harvest/remove may fail; ignored files may be lost; an exit-0 verdict does not check the harvest."
+    ],
+    [
+      "**Exit 0 can mean",
+      "Both no-command waivers and their non-effect on a declared expectation."
+    ],
+    [
+      "A **receipt**",
+      "Metadata-only receipt check, bounded search and unchanged exit verdict when false."
+    ],
+    [
+      "- `--expect-command",
+      "Text-match/pipeline weakness; verifier caller privileges, sandbox option and budget limit; schema validation limits."
+    ],
+    [
+      "In the project where",
+      "Cleanup needs explicit approval; runs and conversations require their numbers."
+    ],
+    [
+      "Cleanup preserves items",
+      "Unreadable, in-use or changed items are retained; record-only liveness is not process omniscience."
+    ],
+    [
+      "Cleanup uses the same",
+      "Cleanup's absolute TMPDIR requirement and incomplete coverage."
+    ],
+    [
+      "Choose source installation",
+      "mkdir -p, no replacement of existing skills, absolute export and start Claude from the exported environment."
+    ],
+    [
+      "must be absolute and unused.",
+      "Absolute unused report path and absent-report-is-unknown warning."
+    ],
+    [
+      "There is no elapsed-time limit",
+      "900-second silence and 1000-command defaults despite no wall clock."
+    ],
+    [
+      "The runner stops at",
+      "Skip notices are not passes; real model usage is separately opted in."
+    ],
+    [
+      "For tests of your own project",
+      "Scoped browser/Vitest restrictions and link to dated measurements with their original numbers intact."
+    ],
+    [
+      "The [comparison with the official",
+      "2026-08-31, plugin 1.0.6 and Codex 0.150.1 remain attached to historical comparison."
+    ],
+    [
+      "3. Commit the full new",
+      "Full schema commit and its hash remain an operational dependency; prune before conformance."
+    ]
+  ],
+  "limitations": [
+    "No new six-reader experiment was run; repairs were checked structurally and against local implementation. No project test suite, model turn, network call, installation, update, cleanup deletion or schema regeneration was run.",
+    "External Claude Code plugin installation/update commands, skill discovery and codex login status were not live-tested. Their local provenance is recorded separately from driver implementation claims.",
+    "The source cleanup recipe references CLAUDE_PLUGIN_ROOT (skills/cleanup/SKILL.md:29). Whether the host supplies that placeholder under symlink installation could not be determined from this checkout; the README gives a direct checked-in-script fallback.",
+    "The existing seat/parity documents still say 'commit or stash' before a HEAD worktree (skills/seat/SKILL.md:129-130; skills/seat/references/parity.md:41-43). The new README states that stashing alone does not move work into HEAD. Repository files were not edited.",
+    "Part 2 brevity and Part 3 missing framing required judgment: 24 prerequisites were inventoried, but only decision-critical framing was added. Part 2 itself permits repeating conditions at independent decisions.",
+    "Preserving the successful rights passage and enforcing accuracy were reconciled by keeping the entire original table and placing qualifications directly below it. No unresolved contradiction between the four parts remains.",
+    "Relative links in the replacement README target the checkout layout and were checked against the repository root; the temporary directory is a review artifact, not a relocated installation.",
+    "The patch-tool write and an escalation attempt were rejected. The same requested temporary output was then written successfully using a normal sandboxed command with the temporary directory as cwd; no outstanding permission request remains."
+  ],
+  "headings": [
+    "# codex-delegate",
+    "## Install and first run",
+    "## Rights, per call",
+    "## How to check the work",
+    "## Use Claude and Codex together",
+    "## Remove what it left",
+    "## Optional: install from source",
+    "## Optional: run the driver yourself",
+    "## Settings and saved files",
+    "## Stop or continue a run",
+    "## Checks and compatibility",
+    "## Why this driver",
+    "## After a codex upgrade",
+    "## Files and references"
+  ],
+  "word_counts": {
+    "00-original.md": 2725,
+    "01-reader-pass.md": 2482,
+    "02-writing-pass.md": 2377,
+    "03-prerequisite-pass.md": 2482,
+    "README.md": 2571
+  },
+  "cut_ledger": [
+    {
+      "original_start": 3,
+      "original_end": 9,
+      "words": 118,
+      "disposition": "Replaced",
+      "reason": "Any-work framing; removed receipt/task-success guarantees; retained per-call rights and observed-event reporting.",
+      "original_passage": "A Claude Code plugin whose main skill hands coding work to OpenAI Codex as a subagent, with the rights\nfor each call declared up front: analysis that reads and runs but writes nothing of yours, or writing\nand running tests inside a git worktree the driver manages itself. Every completed turn leaves a receipt\n— a rollout the driver locates, opens and checks — and the exit code is derived from what actually\nhappened rather than from a process status that says nothing about the task, so a seat that did nothing\ncannot report as though it had. Two more skills ship beside it, both described below and both invoked by\nthe user rather than by the model."
+    },
+    {
+      "original_start": 13,
+      "original_end": 21,
+      "words": 159,
+      "disposition": "Removed and consolidated",
+      "reason": "Deleted the Goal manifesto, repeated rationales, no-configuration promise and cannot-report-doing-nothing guarantee. Retained actual defaults, rights and limits where chosen.",
+      "original_passage": "A coordinator agent, Sonnet or Opus, that has loaded this skill must be able to launch a Codex subagent\non the first attempt and get a finished, verifiable answer back, with nothing to configure and nothing\nto know in advance. The defaults have to produce what a native Claude Code subagent does: one call, it\nwaits as long as the work takes, it returns the answer, and it is stopped only by silence or by the\ncoordinator. Everything else here serves that. Rights are declared per call so the coordinator never\nwonders what the seat may touch; exit codes are derived from evidence so a seat that did nothing cannot\nreport as though it had; a prompt with no header at all is a read seat in the current directory. Where a\nknob and a default compete, the default wins. Where a rule must be known to succeed, that is a defect in\nthis repository, not in the coordinator."
+    },
+    {
+      "original_start": 23,
+      "original_end": 26,
+      "words": 53,
+      "disposition": "Moved and shortened",
+      "reason": "Orchestration now follows result inspection; describes skill instructions and user invocation.",
+      "original_passage": "A second, user-invoked skill applies the same goal to the whole session. `/codex-delegate:orchestrate`\nturns the main conversation into an orchestrator that scouts inline, agrees one plan, and pushes every\nverbose step onto Claude and Codex seats; it is prompt only, adds no flag or field, and is a delta over\nthis skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md))."
+    },
+    {
+      "original_start": 28,
+      "original_end": 37,
+      "words": 168,
+      "disposition": "Moved and clarified",
+      "reason": "Cleanup now has a dedicated heading and coverage table; retained numbered consent, four removable/four retained kinds and record-only liveness.",
+      "original_passage": "A third, `/codex-delegate:cleanup`, is the cleanup: it lists what the plugin has left on this machine and\nremoves only what you pick by number ([skills/cleanup/SKILL.md](skills/cleanup/SKILL.md)). It removes four\nkinds — this project's orchestrate run directories and seat scratch, the test suites' scratch\ndirectories and the saved conversations they leave behind — and only ever reports the other four:\nmanaged worktrees and their ledger, write locks, the shared Codex home, and the data of another copy of\nthe plugin, which is yours to remove with the shell-quoted command the listing hands you. It suggests\nnothing that is running or that it could not fully read, never another project's, never a run or a saved\nconversation without your number, and never on age. It runs no git. \"Running\" means what this plugin\nrecords — a seat's startup line, a run's unreported seat, a job record, a live test suite — so a process\nholding one of these open with none of that behind it is not something it can see."
+    },
+    {
+      "original_start": 41,
+      "original_end": 56,
+      "words": 206,
+      "disposition": "Rebuilt",
+      "reason": "Numeric Node 22 requirement; CLI baseline 0.153.4 is a warning-only pin; optional config removed from prerequisites; CI/temp behavior moved to relevant decisions.",
+      "original_passage": "- **`codex` CLI, installed and authenticated.** `codex` must be on `PATH` and signed in — check with\n  `codex login status`. Runs reuse your credentials: `auth.json` is symlinked from your real `~/.codex`.\n- **The codex-cli build the driver pins.** Every report names it as `codexVersionPinned`, and the\n  `schema-<version>/` directory at the repository root is that build's protocol reference. After\n  upgrading codex, run the fidelity suite (below) before trusting a run.\n- **Node at or above the floor `package.json` declares** (`engines`); CI runs that floor and a current\n  release, Linux and macOS. No dependencies: the driver is one file importing only `node:` builtins.\n- **macOS and Linux are both measured.** CI runs every suite that needs no `codex` binary on both;\n  the macOS-only call (the managed-preferences plist) is guarded. A stock Linux shell leaves `TMPDIR`\n  unset, and at `--level read` it *is* the grant: the driver then makes a private one and names it in\n  the report as `tmpDir` ([Environment](skills/seat/references/environment-and-internals.md#environment)).\n  Export your own to put the seat's scratch files elsewhere.\n- **Your `~/.codex/config.toml` is the default policy.** Model, reasoning effort and the other keys\n  the driver inherits ([the isolated home](skills/seat/references/environment-and-internals.md#the-isolated-home))\n  come from it unless overridden per call (`--model`, `--effort`); the driver deliberately sets no\n  defaults of its own."
+    },
+    {
+      "original_start": 60,
+      "original_end": 60,
+      "words": 21,
+      "disposition": "Consolidated",
+      "reason": "Recommends one plugin route; retains install/update commands. Removes duplicate shell-install spelling and repeated skill-name prose.",
+      "original_passage": "As a plugin — the full set: all three skills, the driver and the suites (the repo is its own marketplace):"
+    },
+    {
+      "original_start": 67,
+      "original_end": 69,
+      "words": 26,
+      "disposition": "Consolidated",
+      "reason": "Recommends one plugin route; retains install/update commands. Removes duplicate shell-install spelling and repeated skill-name prose.",
+      "original_passage": "This route exposes the skill as `codex-delegate:seat`, the orchestrator mode as\n`codex-delegate:orchestrate` and the cleanup as `codex-delegate:cleanup`; the last two only the user can\nturn on."
+    },
+    {
+      "original_start": 71,
+      "original_end": 73,
+      "words": 31,
+      "disposition": "Consolidated",
+      "reason": "Recommends one plugin route; retains install/update commands. Removes duplicate shell-install spelling and repeated skill-name prose.",
+      "original_passage": "The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then\n`claude plugin install codex-delegate@nowely`. To update, refresh the marketplace clone and\nthen the plugin, and restart Claude Code:"
+    },
+    {
+      "original_start": 80,
+      "original_end": 81,
+      "words": 26,
+      "disposition": "Moved and shortened",
+      "reason": "Source install is optional; keeps mkdir, links, export and one names table, but cuts the explanatory fresh-account story.",
+      "original_passage": "Or from source — clone and symlink, so the checkout stays the single source of truth (the `orchestrate`\nsymlink is only needed for the orchestrator mode):"
+    },
+    {
+      "original_start": 83,
+      "original_end": 90,
+      "words": 33,
+      "disposition": "Moved and shortened",
+      "reason": "Source install is optional; keeps mkdir, links, export and one names table, but cuts the explanatory fresh-account story.",
+      "original_passage": "```bash\ngit clone https://github.com/Nowely/codex-delegate.git\ncd codex-delegate\nmkdir -p ~/.claude/skills                           # absent on a machine that has never run Claude Code\nln -s \"$PWD/skills/seat\" ~/.claude/skills/seat\nln -s \"$PWD/skills/orchestrate\" ~/.claude/skills/orchestrate\nln -s \"$PWD/skills/cleanup\" ~/.claude/skills/cleanup\n```"
+    },
+    {
+      "original_start": 92,
+      "original_end": 94,
+      "words": 25,
+      "disposition": "Moved and shortened",
+      "reason": "Source install is optional; keeps mkdir, links, export and one names table, but cuts the explanatory fresh-account story.",
+      "original_passage": "On this clone-and-symlink route the skill is `seat` and the modes are `/orchestrate` and\n`/cleanup`; on the plugin route they are `codex-delegate:seat`, `/codex-delegate:orchestrate`\nand `/codex-delegate:cleanup`."
+    },
+    {
+      "original_start": 96,
+      "original_end": 97,
+      "words": 33,
+      "disposition": "Moved and shortened",
+      "reason": "Source install is optional; keeps mkdir, links, export and one names table, but cuts the explanatory fresh-account story.",
+      "original_passage": "The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`\non a fresh account, which is exactly the account this route is written for."
+    },
+    {
+      "original_start": 99,
+      "original_end": 110,
+      "words": 150,
+      "disposition": "Rebuilt",
+      "reason": "States absolute state requirement/precedence and complete source export. Removes fixed-path and uninstall/permission-mode guarantees not established by this checkout; retains conditional folder-access guidance.",
+      "original_passage": "**Where the driver's state lives.** `${CLAUDE_PLUGIN_DATA}`, the plugin's own data directory, which\nClaude Code substitutes into the skill's recipes and which this install resolves to\n`~/.claude/plugins/data/codex-delegate-nowely/` (the plugin's name, then the marketplace's). The\nanswers and the isolated Codex home, the\nwrite locks, the worktree ledger and the orchestrator mode's run directories are all there. It survives\nplugin updates; an uninstall deletes it unless you pass `claude plugin uninstall --keep-data`, and\n`/codex-delegate:cleanup` lists what is in it and removes what you choose. The driver\nkeeps no default of its own: with neither that variable nor `CODEX_DELEGATE_STATE_DIR` it exits 2. In\nevery permission mode but auto and bypass, a write outside the working directory prompts, so add that\ndirectory to `permissions.additionalDirectories` once — this plugin adds no rules on your behalf. On the\nclone-and-symlink route nothing substitutes the placeholder, so export an absolute path of your own\ninstead, in your shell profile:"
+    },
+    {
+      "original_start": 116,
+      "original_end": 117,
+      "words": 22,
+      "disposition": "Moved and qualified",
+      "reason": "Checks moved below first use; preserves root location, skipped cases, version check and separate live opt-ins instead of an unconditional no-model/cost promise.",
+      "original_passage": "Verify the install from the checkout (plugin installs carry the suites too, under the plugin root) —\ncosts nothing, calls no model:"
+    },
+    {
+      "original_start": 123,
+      "original_end": 124,
+      "words": 28,
+      "disposition": "Moved and qualified",
+      "reason": "Checks moved below first use; preserves root location, skipped cases, version check and separate live opt-ins instead of an unconditional no-model/cost promise.",
+      "original_passage": "A plugin root carries no git metadata, so the `package` suite's tag and payload cases announce\nthemselves there as skipped instead of failing; from the checkout they run."
+    },
+    {
+      "original_start": 126,
+      "original_end": 129,
+      "words": 64,
+      "disposition": "Moved and qualified",
+      "reason": "Checks moved below first use; preserves root location, skipped cases, version check and separate live opt-ins instead of an unconditional no-model/cost promise.",
+      "original_passage": "The `fidelity` suite is what to watch after a `codex` upgrade: it performs a real handshake and diffs\nit against the fixture, so protocol drift shows up as a failing case instead of a confident wrong\nanswer. Without `codex` on `PATH` it skips and exits 0, which is what CI does; the release checklist\n([RELEASING.md](RELEASING.md)) runs it locally, where the skip becomes a failure."
+    },
+    {
+      "original_start": 131,
+      "original_end": 135,
+      "words": 68,
+      "disposition": "Shortened",
+      "reason": "Keeps the repository/plugin-root and symlink-resolution instruction; cuts the explanatory ls-versus-Node anecdote.",
+      "original_passage": "Run the suites from the **repository or plugin root**. Do not compute that root by appending `../..`\nto the skill path: where the skill is a symlink (the clone-and-symlink install above), Node collapses\n`..` lexically and lands somewhere that does not exist, while `ls` follows the link and appears to\nwork. Resolve the link, or use the install path announced when the skill loads, or `installPath` in\n`installed_plugins.json`."
+    },
+    {
+      "original_start": 141,
+      "original_end": 146,
+      "words": 29,
+      "disposition": "Moved and completed",
+      "reason": "Terminal example is optional, stack-neutral, and includes its own state assignment.",
+      "original_passage": "```bash\nnode skills/seat/scripts/driver.mjs --cwd . --brief \\\n  --prompt 'TASK: describe this repository in two sentences, after listing its files.\nCHECK: name three real files.\nRETURN: the two sentences.'\n```"
+    },
+    {
+      "original_start": 148,
+      "original_end": 153,
+      "words": 66,
+      "disposition": "Corrected",
+      "reason": "Replaces exit-0-means-command-ran and receipt-validation wording with the actual command-item floor, waivers and metadata-only receipt check.",
+      "original_passage": "The JSON report — the only report — ends with the verdict: `exitCode: 0` means the turn completed, every\ndeclared check passed, and a command really ran; anything else is a specific complaint — the driver's\n`--help` documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and\n`receiptOk` locate and validate the run's rollout\n([receipt details](skills/seat/references/environment-and-internals.md#receipt-validation-and-reporting)\nsay what that does and does not prove)."
+    },
+    {
+      "original_start": 155,
+      "original_end": 163,
+      "words": 132,
+      "disposition": "Moved and qualified",
+      "reason": "Normal Claude first use precedes optional shell use; preserves prompt/report contracts, modes and no-clobber behavior; missing report stays unknown.",
+      "original_passage": "Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the\nagent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed it\nis `codex-delegate:seat` (the clone-and-symlink spellings are under Install). A seat is one\nbackground Bash call of that same driver: the prompt in a file named by `--seat-file`, the report at\n`--report-file`; add `SEAT: worktree <repo>` above `TASK:` for a managed writer. The\ndriver parses that header, launches one seat, waits as long as the work takes, makes the directories the\nreport path needs at 0700, and publishes the report there by hard link, never over an existing entry: the\ncoordinator reads the file when the call's exit notification arrives, and a missing file means unknown,\nnever success."
+    },
+    {
+      "original_start": 174,
+      "original_end": 178,
+      "words": 90,
+      "disposition": "Reworded, substance kept",
+      "reason": "All-readable-path exposure, default network, no allowlist and separate provider search remain directly beside the rights table.",
+      "original_passage": "Egress is on at both levels, as it is for a native subagent, and no host list narrows it; `--no-network`\nis what takes it away, from the sandbox — the provider's own web search is a separate channel, off until\n`--web-search` asks for it, and a denied sandbox and a granted search mode are accepted together. Egress\nmoves nothing on disk — a read seat still writes only `$TMPDIR` — but whatever a seat can read it can\nsend, and at read level that is every path you can read."
+    },
+    {
+      "original_start": 182,
+      "original_end": 185,
+      "words": 74,
+      "disposition": "Corrected",
+      "reason": "Removes the false no-registry/no-collector assertion and unconditional lifetime/delivery wording; documents limits, best-effort interruption and job records.",
+      "original_passage": "A run lives exactly as long as its call: there is no run registry and no collector, and the caller that\nstarted a seat owns its lifetime. `--report-file` is the delivery that survives a broken pipe, and a\nseat is stopped by `SIGTERM` to the pid the driver prints on its first stderr line — the turn is\ninterrupted, the report it had earned is written anyway, and the codex process group is swept."
+    },
+    {
+      "original_start": 189,
+      "original_end": 206,
+      "words": 239,
+      "disposition": "Consolidated and corrected",
+      "reason": "Trust claims now sit with report inspection. Removes process-always-zero and receipt-per-run absolutes; keeps verifier privileges, proxies, sandbox assertions and optional host-home behavior.",
+      "original_passage": "- **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered\n  ladder of exit codes from the event stream. The driver's `--help` is the complete ladder;\n  `SKILL.md` gives the decisions a coordinator makes on it.\n- **Evidence gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by\n  the model — but with the coordinator's own rights, env and network, so a verifier that executes tree\n  contents (`npm test` runs the seat's `package.json` script) is running the seat's code; prefer one\n  that does not, or add `--verify-sandboxed` to put it behind the read profile, which confines its\n  writes to `$TMPDIR` and hands it the seat's own egress, a denial included;\n  `--expect-command <regex>` demands the work matched a declared signature;\n  `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can\n  be fooled: the driver's `--help` and [references/result-gates.md](skills/seat/references/result-gates.md).\n- **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that\n  were asked for, and a mismatch refuses the run instead of proceeding under an unknown sandbox.\n- **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout and check it names this thread;\n  what that does and does not prove is in\n  [the internals reference](skills/seat/references/environment-and-internals.md#receipt-validation-and-reporting).\n- **Isolation by default.** Runs use a private `CODEX_HOME`, so your plugins, skills and MCP servers\n  stay out of the turn and no trust records are written back; `--host-home` opts out."
+    },
+    {
+      "original_start": 210,
+      "original_end": 216,
+      "words": 101,
+      "disposition": "Scoped to dated evidence",
+      "reason": "Replaces current/universal upstream claims with the local 2026-08-31 comparison, plugin 1.0.6 and Codex 0.150.1; keeps the reference to advantages and defects.",
+      "original_passage": "The official `openai-codex` plugin is architecturally the same idea and richer in places — background\njobs, resume UX, a stop-time review gate. It is not a substitute where rights matter: it hardcodes an\napproval policy that managed (MDM) machines clamp into deny-everything, and it always sends an explicit\n`sandbox` parameter, which suppresses the permission profile that makes read-level test runs possible —\non every machine, managed or not. Both defects are silent: the run still exits 0. The `codex\nexec`-based skills and the official SDK hit the same walls. Full forensics, upstream issue state, and\nwhat the plugin does better: [references/why-not-the-plugin.md](skills/seat/references/why-not-the-plugin.md)."
+    },
+    {
+      "original_start": 220,
+      "original_end": 226,
+      "words": 79,
+      "disposition": "Scoped",
+      "reason": "Keeps relevant browser/Node/network/concurrency limits as the reference's tested setup; avoids universal browser and current experimental-label claims without a local CLI check.",
+      "original_passage": "Read level cannot run browser-mode tests: Chromium needs a one-file override at the tree root, which is\na write a read seat does not have — they run at write level\n([Browser-mode sandbox](skills/seat/references/parity.md#browser-mode-sandbox)). Node-environment vitest at read level\nneeds `--configLoader runner`. Concurrency is memory-bound (figures in\n[parity.md](skills/seat/references/parity.md#fan-out-and-reporting)) and exceeding the machine\nbudget gets runs killed by the OS, not throttled. The app-server protocol is `[experimental]` and\ncarries no stability promise — hence the pinned schema and the fidelity suite."
+    },
+    {
+      "original_start": 230,
+      "original_end": 234,
+      "words": 20,
+      "disposition": "Rebuilt",
+      "reason": "Retains full-schema history and commit hash; supplies extraction prerequisite and moves pruning before conformance to match unused-file rejection.",
+      "original_passage": "```bash\ncodex app-server generate-json-schema --out <tmp-new>/\ngit archive 7364f7b schema-<old-version> | tar -x -C <tmp-old>/\ndiff -r <tmp-old>/schema-<old-version>/ <tmp-new>/\n```"
+    },
+    {
+      "original_start": 236,
+      "original_end": 242,
+      "words": 87,
+      "disposition": "Rebuilt",
+      "reason": "Retains full-schema history and commit hash; supplies extraction prerequisite and moves pruning before conformance to match unused-file rejection.",
+      "original_passage": "Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` in a commit of its\nown: that commit holds the full tree the next upgrade diffs against, so replace `7364f7b` above with its hash.\n`CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` validates it while\n`schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new\ndirectory to the files [conformance](evals/conformance.test.mjs) loads in a second commit, and delete the old one. Then\n`npm test` and `node evals/fidelity.test.mjs --require-live`, inspect any fixture/live difference, and\nre-check [the dated parity reference](skills/seat/references/parity.md)."
+    },
+    {
+      "original_start": 246,
+      "original_end": 264,
+      "words": 161,
+      "disposition": "Consolidated",
+      "reason": "Layout becomes a compact purpose/file table; full-schema operational history remains only in the upgrade recipe.",
+      "original_passage": "```\nskills/seat/                     the main skill: SKILL.md (the operating manual), scripts/ (the driver\n                                 and its companions, each self-describing under --help), references/\nskills/orchestrate/SKILL.md      the orchestrator mode: a delta over the seat skill, prompt only\nskills/cleanup/SKILL.md          the cleanup mode: runs scripts/cleanup.mjs, shows its listing and\n                                 deletes what the user chose\n.claude-plugin/                  plugin + marketplace manifests\nevals/                           the suites, one file each; run-all.mjs lists them and runs them\n                                 cheapest first, lib/harness.mjs and lib/scenarios.mjs are their\n                                 shared machinery\npackage.json                     private; the Node floor and `npm test`\n.github/workflows/ci.yml         the suites that need no `codex` binary, on its OS × Node matrix\nschema-<version>/                the files evals/conformance.test.mjs loads out of the pinned protocol\n                                 schema; kept in the repo (and therefore in plugin installs) because\n                                 those are what the suites this README tells you to run validate\n                                 against. The full generated tree is not kept here: the commit named in\n                                 the upgrade recipe holds the last one (7364f7b for 0.153.4), and the\n                                 recipe diffs the next regeneration against it.\n```"
+    },
+    {
+      "original_start": 268,
+      "original_end": 277,
+      "words": 94,
+      "disposition": "Consolidated",
+      "reason": "Replaces canonical-homes rhetoric and duplicated paths with one files-and-references table.",
+      "original_passage": "| Subject | Canonical home |\n| --- | --- |\n| composition, rights, workflow | [`SKILL.md`](skills/seat/SKILL.md) |\n| orchestration: tiers, Codex share, seat bounds, returns | [`skills/orchestrate/SKILL.md`](skills/orchestrate/SKILL.md) |\n| what the plugin leaves behind, and removing it | [`skills/cleanup/SKILL.md`](skills/cleanup/SKILL.md), `node skills/seat/scripts/cleanup.mjs --help` |\n| flags and field formats | `node skills/seat/scripts/driver.mjs --help` (`--help-all` for the rest) |\n| environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/seat/references/environment-and-internals.md) |\n| native capability parity and dated measurements | [`parity.md`](skills/seat/references/parity.md) |\n| measured failures behind rules | [`incidents.md`](skills/seat/references/incidents.md) |\n| suite coverage and mutations | [`evals/README.md`](evals/README.md) |"
+    },
+    {
+      "original_start": 281,
+      "original_end": 290,
+      "words": 122,
+      "disposition": "Removed and linked",
+      "reason": "Removes confidence/age/adversarial-review rhetoric and blanket mutation guarantees; keeps coverage, change history and MIT license pointers without claiming fresh test results.",
+      "original_passage": "Young code, adversarially reviewed by mixed Claude/Codex panels. What that produced is checkable in the\nrepository rather than in the claim: the home-directory guard is pinned against case variants, symlinks\nand a hostile `$HOME`; the lock's critical section is pinned against overlapping holders; a seat file\ncannot introduce a verifier; `$TMPDIR` is guarded like every other writable root; and each suite is\nmutation-checked, with the surviving mutants and what was done about them listed in\n[`evals/README.md`](evals/README.md). Changes are available offline in\n[`CHANGELOG.md`](CHANGELOG.md); release notes and known issues also live on the\n[releases page](https://github.com/Nowely/codex-delegate/releases). The Codex build each release was\nmeasured against is stated there because that axis — not the skill's own code — is what usually breaks.\nMIT — see [LICENSE](LICENSE)."
+    }
+  ],
+  "validation": {
+    "kind": "documentation structural audit; not a project test run",
+    "original_words": 2725,
+    "final_words": 2571,
+    "original_lines": 290,
+    "final_lines": 303,
+    "word_delta": -154,
+    "claims_with_checked_source_spans": 67,
+    "distinct_source_spans_checked": 179,
+    "local_markdown_link_occurrences_checked": 23,
+    "invisible_prerequisites": 24,
+    "reader_repair_entries": 6,
+    "rights_table_lines_unchanged": 6,
+    "substantial_replaced_or_removed_blocks": 30,
+    "source_readme_sha256": "8863964c802bf1612c44e92890af620f80873101356d897e67692e1ef0be1bbc",
+    "original_snapshot_matches_source": true,
+    "git_status_porcelain": "",
+    "fenced_blocks_balanced": true,
+    "project_tests_run": 0,
+    "live_reader_experiments_run": 0,
+    "model_calls_run": 0
+  }
+}

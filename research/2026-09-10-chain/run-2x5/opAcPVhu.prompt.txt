@@ -1,0 +1,56 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Find the prompts and skills that make a writing agent hold a READER in mind, rather than a style.
+
+An earlier survey looked for documentation skills and came back with style standards: sentence rules,
+banned constructions, punctuation, document types. That is not this question. This one: what published
+material tells an agent WHO it is writing for and how to keep that person in view while it writes.
+
+Concretely, hunt for:
+  - Skills or prompt files that establish an audience, a persona or a reader's job before any writing
+    rule. A skill whose first move is "who reads this" rather than "how to phrase this".
+  - Any encoding of the reader-testing idea: give a fresh agent the document alone, ask the questions a
+    newcomer would ask, and fix what it got wrong. Anthropic's own `doc-coauthoring` skill has a stage
+    like this at https://raw.githubusercontent.com/anthropics/skills/main/skills/doc-coauthoring/SKILL.md
+    and is already known. Find what else does it, and whether anyone has made it a standing check rather
+    than a one-off workflow.
+  - Prompt techniques with published support for making a model write for a stated audience: persona
+    framing, jobs-to-be-done, reader-question elicitation, curse-of-knowledge counters. Say for each
+    whether anyone has shown it works or whether it is only recommended.
+  - Any FAQ, checklist or rubric that judges a document by what a reader can do after reading it, rather
+    than by how the text looks.
+
+Judge every candidate by opening its actual text, never by its registry description, and classify it:
+does it encode a reader, or does it encode a style and merely mention a reader in its first paragraph?
+Most will be the second, and saying so precisely is the useful part of this job.
+
+These four routes were verified working from this machine today, 2026-09-10:
+  - `curl -sL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`
+  - `curl -sL "https://api.github.com/repos/<owner>/<repo>/git/trees/<branch>?recursive=1"`, unauthenticated,
+    about 60 calls an hour; the code-search endpoint returns 401 and is not worth trying
+  - `curl -sL https://skills.sh/<owner>/<repo>/<skill>` and `npx -y skills find "<query>"`
+  - plain `curl` to a documentation site
+Do not use a provider web-search tool: this device's policy refuses the live tier and the cached tier
+answers 429.
+
+CHECK:
+a) Open every shortlisted file and give its URL and its length in lines. An entry you could not fetch is
+   labelled unread and does not enter the shortlist.
+b) For each, quote the sentence that establishes the reader, if there is one. If there is none, say so;
+   that is the finding.
+c) Separate what somebody has demonstrated from what somebody recommends.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra S2), your status and what you did. Then: at most five
+             candidates that genuinely encode a reader, ranked, each with its URL, what it does in a
+             sentence, and the line that establishes the reader; then whether reader-testing exists
+             anywhere as a standing check; then what the search establishes is missing.
+  evidence:  URLs, line counts, and the quoted reader-establishing sentences.
+  artifacts: anything you left in your own temporary directory.
+  open:      what you could not fetch, and where you had to judge "encodes a reader" by taste.

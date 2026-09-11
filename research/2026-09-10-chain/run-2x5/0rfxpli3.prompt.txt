@@ -1,0 +1,68 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.0rfxpli3/schema.json
+
+TASK:
+Establish, on evidence available locally, what codex 0.153.4 can actually be made to do about network
+access for a sandboxed subagent. This is fact-finding, not design. A confident wrong answer here is
+worse than a gap, because a design is about to be built on it.
+
+You have no network. Do not guess from memory of documentation you cannot open. Everything you state
+must come from something you read or ran on this machine.
+
+Your sources, in order of authority:
+  - the pinned protocol schema in this repository under schema-0.153.4/, which is the contract the
+    driver speaks;
+  - the codex binary installed here, version 0.153.4: its help output, subcommand help, and any
+    self-describing or config-dumping mode it offers;
+  - the user's codex home at ~/.codex/, including config.toml;
+  - the MDM policy at /Library/Managed Preferences/com.openai.codex.plist, readable with plutil;
+  - comments in skills/seat/scripts/driver.mjs that record earlier live measurements, which are
+    second-hand and must be labelled as such when you lean on them.
+
+The six questions, each answered separately:
+
+1. STATIC PROFILE. The driver builds a named permission profile for its read level with the config keys
+   `permissions.<name>.extends` and `permissions.<name>.filesystem`. Does a permission profile accept a
+   `network` key alongside those, and if so what shape and what values? If the profile grammar is not
+   discoverable from the sources above, say so rather than inferring it from the JSON-RPC schema, which
+   describes a different object.
+
+2. WORKSPACE-WRITE. The driver sets `sandbox_workspace_write.network_access` for its write level. Is
+   there any equivalent knob for the read-only sandbox mode, or is egress structurally tied to
+   workspace-write in this version?
+
+3. WHAT `accept` GRANTS. When the driver answers an `item/commandExecution/requestApproval` with the
+   plain `accept` decision, what does the approved command then run with: the same sandbox plus the
+   network it was denied, or outside the sandbox entirely? Find whatever in the schema, the help text or
+   the driver's recorded measurements bears on this. This distinction decides whether host-scoped
+   approval is achievable at all, so report exactly how strong your evidence is.
+
+4. PERSISTENCE. The decision variant `applyNetworkPolicyAmendment` carries `{host, action}` and its
+   schema description calls the rule persistent. Persistent where, and for how long: the turn, the
+   thread, the codex home, a file on disk? Does it outlive the seat that granted it, and would a later
+   unrelated seat inherit it? If you cannot establish the store, say what you would run to find out.
+
+5. WHEN THE HOST IS PRESENT. `networkApprovalContext` carries `{host, protocol}` on the command-approval
+   params. Is it required or optional in the schema, and what does the schema say about when the server
+   populates it? A design is being built on the assumption that a blocked network command always arrives
+   with its host named; state how well that assumption is supported.
+
+6. READ-ONLY PLUS NETWORK. Is there anything anywhere in the pinned schema or the binary's surface that
+   contemplates a read-only sandbox that also has egress, or is that combination simply unrepresentable
+   in this version?
+
+CHECK:
+For every answer, name the file and line, or the exact command you ran and the part of its output you
+relied on. Where two sources disagree, say so and rank them. Do not present the driver's own comments as
+protocol facts: they are recorded measurements by this repository's author and may be stale.
+Run the binary's help surfaces rather than assuming what flags exist.
+
+RETURN:
+Answer as one JSON object matching the supplied schema.
+`result`: first line is one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A5), your status and what you did. Then the six answers in order, each labelled, each with
+its confidence stated as one of: read directly, inferred from schema shape, second-hand from a driver
+comment, or not established. At most 30 lines.
+`evidence`: one entry per answer, each a file:line or a command with the output line it rests on.
+`open`: every question you could not settle, and the exact command or observation that would settle it.

@@ -1,0 +1,570 @@
+--- checkout/README.md
++++ temporary/README.md
+@@ -1,168 +1,53 @@
+ # codex-delegate
+ 
+-A Claude Code plugin whose main skill hands coding work to OpenAI Codex as a subagent, with the rights
+-for each call declared up front: analysis that reads and runs but writes nothing of yours, or writing
+-and running tests inside a git worktree the driver manages itself. Every completed turn leaves a receipt
+-— a rollout the driver locates, opens and checks — and the exit code is derived from what actually
+-happened rather than from a process status that says nothing about the task, so a seat that did nothing
+-cannot report as though it had. Two more skills ship beside it, both described below and both invoked by
+-the user rather than by the model.
+-
+-## Goal
+-
+-A coordinator agent, Sonnet or Opus, that has loaded this skill must be able to launch a Codex subagent
+-on the first attempt and get a finished, verifiable answer back, with nothing to configure and nothing
+-to know in advance. The defaults have to produce what a native Claude Code subagent does: one call, it
+-waits as long as the work takes, it returns the answer, and it is stopped only by silence or by the
+-coordinator. Everything else here serves that. Rights are declared per call so the coordinator never
+-wonders what the seat may touch; exit codes are derived from evidence so a seat that did nothing cannot
+-report as though it had; a prompt with no header at all is a read seat in the current directory. Where a
+-knob and a default compete, the default wins. Where a rule must be known to succeed, that is a defect in
+-this repository, not in the coordinator.
+-
+-A second, user-invoked skill applies the same goal to the whole session. `/codex-delegate:orchestrate`
+-turns the main conversation into an orchestrator that scouts inline, agrees one plan, and pushes every
+-verbose step onto Claude and Codex seats; it is prompt only, adds no flag or field, and is a delta over
+-this skill ([skills/orchestrate/SKILL.md](skills/orchestrate/SKILL.md)).
+-
+-A third, `/codex-delegate:cleanup`, is the cleanup: it lists what the plugin has left on this machine and
+-removes only what you pick by number ([skills/cleanup/SKILL.md](skills/cleanup/SKILL.md)). It removes four
+-kinds — this project's orchestrate run directories and seat scratch, the test suites' scratch
+-directories and the saved conversations they leave behind — and only ever reports the other four:
+-managed worktrees and their ledger, write locks, the shared Codex home, and the data of another copy of
+-the plugin, which is yours to remove with the shell-quoted command the listing hands you. It suggests
+-nothing that is running or that it could not fully read, never another project's, never a run or a saved
+-conversation without your number, and never on age. It runs no git. "Running" means what this plugin
+-records — a seat's startup line, a run's unreported seat, a job record, a live test suite — so a process
+-holding one of these open with none of that behind it is not something it can see.
+-
+-## Prerequisites
+-
+-- **`codex` CLI, installed and authenticated.** `codex` must be on `PATH` and signed in — check with
+-  `codex login status`. Runs reuse your credentials: `auth.json` is symlinked from your real `~/.codex`.
+-- **The codex-cli build the driver pins.** Every report names it as `codexVersionPinned`, and the
+-  `schema-<version>/` directory at the repository root is that build's protocol reference. After
+-  upgrading codex, run the fidelity suite (below) before trusting a run.
+-- **Node at or above the floor `package.json` declares** (`engines`); CI runs that floor and a current
+-  release, Linux and macOS. No dependencies: the driver is one file importing only `node:` builtins.
+-- **macOS and Linux are both measured.** CI runs every suite that needs no `codex` binary on both;
+-  the macOS-only call (the managed-preferences plist) is guarded. A stock Linux shell leaves `TMPDIR`
+-  unset, and at `--level read` it *is* the grant: the driver then makes a private one and names it in
+-  the report as `tmpDir` ([Environment](skills/seat/references/environment-and-internals.md#environment)).
+-  Export your own to put the seat's scratch files elsewhere.
+-- **Your `~/.codex/config.toml` is the default policy.** Model, reasoning effort and the other keys
+-  the driver inherits ([the isolated home](skills/seat/references/environment-and-internals.md#the-isolated-home))
+-  come from it unless overridden per call (`--model`, `--effort`); the driver deliberately sets no
+-  defaults of its own.
+-
+-## Install
+-
+-As a plugin — the full set: all three skills, the driver and the suites (the repo is its own marketplace):
+-
+-```
++Get a second opinion from Codex without leaving Claude Code. This plugin lets Claude hand Codex any
++work, including analysis, document review, competing designs or an implementation. Each call declares
++what Codex may write. A launcher called the **driver** returns a structured report (JSON) of the
++events it observed.
++
++Neither a successful exit nor a matching session record proves that the requested task succeeded.
++
++## Install and first run
++
++You need Claude Code, an installed and authenticated Codex CLI, and **Node.js 22 or later**.
++Put `codex` on your shell's `PATH`; check the login with `codex login status`. The plugin has no package
++dependencies to install. You do not need to create `~/.codex/config.toml`.
++
++The protocol reference is **Codex CLI 0.153.4**. A detected version mismatch produces a warning;
++version alone does not refuse a run. Run the compatibility check below after upgrading Codex.
++
++For a first install, use the plugin route. In Claude Code:
++
++```text
+ /plugin marketplace add Nowely/codex-delegate
+ /plugin install codex-delegate@nowely
+ ```
+ 
+-This route exposes the skill as `codex-delegate:seat`, the orchestrator mode as
+-`codex-delegate:orchestrate` and the cleanup as `codex-delegate:cleanup`; the last two only the user can
+-turn on.
+-
+-The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then
+-`claude plugin install codex-delegate@nowely`. To update, refresh the marketplace clone and
+-then the plugin, and restart Claude Code:
++Every run needs a **state directory**, the folder for the driver's saved answers and operating files.
++The plugin's skill recipe passes `CLAUDE_PLUGIN_DATA` for this. The source install and terminal example
++below set `CODEX_DELEGATE_STATE_DIR` explicitly. With neither variable, the driver exits 2 before a turn
++starts. The path must be absolute. If Claude Code requests access to this folder, grant that folder
++through your own permission settings. The seat skill instructs Claude not to add allow-rules for you.
++
++Then ask Claude, from the folder you want inspected:
++
++> Have Codex describe the files in this folder and name three files it actually inspected. Keep it at read level.
++
++A **seat** is one delegated assignment. The `codex-delegate:seat` skill supplies Claude's instructions
++for launching it and reading the report. Read level allows commands and network access, with writes
++confined to the temporary directory. See [Rights, per call](#rights-per-call).
++
++For plugin updates, run these in a terminal and restart Claude Code:
+ 
+ ```bash
+ claude plugin marketplace update nowely
+ claude plugin update codex-delegate@nowely
+ ```
+ 
+-Or from source — clone and symlink, so the checkout stays the single source of truth (the `orchestrate`
+-symlink is only needed for the orchestrator mode):
+-
+-```bash
+-git clone https://github.com/Nowely/codex-delegate.git
+-cd codex-delegate
+-mkdir -p ~/.claude/skills                           # absent on a machine that has never run Claude Code
+-ln -s "$PWD/skills/seat" ~/.claude/skills/seat
+-ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
+-ln -s "$PWD/skills/cleanup" ~/.claude/skills/cleanup
+-```
+-
+-On this clone-and-symlink route the skill is `seat` and the modes are `/orchestrate` and
+-`/cleanup`; on the plugin route they are `codex-delegate:seat`, `/codex-delegate:orchestrate`
+-and `/codex-delegate:cleanup`.
+-
+-The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`
+-on a fresh account, which is exactly the account this route is written for.
+-
+-**Where the driver's state lives.** `${CLAUDE_PLUGIN_DATA}`, the plugin's own data directory, which
+-Claude Code substitutes into the skill's recipes and which this install resolves to
+-`~/.claude/plugins/data/codex-delegate-nowely/` (the plugin's name, then the marketplace's). The
+-answers and the isolated Codex home, the
+-write locks, the worktree ledger and the orchestrator mode's run directories are all there. It survives
+-plugin updates; an uninstall deletes it unless you pass `claude plugin uninstall --keep-data`, and
+-`/codex-delegate:cleanup` lists what is in it and removes what you choose. The driver
+-keeps no default of its own: with neither that variable nor `CODEX_DELEGATE_STATE_DIR` it exits 2. In
+-every permission mode but auto and bypass, a write outside the working directory prompts, so add that
+-directory to `permissions.additionalDirectories` once — this plugin adds no rules on your behalf. On the
+-clone-and-symlink route nothing substitutes the placeholder, so export an absolute path of your own
+-instead, in your shell profile:
+-
+-```bash
+-export CODEX_DELEGATE_STATE_DIR="$HOME/.local/state/codex-delegate"
+-```
+-
+-Verify the install from the checkout (plugin installs carry the suites too, under the plugin root) —
+-costs nothing, calls no model:
+-
+-```bash
+-npm test    # every suite, cheapest first, stops at the first red
+-```
+-
+-A plugin root carries no git metadata, so the `package` suite's tag and payload cases announce
+-themselves there as skipped instead of failing; from the checkout they run.
+-
+-The `fidelity` suite is what to watch after a `codex` upgrade: it performs a real handshake and diffs
+-it against the fixture, so protocol drift shows up as a failing case instead of a confident wrong
+-answer. Without `codex` on `PATH` it skips and exits 0, which is what CI does; the release checklist
+-([RELEASING.md](RELEASING.md)) runs it locally, where the skip becomes a failure.
+-
+-Run the suites from the **repository or plugin root**. Do not compute that root by appending `../..`
+-to the skill path: where the skill is a symlink (the clone-and-symlink install above), Node collapses
+-`..` lexically and lands somewhere that does not exist, while `ls` follows the link and appears to
+-work. Resolve the link, or use the install path announced when the skill loads, or `installPath` in
+-`installed_plugins.json`.
+-
+-## First run
+-
+-From the checkout, with the state directory exported as Install says:
+-
+-```bash
+-node skills/seat/scripts/driver.mjs --cwd . --brief \
+-  --prompt 'TASK: describe this repository in two sentences, after listing its files.
+-CHECK: name three real files.
+-RETURN: the two sentences.'
+-```
+-
+-The JSON report — the only report — ends with the verdict: `exitCode: 0` means the turn completed, every
+-declared check passed, and a command really ran; anything else is a specific complaint — the driver's
+-`--help` documents the full ladder. `threadId` continues the conversation via `--resume`; `receiptPath` and
+-`receiptOk` locate and validate the run's rollout
+-([receipt details](skills/seat/references/environment-and-internals.md#receipt-validation-and-reporting)
+-say what that does and does not prove).
+-
+-Inside Claude Code you rarely type this yourself: the skill's `SKILL.md` is the operating manual the
+-agent reads mid-task, including when to give a panel seat to Codex at all. With the plugin installed it
+-is `codex-delegate:seat` (the clone-and-symlink spellings are under Install). A seat is one
+-background Bash call of that same driver: the prompt in a file named by `--seat-file`, the report at
+-`--report-file`; add `SEAT: worktree <repo>` above `TASK:` for a managed writer. The
+-driver parses that header, launches one seat, waits as long as the work takes, makes the directories the
+-report path needs at 0700, and publishes the report there by hard link, never over an existing entry: the
+-coordinator reads the file when the call's exit notification arrives, and a missing file means unknown,
+-never success.
+-
+ ## Rights, per call
++
++`DIR` is a folder path; `REPO` is a Git repository. `--cwd` chooses the working folder.
++`$TMPDIR` names the writable temporary directory. A worktree is a separate Git checkout.
+ 
+ | Call | Codex may |
+ | --- | --- |
+@@ -171,120 +56,248 @@
+ | `--level write --cwd DIR` | write anywhere under a directory you chose |
+ | `+ --writable DIR` / `--no-network` | an extra root, an explicit opt-in; or a sandbox that reaches nothing |
+ 
+-Egress is on at both levels, as it is for a native subagent, and no host list narrows it; `--no-network`
+-is what takes it away, from the sandbox — the provider's own web search is a separate channel, off until
+-`--web-search` asks for it, and a denied sandbox and a granted search mode are accepted together. Egress
+-moves nothing on disk — a read seat still writes only `$TMPDIR` — but whatever a seat can read it can
+-send, and at read level that is every path you can read.
+-
+-## The run's lifetime
+-
+-A run lives exactly as long as its call: there is no run registry and no collector, and the caller that
+-started a seat owns its lifetime. `--report-file` is the delivery that survives a broken pipe, and a
+-seat is stopped by `SIGTERM` to the pid the driver prints on its first stderr line — the turn is
+-interrupted, the report it had earned is written anyway, and the codex process group is swept.
+-
+-## Trust and verification
+-
+-- **Exit codes from evidence.** The `codex` process always exits 0; the driver derives an ordered
+-  ladder of exit codes from the event stream. The driver's `--help` is the complete ladder;
+-  `SKILL.md` gives the decisions a coordinator makes on it.
+-- **Evidence gates.** `--verify '<shell>'` runs after the turn, executed by the driver, never authored by
+-  the model — but with the coordinator's own rights, env and network, so a verifier that executes tree
+-  contents (`npm test` runs the seat's `package.json` script) is running the seat's code; prefer one
+-  that does not, or add `--verify-sandboxed` to put it behind the read profile, which confines its
+-  writes to `$TMPDIR` and hands it the seat's own egress, a denial included;
+-  `--expect-command <regex>` demands the work matched a declared signature;
+-  `--output-schema <file>` demands a JSON answer matching a schema. Semantics, and how each gate can
+-  be fooled: the driver's `--help` and [references/result-gates.md](skills/seat/references/result-gates.md).
+-- **Sandbox asserted, not assumed.** The rights the server reports are compared against the rights that
+-  were asked for, and a mismatch refuses the run instead of proceeding under an unknown sandbox.
+-- **A receipt per run.** `receiptPath`/`receiptOk` locate the rollout and check it names this thread;
+-  what that does and does not prove is in
+-  [the internals reference](skills/seat/references/environment-and-internals.md#receipt-validation-and-reporting).
+-- **Isolation by default.** Runs use a private `CODEX_HOME`, so your plugins, skills and MCP servers
+-  stay out of the turn and no trust records are written back; `--host-home` opts out.
+-
+-## Why not the official plugin
+-
+-The official `openai-codex` plugin is architecturally the same idea and richer in places — background
+-jobs, resume UX, a stop-time review gate. It is not a substitute where rights matter: it hardcodes an
+-approval policy that managed (MDM) machines clamp into deny-everything, and it always sends an explicit
+-`sandbox` parameter, which suppresses the permission profile that makes read-level test runs possible —
+-on every machine, managed or not. Both defects are silent: the run still exits 0. The `codex
+-exec`-based skills and the official SDK hit the same walls. Full forensics, upstream issue state, and
+-what the plugin does better: [references/why-not-the-plugin.md](skills/seat/references/why-not-the-plugin.md).
+-
+-## Limitations
+-
+-Read level cannot run browser-mode tests: Chromium needs a one-file override at the tree root, which is
+-a write a read seat does not have — they run at write level
+-([Browser-mode sandbox](skills/seat/references/parity.md#browser-mode-sandbox)). Node-environment vitest at read level
+-needs `--configLoader runner`. Concurrency is memory-bound (figures in
+-[parity.md](skills/seat/references/parity.md#fan-out-and-reporting)) and exceeding the machine
+-budget gets runs killed by the OS, not throttled. The app-server protocol is `[experimental]` and
+-carries no stability promise — hence the pinned schema and the fidelity suite.
++Tests that write outside `$TMPDIR` need write level. `--writable` also requires write level.
++If `TMPDIR` is unset at read level, the driver creates a private temporary directory and reports it
++as `tmpDir`. If you set it yourself, its contents are writable too.
++
++Network access is on at both levels, with no host allowlist. Whatever Codex can read, it can send;
++at read level that includes every readable path. `--no-network` denies network access from the
++sandbox. The provider's web search is separate: it is disabled unless `--web-search` selects a mode.
++The driver accepts sandbox network denial together with an allowed web-search mode.
++
++The driver checks the server's reported sandbox, writable roots, network setting and approval policy.
++A mismatch refuses the run. An approval request during the turn is refused and recorded.
++
++A fresh worktree starts at `HEAD`, the repository's current commit. Uncommitted edits and untracked
++or ignored files are absent, including dependencies installed only in the live checkout. Commit
++relevant changes before choosing it; stashing them alone does not put them into `HEAD`.
++
++After a completed turn, the driver tries to save tracked changes as `worktreeDiffPath` and non-ignored
++untracked files as `worktreeUntrackedPath`. After a successful harvest it attempts to remove the tree;
++a clean tree needs no harvest. Ignored files are not archived and can be lost when the tree is removed.
++An incomplete turn or a failed harvest or removal leaves the tree preserved. Inspect the worktree
++fields even on exit 0: the exit verdict does not test whether harvesting succeeded.
++
++## How to check the work
++
++Exit 0 means the turn completed, supplied an answer and passed the driver's applicable checks.
++Read the report and inspect the cited files before accepting the answer.
++
++By default, the report must contain at least one command item from the main Codex conversation,
++called a **thread**. Commands reported only by Codex's own subagents do not count toward that check.
++A failed command or one with an unknown outcome can satisfy the default count; look at its `status`
++and `exitCode`.
++
++**Exit 0 can mean no command was reported.** `--allow-no-commands` on the command line, or
++`ALLOW_NO_COMMANDS: yes` in the leading seat-file header, waives the count. Use it when commands are
++unnecessary, such as recalling an earlier answer. It does not waive a declared `--expect-command` check.
++
++| Report field | What to inspect |
++| --- | --- |
++| `commands` | Each main-thread command's text, status and exit code. Failed commands do not by themselves make the run fail. |
++| `commandsFailed`, `commandsBlocked`, `commandsPipedToPager` | Failures, unknown command outcomes and commands whose final pipe stage may hide output or supply the pipeline's exit status. |
++| `answer`, `answerPath` | The answer and its saved full text. `answerPath` can be null if there was no answer or saving failed. |
++| `receiptPath`, `receiptOk`, `receiptWhy` | A session-record location, whether its opening metadata names this thread, and why that check failed. |
++
++A **receipt** is Codex's saved session record, also called a rollout. The driver searches today's and
++yesterday's session directories and checks only the opening `session_meta` record, within a 64 KiB
++read. `receiptOk: true` establishes that this metadata names the reported thread. It does not validate
++commands, task completion or the answer. **`receiptOk: false` does not change the exit verdict.** An
++older resumed session can be outside the search window; inspect `receiptWhy` and the record.
++
++Choose automated checks before the run. These are driver flags; the seat-file equivalents are
++`EXPECT:` and `OUTPUT_SCHEMA:`. The driver refuses `VERIFY:` in a seat file unless the caller also
++passes `--allow-seat-verify`.
++
++- `--expect-command '<regex>'`: require a completed main-thread command with exit 0 whose text matches
++  the pattern. Text can mislead: `true # vitest` matches `vitest` without running it, and a pipeline can
++  return its final command's status.
++- `--verify '<shell command>'`: have the driver run your check after a completed turn, if budget remains.
++  A check skipped for lack of budget prevents exit 0. By default it uses the caller's rights,
++  environment and network. Running a script Codex changed executes that script
++  with those rights. Add `--verify-sandboxed` to restrict writes to `$TMPDIR` and use the seat's network
++  setting. A check that writes outside `$TMPDIR` cannot use that profile.
++- `--output-schema <file>`: constrain the JSON answer's structure. The top level must be an object;
++  declare every object's properties required and set `additionalProperties: false`. The report lists
++  keywords the driver's validator did not recheck. Structure does not establish factual correctness.
++
++The [result-gates reference](skills/seat/references/result-gates.md) explains the limits.
++`node skills/seat/scripts/driver.mjs --help` lists the exit codes; run it from the checkout or plugin root.
++
++## Use Claude and Codex together
++
++Invoke `/codex-delegate:orchestrate` to plan work across Claude and Codex agents. Its instructions call
++for an initial inspection, an agreed plan, delegated work, verification and synthesis. Orchestration
++and cleanup are user-invoked skills.
++
++## Remove what it left
++
++In the project where you ran the work, invoke `/codex-delegate:cleanup`. It shows a numbered inventory
++and asks before deleting the selection you approve. A run or saved conversation needs its number;
++agreeing to the suggested cleanup does not include those items.
++
++| Cleanup can remove | Cleanup lists but does not remove |
++| --- | --- |
++| This project's orchestration runs and seat scratch; test scratch and test-created saved conversations | Managed worktrees and their ledger; write locks; the shared Codex home; another copy's plugin data |
++
++Cleanup preserves items it cannot fully read or identifies as in use, and refuses an item that changed
++since the listing. It does not choose by age or run Git. Its activity checks cover recorded seats,
++unfinished run reports, job records and running test suites. A process with none of those records is
++invisible to it. Check that limitation before approving deletion.
++
++Cleanup uses the same state-directory choice as the driver and also requires an absolute `TMPDIR`.
++If that variable is missing, set it to the temporary root used for the earlier seat files. The command
++is selective cleanup; it does not remove all plugin state or ordinary Codex session records.
++See [the cleanup skill](skills/cleanup/SKILL.md) for items outside its coverage.
++
++## Optional: install from source
++
++Choose source installation for an editable checkout. It requires Git. In a terminal:
++
++```bash
++git clone https://github.com/Nowely/codex-delegate.git
++cd codex-delegate
++mkdir -p ~/.claude/skills
++ln -s "$PWD/skills/seat" ~/.claude/skills/seat
++ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
++ln -s "$PWD/skills/cleanup" ~/.claude/skills/cleanup
++export CODEX_DELEGATE_STATE_DIR="$HOME/.local/state/codex-delegate"
++```
++
++Keep the export in your shell profile and start Claude Code from a shell that has it. Source installs
++do not supply the plugin's data-directory placeholder. Do not overwrite an existing skill at one of
++these link destinations.
++
++| Install | Delegation skill | Orchestration | Cleanup |
++| --- | --- | --- | --- |
++| Plugin | `codex-delegate:seat` | `/codex-delegate:orchestrate` | `/codex-delegate:cleanup` |
++| Source links | `seat` | `/orchestrate` | `/cleanup` |
++
++If the cleanup skill's plugin-root placeholder is unavailable, run this from the checkout root,
++with the same state directory and temporary root:
++
++```bash
++node skills/seat/scripts/cleanup.mjs --list
++```
++
++Its `--help` describes saving a listing and deleting selected numbers against that snapshot.
++
++## Optional: run the driver yourself
++
++For a direct terminal run, use the complete block from the checkout or installed plugin root,
++the folder containing `package.json` and `skills/`. Resolve a source symlink before locating that root.
++The state-directory assignment is required. This example uses the source route's state folder;
++to inspect it later, use that same value for cleanup.
++
++```bash
++CODEX_DELEGATE_STATE_DIR="$HOME/.local/state/codex-delegate" \
++node skills/seat/scripts/driver.mjs --cwd . --brief \
++  --prompt 'TASK: describe this folder in two sentences, after listing its files.
++CHECK: name three real files.
++RETURN: the two sentences.'
++```
++
++The report is JSON on standard output. `CHECK:` is an instruction to the model, not an automated
++check; use the flags under [How to check the work](#how-to-check-the-work) for that.
++
++For Claude's normal background call, `--seat-file` supplies the prompt and `--report-file` names the
++report. A prompt without a rights header uses read level in the current directory. The report path
++must be absolute and unused. The driver creates missing parent directories with mode 0700 and publishes
++the complete report at mode 0600 without replacing an existing entry. A missing report means the outcome
++is unknown. See [the seat skill](skills/seat/SKILL.md#one-call).
++
++## Settings and saved files
++
++The driver inherits configured model, reasoning effort, personality and service tier through Codex's
++configuration interface. `--model` and `--effort` override the first two for a call. If reading the configuration fails, the driver retains a saved
++configuration when available; otherwise it leaves those values to Codex's defaults.
++
++The state directory is selected by `CODEX_DELEGATE_STATE_DIR` first, then `CLAUDE_PLUGIN_DATA`.
++It holds answers, job records, locks, worktree records and the isolated Codex home. That home is shared
++among this installation's runs. Existing `~/.codex/auth.json` and `~/.codex/sessions` are linked into it,
++so credentials and session records are not separate copies. Host-home plugins, skills and MCP-server
++configuration are not copied. `--host-home` opts out of this isolation.
++
++## Stop or continue a run
++
++There is no elapsed-time limit by default. The defaults cut a run after 900 seconds without qualifying
++activity or at 1,000 recorded main-thread command items. The caller can set `--timeout`,
++`--idle-timeout` and `--max-commands`.
++
++Stop the background task or send `SIGTERM` to the driver's process id on its first diagnostic line.
++The driver attempts to interrupt the turn, deliver the available report and stop Codex's process
++group. Continue with `--resume <threadId>` or `RESUME: <threadId>` in a seat file.
++A still-running thread can refuse continuation with exit 10. Read any retained answer even on a
++nonzero exit.
++
++## Checks and compatibility
++
++From the checkout or installed plugin root (the folder containing `package.json`):
++
++```bash
++npm test
++```
++
++The runner stops at the first failing suite. Git-dependent package cases skip when the install has no
++Git metadata. Live cases require their binaries or opt-in variables; read the counts and skip notices.
++Without the live-turn opt-ins, these checks do not request a model turn. CI is configured for Linux
++and macOS with Node 22 and 24.
++
++After upgrading Codex, run:
++
++```bash
++node evals/fidelity.test.mjs --require-live
++```
++
++This compares the real Codex connection handshake against the test server. A missing Codex binary is
++a failure with `--require-live`; without it, missing-binary cases skip. `--require-live` alone does
++not request a model turn. The paid checks are separate opt-ins in [RELEASING.md](RELEASING.md).
++
++For tests of your own project, read the [parity reference](skills/seat/references/parity.md) before
++choosing rights. Its Node/Vitest setup uses `--configLoader runner` at read level. Its Chromium workaround
++requires a file in the working tree, write access, a warm package store and serial execution; it is not
++a general browser-testing guarantee. The local test server also needs network access. Concurrency
++measurements there are dated; remeasure before choosing how many agents to run together.
++
++## Why this driver
++
++The driver requests `on-request` approval policy and omits the explicit sandbox parameter at read
++level so the temporary-directory grant can apply. It checks the reported permissions before proceeding.
++
++The [comparison with the official plugin](skills/seat/references/why-not-the-plugin.md) records tests
++dated **2026-08-31**, against official plugin **1.0.6** and Codex CLI **0.150.1**. It covers managed-device
++approval failures and loss of temporary-directory writes, plus features the official plugin offered.
++Check current upstream behavior before using that comparison to choose an integration.
+ 
+ ## After a codex upgrade
+ 
+-```bash
+-codex app-server generate-json-schema --out <tmp-new>/
+-git archive 7364f7b schema-<old-version> | tar -x -C <tmp-old>/
+-diff -r <tmp-old>/schema-<old-version>/ <tmp-new>/
+-```
+-
+-Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` in a commit of its
+-own: that commit holds the full tree the next upgrade diffs against, so replace `7364f7b` above with its hash.
+-`CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` validates it while
+-`schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new
+-directory to the files [conformance](evals/conformance.test.mjs) loads in a second commit, and delete the old one. Then
+-`npm test` and `node evals/fidelity.test.mjs --require-live`, inspect any fixture/live difference, and
+-re-check [the dated parity reference](skills/seat/references/parity.md).
+-
+-## Layout
+-
+-```
+-skills/seat/                     the main skill: SKILL.md (the operating manual), scripts/ (the driver
+-                                 and its companions, each self-describing under --help), references/
+-skills/orchestrate/SKILL.md      the orchestrator mode: a delta over the seat skill, prompt only
+-skills/cleanup/SKILL.md          the cleanup mode: runs scripts/cleanup.mjs, shows its listing and
+-                                 deletes what the user chose
+-.claude-plugin/                  plugin + marketplace manifests
+-evals/                           the suites, one file each; run-all.mjs lists them and runs them
+-                                 cheapest first, lib/harness.mjs and lib/scenarios.mjs are their
+-                                 shared machinery
+-package.json                     private; the Node floor and `npm test`
+-.github/workflows/ci.yml         the suites that need no `codex` binary, on its OS × Node matrix
+-schema-<version>/                the files evals/conformance.test.mjs loads out of the pinned protocol
+-                                 schema; kept in the repo (and therefore in plugin installs) because
+-                                 those are what the suites this README tells you to run validate
+-                                 against. The full generated tree is not kept here: the commit named in
+-                                 the upgrade recipe holds the last one (7364f7b for 0.153.4), and the
+-                                 recipe diffs the next regeneration against it.
+-```
+-
+-Canonical homes for repeated stories:
+-
+-| Subject | Canonical home |
++For maintainers updating the protocol reference:
++
++1. Generate the full new schema into a temporary directory with
++   `codex app-server generate-json-schema --out <tmp-new>/`.
++2. Compare it with the full old schema from Git, not only the subset in this checkout.
++   Commit `7364f7b` contains the full `schema-0.153.4/` tree. Extract it with
++   `git archive 7364f7b schema-0.153.4 | tar -x -C <tmp-old>/`, after creating that temporary directory.
++   Compare with `diff -r <tmp-old>/schema-0.153.4/ <tmp-new>/`.
++3. Commit the full new tree as `schema-<new-version>/` in its own commit and record that commit's hash
++   for the next comparison. Prune the working copy to the files loaded by
++   [conformance.test.mjs](evals/conformance.test.mjs) before running conformance: it rejects unused schemas.
++4. Run `CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` while the old
++   version is still pinned. Resolve structural differences, then update `PINNED_CODEX` and remove the
++   old schema directory in a second commit.
++5. Run `npm test` and the live gates in [RELEASING.md](RELEASING.md). Inspect differences and recheck
++   the dated capability measurements before release.
++
++## Files and references
++
++| Need | File |
+ | --- | --- |
+-| composition, rights, workflow | [`SKILL.md`](skills/seat/SKILL.md) |
+-| orchestration: tiers, Codex share, seat bounds, returns | [`skills/orchestrate/SKILL.md`](skills/orchestrate/SKILL.md) |
+-| what the plugin leaves behind, and removing it | [`skills/cleanup/SKILL.md`](skills/cleanup/SKILL.md), `node skills/seat/scripts/cleanup.mjs --help` |
+-| flags and field formats | `node skills/seat/scripts/driver.mjs --help` (`--help-all` for the rest) |
+-| environment, seat files, receipts, worktree internals | [`environment-and-internals.md`](skills/seat/references/environment-and-internals.md) |
+-| native capability parity and dated measurements | [`parity.md`](skills/seat/references/parity.md) |
+-| measured failures behind rules | [`incidents.md`](skills/seat/references/incidents.md) |
+-| suite coverage and mutations | [`evals/README.md`](evals/README.md) |
+-
+-## Status
+-
+-Young code, adversarially reviewed by mixed Claude/Codex panels. What that produced is checkable in the
+-repository rather than in the claim: the home-directory guard is pinned against case variants, symlinks
+-and a hostile `$HOME`; the lock's critical section is pinned against overlapping holders; a seat file
+-cannot introduce a verifier; `$TMPDIR` is guarded like every other writable root; and each suite is
+-mutation-checked, with the surviving mutants and what was done about them listed in
+-[`evals/README.md`](evals/README.md). Changes are available offline in
+-[`CHANGELOG.md`](CHANGELOG.md); release notes and known issues also live on the
+-[releases page](https://github.com/Nowely/codex-delegate/releases). The Codex build each release was
+-measured against is stated there because that axis — not the skill's own code — is what usually breaks.
+-MIT — see [LICENSE](LICENSE).
++| Delegation instructions and prompt headers | [skills/seat/SKILL.md](skills/seat/SKILL.md) |
++| Driver flags and report fields | `node skills/seat/scripts/driver.mjs --help`; `--help-all` adds less common options |
++| Orchestration and cleanup | [orchestrate](skills/orchestrate/SKILL.md), [cleanup](skills/cleanup/SKILL.md) |
++| State, receipts, locks and worktrees | [environment-and-internals.md](skills/seat/references/environment-and-internals.md) |
++| Capabilities and dated measurements | [parity.md](skills/seat/references/parity.md) |
++| Recorded failures and review procedure | [incidents.md](skills/seat/references/incidents.md), [adversarial-review.md](skills/seat/references/adversarial-review.md) |
++| Test coverage and mutation ledger | [evals/README.md](evals/README.md) |
++| Plugin packaging | [.claude-plugin/](.claude-plugin/), [package.json](package.json) |
++| Changes and license | [CHANGELOG.md](CHANGELOG.md), [MIT license](LICENSE) |

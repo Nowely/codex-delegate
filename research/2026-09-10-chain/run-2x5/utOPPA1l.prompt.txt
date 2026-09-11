@@ -1,0 +1,65 @@
+SEAT: read /Users/ruliny/arcadia/data-ui/cloud-components
+MODEL: gpt-5.6-sol
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/br-review.XDDuwFFp/schema.json
+TASK:
+Ты — место S1 в панели из пяти ревьюеров. Ревьюится ветка CLOUDFRONT-62071.adaptive-baremetal-config-cards
+в /Users/ruliny/arcadia/data-ui/cloud-components. VCS здесь arc, не git: команды git работать не будут.
+Merge-base с trunk = ca9489edac04d749ad408d2e56b2fbe2eb4ddfcd, полный диф ветки уже выгружен в файл
+/var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/br-review.XDDuwFFp/branch.diff (1828 строк, 37 файлов).
+
+ЖЁСТКОЕ ОГРАНИЧЕНИЕ ПО ФАЙЛОВОЙ СИСТЕМЕ. /Users/ruliny/arcadia — сетевой FUSE-mount. Рекурсивные обходы
+(grep -r, rg, ag, find, ls -R) по путям выше третьего уровня от /Users/ruliny/arcadia ЗАПРЕЩЕНЫ: они тянут
+файлы по сети и приводят к бану аккаунта. Разрешено: адресное чтение файлов по полному пути и bounded-grep
+внутри /Users/ruliny/arcadia/data-ui/cloud-components/src,
+/Users/ruliny/arcadia/data-ui/cloud-components/node_modules/@gravity-ui (это локальный каталог, не mount),
+/Users/ruliny/arcadia/data-ui/cloud-console/src/ui/shared и /Users/ruliny/arcadia/data-ui/cloud-console/.memory-bank.
+Больше никуда не ходи.
+
+Твоя тема единственная и не пересекается с другими местами: АПГРЕЙД ОБЩЕГО КОМПОНЕНТА ВМЕСТО ОБВЕСКИ НАД НИМ.
+Не разбирай SCSS, тесты, i18n-инфраструктуру и корректность хуков измерения — это чужие темы.
+
+Разбери три узла.
+
+1. src/hooks/useSegmentedTabs.tsx. Ветка добавила внутренний компонент SegmentedTabsControl над
+   SegmentedRadioGroup из @gravity-ui/uikit. Проп hint в TabsControlProps после ветки, по моим данным, не
+   используется ни одним потребителем — проверь это сам и приведи команду. Единственный потребитель хука во
+   всём репозитории — src/components/baremetal/ConfigurationTabs/ConfigurationTabs.tsx. Вопрос: что из
+   добавленного должно было стать частью общего хука, а что осталось обвеской, которую надо снять? Является
+   ли форма «хук возвращает готовые компоненты TabsControl/TabPane» вообще оправданной при одном потребителе.
+
+2. Короткие подписи табов. Ветка при узкой колонке подменяет i18n-ключи (StockConfigurations ->
+   StockConfigurationsShort и т.д.) на пороге ширины, см. ConfigurationTabs.tsx и
+   src/components/baremetal/ConfigurationTabs/i18n.ts. Канонический подход этого продукта —
+   «схлопывание вместо брейкпоинтов» через useCollapseChildren из @gravity-ui/uikit: паттерн 4 в
+   /Users/ruliny/arcadia/data-ui/cloud-console/.memory-bank/adaptive-design.md, живой пример в
+   /Users/ruliny/arcadia/data-ui/cloud-console/src/ui/shared/layout/components/PageTabs/PageTabs.tsx.
+   Прочти оба файла. Применим ли этот приём здесь буквально, с учётом того что тут SegmentedRadioGroup, а не
+   TabList? Если нет — какой минимальный апгрейд useSegmentedTabs (или какой уже существующий примитив uikit)
+   даёт тот же результат без второго набора переводов?
+
+3. src/components/baremetal/shared/components/ResponsivePopover/ResponsivePopover.tsx — новая локальная
+   обвеска над Popover (@gravity-ui/uikit/legacy) и Sheet. В репозитории уже есть тот же паттерн
+   «на мобильном шторка, иначе обычный контрол»: src/components/Settings/containers/Subscriptions/AdaptiveConfirmDialog.tsx
+   и src/components/SupportFeedback/components/SupportFeedbackForm/Mobile.tsx. Вопросы: есть ли в текущей
+   версии @gravity-ui/uikit уже готовое решение (посмотри API Popover, Sheet, HelpMark и то, что рядом);
+   почему взят legacy-Popover, а не актуальный; место ли этому компоненту в baremetal/shared, если паттерн
+   в репозитории третий по счёту.
+
+CHECK:
+- Любое утверждение «X не используется» / «Y единственный потребитель» подтверждай выводом конкретной
+  команды с путями и числом совпадений. Утверждение без команды — не находка.
+- API uikit проверяй по /Users/ruliny/arcadia/data-ui/cloud-components/node_modules/@gravity-ui/uikit
+  (build/esm/components/**, *.d.ts), а не по памяти. Назови версию пакета из его package.json.
+- cloud-components — публикуемая библиотека. Для каждого предложения проверь, является ли трогаемое
+  публичным API (src/hooks/index.ts, точки экспорта в package.json/src/index*), и скажи это явно.
+- Для каждого предложения назови цену: сколько файлов трогается, ломаются ли визуальные базлайны
+  (playwright), ломается ли публичный API. Предложение без цены не засчитывается.
+
+RETURN:
+Пять полей по схеме из OUTPUT_SCHEMA.
+Поле result: не больше 30 строк. Первая строка — одно самостоятельное предложение вида
+«Место S1, gpt-5.6-sol: <статус>, <что сделал>». Дальше по одной находке на строку в формате
+<файл:строка> — <что не так> — <предложение> — <цена>, отсортированные по убыванию выигрыша.
+Пиши по-русски.
+Поле evidence: команды, которые ты выполнял, с числами (сколько совпадений, сколько файлов).
+Поле open: вопросы и риски, включая то, что ты проверить не смог.

@@ -1,0 +1,22 @@
+{
+  "kind": "documentation structural audit; not a project test run",
+  "original_words": 2725,
+  "final_words": 2571,
+  "original_lines": 290,
+  "final_lines": 303,
+  "word_delta": -154,
+  "claims_with_checked_source_spans": 67,
+  "distinct_source_spans_checked": 179,
+  "local_markdown_link_occurrences_checked": 23,
+  "invisible_prerequisites": 24,
+  "reader_repair_entries": 6,
+  "rights_table_lines_unchanged": 6,
+  "substantial_replaced_or_removed_blocks": 30,
+  "source_readme_sha256": "8863964c802bf1612c44e92890af620f80873101356d897e67692e1ef0be1bbc",
+  "original_snapshot_matches_source": true,
+  "git_status_porcelain": "",
+  "fenced_blocks_balanced": true,
+  "project_tests_run": 0,
+  "live_reader_experiments_run": 0,
+  "model_calls_run": 0
+}

@@ -19,6 +19,13 @@ Its own warnings: do not fix by adding more text, because the curse hides missin
 missing detail, and one sentence of "what this is and when you need it" beats three paragraphs of how.
 Every "obviously", "simply" or "just" hides a prerequisite.
 
+## Provenance
+
+The fifteen lines above are reproduced byte for byte from `PART 3` of the prompt that was measured, kept
+at `research/2026-09-10-chain/chain-source-prompt.txt` in this repository. Their SHA-256 is
+`fac7a93b1e7e8a5cc71beda90ee0c0f6626a2a4499b366eb50ed48c87ebe2409`, computed over the block alone and not
+over this file.
+
 ## What the inventory looks like when it is honest
 
 From the 2026-09-10 run on one README, three of the twenty-four items it found:

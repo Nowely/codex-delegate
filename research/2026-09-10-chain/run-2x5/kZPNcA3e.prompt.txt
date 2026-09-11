@@ -1,0 +1,73 @@
+SEAT: read /Users/ruliny/arcadia/data-ui/cloud-components
+MODEL: gpt-5.6-sol
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/br-review.XDDuwFFp/schema.json
+TASK:
+Ты — место S3 в панели из пяти ревьюеров. Ревьюится ветка CLOUDFRONT-62071.adaptive-baremetal-config-cards
+в /Users/ruliny/arcadia/data-ui/cloud-components. VCS здесь arc, не git: команды git работать не будут.
+Merge-base с trunk = ca9489edac04d749ad408d2e56b2fbe2eb4ddfcd, полный диф ветки уже выгружен в файл
+/var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/br-review.XDDuwFFp/branch.diff (1828 строк, 37 файлов).
+
+ЖЁСТКОЕ ОГРАНИЧЕНИЕ ПО ФАЙЛОВОЙ СИСТЕМЕ. /Users/ruliny/arcadia — сетевой FUSE-mount. Рекурсивные обходы
+(grep -r, rg, ag, find, ls -R) по путям выше третьего уровня от /Users/ruliny/arcadia ЗАПРЕЩЕНЫ: они тянут
+файлы по сети и приводят к бану аккаунта. Разрешено: адресное чтение файлов по полному пути и bounded-grep
+внутри /Users/ruliny/arcadia/data-ui/cloud-components/src,
+/Users/ruliny/arcadia/data-ui/cloud-components/node_modules/@gravity-ui (это локальный каталог, не mount),
+/Users/ruliny/arcadia/data-ui/cloud-console/src/ui/shared и /Users/ruliny/arcadia/data-ui/cloud-console/.memory-bank.
+Больше никуда не ходи.
+
+Твоя тема единственная и не пересекается с другими местами: SCSS И СЕТКА. Не разбирай React-корректность
+хуков, тесты и i18n — это чужие темы.
+
+Файлы ветки по твоей теме (пути от корня cloud-components):
+  src/components/baremetal/PresetConfiguration/components/PresetConfigurationList/components/ConfigurationCard/ConfigurationCard.scss (+115 строк)
+  src/components/baremetal/ConfigurationTabs/ConfigurationTabs.scss
+  src/components/baremetal/shared/components/ConfigurationPageLayout/ConfigurationPageLayout.scss
+  src/components/baremetal/shared/components/ConfigurationSidebar/ConfigurationSidebar.scss
+  src/components/baremetal/shared/styles/_layout.scss
+  и шесть новых мелких .scss: McLagLabel, MinimalPriceBlock, NetworkBandwidthType, PsuType,
+  ConfigurationPricing/DiscountLabel, ConfigurationPricing/AssemblyDiscountLabel, плюс ResponsivePopover.scss.
+Разметку, на которую эти стили ложатся, смотри в ConfigurationCardLayout.tsx и ConfigurationCard.tsx
+в том же дереве ConfigurationCard.
+
+Разбери четыре узла.
+
+1. Раскладка карточки в узком и мобильном виде сделана через display: contents на обёртках __grid-left и
+   __grid-right плюс явные номера grid-column/grid-row (1..5) для каждого элемента. Есть ли раскладка проще:
+   grid-template-areas, subgrid, или перестройка самой разметки в ConfigurationCardLayout так, чтобы обёртки-
+   колонки вообще не были нужны? Оцени честно: display: contents тут может быть вынужденным. Скажи, вынужден
+   он или нет, и покажи почему.
+
+2. Дублирование. Внутри ConfigurationCard.scss блоки #{$compact} и #{$mobile} повторяют одни и те же
+   селекторы. Отдельно: метрики сетки продублированы между src/components/baremetal/shared/lib/layout.ts и
+   src/components/baremetal/shared/styles/_layout.scss — комментарий в layout.ts прямо признаёт «держим
+   значения синхронно». Есть ли один источник истины, приемлемый в этом пайплайне (CSS-переменные, которые
+   ставит JS; sass-переменные, читаемые тестом; что-то ещё)? Скажи и то, стоит ли овчинка выделки.
+
+3. Ручные колонки в раскрытом блоке карточки: __disclosure-column, __disclosure-label, __disclosure-network
+   с фиксированными ширинами 106px/109px, которые в узком виде переключаются на другой flex-direction.
+   Канон этого продукта для списков характеристик — DefinitionList с direction="vertical" на мобильном, см.
+   /Users/ruliny/arcadia/data-ui/cloud-console/.memory-bank/adaptive-design.md. DefinitionList есть и в
+   @gravity-ui/uikit этого репозитория. Прочти его API в node_modules и скажи, покрывает ли он этот кейс
+   целиком, частично или нет.
+
+4. Шесть новых .scss-файлов заведено под однострочные правки в мелких компонентах. Что из этого лишнее и
+   что можно было выразить существующими утилитами/токенами (--g-spacing-*, миксины из src/styles).
+
+CHECK:
+- Каждое утверждение о поведении CSS подкрепляй цитатой строки файла с номером. «Так работает grid» без
+  ссылки на конкретный селектор — не находка.
+- Прежде чем предложить убрать display: contents, найди в разметке причину, по которой обёртки существуют
+  (ConfigurationCardLayout.tsx), и скажи, что с ней станет.
+- API DefinitionList проверяй по
+  /Users/ruliny/arcadia/data-ui/cloud-components/node_modules/@gravity-ui/uikit, назови версию пакета.
+- Для каждого предложения назови цену: сколько файлов трогается и ломаются ли визуальные базлайны
+  (в ветке есть playwright visual-тесты). Предложение без цены не засчитывается.
+
+RETURN:
+Пять полей по схеме из OUTPUT_SCHEMA.
+Поле result: не больше 30 строк. Первая строка — одно самостоятельное предложение вида
+«Место S3, gpt-5.6-sol: <статус>, <что сделал>». Дальше по одной находке на строку в формате
+<файл:строка> — <что не так> — <предложение> — <цена>, отсортированные по убыванию выигрыша.
+Пиши по-русски.
+Поле evidence: команды, которые ты выполнял, с числами.
+Поле open: вопросы и риски, включая то, что проверить не смог.

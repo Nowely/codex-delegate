@@ -1,0 +1,68 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.4PEdPnzj/schema.json
+
+TASK:
+Refute a design. You are the adversary, not a reviewer looking for balance. Where you are uncertain,
+default to refuted and say what would settle it.
+
+The repository you are sitting in is a Claude Code plugin, version 0.12.0. It lets a Claude coordinator
+delegate work to Codex subagents called seats. `skills/seat/scripts/driver.mjs` is the driver: it speaks
+JSON-RPC to the codex app-server, declares the seat's rights, and derives the run's exit code from
+evidence. Read it and the skill pages before judging anything.
+
+WHAT HAPPENED, which is what the design reacts to. A seat was sent to survey the public web. It failed
+three ways in sequence. This device carries an MDM profile at /Library/Managed Preferences/
+com.openai.codex.plist that permits only the "cached" web-search mode, so the requested live mode was
+refused before the turn. Rerun on cached, every search returned HTTP 429. The seat then tried `curl`;
+the read sandbox has no egress, codex raised an approval request, the driver declined it, and the run
+ended at exit 6 with the work lost.
+
+THE DESIGN UNDER ATTACK, five parts:
+
+D1. Parity default. A read seat gets network egress BY DEFAULT. It is turned off only by an explicit
+    negative in the seat's header. The argument offered for this: Claude Code's own native subagents
+    hold web tools and run with the coordinator's own rights and network, so a Codex seat that cannot
+    reach the network is a parity defect; and README.md states "Where a knob and a default compete, the
+    default wins. Where a rule must be known to succeed, that is a defect in this repository, not in the
+    coordinator."
+
+D2. Codex's own built-in web search stays off by default. Unchanged from today.
+
+D3. Reviewer channel. The driver gains an optional channel to its caller: on an approval request it
+    writes the request to a file, blocks, and waits for an answer file. The wait is bounded by the
+    existing idle timeout, default 900 seconds. The Claude coordinator writes the answer.
+
+D4. Ceiling. The coordinator may approve only WITHIN a ceiling the caller declared in the seat's header.
+    Anything above that ceiling is refused and reported to the human instead. First step covers network
+    escalations only, on the reasoning that a network approval request carries a host and is therefore
+    judgeable, while a file-write escalation is not.
+
+D5. No reviewer declared means today's behaviour exactly: decline, record the escalation, and let the
+    exit ladder do what it does now.
+
+CHECK:
+Attack it against what this repository has already committed to in writing, not against general
+principle. Every claim you make carries file:line.
+
+a) Find the invariants D1 breaks. The read level's promise, the opt-in statements about egress in
+   README.md and in the parity reference under skills/seat/references/, and the guard in the driver that
+   makes a read seat with network a hard error. Quote each, then say whether the design merely restates
+   it or actually contradicts it, and what a coordinator who relied on the old promise now silently gets.
+b) Work out what D3 and D4 do to the exit ladder and to the meaning of a recorded escalation. The driver
+   treats a refused escalation as evidence of failure and the exit code is derived from evidence; find
+   every place that reasoning is encoded and say what each becomes when an escalation can be granted.
+c) Find the failure modes nobody named. Concurrency is one place to look: several seats can be alive at
+   once, and the plugin holds locks. The blocking wait is another: what happens to the child process,
+   to the report, and to the caller when the wait is never answered. Give a concrete sequence for each,
+   not a category.
+d) Judge D4's premise directly. Is a host actually enough to decide on? Say what an approver holding
+   only a host and a command string cannot see.
+e) Name what the design does not address at all but should, given what the repository already promises.
+
+RETURN:
+Answer as one JSON object matching the supplied schema.
+`result`: first line is one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A4), your status and what you did. Then the refutation, strongest first, at most 30 lines.
+`evidence`: one entry per claim, each a file:line plus the quoted text it rests on.
+`open`: what you could not settle, and what would settle it.

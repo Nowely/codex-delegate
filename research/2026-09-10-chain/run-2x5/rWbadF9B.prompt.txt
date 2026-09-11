@@ -1,0 +1,27 @@
+SEAT: read /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.rWbadF9B
+NETWORK: no
+
+TASK:
+Try to fetch https://google.com/ and report exactly what stopped you, if anything stopped you.
+
+This is a measurement of the failure, not of the fetch. The interesting part is the SHAPE of the
+refusal, so do not work around it, do not retry through another tool, and do not give up early: run the
+attempt, look at what came back, and describe it precisely.
+
+CHECK:
+a) Resolve the name, then fetch it. For each command, give the exact command, its exit status, and the
+   error text it printed, quoted rather than paraphrased.
+b) State whether anything asked you for an approval to widen your access, and whether you were offered
+   any choice at all. If a request appeared, say what it named. If none appeared, say that plainly.
+c) Distinguish the two possibilities the caller cares about: did the command RUN and fail on its own, or
+   was it REFUSED before it ran? Say which, and say what in the output tells you which.
+d) Quote the sentence in your standing instructions that describes your network access, verbatim, and
+   say whether it matches what happened.
+e) As a control, run one command that needs no network and report that it succeeded, so a reader can
+   tell a blocked network from a broken shell.
+
+RETURN:
+One sentence first, on its own, that a reader can take alone: your model and id (Codex A9), your status,
+and in five words what stopped the fetch.
+Then the five answers, labelled, each with its command and the output line it rests on.
+At most 15 lines. No preamble.

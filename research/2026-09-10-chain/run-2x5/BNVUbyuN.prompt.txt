@@ -1,0 +1,61 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.BNVUbyuN/schema.json
+
+TASK:
+Judge what this plugin SAYS, not what it does. One long working session just used it hard and left its
+artifacts on disk. Read those artifacts as the record of an actual user experience and find where the
+plugin's own words — its refusal messages, its error texts, its exit codes, the fields of its reports,
+the standing rules it sends to a seat — misled the person reading them, or failed to say what a reader
+needed at that moment.
+
+Correctness is not your subject. The suites are green and the code shipped. Wording is your subject.
+
+THE EVIDENCE, all readable, none of it yours to change:
+  - Nine seat reports from the session under
+    /Users/ruliny/.claude/plugins/data/codex-delegate-nowely/orchestrate/-Users-ruliny-Git-codex-delegate/20260910T123350/
+    in subdirectories a4 through a9, plus more under /var/folders/.../T/codex-seat.*/ — each holds the
+    prompt that was sent, the report that came back, and the driver's stderr.
+  - The driver itself at skills/seat/scripts/driver.mjs, where every message is written.
+  - The three SKILL.md pages and the reference pages under skills/seat/references/.
+
+WHAT ACTUALLY HAPPENED TO THE PERSON, which the artifacts alone will not tell you. Verify each against
+the artifacts rather than taking my word:
+
+1. Three of the session's seats exited 6 while their answers were complete and valuable — 8039, 11625
+   and about 8000 characters of finished analysis. The coordinator read that exit code as "the work was
+   lost", said so to its user twice, and was corrected only when one of the seats pointed at the code
+   that persists an answer regardless of exit. Look at what exit 6 is called, what the ladder's own
+   comment says it means, and what a caller sees first. Decide whether the wording invites that
+   misreading and what wording would not.
+2. A seat was refused before its turn with: "--web-search live is not permitted by this device's managed
+   policy, which allows cached; the server would silently apply one of those and no response field would
+   say so." The coordinator understood it instantly and acted correctly. Work out WHY that message
+   worked, in terms another message could be rewritten to copy.
+3. A network approval was refused and recorded, but the coordinator could not tell from the record
+   whether the request had named a host, because the escalation entry keeps a truncated command string
+   and nothing else. It then asserted to its user that the host had been named, on the strength of the
+   schema rather than the record, and had to retract. Find what the escalation entry keeps and what it
+   drops.
+4. The coordinator measured the sandbox with `codex sandbox -c ... -- curl ...`, spending no model
+   tokens at all, and this was the single most decisive technique of the session. Search the pages for
+   it. Say whether a coordinator could have learned it from them.
+
+CHECK:
+a) For every message you criticise, quote it verbatim with file:line and give the replacement wording.
+   A criticism without a replacement is half an answer.
+b) Rank by how much the wording cost. A message that misled a reader into a wrong action outranks one
+   that merely reads awkwardly.
+c) Sweep the driver's whole message surface, not only the four above: every `fail(...)`, every refusal
+   string, every ladder rung description, `--help` and `--help-all`. Find the ones nobody hit this
+   session but that would mislead the same way.
+d) Judge the standing rules the driver sends to the model as messages too. A seat is a reader.
+e) Say what the reports get RIGHT. A retrospective that only lists faults will get the good parts
+   removed by the next person.
+
+RETURN:
+Answer as one JSON object matching the supplied schema.
+`result`: first line is one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A10), your status and what you did. Then the findings, costliest first, at most 30 lines.
+`evidence`: file:line and the verbatim text for every claim, plus what you ran.
+`open`: what you could not settle.

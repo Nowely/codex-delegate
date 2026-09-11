@@ -1,0 +1,81 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Rewrite one file under one standard, and account for every word you removed.
+
+The file is /Users/ruliny/Git/codex-delegate/README.md, 290 lines and 2,725 words, in the checkout you are
+sitting in. Its owner's complaint about it, in his own words, translated: "The documentation must be human
+friendly. It must not contain irrelevant information, or things kept just in case. One has to evaluate
+critically and approach the choice of wording correctly."
+
+Do not modify the repository. Write your rewritten README to a file in your own temporary directory and
+name that path in your return.
+
+THE STANDARD, in full. It is the only lens; do not go to the network for another one.
+
+    ## Comments and prose
+
+    Default: no comment. One earns its place by carrying a contract, a constraint, or a
+    why the code cannot state. Carries none - delete it; do not refactor to justify it.
+
+    Cut first: the argument for an instruction, restated wherever the instruction
+    appears. Give the instruction; the case for it lives in one place.
+
+    Also cut: editing history ("previously", "used to", "moved out of", "per PR #123",
+    "on this machine"); capitals used for emphasis; a true claim on the wrong line.
+
+    Define a term before using it. Split a sentence carrying two decisions.
+
+    Never cut a condition, a limit or a warning where a reader decides. Repetition at an
+    independently read decision point is not redundancy. A dated measurement keeps its
+    date and its numbers, including ones the code has since changed.
+
+    Counts - sentence length, repeated phrases - prompt a review. They are not gates.
+
+    Same rules for README and SKILL.md. Release history belongs in CHANGELOG.
+
+    (end of the standard)
+
+TWO FAILURES TO AVOID, both measured on this exact file by earlier agents:
+  - A shorter opening that tells a lie. One rewrite cut the first 116 words to 97 and read better, but its
+    new sentence "Every call returns one JSON report" is false: a refusal before the report path is
+    admitted leaves none. A rewrite that reads well and states something the code does not do is a
+    regression, not an improvement.
+  - A cut that removes a decision the reader must make. Another rewrite reduced a passage from 609 words
+    to 91 and silently dropped a consent condition, an egress warning and an entire stated limitation.
+    Length is not the score.
+
+Known defects in the current file, so you do not spend the budget rediscovering them: "seat" is used at
+line 7 and defined only at line 157; "coordinator" is never defined at all; the clause "a seat that did
+nothing cannot report as though it had" appears at line 7 and again at lines 18-19; line 96 says "The
+`mkdir -p` is not decoration"; line 148 claims exit 0 means "a command really ran", which is false when
+`--allow-no-commands` or `ALLOW_NO_COMMANDS: yes` waives the floor (driver.mjs:266); line 228 is a
+topic-titled how-to. Fix these among the rest.
+
+CHECK:
+a) Every factual claim in your rewritten file must be true of the code in this checkout. For each claim
+   you keep or write about behaviour - an exit code, a flag, a default, a path, a rights boundary, a
+   guarantee - name the file and line that backs it. Where the current README states something the code
+   does not do, correct it rather than copying it forward.
+b) Account for the cuts. Report the word count before and after, and for every passage you removed of 20
+   words or more, one line saying what it was and why the reader does not need it there.
+c) Apply the standard's own brake. List anything you were tempted to cut and kept because it is a
+   condition, a limit or a warning sitting where a reader decides.
+d) Do not invent structure the file does not need. This is a README for a plugin, not a documentation set.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra W1), your status and what you did. Then: the word count before
+             and after; the shape of the new file, as its list of headings; the five changes you consider
+             most valuable, one line each; and anything you kept that a reader might expect you to have
+             cut, with the reason.
+  evidence:  the cut ledger from CHECK (b), one entry per removed passage of 20 words or more, and the
+             code locations backing the behavioural claims you kept or wrote.
+  artifacts: the absolute path of your rewritten README, plus anything else you left in your own
+             temporary directory.
+  open:      any claim in the current README you could not verify against the code, and any place where
+             the standard and the file genuinely disagreed.

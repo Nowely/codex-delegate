@@ -902,8 +902,15 @@ had caught, corrected an overstated census, and is kept whole in the archive.
 Round two's structured returns hold **271 practices**; about forty are ranked above and all 271 are kept
 in [practices-full.md](practices-full.md). The raw returns — eleven Codex seat reports and sixteen agent
 returns including the critic's — are preserved under `research/2026-09-11-terse-survey/` at the repository
-root, outside every plugin payload. Round one's raw returns were not archived before their transcript aged
-out; only their findings survive, here.
+root, outside every plugin payload, together with the eleven seats of round three. Round one's raw returns
+were not archived before their transcript aged out; only their findings survive, here.
+
+**The evidence this plugin was built on is one directory over:** `research/2026-09-10-chain/` holds the
+four-pass rewrite stage by stage, the claim ledger C01–C67 that the plugin's ledger format comes from, the
+cut ledger, the prerequisite inventory, and forty Codex seat returns from the bake-off whose result
+decided most of the plugin's shape. Every 2026-09-10 number quoted anywhere in this file traces there. It
+was living outside version control until 2026-09-11, and the two reproduced blocks in `revise` now carry
+the SHA-256 of their own text so the reproduction claim is checkable even without it.
 
 Weaknesses. The Codex seats were single-pass and unreplicated; where two inputs disagreed, both are
 recorded rather than reconciled. The craft literature is mostly notes and quotations rather than opened

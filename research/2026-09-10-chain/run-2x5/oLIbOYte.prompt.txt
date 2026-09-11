@@ -1,0 +1,86 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+EFFORT: high
+
+TASK:
+Attack a proposal. A Claude coordinator was told by its user: "your documentation and commenting
+is trash, fix it". The coordinator searched the agent-skills registry, read candidates, and produced
+the proposal below. Your job is to find why it will not work, not to praise it.
+
+Context you need:
+
+(1) The user keeps a global instruction file at /Users/ruliny/.claude/CLAUDE.md. It already contains a
+one-line rule about comments. The user's verdict on that rule: "unfortunately this rule is not enough."
+
+(2) The coordinator's diagnosis was: the existing one-liner is a criterion, not a procedure; it lacks an
+inverted default, an enumerated delete-list, an order of alternatives, and a post-write check on the diff.
+
+(3) The coordinator's recommended source was PostHog's public skill "writing-code-comments" from their
+monorepo. Its substance, quoted:
+
+    The gate: before writing a comment, answer "What does this tell a future reader that the code
+    itself doesn't?" If the answer is "it restates what the code does", delete it.
+    Delete: narration that restates the code; change history and chat context ("previously used a set",
+    "per PR #1234", "as discussed", "AI: generated this", stale TODO(2024-01)); perishable measurements
+    and current-state stamps ("~20 min build", "currently", "today"); commented-out code; redundant
+    docstrings and type restatements.
+    Numbers that stay: a dated snapshot; a restated adjacent code literal; a platform constant; a target
+    or budget; cited evidence with a link.
+    Keep: a non-obvious why; a warning about a non-local consequence; a pointer to context a reader
+    cannot reconstruct from the repo.
+    Style: explicit and technical; mostly ASD-STE100 Simplified Technical English; let length follow the
+    content; no em-dash, use a real connective; explain why not what; preserve existing comments when
+    refactoring; match the surrounding density.
+    When tempted to comment, try in order: a better name, a smaller function, a type.
+
+(4) THE PROPOSAL UNDER ATTACK. A new section to be pasted into the user's CLAUDE.md, verbatim:
+
+    ## Comments
+
+    Default: no comment. Before writing one, answer: what does this tell a reader
+    that the code doesn't? No answer -> rename, split the function, or add a type.
+
+    Delete on sight:
+    - narration restating the code (`// loop over users`);
+    - history and chat context: `previously`, `per PR #123`, `as discussed`, `AI:`, `fixed X`;
+    - perishable numbers and `currently` / `today` / `now` - a number stays only if
+      dated, cited, or restating an adjacent code literal;
+    - commented-out code;
+    - a docstring that repeats the function name in prose.
+
+    Keep: a non-obvious why (workaround, trade-off, spec quirk, ordering constraint);
+    a warning about a consequence that lives elsewhere; a pointer to context outside
+    the repo.
+
+    Style: no em-dash; use `because` / `so that` / `to avoid`. Match the file's
+    existing comment density.
+
+    Before claiming done: re-read the added comments in the diff against this list.
+
+    (end of the proposed section)
+
+Plus: install the PostHog skill globally as a reference for edge cases.
+
+CHECK:
+Ground your attack in the user's own files, not in general principle.
+a) Read /Users/ruliny/.claude/CLAUDE.md and quote its existing comment rule verbatim, character for
+   character. Say whether the proposed section contradicts, duplicates or extends anything already there.
+b) Take at least 12 real comments from the user's repository at /Users/ruliny/Git/codex-delegate (the
+   .mjs sources under evals/ and anything under skills/, plus the prose in README.md, CHANGELOG.md and
+   the SKILL.md files). Quote each with its file:line. For each, state the verdict the proposed
+   delete-list yields, and whether that verdict is correct. You are looking for two failure classes:
+   a rule that fires on a comment worth keeping, and a comment that is clearly trash yet no rule fires.
+c) The proposal governs code comments. The user also called the documentation trash. Check whether the
+   proposal covers the repository's prose at all, and quote evidence from README.md or a SKILL.md.
+
+RETURN:
+Line 1, on its own: one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A1), your status, and what you did.
+Then, in this order, English or Russian, your choice:
+1. The single strongest reason this proposal fails to fix what the user complained about. Evidence, not
+   opinion.
+2. Each proposed rule that misfires or under-fires, with the real quoted comment that proves it.
+3. What the proposal omits entirely.
+4. Verdict, exactly one of: adopt as written / adopt with changes (enumerate them, as final text) /
+   reject and do X instead.
+At most 70 lines. No preamble.

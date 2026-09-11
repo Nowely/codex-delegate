@@ -1,0 +1,57 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+EFFORT: high
+
+TASK:
+Design, from scratch and on evidence, the standard that would actually fix this user's problem. Do not
+ask for a plan to be approved; produce the artifact.
+
+The situation: the user works with coding agents (Claude Code) on the repository at
+/Users/ruliny/Git/codex-delegate. The user's verdict on what the agent produces: "the documentation and
+the commenting is trash, it needs fixing." The user keeps a global instruction file at
+/Users/ruliny/.claude/CLAUDE.md that already carries a one-line rule about comments, and says that rule
+is not enough.
+
+Deliberately, you are NOT being shown the fix another agent proposed. Reach your own conclusion.
+
+Two things to decide, both grounded in what you actually read:
+a) What is wrong with the comments and the prose in this repository, concretely. Diagnose the failure
+   modes that are actually present, in order of how often they occur. Do not list failure modes you did
+   not observe.
+b) The smallest artifact that would prevent them. Consider, and choose between, at least: a rule block in
+   the always-loaded instruction file; a loadable skill that fires on a trigger; a mechanical check
+   (grep, lint, a test in evals/); a review pass over a diff. State why the ones you rejected are worse
+   for this user. A mixture is allowed only if you say what each part carries.
+
+Constraints that bind your answer:
+- The user's stated house style is terse and evidence-first; a rule that costs more words than it saves
+  will be refused.
+- The instruction file is loaded into every session; a skill loads only when its trigger fires. Weigh
+  that.
+- The repository is a Claude Code plugin: its SKILL.md files are prose read by agents, and its evals/
+  are JavaScript. Both are in scope.
+
+CHECK:
+a) Read /Users/ruliny/.claude/CLAUDE.md and quote its existing comment rule verbatim, character for
+   character, so it is clear what you are replacing or extending.
+b) Sample the repository's actual comments, at minimum the .mjs sources under evals/ and evals/lib/, and
+   whatever code lives under skills/. Quote at least 8 offenders with file:line. Give a rough count: how
+   many comments you looked at and how many failed your diagnosis, so the size of the problem is stated
+   and not implied.
+c) Sample the prose too: README.md, CHANGELOG.md and at least two SKILL.md files. Quote at least 3
+   passages, with file and line, that show what "the documentation is trash" refers to concretely, or
+   state on evidence that the prose is in fact fine and the problem is only in the code comments.
+d) If you propose a mechanical check, prove it works: run it over this repository and report the exact
+   command and its real output, including false positives.
+
+RETURN:
+Line 1, on its own: one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A2), your status, and what you did.
+Then, in this order, English or Russian, your choice:
+1. The diagnosis: failure modes actually present, ordered by frequency, each with one quoted example
+   at file:line, and the counts from CHECK (b).
+2. Your artifact, as final text ready to paste, not as a description of what it would contain. If it
+   belongs in a file, name the file.
+3. What you rejected and why.
+4. The one thing you are least sure about.
+At most 80 lines. No preamble.

@@ -1,0 +1,74 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Find out whether a "Prettier for prose" exists, and report what it can and cannot reach.
+
+The owner's framing, and it is the right one to work from: Prettier's defining property is not that it
+formats nicely. It is that nobody argues about it. You run it, it normalises, the discussion is over.
+He wants that for text: a set of rules that pulls any text he or an agent writes closer to a human
+reader, applied to documents, README files and code comments alike, without him having to think about
+it each time.
+
+So the question is not "what documentation standards exist" - an earlier survey answered that, and the
+answer was style guides that an agent must read and interpret. This question is narrower and different:
+what runs deterministically over prose the way a formatter runs over code?
+
+WHAT TO COVER, at least:
+  - The deterministic prose-linter family. Vale and the style packages it can install (Google,
+    Microsoft, write-good, alex, Joblint and whatever else it carries); proselint; textlint and its rule
+    ecosystem; alex; write-good; retext and its plugins; Hemingway-style readability scoring. For each:
+    what rules does it actually ship, what does a rule fire on, is it configurable-by-default or
+    opinionated-by-default, and can it run in CI as a gate.
+  - Whether any of them lints COMMENTS IN SOURCE CODE, not just Markdown. Vale has scoping; find out
+    what it really supports and how well. This matters: the owner's corpus is 3,000 lines of comments
+    inside JavaScript, not only prose files.
+  - Agent skills that act as a normalising pass over any text rather than as advice about writing: a
+    prose "prettifier" the agent runs at the end of every piece of writing.
+  - The boundary, which is the most useful part of your answer. These tools catch surface properties:
+    sentence length, passive voice, weasel words, jargon lists, readability scores. State plainly, with
+    examples, what class of defect they provably cannot reach.
+
+A CONCRETE TEST OF THAT BOUNDARY. A human reader recently found six defects in one rewritten opening
+paragraph of this repository's README, and ten specialised agents plus two judges had missed all six:
+  1. definitions placed before the reader had a reason to care about the terms;
+  2. an environment-variable name in the first paragraph, meaningless to a newcomer;
+  3. the subject narrowed to "coding tasks" when the plugin takes any work, which made it false;
+  4. the statement of the project's purpose deleted entirely;
+  5. a property of the implementation promoted to the opening as if it were the purpose;
+  6. the wrong thesis: it argued why to use the thing instead of saying what it is.
+For each of these six, say whether any tool you found would fire on it, and name the rule that would. Be
+strict: "a sentence-length rule might have caught it" is not a yes.
+
+These four routes were verified working from this machine today, 2026-09-10:
+  - `curl -sL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`
+  - `curl -sL "https://api.github.com/repos/<owner>/<repo>/git/trees/<branch>?recursive=1"`, unauthenticated,
+    about 60 calls an hour; the code-search endpoint returns 401 and is not worth trying
+  - `curl -sL https://skills.sh/<owner>/<repo>/<skill>` and `npx -y skills find "<query>"`
+  - plain `curl` to a documentation site
+Do not use a provider web-search tool: this device's policy refuses the live tier and the cached tier
+answers 429. If a tool is installable and you can run it read-only against a file in this checkout
+without writing anything outside your temporary directory, running it beats describing it.
+
+CHECK:
+a) Give a URL for every tool and every rule set you name, and say how many rules it ships if you can
+   count them.
+b) Quote at least one real rule per tool, as the tool states it, not as you summarise it.
+c) Answer the six-defect test above item by item. A tool that fires on none of the six is still a useful
+   finding; say so.
+d) Separate what is deterministic from what needs a model's judgement. That distinction is the whole
+   question here.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra S3), your status and what you did. Then: whether a
+             Prettier-for-prose exists and what it is, the tools worth adopting ranked with their URLs,
+             whether any of them reaches code comments, the six-defect verdict, and the boundary stated
+             in one sentence.
+  evidence:  URLs, rule counts, quoted rules, and anything you actually ran with its output.
+  artifacts: anything you left in your own temporary directory.
+  open:      what you could not install or verify, and where you judged a tool by its documentation
+             rather than by running it.

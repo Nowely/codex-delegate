@@ -1,0 +1,56 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.QZ0cJmgg/schema.json
+
+TASK:
+Be the completeness critic on a finished but uncommitted change. Your question is not "is what was done
+correct" — another seat is auditing that — but "what was not done at all". Missing, unverified, unread.
+
+The change is in the working tree at HEAD b2e25d0, uncommitted, across fourteen files. Read it with git
+diff. Two seats wrote it: one owned `skills/seat/scripts/driver.mjs` and `evals/`, the other owned
+README.md, CHANGELOG.md, the SKILL.md pages and everything under `skills/seat/references/`.
+
+WHAT IT WAS MEANT TO DO. Network egress becomes ON by default at both the read and the write level,
+denied only by an explicit `--no-network` on the command line or `NETWORK: no` in a seat header. No host
+allowlist: the owner rejected one deliberately, judging it an extra rule to test for no benefit, and
+constrains hosts in the prompt instead. Web search stays off by default. Approvals, escalations, the
+exit-6 rung and the refusal ladder must not move.
+
+The two writers each declared their own gaps. Treat these as leads to verify and extend, not as the
+list: a critic who returns only what was already confessed has found nothing.
+  - A field-table contract test checks only that the network field APPEARS on the skill page, not what
+    the page says its default is, so a page still describing egress as opt-in would pass every suite.
+  - A write-level sandbox that withholds egress the seat asked for has no fixture pinning it.
+  - The plain unsandboxed verifier still runs with the caller's own rights and network regardless of the
+    negative flag; that was left alone deliberately.
+  - Whether a seat denied egress that then hits a refused fetch raises an escalation or a plain command
+    failure was never exercised live.
+  - One documentation recipe still reproduces the read profile without a network table.
+  - A measured claim about a read seat being refused a browser launch was removed rather than restated,
+    because its premise was the absent egress.
+
+CHECK:
+a) Sweep the WHOLE repository, not the diff, for anything that still assumes a seat has no network:
+   prose, comments, test rationales, help text, the plugin manifest, anything. A stale claim that no
+   test can catch is exactly your quarry. Quote each with file:line.
+b) Decide whether code and prose actually agree. The two writers worked in parallel on disjoint files
+   and had to guess at each other's spellings and defaults. Compare what the driver does against what
+   every page now says it does, and name every disagreement.
+c) Name what a reader of this change would still not be able to find out: a behaviour that changed but
+   is documented nowhere, or a promise that is now made in one place and contradicted in another.
+d) The security posture changed. A seat now reaches the network by default while reading any readable
+   path. Say whether the change states that plainly enough for someone deciding to install this plugin,
+   and whether anything in the repository still implies the older, safer contract.
+e) Judge the tests as a body rather than one by one: what class of failure could ship green. Name the
+   single case whose absence would cost the most.
+f) Say what a release of this change would still need that is not present: the owner's rule is that a
+   version bump is its own commit and the changelog entry stays under an unreleased heading, so do not
+   report the absent bump as a gap.
+
+RETURN:
+Answer as one JSON object matching the supplied schema.
+`result`: first line is one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A7), your status and what you did. Then the gaps, ordered by what they would cost, at most
+30 lines. Distinguish the ones the writers already confessed from the ones you found.
+`evidence`: file:line for every claim, and what you ran.
+`open`: what you could not establish and what would establish it.

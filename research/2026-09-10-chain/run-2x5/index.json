@@ -1,0 +1,282 @@
+[
+  {
+    "id": "0rfxpli3",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 55,
+    "bytes": 8381
+  },
+  {
+    "id": "4PEdPnzj",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 24,
+    "bytes": 28020
+  },
+  {
+    "id": "4Y5DzkjK",
+    "model": "gpt-6-astra",
+    "exit": 1,
+    "cmds": 44,
+    "bytes": 0
+  },
+  {
+    "id": "6q4yehWp",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 15,
+    "bytes": 4870
+  },
+  {
+    "id": "BNVUbyuN",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 38,
+    "bytes": 28667
+  },
+  {
+    "id": "EKalWntb",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 54,
+    "bytes": 21364
+  },
+  {
+    "id": "Faf2geGl",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 36,
+    "bytes": 19699
+  },
+  {
+    "id": "Gj6UYscT",
+    "model": "gpt-5.6-sol",
+    "exit": 0,
+    "cmds": 53,
+    "bytes": 13479
+  },
+  {
+    "id": "IeFlFDKy",
+    "model": "gpt-5.6-sol",
+    "exit": 0,
+    "cmds": 72,
+    "bytes": 6536
+  },
+  {
+    "id": "J1x2qiA9",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 11,
+    "bytes": 5845
+  },
+  {
+    "id": "Kvg5xm8P",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 38,
+    "bytes": 8660
+  },
+  {
+    "id": "NV8cNQO3",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 23,
+    "bytes": 4600
+  },
+  {
+    "id": "Om8lkMNW",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 41,
+    "bytes": 8969
+  },
+  {
+    "id": "QZ0cJmgg",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 39,
+    "bytes": 11625
+  },
+  {
+    "id": "RNdMXkFw",
+    "model": "gpt-5.6-sol",
+    "exit": 0,
+    "cmds": 27,
+    "bytes": 13238
+  },
+  {
+    "id": "SYjOzmzM",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 21,
+    "bytes": 18987
+  },
+  {
+    "id": "Tu7XTULJ",
+    "model": "gpt-5.6-terra",
+    "exit": 0,
+    "cmds": 2,
+    "bytes": 261
+  },
+  {
+    "id": "VLBozY04",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 33,
+    "bytes": 10041
+  },
+  {
+    "id": "XKV9dtfL",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 39,
+    "bytes": 8039
+  },
+  {
+    "id": "aL4688OT",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 29,
+    "bytes": 8536
+  },
+  {
+    "id": "eX6zxjYm",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 44,
+    "bytes": 3695
+  },
+  {
+    "id": "fYDiYZUN",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 68,
+    "bytes": 16398
+  },
+  {
+    "id": "kZPNcA3e",
+    "model": "gpt-5.6-sol",
+    "exit": 0,
+    "cmds": 66,
+    "bytes": 4920
+  },
+  {
+    "id": "mQhIRwwe",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 58,
+    "bytes": 10854
+  },
+  {
+    "id": "mkyVFOn0",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 27,
+    "bytes": 3171
+  },
+  {
+    "id": "naVdzMnw",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 4,
+    "bytes": 1165
+  },
+  {
+    "id": "o8eHzS6U",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 79,
+    "bytes": 39608
+  },
+  {
+    "id": "oLIbOYte",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 17,
+    "bytes": 9056
+  },
+  {
+    "id": "oRfBREBF",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 107,
+    "bytes": 14607
+  },
+  {
+    "id": "opAcPVhu",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 47,
+    "bytes": 19399
+  },
+  {
+    "id": "psEO6wwt",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 55,
+    "bytes": 26314
+  },
+  {
+    "id": "rCYUALAd",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 43,
+    "bytes": 15715
+  },
+  {
+    "id": "rWbadF9B",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 1,
+    "bytes": 1278
+  },
+  {
+    "id": "sm1clXqa",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 15,
+    "bytes": 6235
+  },
+  {
+    "id": "steAKTU9",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 77,
+    "bytes": 11692
+  },
+  {
+    "id": "utOPPA1l",
+    "model": "gpt-5.6-sol",
+    "exit": 0,
+    "cmds": 116,
+    "bytes": 4692
+  },
+  {
+    "id": "v04PR6HL",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 39,
+    "bytes": 21828
+  },
+  {
+    "id": "wBLFthpk",
+    "model": "gpt-6-astra",
+    "exit": 6,
+    "cmds": 179,
+    "bytes": 20572
+  },
+  {
+    "id": "wvS7JJN8",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 22,
+    "bytes": 27616
+  },
+  {
+    "id": "zP378l2j",
+    "model": "gpt-6-astra",
+    "exit": 0,
+    "cmds": 28,
+    "bytes": 9390
+  }
+]
