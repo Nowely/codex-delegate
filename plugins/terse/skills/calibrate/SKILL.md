@@ -69,6 +69,19 @@ before anyone spends an hour on it.
 the answer comes back as left, right, tie or unjudgeable. Nobody reading the page — including through its
 developer tools — can see which side carries which variant.
 
+**Where the two sides differ is highlighted, and this changes the question.** Without it the reader hunts
+for a changed phrase through forty identical words and calls the pair equal because they never found it:
+in the first sitting, both metaphor items came back as ties, both with a note saying the difference was
+invisible. The marking is symmetric — it says where, never which — so it costs no blinding. What it does
+cost is the "did you notice" part of the measurement. The question is now *given that this is what
+changed, which passage would you rather read*, which is the question a writing rule needs answered, and
+it is not the same as asking whether the change is noticeable at all. Report the tie rate as belonging to
+the highlighted procedure. Where more than half the wording moved, nothing is highlighted and the page
+says so instead; a wall of colour points at nothing.
+
+**Two clocks per answer.** Time to the first choice is the decision. Time to submit includes writing a
+note, and in the first sitting that was the difference between 24 seconds and 286.
+
 Four responses, not three: **A**, **B**, **genuinely equal**, and **cannot judge or both unacceptable**.
 The fourth is a failed item, not a tie, and it is counted separately.
 

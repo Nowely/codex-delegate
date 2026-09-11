@@ -16,6 +16,7 @@ const OUT = args.get('out')
 const WHO = args.get('participant') || 'unnamed'
 const SEED = Number(args.get('seed') || 1)
 const PORT = Number(args.get('port') || 8788)
+const SCHEDULER = 3   // see fingerprint(): bump on any edit that can reorder trials or reassign sides
 
 if (!BANK || !OUT) {
   console.error(`usage: session.mjs --bank <bank.json> --out <session.json> [--participant NAME] [--seed N] [--port N]
@@ -56,16 +57,8 @@ function buildOrder(bank, seed) {
     byFactor.get(k).push(item)
   }
 
-  // Exact side balance within each factor: the first half of a shuffled factor puts the
-  // on-variant left, the second half puts it right. Coin flips do not do this - with six
-  // items they land one variant on the same side five times or more in 22% of banks.
   const trials = []
-  for (const [factor, items] of byFactor) {
-    const shuffled = shuffle(items, rand)
-    shuffled.forEach((item, i) => {
-      trials.push({ item, factor, onLeft: i < Math.ceil(shuffled.length / 2) })
-    })
-  }
+  for (const [factor, items] of byFactor) for (const item of shuffle(items, rand)) trials.push({ item, factor })
 
   // Spread every group across the whole session. Dealing one item per group per round instead empties
   // the short queues first: with groups of 40/40/40/12/7 a measured run put every whole-text item and
@@ -85,6 +78,20 @@ function buildOrder(bank, seed) {
   const turn = (x) => LATIN[Math.floor(x.at) % LATIN.length].indexOf(rank.get(x.k) % 3)
   slotted.sort((a, b) => a.at - b.at || turn(a) - turn(b) || rank.get(a.k) - rank.get(b.k))
   const ordered = slotted.map((x) => x.t)
+
+  // Sides are assigned AFTER the order exists, in consecutive pairs within each factor. Assigning them
+  // by index in the shuffled list - which is what set the running order too - made side and time the
+  // same variable: over a 144-trial walk the on-variant sat left 45 times against 3 in the opening
+  // third and 0 against 48 in the closing one, while the totals stayed an innocent 20/20. Anyone
+  // stopping early answered one side only, and a position bias would have read as a preference.
+  for (const k of keys) {
+    const mine = ordered.filter((t) => t.factor === k)
+    for (let i = 0; i < mine.length; i += 2) {
+      const first = rand() < 0.5
+      mine[i].onLeft = first
+      if (mine[i + 1]) mine[i + 1].onLeft = !first
+    }
+  }
 
   // Repeats: same item, opposite side, far enough after the original to be recall rather than
   // comparison. An original among the last dozen trials leaves no room for that, and clamping the copy
@@ -114,7 +121,7 @@ if (fs.existsSync(OUT)) {
     process.exit(2)
   }
   if (session.fingerprint && session.fingerprint !== fingerprint(bank)) {
-    console.error('the bank has changed since this session started; answers are keyed by position and would realign to different items. Start a new session file.')
+    console.error('the bank or the scheduler has changed since this session started; answers are keyed by position and would realign to different items. Start a new session file.')
     process.exit(2)
   }
   session.fingerprint ??= fingerprint(bank)
@@ -129,11 +136,56 @@ const save = () => {
   fs.renameSync(OUT + '.tmp', OUT)
 }
 
-// Answers are keyed by position in the order, and the order comes from the bank. An edited bank
-// silently realigns yesterday's answers to different items, so a resume must refuse one.
-function fingerprint(b){ return b.items.map((i) => i.id).join('|').length + ':' + b.items.length + ':' + b.items.map((i) => i.id).join(',').slice(0, 200) }
+// Answers are keyed by position in the order, so anything that moves the order invalidates them. The
+// bank is one such thing and was the only one guarded: a change to buildOrder leaves every id in place,
+// passes the check, and silently realigns yesterday's answers to different items. Bump SCHEDULER on any
+// edit that can reorder trials or reassign sides. It is declared with the other constants at the top,
+// because `const` is not hoisted and fingerprint() is called while the session object is built.
+function fingerprint(b){ return 's' + SCHEDULER + ':' + b.items.map((i) => i.id).join('|').length + ':' + b.items.length + ':' + b.items.map((i) => i.id).join(',').slice(0, 200) }
 
 function optionOrder(t){ return shuffle(Object.entries(t.item.variants), rng(SEED + t.trial)).map(([k]) => k) }
+
+// Where the two sides part company, marked on both of them. Without it the reader hunts for the change
+// through forty identical words and calls a pair equal because they did not find it - two of the first
+// five answers came back that way, both saying the difference was invisible. The marking is symmetric:
+// it says where, never which, so nothing about the variants leaks onto the page.
+// Backtick and bold spans are single tokens, so a mark can never open inside one and strand a delimiter.
+const tokenise = (s) => s.match(/`[^`]*`|\*\*[^*]+\*\*|\s+|[^\s`*]+|[`*]/g) || []
+
+function markDiff(a, b) {
+  const A = tokenise(a), B = tokenise(b), n = A.length, m = B.length
+  const L = Array.from({ length: n + 1 }, () => new Int32Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+  const sa = [], sb = []
+  const put = (arr, t, d) => { const l = arr[arr.length - 1]; if (l && l.d === d) l.t += t; else arr.push({ t, d }) }
+  let i = 0, j = 0
+  while (i < n || j < m) {
+    if (i < n && j < m && A[i] === B[j]) { put(sa, A[i++], false); put(sb, B[j++], false) }
+    else if (j >= m || (i < n && L[i + 1][j] >= L[i][j + 1])) put(sa, A[i++], true)
+    else put(sb, B[j++], true)
+  }
+  const merge = (segs) => segs.reduce((acc, s) => { const l = acc[acc.length - 1]; if (l && l.d === s.d) l.t += s.t; else acc.push({ ...s }); return acc }, [])
+  // The spaces between two changed words match, so a plain diff hands back one mark per word - eleven
+  // striped boxes where the reader should see one changed phrase. Runs of sameness that are whitespace,
+  // or a word or two stranded inside a rewritten phrase, are folded into the mark around them. A larger
+  // island is left alone: in answer-first items the two regions are a sentence's old seat and its new
+  // one, and joining those would highlight the whole passage.
+  const bridge = (segs) => {
+    for (let i = 1; i < segs.length - 1; i++) {
+      if (segs[i].d || !segs[i - 1].d || !segs[i + 1].d) continue
+      if ((segs[i].t.match(/\S+/g) || []).length <= 2) segs[i].d = true
+    }
+    return merge(segs)
+  }
+  // A mark that swallows the space beside it draws a box with a ragged edge; the whitespace goes back.
+  const tidy = (segs) => merge(segs.flatMap((s) => {
+    if (!s.d) return [s]
+    const [, lead, core, tail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(s.t)
+    return [lead && { t: lead, d: false }, core && { t: core, d: true }, tail && { t: tail, d: false }].filter(Boolean)
+  }))
+  return [tidy(bridge(merge(sa))), tidy(bridge(merge(sb)))]
+}
 
 const nextTrial = () => {
   const done = new Set(session.answers.map((a) => a.trial))
@@ -161,10 +213,22 @@ const present = (t) => {
     }
   }
   const l = sideText(t, 'left'), r = sideText(t, 'right')
+  const left = typeof l === 'string' ? l : l.text, right = typeof r === 'string' ? r : r.text
+  // Whole-text pairs are a rewrite against its original and differ nearly everywhere. So do a few of
+  // the answer-first items, where the sentence did not so much move as get written again: one marks
+  // every word it has. Past half the passage a highlight has stopped pointing at anything, so it is
+  // dropped and the page says instead that the two carry the same content in a different order. The
+  // test is the item's own measured share, not its factor name.
+  let marked = t.item.type === 'single-factor' ? markDiff(left, right) : null
+  if (marked) {
+    const share = (segs, s) => segs.filter((x) => x.d).reduce((n, x) => n + x.t.length, 0) / Math.max(1, s.length)
+    if (share(marked[0], left) > 0.5 || share(marked[1], right) > 0.5) marked = null
+  }
   return {
     done: false, trial: t.trial, kind: 'pair', type: t.item.type,
     answered: session.answers.length, total: order.length, sitting: session.answers.length - startedThisSitting,
-    left: typeof l === 'string' ? l : l.text, right: typeof r === 'string' ? r : r.text,
+    left, right, leftSegs: marked && marked[0], rightSegs: marked && marked[1],
+    rearranged: t.item.type === 'single-factor' && !marked,
   }
 }
 
@@ -174,9 +238,9 @@ const PAGE = String.raw`<!doctype html><html lang="en"><meta charset="utf-8">
 <title>calibration</title>
 <style>
  :root{--fg:#1a1a1a;--dim:#5f5f5f;--faint:#767676;--line:#dcdcdc;--edge:#8f8f8f;
-       --pick:#0b5fff;--onpick:#fff;--bg:#fbfbfa;--panel:#fff}
+       --pick:#0b5fff;--onpick:#fff;--bg:#fbfbfa;--panel:#fff;--markbg:#fff3bf;--markline:#d9b40a}
  @media (prefers-color-scheme:dark){:root{--fg:#e8e8e8;--dim:#9b9b9b;--faint:#9a9a9a;--line:#4a4a4a;--edge:#767676;
-       --pick:#6ea8ff;--onpick:#151515;--bg:#151515;--panel:#1c1c1c}}
+       --pick:#6ea8ff;--onpick:#151515;--bg:#151515;--panel:#1c1c1c;--markbg:#4a3f16;--markline:#a98c1e}}
  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
  *{box-sizing:border-box}
  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
@@ -209,7 +273,12 @@ const PAGE = String.raw`<!doctype html><html lang="en"><meta charset="utf-8">
  .exrow label{font-size:14px;color:var(--fg);display:flex;gap:7px;align-items:center;cursor:pointer;padding:4px 0}
  .exrow button.link{border:0;background:0;color:var(--dim);font:inherit;font-size:14px;cursor:pointer;
                     text-decoration:underline;padding:5px 6px;margin:-5px -6px}
- textarea{display:none;width:100%;margin-top:10px;min-height:56px;border:1px solid var(--edge);border-radius:8px;
+ mark{background:var(--markbg);color:var(--fg);border-bottom:2px solid var(--markline);
+      border-radius:2px;padding:0 1px}
+ .difftip{font-size:13px;color:var(--faint);margin:0 0 10px}
+ .tools{display:inline-flex;align-items:center;gap:10px}
+ textarea{display:none;width:100%;margin-top:10px;min-height:56px;max-height:50vh;overflow-y:auto;
+      border:1px solid var(--edge);border-radius:8px;
           padding:10px 12px;font:inherit;font-size:14px;background:var(--panel);color:inherit;resize:vertical}
  textarea.on{display:block}
  .act{margin-top:18px;display:flex;gap:14px;align-items:center}
@@ -226,15 +295,21 @@ const PAGE = String.raw`<!doctype html><html lang="en"><meta charset="utf-8">
 <script>
 var $ = function(s){ return document.querySelector(s) }
 var cur = null, choice = null, flags = {loserAlsoGood:false, bothWeak:false}
-var note = '', noteOpen = false, shown = 0, busy = false, paused = false, msg = '', resumed = false
+var note = '', noteOpen = false, shown = 0, chosenAt = 0, busy = false, paused = false, msg = '', resumed = false
 var DRAFT = 'terse-draft'
 
 function esc(t){ return t.replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c] }) }
-function md(t){
-  return t.split(/\n{2,}/).map(function(p){
-    return '<p>' + esc(p).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-      .replace(/\x60(.+?)\x60/g,'<code>$1</code>').replace(/\n/g,'<br>') + '</p>'
-  }).join('')
+function inline(t){
+  return esc(t).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\x60(.+?)\x60/g,'<code>$1</code>').replace(/\n/g,'<br>')
+}
+function md(t){ return t.split(/\n{2,}/).map(function(p){ return '<p>' + inline(p) + '</p>' }).join('') }
+// The server says where the two sides part company. It is one passage of a few dozen words, so it is
+// one paragraph; the segments carry their own whitespace and are not re-split.
+function mdSegs(segs){
+  var h = ''
+  for (var i = 0; i < segs.length; i++) h += segs[i].d ? '<mark>' + inline(segs[i].t) + '</mark>' : inline(segs[i].t)
+  return '<p>' + h + '</p>'
 }
 function saveDraft(){
   try { sessionStorage.setItem(DRAFT, JSON.stringify({t:cur&&cur.trial, choice:choice, flags:flags, note:note})) } catch(e){}
@@ -254,13 +329,21 @@ function sync(){
   if (f1) f1.checked = flags.loserAlsoGood
   if (f2) f2.checked = flags.bothWeak
   var go = $('#go'); if (go) go.disabled = !choice
-  var hint = $('#exhint'); if (hint) hint.textContent = choice ? '' : 'Optional flags and a note become available once you choose.'
-  var ex = $('#extras'); if (ex) ex.style.visibility = choice ? 'visible' : 'hidden'
+  if (f1) f1.disabled = !choice
+  if (f2) f2.disabled = !choice
+  var fr = $('#flagrow'); if (fr) fr.style.opacity = choice ? '1' : '.45'
+  var hint = $('#exhint'); if (hint) hint.textContent = choice ? '' : 'The two flags need a choice first. A note does not.'
   saveDraft()
 }
-function pick(v){ if (paused) return; choice = v; sync() }
+// Two clocks. The old one ran to the moment the answer was posted, so an answer with a long comment
+// recorded the typing: the first session's two commented answers logged 286s and 201s against 24s and
+// 21s for the two without. Time to the first choice is the decision; time to submit is the cost.
+function pick(v){ if (paused) return; if (!chosenAt) chosenAt = Date.now(); choice = v; sync() }
 function toggle(f){ if (!choice) return; flags[f] = !flags[f]; sync() }
-function openNote(){ if (!choice) return; noteOpen = true; var c = $('#comment'); c.classList.add('on'); c.focus() }
+// A note is available before a choice: the reason for an answer is often what the reader thinks first.
+// The flags still need one, because "the other one was also good" has no meaning without an other one.
+function openNote(){ noteOpen = true; var c = $('#comment'); c.classList.add('on'); grow(c); c.focus() }
+function grow(c){ c.style.height = 'auto'; c.style.height = c.scrollHeight + 'px' }
 
 function draw(){
   if (paused){
@@ -275,7 +358,7 @@ function draw(){
   var h = '<h1 id="hd" tabindex="-1" class="vh">Item ' + (cur.answered + 1) + '</h1>'
     + '<div class="top"><span>' + cur.answered + ' saved of ' + cur.total
     + (cur.sitting ? ' · ' + cur.sitting + ' this sitting' : '') + '</span>'
-    + '<span><button onclick="undo()">undo last</button> <button onclick="pause()">pause</button></span></div>'
+    + '<span class="tools"><button onclick="undo()">undo last</button><span aria-hidden="true">·</span><button onclick="pause()">pause</button></span></div>'
     + '<fieldset><legend class="vh">Which reads better?</legend>'
 
   if (cur.kind === 'three'){
@@ -286,9 +369,13 @@ function draw(){
          + md(cur.options[i]) + '</div>'
     h += '</div>'
   } else {
+    if (cur.leftSegs) h += '<p class="difftip">Highlighted: where these two differ. Judge the whole passage as a reader — the rest is there for context.</p>'
+    else if (cur.rearranged) h += '<p class="difftip">These two carry the same content, arranged differently. Nothing is highlighted because too much of the wording moved.</p>'
     h += '<div class="pair">'
-       + '<div class="opt" data-v="left" onclick="pick(\'left\')"><div class="k"><input type="radio" name="c" tabindex="-1"> left</div>' + md(cur.left) + '</div>'
-       + '<div class="opt" data-v="right" onclick="pick(\'right\')"><div class="k"><input type="radio" name="c" tabindex="-1"> right</div>' + md(cur.right) + '</div>'
+       + '<div class="opt" data-v="left" onclick="pick(\'left\')"><div class="k"><input type="radio" name="c" tabindex="-1"> left</div>'
+       + (cur.leftSegs ? mdSegs(cur.leftSegs) : md(cur.left)) + '</div>'
+       + '<div class="opt" data-v="right" onclick="pick(\'right\')"><div class="k"><input type="radio" name="c" tabindex="-1"> right</div>'
+       + (cur.rightSegs ? mdSegs(cur.rightSegs) : md(cur.right)) + '</div>'
        + '</div>'
   }
   h += '<div class="rest">'
@@ -299,11 +386,13 @@ function draw(){
   h += '<fieldset class="extras"><legend>Optional — add any, or skip</legend>'
      + '<div class="exhint" id="exhint"></div>'
      + '<div id="extras"><div class="exrow">'
+     + '<span id="flagrow" class="exrow">'
      + '<label><input type="checkbox" id="f1" onchange="toggle(\'loserAlsoGood\')"> the other one was also good</label>'
      + '<label><input type="checkbox" id="f2" onchange="toggle(\'bothWeak\')"> both were weak</label>'
+     + '</span>'
      + '<button class="link" onclick="openNote()">add a note</button>'
      + '</div><label class="vh" for="comment">Note</label>'
-     + '<textarea id="comment" oninput="note=this.value;saveDraft()" placeholder="why? — optional"></textarea>'
+     + '<textarea id="comment" oninput="note=this.value;grow(this);saveDraft()" placeholder="why? — optional"></textarea>'
      + '</div></fieldset>'
 
   h += '<div class="act"><button class="go" id="go" onclick="submit()" disabled>next</button></div>'
@@ -314,7 +403,7 @@ function draw(){
 
   $('#wrap').innerHTML = h
   $('#comment').value = note
-  if (noteOpen) $('#comment').classList.add('on')
+  if (noteOpen){ $('#comment').classList.add('on'); grow($('#comment')) }
   sync()
   $('#hd').focus()
   scrollTo(0, 0)
@@ -324,7 +413,7 @@ function load(){
   fetch('/api/next').then(function(r){ return r.json() }).then(function(c){
     var fresh = !cur || cur.trial !== c.trial
     cur = c
-    if (fresh){ choice = null; flags = {loserAlsoGood:false, bothWeak:false}; note = ''; noteOpen = false; clearDraft() }
+    if (fresh){ choice = null; chosenAt = 0; flags = {loserAlsoGood:false, bothWeak:false}; note = ''; noteOpen = false; clearDraft() }
     var d = null
     try { d = JSON.parse(sessionStorage.getItem(DRAFT) || 'null') } catch(e){}
     if (d && d.t === c.trial){ choice = d.choice; flags = d.flags || flags; note = d.note || ''; resumed = true }
@@ -337,7 +426,8 @@ function submit(){
   if (!choice || busy || paused) return
   busy = true; msg = ''
   fetch('/api/answer', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({
-    trial: cur.trial, choice: choice, flags: flags, comment: note, ms: Date.now() - shown, resumed: resumed })})
+    trial: cur.trial, choice: choice, flags: flags, comment: note, ms: Date.now() - shown,
+    msToChoice: chosenAt ? chosenAt - shown : null, resumed: resumed })})
   .then(function(r){
     if (!r.ok){ busy = false; msg = 'NOT SAVED — stop and check the terminal before answering anything else.'; draw(); return null }
     return r.json()
@@ -412,7 +502,8 @@ const server = http.createServer(async (req, res) => {
       trial: a.trial, itemId: t.item.id, factor: t.factor, type: t.item.type,
       onLeft: t.onLeft, isRepeatOf: t.isRepeatOf ?? null,
       presentedOptions: t.item.type === 'code-comment' ? optionOrder(t) : null,
-      choice: a.choice, flags: a.flags, comment: a.comment, ms: a.ms, at: new Date().toISOString(),
+      choice: a.choice, flags: a.flags, comment: a.comment,
+      ms: a.ms, msToChoice: a.msToChoice ?? null, at: new Date().toISOString(),
     })
     save()
     const left = session.answers.length, total = order.length

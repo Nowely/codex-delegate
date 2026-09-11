@@ -65,6 +65,24 @@ forensics remain in the repository references and release notes.
   Counting those thirteen as hits would have been the move this plugin warns about, where filtering to
   the favourable items moved a published judge from 66% to 85%. The category was fixed and the check paid
   for again. All three runs of verdicts are kept.
+- The first five human answers were spent on the tool rather than on the measurement, and found the worst
+  defect in it: **side was the same variable as time.** Sides were assigned by index in a shuffled list,
+  and that index also set the running order, so across a 144-trial walk the on-variant sat left 45 times
+  against 3 in the opening third and 0 against 48 in the closing one — while the per-factor totals stayed
+  an innocent 20/20. Every early answer came from one side, which is exactly what early stopping was
+  promised to survive. Sides are now dealt in consecutive pairs after the order exists: 23/25, 25/23,
+  24/24 across the thirds, with the totals still exact.
+- Three more from the same five answers. The recorded time ran to the moment of posting, so an answer
+  with a comment recorded the typing — 286 seconds against 24 for one without; time to the first choice
+  is now recorded beside it. A note could not be opened before choosing, though the reason for an answer
+  is often what a reader thinks first. The note field did not grow with its text.
+- **The session fingerprint guarded the bank and not the scheduler.** A change to the ordering code left
+  every identifier in place, passed the check, and would have realigned saved answers to different items.
+  It now carries a scheduler version, and the refusal message names both causes.
+- Where two sides differ is now highlighted on both of them, computed server-side so it says where and
+  never which. It answers a real complaint — both metaphor items in the first sitting came back as ties
+  with a note saying the difference was invisible — and it changes the question the session asks, which
+  `SKILL.md` now states in place rather than leaving to be discovered.
 - Building that bank found two defects in `session.mjs` that a four-item fixture could not show, and both
   are fixed. Groups of unequal size were dealt one per round, which put every whole-text item in the
   opening third; each group is now spread across the whole session, with the six Latin orders still
