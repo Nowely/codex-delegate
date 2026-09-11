@@ -129,6 +129,7 @@ that round fails too.
 | `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:`, under a report path of its own |
 | `exitCode: 10` | a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry |
 | `ok: false` with `turnStatus: null`, exit 2 or 4 | no turn ran, or it was aborted: read `error` and the stderr file |
+| exit 2 with a `turnStatus` | the turn ran and the server rejected the request: read `turnError`, the commands and any answer before relaunching |
 | exit 4 with a `turnStatus` | the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict |
 | any other non-zero `exitCode` with an answer | a gate verdict: do not retry, read the answer |
 | a Claude seat that returns `blocked` | do not retry, report it |

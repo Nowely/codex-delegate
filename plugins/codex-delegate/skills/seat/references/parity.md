@@ -41,7 +41,8 @@ A read seat matches native reading, grep, git, node, lint, and node-environment 
 `--worktree` starts a new thread's tree at repository HEAD, not the live tree, and a resumed one at its
 recorded base: commit relevant WIP first, since a stash does not reach either, or use
 `--level write --cwd <repo>` after settling that blast radius with the user. Dependencies and ignored
-files are absent; a verifier that needs them exits 1 unless they are installed in the seat's tree.
+files are absent; a verifier that needs them fails (exit 9) or measures nothing (exit 12) unless they are
+installed in the seat's tree.
 Browser tests need the serial Chromium override in
 [Browser-mode sandbox](#browser-mode-sandbox) and no file parallelism. Egress is not what makes an install
 work: the caches live under `$HOME`, which no level grants, so `npm install --cache "$PWD/.npm-cache"`

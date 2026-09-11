@@ -113,13 +113,13 @@ sandbox refusal.
 The header is the leading run of upper-case `NAME: value` lines at column 0; the body starts at `TASK:` or
 at the first line that is not one; a non-field upper-case `NAME:` above it is exit 2 naming it.
 
-| Field (`VERIFY` is refused in a seat file without `--allow-seat-verify`) | Value (booleans: `yes`, `true` or `1`; no line means off, and for `NETWORK:` means on) | A coordinator sets it when |
+| Field | Value (booleans: `yes`, `true` or `1`; no line means off, and for `NETWORK:` means on) | A coordinator sets it when |
 | --- | --- | --- |
 | `SEAT:` | `read [<dir>]`, `worktree <repo>`, `write <dir>` | first, or not at all: no header is a read seat in the current directory |
 | `NETWORK:` | `no` | this seat's own commands must not reach the network; no line leaves it the egress every level has, and `WEB_SEARCH:` is untouched either way |
 | `WRITABLE:` | `<dir>`, repeatable | a write seat needs one more root than the directory it was given |
 | `RESUME:` | `<threadId>`, `last` | this seat continues an earlier thread instead of opening one |
-| `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran |
+| `EXPECT:` | `<regex>` | the answer is only evidence if a command matching it ran AND succeeded; a matching command that exited non-zero does not count, and none matching is exit 5. Do not point it at a check whose failure IS the finding |
 | `OUTPUT_SCHEMA:` | `<path to a strict JSON Schema file>` | the answer must parse as one JSON object |
 | `MODEL:` | `<slug>` | this seat needs a model other than the configured default |
 | `EFFORT:` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | the task is worth more or less thinking |
@@ -159,8 +159,10 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
   retry at the last path cannot start.
 - `exitCode: 10` is a held lock or a busy resumed thread: the report says `ok: false` and carries the
   refusal in `error`, and `<DIR>/err.txt` has it in full.
-- Exit 2 is always a refusal before the turn: `ok: false`, `turnStatus: null`, the reason in `error`,
-  no receipt.
+- Exit 2 has two shapes, and the report tells them apart. With `turnStatus: null` no turn ran: the reason
+  is in `error` and there is no receipt. With any other `turnStatus` the turn ran and the server rejected
+  the request: the reason is in `turnError`, and the commands, any retained answer and the receipt are
+  real. Read them before relaunching, or a paid turn is thrown away.
 - Exit 4 has two shapes. With `turnStatus: null` it is a refusal or an abort (a sandbox assertion, a
   signal before the thread, a transport failure): read `error` and `<DIR>/err.txt`; a `threadId` beside
   it means the thread had started and its rollout is the only record. With any other `turnStatus` — the
