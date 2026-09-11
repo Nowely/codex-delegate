@@ -52,10 +52,12 @@ the numbers from a measurement, including numbers the code has since changed.
 
 ## What was measured
 
-On 2026-09-10, on one repository:
+One run, on 2026-09-10, on one README in one repository. Read the size of it before the numbers:
 
 - The four-pass chain took six reader questions from three right answers to six, took readers leaving
-  the documentation from one to zero, and broke neither control question.
+  the documentation from one to zero, and broke neither control question. **Six questions, one trial
+  each.** Three improvements and no reversals over six paired items gives an exact two-sided McNemar
+  *p* = 0.25, so this result is not distinguishable from chance. It is a pilot, not a rate.
 - Two of the six failures were lies rather than findability. A reader repeated two guarantees from
   `README.md:5-9` that the code does not make. A structural rewrite would have carried both forward in
   better prose.
@@ -64,10 +66,15 @@ On 2026-09-10, on one repository:
   whether the text was clear.
 - Five published writing standards were put against two unguided controls across ten seats, models
   hidden from the judges. Both controls beat both entries of both standards. On the first 116 words,
-  seven of ten seats proposed nothing and the only seat that shortened the passage was a control.
+  seven of ten seats proposed nothing and the only seat that shortened the passage was a control. **Ten
+  seats, one run, one passage** — one observation per cell, not a rate.
 
 Not measured: which of the four passes produced the gain, and whether a bake-off beats one careful pass.
-The reference files say so where it matters.
+Also not measured, and worth knowing before you trust any of the above: there was no arm that ran the
+same questions with no document at all, so none of this separates what the text taught a reader from what
+the reader already knew. Two published benchmarks that did run that arm found it large. The reference
+files say so where it matters, and
+[references/prior-art.md](references/prior-art.md) collects every finding against these numbers.
 
 ## Licence
 

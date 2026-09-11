@@ -7,7 +7,12 @@ before anything is spawned.
 **Measured:** a bake-off of this shape — ten seats, models hidden from the judges — is how the writing
 standards in this plugin were chosen, and it overturned the expected result. **Not measured:** that a
 bake-off beats a single careful pass at repairing a document. The single chained pass is what produced
-3/6 → 6/6. Treat the comparison as insurance against a bad draft, not as a proven improvement.
+3/6 → 6/6, in one run whose result does not survive a significance test. Treat the comparison as
+insurance against a bad draft, not as a proven improvement.
+
+One more thing this sheet does not yet control. Model judges are measured to prefer longer answers and to
+prefer their own writing, and this bake-off makes word count the tiebreak and defaults to a panel drawn
+from one model family. Until that is corrected, read a narrow win on length as a tie.
 
 ## The pool
 

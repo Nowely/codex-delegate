@@ -13,7 +13,9 @@ license: MIT
 The method is four passes in a fixed order, and the fourth is the one that works. The first three are a
 writing standard, and writing standards were measured losing to no standard at all: given a published
 one, seven seats of ten proposed nothing and two produced a longer text. What separated the chain that
-moved a README from 3/6 to 6/6 was the fourth pass, where named readers failed at named lines.
+moved a README from 3/6 to 6/6 was the fourth pass, where named readers failed at named lines. That
+chain ran once, on one document, one trial per question, and its result is not distinguishable from
+chance — so treat the fourth pass as the mechanism worth keeping, not as a proven gain.
 
 So: no measurement, no fourth pass, no mechanism. Step 1 is not a formality.
 

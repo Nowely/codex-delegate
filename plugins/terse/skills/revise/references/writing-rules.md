@@ -29,8 +29,14 @@ Counts - sentence length, repeated phrases - prompt a review. They are not gates
 A run on 2026-09-10 put five writing standards against two unguided controls, on one README, across ten
 seats with the models hidden from the judges. Both controls beat both entries of both published
 standards. On the first 116 words, seven of the ten proposed nothing at all, two produced a longer text,
-and the only seat that shortened it (116 to 97 words) was a control. The lesson is in the last rule
-above: standards that read as checklists produce audits, not rewriting.
+and the only seat that shortened it (116 to 97 words) was a control. One observation per cell, one
+passage, one run — enough to justify not adopting a standard, not enough to state a rate. The lesson is
+in the last rule above: standards that read as checklists produce audits, not rewriting.
+
+These rules were themselves written against models as they behaved in September 2026. Anthropic's own
+guidance now warns that anti-formatting instructions written for earlier models push newer ones the wrong
+way, and the mechanism applies here: a rule aimed at a failure the model no longer has becomes a rule
+that causes one. Re-check them against the model in front of you before treating them as fixed.
 
 Already rejected on that evidence, so do not reach for them here: Diataxis or a house style guide as a
 mandatory pass; a hard word limit per sentence; a prose linter (Vale, textlint, proselint); a

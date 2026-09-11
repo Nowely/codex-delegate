@@ -1,8 +1,9 @@
 # Measuring with fresh readers
 
 A fresh reader is the only ruler in this plugin that has been shown to move. Standards produced audits;
-readers produced a number that changed from 3/6 to 6/6 when the text was repaired. Everything else here
-exists to make that number trustworthy.
+readers produced a number that changed from 3/6 to 6/6 when the text was repaired. That was one run on
+one README, six questions, one trial each — McNemar two-sided *p* = 0.25, which is not distinguishable
+from chance. Everything else here exists to make that number trustworthy, and it is not there yet.
 
 ## Before any reader exists
 
@@ -90,8 +91,9 @@ means writing into their tree. The run file keeps it either way.
 
 ## What is measured and what is not
 
-**Measured:** the four-part chain moved one README from 3/6 to 6/6, took departures from 1 to 0, and
-broke neither control. Two of the six failures were lies rather than findability.
+**Measured, at the size of one run:** the four-part chain moved one README from 3/6 to 6/6, took
+departures from 1 to 0, and broke neither control. One trial per question; the result does not survive a
+significance test and must not be quoted as a rate. Two of the six failures were lies rather than findability.
 
 **Not measured:** which part of the chain produced the gain. The experiment that would isolate it —
 three writers given different subsets, eighteen readers — was designed and deliberately not run. Do not
