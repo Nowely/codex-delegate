@@ -229,12 +229,12 @@ carries no stability promise — hence the pinned schema and the fidelity suite.
 
 ```bash
 codex app-server generate-json-schema --out <tmp-new>/
-git archive 6914532 schema-<old-version> | tar -x -C <tmp-old>/
+git archive 6bf21e6 plugins/codex-delegate/schema-<old-version> | tar -x --strip-components=2 -C <tmp-old>/
 diff -r <tmp-old>/schema-<old-version>/ <tmp-new>/
 ```
 
 Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` in a commit of its
-own: that commit holds the full tree the next upgrade diffs against, so replace `6914532` above with its hash.
+own: that commit holds the full tree the next upgrade diffs against, so replace `6bf21e6` above with its hash.
 `CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` validates it while
 `schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new
 directory to the files [conformance](evals/conformance.test.mjs) loads in a second commit, and delete the old one. Then
@@ -259,7 +259,7 @@ schema-<version>/                the files evals/conformance.test.mjs loads out 
                                  schema; kept in the repo (and therefore in plugin installs) because
                                  those are what the suites this README tells you to run validate
                                  against. The full generated tree is not kept here: the commit named in
-                                 the upgrade recipe holds the last one (6914532 for 0.153.4), and the
+                                 the upgrade recipe holds the last one (6bf21e6 for 0.153.4), and the
                                  recipe diffs the next regeneration against it.
 ```
 
