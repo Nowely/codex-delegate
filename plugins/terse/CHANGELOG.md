@@ -45,3 +45,10 @@ forensics remain in the repository references and release notes.
 - The numbers this plugin publishes now carry their sample size and their uncertainty, in `README.md` and
   in every reference that quotes them. The plugin's own rule — no number without an n and an interval —
   applies to the plugin.
+- The first real bank, 139 items, is in `research/2026-09-11-calibration-bank/` rather than inside the
+  plugin: the method ships, the passages do not, because a bank is built from the documentation the
+  person actually works on. Ten writers across five engines, each writing both sides of its own pairs
+  from disjoint blocks of source. A blind check by ten more readers, who were told neither the factor nor
+  which side was which, then measured how single-factored the items really are: 90% for answer-first, 52%
+  for metaphor, **30% for promotional tone**, which confirms the doubt `item-bank.md` had already
+  recorded about that instruction.
