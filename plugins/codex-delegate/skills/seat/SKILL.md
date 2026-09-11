@@ -28,8 +28,11 @@ One background Bash task per seat. Write the prompt to a file with the Write too
 
 The call's `description` is `Codex <model> <id>: <task in a few words>`, so the row the user sees names the
 agent by its model and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
-so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own, `<DIR>/report.json` where nothing else
-chooses it; the driver makes every directory that path needs, at 0700, so it may name a root your own Write and `mkdir` are refused.
+so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own and never under `<DIR>`:
+`<DIR>` sits in `$TMPDIR`, the one root a read seat may write, and a file the seat leaves at that name blocks publication
+and then sits where you would read it as the seat's own report. Put it under the driver's state directory,
+`<state>/reports/<run>/report.json` with `<run>` unique; the driver makes every directory that path needs, at 0700,
+so it may name a root your own Write and `mkdir` are refused.
 The task's exit notification is the seat's completion, and `<REPORT>` is what to read then.
 
 Every driver call forwards that variable under its own name — the plugin's own data directory, where the
@@ -138,7 +141,9 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 ## Reading the result
 
 - `<REPORT>` is the report, the same JSON the run also wrote to `<DIR>/out.json`. Read the file:
-  it is written whole or not at all, and a missing one means unknown, never success.
+  it is written whole or not at all, and a missing one means unknown, never success. A file that IS there is
+  the driver's own only when it published one: the driver never overwrites what it finds, and says so on
+  stderr when it could not publish. Read that line before trusting a report you did not see it write.
 - `exitCode: 0` means the completed turn passed its declared evidence gates. `answer` is the seat's text;
   with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed.
 - `exitCode: 3` is a cut; read the retained answer or partial and the `RESUME:` hint.
