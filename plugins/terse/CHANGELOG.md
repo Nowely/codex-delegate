@@ -27,10 +27,13 @@ forensics remain in the repository references and release notes.
 - A third skill, `calibrate`, which measures which forms of writing a particular person prefers by blind
   paired choice with repeated items, and turns the result into rules a writer can follow and a known
   error rate for each model judge. It exists because a right answer and a text somebody would rather
-  read are different measurements that sometimes disagree. Its arithmetic is written down before its
-  first run: six observations before a factor can conclude anything, repeats to tell a preference from a
-  coin, a held-out set so the rules are tested on text nobody saw while deriving them. A preference
-  never overrides a measured comprehension failure.
+  read are different measurements that sometimes disagree. Its arithmetic was written down before its
+  first run, got two figures wrong, and was rebuilt from three independent reviews: twenty-eight decisive
+  answers per factor once the family-wise rate across three factors is controlled, one item per source
+  passage because shared sources destroy the error rate, four response categories, and a held-out set
+  that holds out sources rather than item identifiers. The whole plan is 249 decisive answers, about 285
+  presentations, roughly five hours across sessions. A preference never overrides a measured
+  comprehension failure: the gate is lexicographic, not a tiebreak.
 - `skills/calibrate/scripts/session.mjs`, which runs a session as a local page. The side mapping stays in
   the server process, so nothing in the page or its devtools reveals which side carries which variant;
   each answer records its timing, its position, the side it was shown on and an optional comment; the
