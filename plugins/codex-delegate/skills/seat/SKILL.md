@@ -108,6 +108,10 @@ Read seats may share one cwd, but a repository whose tooling keeps a daemon, a s
 file needs a distinct cwd or its own `TMPDIR` per concurrent seat; the failure is a native crash, not a
 sandbox refusal.
 
+A write seat sharing a live tree must not change what the tree shares: no stash, branch switch, reset,
+clean or rebase while another writer holds part of it. Those move or discard work the other seat is
+still editing, and no sandbox refuses them.
+
 ## Header fields
 
 The header is the leading run of upper-case `NAME: value` lines at column 0; the body starts at `TASK:` or

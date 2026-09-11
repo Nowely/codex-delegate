@@ -275,7 +275,9 @@ test("E5 the three scaling rows: simple, comparison, complex",
 test("E6 the writer may run the suite, but the deciding evidence comes from elsewhere",
   "a writer iterating against its own suite is how a green run gets produced by the same context that produced the bug; the rule keeps the iteration and moves only the verdict",
   () => says(
-    "several writers only on disjoint files that cannot interfere, and then as Claude seats or in separate worktrees, never two Codex write seats on one directory",
+    "split by file ownership, as Claude seats on one live tree or as Codex seats in separate worktrees, never two Codex write seats on one directory",
+    "stop the writers, restate the contract, let each owner repair only its own files, then have a seat that wrote neither verify the combined tree",
+    "nobody changes what they share: no stash, branch switch, reset, clean or rebase",
     "A writer may run the suite while it iterates, but the evidence that decides comes from a seat that did not write the code, or from you under the redirect rule.",
   ));
 

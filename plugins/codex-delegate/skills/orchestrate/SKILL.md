@@ -94,10 +94,7 @@ cross-review seat is a prompt seat with the diff's path in `TASK:` and the templ
 | Fable seats, `gpt-6-astra` seats | 1 each, alive at a time |
 | Codex write seats per directory | 1: a second on the same directory exits 10 at once, before its turn runs |
 
-Allocate inside those bounds by judgement, not to fill a band. Usually one autonomous implementer per task; several writers only
-on disjoint files that cannot interfere, and then as Claude seats or in separate worktrees, never two Codex write seats on one
-directory. A writer may run the suite while it iterates, but the evidence that decides comes from a seat that did not write the
-code, or from you under the redirect rule.
+Allocate inside those bounds by judgement, not to fill a band. Several writers at once is how a task goes faster: split by file ownership, as Claude seats on one live tree or as Codex seats in separate worktrees, never two Codex write seats on one directory. Disjoint filenames do not make work independent, so settle the contract between the owners before they start; when their work collides anyway, stop the writers, restate the contract, let each owner repair only its own files, then have a seat that wrote neither verify the combined tree. While another writer holds part of a checkout, nobody changes what they share: no stash, branch switch, reset, clean or rebase, and that binds you too when you run a check of your own. A writer may run the suite while it iterates, but the evidence that decides comes from a seat that did not write the code, or from you under the redirect rule.
 
 ## Mechanism
 
