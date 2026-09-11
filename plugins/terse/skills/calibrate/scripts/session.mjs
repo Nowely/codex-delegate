@@ -102,17 +102,34 @@ function buildOrder(bank, seed) {
 const bank = JSON.parse(fs.readFileSync(BANK, 'utf8'))
 const order = buildOrder(bank, SEED)
 
-let session = { bank: bank.bank || path.basename(BANK), participant: WHO, seed: SEED, started: new Date().toISOString(), answers: [], breaks: [] }
+let session = { bank: bank.bank || path.basename(BANK), fingerprint: fingerprint(bank), participant: WHO, seed: SEED, started: new Date().toISOString(), answers: [], breaks: [] }
 if (fs.existsSync(OUT)) {
   session = JSON.parse(fs.readFileSync(OUT, 'utf8'))
   if (session.seed !== SEED) {
-    console.error(`the existing session used seed ${session.seed}; resuming with --seed ${session.seed}`)
+    console.error(`the existing session used seed ${session.seed}; resume with --seed ${session.seed}`)
     process.exit(2)
   }
+  if (session.fingerprint && session.fingerprint !== fingerprint(bank)) {
+    console.error('the bank has changed since this session started; answers are keyed by position and would realign to different items. Start a new session file.')
+    process.exit(2)
+  }
+  session.fingerprint ??= fingerprint(bank)
   console.log(`resuming: ${session.answers.length} of ${order.length} answered`)
 }
+const startedThisSitting = session.answers.length
 
-const save = () => fs.writeFileSync(OUT, JSON.stringify(session, null, 2))
+// Written 285 times. A truncating write that dies mid-way leaves JSON that the next resume
+// cannot parse, which costs the whole run rather than one answer.
+const save = () => {
+  fs.writeFileSync(OUT + '.tmp', JSON.stringify(session, null, 2))
+  fs.renameSync(OUT + '.tmp', OUT)
+}
+
+// Answers are keyed by position in the order, and the order comes from the bank. An edited bank
+// silently realigns yesterday's answers to different items, so a resume must refuse one.
+function fingerprint(b){ return b.items.map((i) => i.id).join('|').length + ':' + b.items.length + ':' + b.items.map((i) => i.id).join(',').slice(0, 200) }
+
+function optionOrder(t){ return shuffle(Object.entries(t.item.variants), rng(SEED + t.trial)).map(([k]) => k) }
 
 const nextTrial = () => {
   const done = new Set(session.answers.map((a) => a.trial))
@@ -130,116 +147,233 @@ const sideText = (t, side) => {
 }
 
 const present = (t) => {
-  if (!t) return { done: true, answered: session.answers.length, total: order.length }
+  if (!t) return { done: true, answered: session.answers.length, total: order.length, sitting: session.answers.length - startedThisSitting }
   if (t.item.type === 'code-comment') {
     const opts = shuffle(Object.entries(t.item.variants), rng(SEED + t.trial))
-    presentedOptions.set(t.trial, opts.map(([k]) => k))
     return {
       done: false, trial: t.trial, kind: 'three', type: t.item.type,
-      answered: session.answers.length, total: order.length,
+      answered: session.answers.length, total: order.length, sitting: session.answers.length - startedThisSitting,
       code: t.item.code || '', options: opts.map(([, v]) => (typeof v === 'string' ? v : v.text)),
     }
   }
   const l = sideText(t, 'left'), r = sideText(t, 'right')
   return {
     done: false, trial: t.trial, kind: 'pair', type: t.item.type,
-    answered: session.answers.length, total: order.length,
+    answered: session.answers.length, total: order.length, sitting: session.answers.length - startedThisSitting,
     left: typeof l === 'string' ? l : l.text, right: typeof r === 'string' ? r : r.text,
   }
 }
-const presentedOptions = new Map()
 
 // --- the page --------------------------------------------------------------------------------------
 
 const PAGE = String.raw`<!doctype html><html lang="en"><meta charset="utf-8">
 <title>calibration</title>
 <style>
- :root{--fg:#1a1a1a;--dim:#6b6b6b;--line:#d8d8d8;--pick:#0b5fff;--bg:#fbfbfa}
- @media (prefers-color-scheme:dark){:root{--fg:#e8e8e8;--dim:#9a9a9a;--line:#3a3a3a;--pick:#6ea8ff;--bg:#161616}}
+ :root{--fg:#1a1a1a;--dim:#5f5f5f;--faint:#767676;--line:#dcdcdc;--edge:#8f8f8f;
+       --pick:#0b5fff;--onpick:#fff;--bg:#fbfbfa;--panel:#fff}
+ @media (prefers-color-scheme:dark){:root{--fg:#e8e8e8;--dim:#9b9b9b;--faint:#9a9a9a;--line:#4a4a4a;--edge:#767676;
+       --pick:#6ea8ff;--onpick:#151515;--bg:#151515;--panel:#1c1c1c}}
+ @media (prefers-reduced-motion:reduce){*{transition:none!important}}
  *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
- header{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line);font-size:13px;color:var(--dim)}
- main{max-width:1180px;margin:0 auto;padding:24px 20px 96px}
- .pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}
- .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
- .opt{border:1px solid var(--line);border-radius:10px;padding:18px 20px;cursor:pointer;background:transparent;text-align:left;color:inherit;font:inherit}
- .opt:hover{border-color:var(--dim)}
- .opt.sel{border-color:var(--pick);box-shadow:0 0 0 1px var(--pick)}
- .opt .k{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
- .opt p{margin:0 0 .7em}.opt p:last-child{margin-bottom:0}
- .opt code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;background:rgba(128,128,128,.14);padding:.1em .3em;border-radius:3px}
- pre{background:rgba(128,128,128,.1);padding:14px 16px;border-radius:8px;overflow-x:auto;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0 0 18px}
- .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
- button.alt{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:8px;padding:7px 13px;cursor:pointer;font:inherit;font-size:13px}
- button.alt.sel{border-color:var(--pick);color:var(--pick)}
- label.flag{font-size:13px;color:var(--dim);display:flex;gap:6px;align-items:center;cursor:pointer}
- textarea{width:100%;margin-top:14px;min-height:64px;border:1px solid var(--line);border-radius:8px;padding:11px 13px;font:inherit;font-size:14px;background:transparent;color:inherit;resize:vertical}
- footer{position:fixed;bottom:0;left:0;right:0;background:var(--bg);border-top:1px solid var(--line);padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
- .hint{font-size:12px;color:var(--dim)}
- .go{background:var(--pick);color:#fff;border:0;border-radius:8px;padding:9px 20px;font:inherit;cursor:pointer}
- .go[disabled]{opacity:.35;cursor:default}
- .done{text-align:center;padding:80px 20px;color:var(--dim)}
+ body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+      display:flex;justify-content:center;padding:5vh 20px 60px}
+ .wrap{width:100%;max-width:1000px}
+ .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ .top{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--faint);margin-bottom:12px}
+ .top button{border:0;background:0;color:var(--dim);font:inherit;cursor:pointer;padding:4px 8px;margin:-4px -8px}
+ .top button:hover{color:var(--fg)}
+ fieldset{border:0;margin:0;padding:0}
+ .pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+ .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+ .opt{border:1px solid var(--edge);border-radius:9px;padding:14px 16px;cursor:pointer;background:var(--panel);
+      display:flex;flex-direction:column;align-items:stretch;overflow-wrap:anywhere;transition:box-shadow .08s}
+ .opt:hover{border-color:var(--fg)}
+ .opt:focus-within{outline:2px solid var(--pick);outline-offset:2px}
+ .opt.sel{box-shadow:inset 0 0 0 3px var(--pick)}
+ .opt .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;
+         display:flex;align-items:center;gap:6px}
+ .opt.sel .k::after{content:"— chosen";letter-spacing:0;text-transform:none;color:var(--pick)}
+ .opt p{margin:0 0 .6em;max-width:64ch}.opt p:last-child{margin-bottom:0}
+ .opt code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;background:rgba(128,128,128,.16);padding:.1em .3em;border-radius:3px}
+ .rest{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
+ .rest .opt{padding:12px 16px;flex-direction:row;align-items:center;gap:8px;font-size:14px;color:var(--fg)}
+ pre{background:var(--panel);border:1px solid var(--line);padding:12px 14px;border-radius:8px;overflow-x:auto;
+     font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0 0 10px}
+ .extras{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+ .extras legend, .exhint{font-size:13px;color:var(--faint);padding:0}
+ .exrow{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:8px}
+ .exrow label{font-size:14px;color:var(--fg);display:flex;gap:7px;align-items:center;cursor:pointer;padding:4px 0}
+ .exrow button.link{border:0;background:0;color:var(--dim);font:inherit;font-size:14px;cursor:pointer;
+                    text-decoration:underline;padding:5px 6px;margin:-5px -6px}
+ textarea{display:none;width:100%;margin-top:10px;min-height:56px;border:1px solid var(--edge);border-radius:8px;
+          padding:10px 12px;font:inherit;font-size:14px;background:var(--panel);color:inherit;resize:vertical}
+ textarea.on{display:block}
+ .act{margin-top:18px;display:flex;gap:14px;align-items:center}
+ .go{background:var(--pick);color:var(--onpick);border:0;border-radius:7px;padding:9px 22px;font:inherit;font-size:15px;cursor:pointer}
+ .go[disabled]{opacity:.4;cursor:default}
+ .keys{margin-top:18px;font-size:12.5px;color:var(--faint)}
+ .keys kbd{font:inherit;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+ .msg{margin-top:14px;padding:10px 14px;border:1px solid var(--pick);border-radius:8px;font-size:14px}
+ .centre{padding:12vh 0;text-align:center;color:var(--dim);font-size:17px}
+ .centre button{margin-top:18px}
 </style>
-<header><span id="where"></span><span><button class="alt" id="pause">pause</button></span></header>
-<main id="main"></main>
-<footer><span class="hint">← left · → right · <kbd>t</kbd> equal · <kbd>u</kbd> can't judge · <kbd>c</kbd> comment · <kbd>enter</kbd> next</span><button class="go" id="go" disabled>next</button></footer>
+<div id="live" aria-live="polite" aria-atomic="true" class="vh"></div>
+<div class="wrap" id="wrap"></div>
 <script>
-const $ = (s) => document.querySelector(s)
-let cur = null, choice = null, flags = {loserAlsoGood:false, bothWeak:false}, shown = 0
-const md = (t) => t.split(/\n{2,}/).map(p =>
-  '<p>' + p.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
-    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-    .replace(/\x60(.+?)\x60/g,'<code>$1</code>')
-    .replace(/\n/g,'<br>') + '</p>').join('')
+var $ = function(s){ return document.querySelector(s) }
+var cur = null, choice = null, flags = {loserAlsoGood:false, bothWeak:false}
+var note = '', noteOpen = false, shown = 0, busy = false, paused = false, msg = '', resumed = false
+var DRAFT = 'terse-draft'
 
-function pick(v){ choice = v; render(); $('#go').disabled = false }
+function esc(t){ return t.replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c] }) }
+function md(t){
+  return t.split(/\n{2,}/).map(function(p){
+    return '<p>' + esc(p).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/\x60(.+?)\x60/g,'<code>$1</code>').replace(/\n/g,'<br>') + '</p>'
+  }).join('')
+}
+function saveDraft(){
+  try { sessionStorage.setItem(DRAFT, JSON.stringify({t:cur&&cur.trial, choice:choice, flags:flags, note:note})) } catch(e){}
+}
+function clearDraft(){ try { sessionStorage.removeItem(DRAFT) } catch(e){} }
 
-function render(){
-  if (cur.done){ $('#main').innerHTML = '<div class="done"><p>Done — ' + cur.answered + ' answers recorded.</p><p>You can close this tab.</p></div>'; $('#where').textContent=''; $('footer').style.display='none'; return }
-  $('#where').textContent = (cur.answered + 1) + ' of ' + cur.total
-  const sel = (v) => choice === v ? ' sel' : ''
-  let body = ''
-  if (cur.kind === 'three'){
-    body = '<pre>' + cur.code.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</pre><div class="three">' +
-      cur.options.map((o,i) => '<button class="opt' + sel('o'+i) + '" onclick="pick(\'o'+i+'\')"><div class="k">option ' + (i+1) + '</div>' + md(o) + '</button>').join('') + '</div>'
-  } else {
-    body = '<div class="pair">' +
-      '<button class="opt' + sel('left') + '" onclick="pick(\'left\')"><div class="k">left</div>' + md(cur.left) + '</button>' +
-      '<button class="opt' + sel('right') + '" onclick="pick(\'right\')"><div class="k">right</div>' + md(cur.right) + '</button></div>'
+// Selection changes touch classes only. Rebuilding the container would drop focus on every
+// keystroke, and it is what used to copy one item's note onto the next.
+function sync(){
+  var opts = document.querySelectorAll('.opt')
+  for (var i = 0; i < opts.length; i++){
+    var on = opts[i].dataset.v === choice
+    opts[i].classList.toggle('sel', on)
+    var r = opts[i].querySelector('input[type=radio]'); if (r) r.checked = on
   }
-  body += '<div class="row">' +
-    '<button class="alt' + sel('tie') + '" onclick="pick(\'tie\')">genuinely equal</button>' +
-    '<button class="alt' + sel('unjudgeable') + '" onclick="pick(\'unjudgeable\')">can\'t judge / both unacceptable</button>' +
-    '<label class="flag"><input type="checkbox" id="f1"' + (flags.loserAlsoGood?' checked':'') + '> the other one was also good</label>' +
-    '<label class="flag"><input type="checkbox" id="f2"' + (flags.bothWeak?' checked':'') + '> both were weak</label></div>' +
-    '<textarea id="comment" placeholder="why? — optional, never required"></textarea>'
-  $('#main').innerHTML = body
-  $('#f1').onchange = e => flags.loserAlsoGood = e.target.checked
-  $('#f2').onchange = e => flags.bothWeak = e.target.checked
+  var f1 = $('#f1'), f2 = $('#f2')
+  if (f1) f1.checked = flags.loserAlsoGood
+  if (f2) f2.checked = flags.bothWeak
+  var go = $('#go'); if (go) go.disabled = !choice
+  var hint = $('#exhint'); if (hint) hint.textContent = choice ? '' : 'Optional flags and a note become available once you choose.'
+  var ex = $('#extras'); if (ex) ex.style.visibility = choice ? 'visible' : 'hidden'
+  saveDraft()
+}
+function pick(v){ if (paused) return; choice = v; sync() }
+function toggle(f){ if (!choice) return; flags[f] = !flags[f]; sync() }
+function openNote(){ if (!choice) return; noteOpen = true; var c = $('#comment'); c.classList.add('on'); c.focus() }
+
+function draw(){
+  if (paused){
+    $('#wrap').innerHTML = '<div class="centre">Paused — ' + cur.answered + ' answers saved.<br>'
+      + 'Your current choice is kept.<br><button class="go" onclick="resume()">resume</button></div>'
+    return
+  }
+  if (cur.done){
+    $('#wrap').innerHTML = '<div class="centre">Done — ' + cur.answered + ' answers recorded.<br>You can close this tab.</div>'
+    return
+  }
+  var h = '<h1 id="hd" tabindex="-1" class="vh">Item ' + (cur.answered + 1) + '</h1>'
+    + '<div class="top"><span>' + cur.answered + ' saved of ' + cur.total
+    + (cur.sitting ? ' · ' + cur.sitting + ' this sitting' : '') + '</span>'
+    + '<span><button onclick="undo()">undo last</button> <button onclick="pause()">pause</button></span></div>'
+    + '<fieldset><legend class="vh">Which reads better?</legend>'
+
+  if (cur.kind === 'three'){
+    h += '<pre>' + esc(cur.code) + '</pre><div class="three">'
+    for (var i = 0; i < cur.options.length; i++)
+      h += '<div class="opt" data-v="o' + i + '" onclick="pick(\'o' + i + '\')">'
+         + '<div class="k"><input type="radio" name="c" tabindex="-1"> option ' + (i + 1) + '</div>'
+         + md(cur.options[i]) + '</div>'
+    h += '</div>'
+  } else {
+    h += '<div class="pair">'
+       + '<div class="opt" data-v="left" onclick="pick(\'left\')"><div class="k"><input type="radio" name="c" tabindex="-1"> left</div>' + md(cur.left) + '</div>'
+       + '<div class="opt" data-v="right" onclick="pick(\'right\')"><div class="k"><input type="radio" name="c" tabindex="-1"> right</div>' + md(cur.right) + '</div>'
+       + '</div>'
+  }
+  h += '<div class="rest">'
+     + '<div class="opt" data-v="tie" onclick="pick(\'tie\')"><input type="radio" name="c" tabindex="-1"> they are equal</div>'
+     + '<div class="opt" data-v="unjudgeable" onclick="pick(\'unjudgeable\')"><input type="radio" name="c" tabindex="-1"> can\'t judge / both unacceptable</div>'
+     + '</div></fieldset>'
+
+  h += '<fieldset class="extras"><legend>Optional — add any, or skip</legend>'
+     + '<div class="exhint" id="exhint"></div>'
+     + '<div id="extras"><div class="exrow">'
+     + '<label><input type="checkbox" id="f1" onchange="toggle(\'loserAlsoGood\')"> the other one was also good</label>'
+     + '<label><input type="checkbox" id="f2" onchange="toggle(\'bothWeak\')"> both were weak</label>'
+     + '<button class="link" onclick="openNote()">add a note</button>'
+     + '</div><label class="vh" for="comment">Note</label>'
+     + '<textarea id="comment" oninput="note=this.value;saveDraft()" placeholder="why? — optional"></textarea>'
+     + '</div></fieldset>'
+
+  h += '<div class="act"><button class="go" id="go" onclick="submit()" disabled>next</button></div>'
+     + (msg ? '<div class="msg">' + esc(msg) + '</div>' : '')
+     + '<div class="keys"><kbd>←</kbd> <kbd>→</kbd> choose · <kbd>e</kbd> equal · <kbd>u</kbd> can\'t judge · '
+     + (cur.kind === 'three' ? '<kbd>1</kbd>–<kbd>3</kbd> choose · ' : '<kbd>1</kbd> <kbd>2</kbd> flags · ')
+     + '<kbd>c</kbd> note · <kbd>⏎</kbd> next · <kbd>ctrl</kbd>+<kbd>z</kbd> undo</div>'
+
+  $('#wrap').innerHTML = h
+  $('#comment').value = note
+  if (noteOpen) $('#comment').classList.add('on')
+  sync()
+  $('#hd').focus()
+  scrollTo(0, 0)
 }
 
-async function load(){
-  cur = await (await fetch('/api/next')).json()
-  choice = null; flags = {loserAlsoGood:false, bothWeak:false}; shown = Date.now()
-  $('#go').disabled = true
-  render()
+function load(){
+  fetch('/api/next').then(function(r){ return r.json() }).then(function(c){
+    var fresh = !cur || cur.trial !== c.trial
+    cur = c
+    if (fresh){ choice = null; flags = {loserAlsoGood:false, bothWeak:false}; note = ''; noteOpen = false; clearDraft() }
+    var d = null
+    try { d = JSON.parse(sessionStorage.getItem(DRAFT) || 'null') } catch(e){}
+    if (d && d.t === c.trial){ choice = d.choice; flags = d.flags || flags; note = d.note || ''; resumed = true }
+    shown = Date.now(); busy = false
+    draw()
+    $('#live').textContent = 'Item ' + (c.answered + 1) + ' of ' + c.total
+  })
 }
-async function submit(){
-  if (!choice) return
-  await fetch('/api/answer', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({
-    trial: cur.trial, choice, flags, comment: ($('#comment')||{}).value || '', ms: Date.now() - shown })})
-  load()
+function submit(){
+  if (!choice || busy || paused) return
+  busy = true; msg = ''
+  fetch('/api/answer', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({
+    trial: cur.trial, choice: choice, flags: flags, comment: note, ms: Date.now() - shown, resumed: resumed })})
+  .then(function(r){
+    if (!r.ok){ busy = false; msg = 'NOT SAVED — stop and check the terminal before answering anything else.'; draw(); return null }
+    return r.json()
+  }).then(function(j){
+    if (!j) return
+    if (j.duplicate){ busy = false; msg = 'That item was already answered — another tab is open. Close this one.'; draw(); return }
+    resumed = false; clearDraft(); load()
+  }).catch(function(){ busy = false; msg = 'NOT SAVED — the server did not answer.'; draw() })
 }
-$('#go').onclick = submit
-$('#pause').onclick = async () => { await fetch('/api/break', {method:'POST'}); alert('Break recorded. Close the tab; resume with the same command.') }
-addEventListener('keydown', e => {
-  if (e.target.tagName === 'TEXTAREA' && e.key !== 'Enter') return
+function undo(){
+  if (busy || paused) return
+  if (!confirm('Remove the last saved answer?')) return
+  busy = true
+  fetch('/api/undo', {method:'POST'}).then(function(){ clearDraft(); cur = null; load() })
+}
+function pause(){
+  fetch('/api/break', {method:'POST'}).then(function(){ paused = true; saveDraft(); draw() })
+}
+function resume(){ paused = false; shown = Date.now(); resumed = true; draw() }
+
+addEventListener('visibilitychange', function(){ if (!document.hidden && !paused){ shown = Date.now(); resumed = true } })
+addEventListener('beforeunload', function(e){ if (choice || note) e.preventDefault() })
+addEventListener('keydown', function(e){
+  if (!cur || cur.done || e.altKey) return
+  var inText = e.target.tagName === 'TEXTAREA'
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')){ e.preventDefault(); return undo() }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter'){ e.preventDefault(); return submit() }
+  if (e.metaKey || e.ctrlKey) return
+  if (inText){ if (e.key === 'Escape') e.target.blur(); return }
+  if (paused){ if (e.key === 'Enter'){ e.preventDefault(); resume() } return }
+  var k = e.key.toLowerCase()
   if (e.key === 'ArrowLeft' && cur.kind === 'pair') pick('left')
   else if (e.key === 'ArrowRight' && cur.kind === 'pair') pick('right')
-  else if (e.key === 't') pick('tie')
-  else if (e.key === 'u') pick('unjudgeable')
-  else if (e.key === 'c') { e.preventDefault(); $('#comment').focus() }
-  else if (e.key === 'Enter') { e.preventDefault(); submit() }
+  else if (k === 'e') pick('tie')
+  else if (k === 'u') pick('unjudgeable')
+  else if (k >= '1' && k <= '3' && cur.kind === 'three') pick('o' + (Number(k) - 1))
+  else if (k === '1' && cur.kind === 'pair') toggle('loserAlsoGood')
+  else if (k === '2' && cur.kind === 'pair') toggle('bothWeak')
+  else if (k === 'c'){ e.preventDefault(); openNote() }
+  else if (e.key === 'Enter' && e.target.tagName !== 'BUTTON'){ e.preventDefault(); submit() }
 })
 load()
 </script></html>`
@@ -253,7 +387,12 @@ const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/
 const server = http.createServer(async (req, res) => {
  try {
   if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(PAGE) }
-  if (req.url === '/api/next') return json(res, present(nextTrial()))
+  if (req.url === '/api/next') { res.setHeader('cache-control', 'no-store'); return json(res, present(nextTrial())) }
+  if (req.url === '/api/undo' && req.method === 'POST') {
+    const gone = session.answers.pop()
+    if (gone) save()
+    return json(res, { ok: true, undone: gone ? gone.trial : null })
+  }
   if (req.url === '/api/break' && req.method === 'POST') {
     session.breaks.push({ at: new Date().toISOString(), afterAnswers: session.answers.length }); save(); return json(res, { ok: true })
   }
@@ -268,7 +407,7 @@ const server = http.createServer(async (req, res) => {
     session.answers.push({
       trial: a.trial, itemId: t.item.id, factor: t.factor, type: t.item.type,
       onLeft: t.onLeft, isRepeatOf: t.isRepeatOf ?? null,
-      presentedOptions: presentedOptions.get(a.trial) ?? null,
+      presentedOptions: t.item.type === 'code-comment' ? optionOrder(t) : null,
       choice: a.choice, flags: a.flags, comment: a.comment, ms: a.ms, at: new Date().toISOString(),
     })
     save()
