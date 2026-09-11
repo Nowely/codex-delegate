@@ -67,34 +67,38 @@ function buildOrder(bank, seed) {
     })
   }
 
-  // Interleave factors through the six orders, so no factor sits entirely early or entirely late.
+  // Spread every group across the whole session. Dealing one item per group per round instead empties
+  // the short queues first: with groups of 40/40/40/12/7 a measured run put every whole-text item and
+  // all but two code-comment items in the opening third (7/0/0 and 10/2/0 across the three blocks),
+  // which is the property early stopping is read against.
   const keys = [...byFactor.keys()]
-  const queues = new Map(keys.map((k) => [k, trials.filter((t) => t.factor === k)]))
-  const ordered = []
-  let round = 0
-  while (ordered.length < trials.length) {
-    const seq = LATIN[round % LATIN.length]
-    for (const idx of seq) {
-      const k = keys[idx % keys.length]
-      const q = queues.get(k)
-      if (q && q.length) ordered.push(q.shift())
-    }
-    for (const k of keys) {
-      const q = queues.get(k)
-      if (q && q.length && !LATIN[round % LATIN.length].includes(keys.indexOf(k))) ordered.push(q.shift())
-    }
-    round++
+  const total = trials.length
+  const slotted = []
+  for (const k of keys) {
+    const q = trials.filter((t) => t.factor === k)
+    q.forEach((t, i) => slotted.push({ t, k, at: ((i + 0.5) / q.length) * total }))
   }
 
-  // Repeats: same item, opposite side, never adjacent to the original.
-  const repeats = ordered.filter((t) => t.item.repeat).slice(0, bank.repeats ?? 5)
-  for (const r of repeats) {
-    const first = ordered.indexOf(r)
-    const at = Math.min(ordered.length, first + 8 + Math.floor(rand() * 6))
-    ordered.splice(at, 0, { ...r, onLeft: !r.onLeft, isRepeatOf: first })
+  // Groups of equal size land on identical positions, so the six orders decide which goes first at
+  // each collision: each factor takes each position twice and each directed transition twice.
+  const rank = new Map(keys.map((k, i) => [k, i]))
+  const turn = (x) => LATIN[Math.floor(x.at) % LATIN.length].indexOf(rank.get(x.k) % 3)
+  slotted.sort((a, b) => a.at - b.at || turn(a) - turn(b) || rank.get(a.k) - rank.get(b.k))
+  const ordered = slotted.map((x) => x.t)
+
+  // Repeats: same item, opposite side, far enough after the original to be recall rather than
+  // comparison. An original among the last dozen trials leaves no room for that, and clamping the copy
+  // to the end of the array put one repeat two trials after its original in a 144-trial run.
+  const GAP = 8, SPREAD = 6
+  const eligible = ordered.map((t, i) => ({ t, i })).filter((x) => x.t.item.repeat && x.i + GAP + SPREAD <= ordered.length)
+  const want = bank.repeats ?? 5
+  if (eligible.length < want) console.error(`${eligible.length} of ${want} repeats placed: the rest are flagged on items that fall too late to leave ${GAP} trials of distance`)
+  for (const { t, i } of eligible.slice(0, want).reverse()) {
+    ordered.splice(i + GAP + Math.floor(rand() * SPREAD), 0, { ...t, onLeft: !t.onLeft, isRepeat: true })
   }
 
-  return ordered.map((t, i) => ({ ...t, trial: i }))
+  const numbered = ordered.map((t, i) => ({ ...t, trial: i }))
+  return numbered.map((t) => (t.isRepeat ? { ...t, isRepeatOf: numbered.find((x) => x.item.id === t.item.id && !x.isRepeat).trial } : t))
 }
 
 // --- state ---------------------------------------------------------------------------------------

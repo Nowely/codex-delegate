@@ -52,3 +52,10 @@ forensics remain in the repository references and release notes.
   which side was which, then measured how single-factored the items really are: 90% for answer-first, 52%
   for metaphor, **30% for promotional tone**, which confirms the doubt `item-bank.md` had already
   recorded about that instruction.
+- Building that bank found two defects in `session.mjs` that a four-item fixture could not show, and both
+  are fixed. Groups of unequal size were dealt one per round, which put every whole-text item in the
+  opening third; each group is now spread across the whole session, with the six Latin orders still
+  deciding precedence between the equal-sized factors. A repeat whose original fell near the end was
+  clamped next to it — a gap of two trials in a 144-trial run — so repeats are now drawn only from
+  originals with room behind them, a bank nominates more candidates than it needs, and the tool says so
+  when it cannot place them all.

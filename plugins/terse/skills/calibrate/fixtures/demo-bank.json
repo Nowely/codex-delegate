@@ -1,7 +1,7 @@
 {
   "bank": "demo",
-  "repeats": 1,
-  "note": "Four items, for checking that the session tool runs. Not a measurement: the texts here were written by the coordinator, which is exactly what item-bank.md forbids for a real bank.",
+  "repeats": 0,
+  "note": "Four items, for checking that the session tool runs. Not a measurement: the texts here were written by the coordinator, which is exactly what item-bank.md forbids for a real bank. It places no repeat either — a copy has to sit at least eight trials after its original, and four items have nowhere to put one.",
   "items": [
     {
       "id": "demo-tone-1",
