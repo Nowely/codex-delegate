@@ -14,6 +14,14 @@
         "name": "Nowely"
       },
       "source": "./plugins/codex-delegate"
+    },
+    {
+      "name": "terse",
+      "description": "Two user-invoked skills for documentation. The first measures it: fresh readers answer the questions your readers arrive with, and every claim about behaviour is checked against the code that backs it. The second repairs what broke, through a small bake-off judged on those measured failures, and proposes the result without touching your files.",
+      "author": {
+        "name": "Nowely"
+      },
+      "source": "./plugins/terse"
     }
   ]
 }
