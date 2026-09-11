@@ -31,6 +31,11 @@ forensics remain in the repository references and release notes.
   first run: six observations before a factor can conclude anything, repeats to tell a preference from a
   coin, a held-out set so the rules are tested on text nobody saw while deriving them. A preference
   never overrides a measured comprehension failure.
+- `skills/calibrate/scripts/session.mjs`, which runs a session as a local page. The side mapping stays in
+  the server process, so nothing in the page or its devtools reveals which side carries which variant;
+  each answer records its timing, its position, the side it was shown on and an optional comment; the
+  file is written after every answer, because a five-hour measurement that cannot resume will not
+  finish. A malformed request costs one answer and never the run.
 - `research/2026-09-10-chain/`, the evidence every 2026-09-10 claim rests on, which until now lived in a
   directory under no version control and was named nowhere here. The two blocks `revise` reproduces byte
   for byte now carry the SHA-256 of their own text.

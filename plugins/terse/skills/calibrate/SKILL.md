@@ -55,6 +55,16 @@ identifiers.
 A session runs through a local page, not through this conversation. Two hundred and eighty-five
 presentations cannot go through a chat, and the mechanics below need a clock.
 
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/skills/calibrate/scripts/session.mjs" \
+  --bank <bank.json> --out <session.json> --participant <name> --seed <n>
+```
+
+It serves one page on `127.0.0.1`, opens it, and writes the session file after every answer. Run the
+same command again to resume; it refuses a different seed against an existing file, because a new order
+would make the two halves incomparable. `fixtures/demo-bank.json` exists to check that the tool runs
+before anyone spends an hour on it.
+
 **The side mapping lives outside the browser.** The page receives left text, right text and an item id;
 the answer comes back as left, right, tie or unjudgeable. Nobody reading the page — including through its
 developer tools — can see which side carries which variant.
