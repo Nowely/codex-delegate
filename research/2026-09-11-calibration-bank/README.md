@@ -4,9 +4,11 @@
 ways to write one comment, and 7 whole-text pairs. `bank.json` is what the session tool reads.
 
 `build/` holds the scripts that produced it and the source partition they produced it from. It is a
-record, not a rebuild: `assemble.mjs` reads writer output under `/tmp` that is not kept here, so a rebuild
-means running the ten writers again. `verify.mjs` and `fidelity.mjs` do run against `bank.json` as it
-stands, and should be re-run after any edit to it.
+record, not a rebuild: `assemble.mjs`, `merge-v2.mjs` and the two `gen-*` task writers read writer output
+under `/tmp` that is not kept here, so a rebuild means running the engines again. Three do run against
+`bank.json` as it stands and should be re-run after any edit to it — `verify.mjs` for the balance and
+span properties, `fidelity.mjs` for whether an item really comes from the lines it cites, and
+`mkcheck.mjs` with `manipulation-check.workflow.js` and `score-check.mjs` for the blind check.
 
 Run it with:
 
@@ -65,8 +67,11 @@ at an intracluster correlation of 0.2 carry a real error rate of 0.167 against a
 word count an engine claimed was recomputed and matched. All 40 promotional-tone pairs are length-matched
 within 10%, which is the one confound that would otherwise report length as tone.
 
-`build/fidelity.mjs`: median content-word overlap between an item and the lines it cites is **0.64**, and
-nothing falls below 0.25. No engine invented a line number.
+`build/fidelity.mjs`: median content-word overlap between an item and the lines it cites is **0.62**. No
+engine invented a line number. One item, `astra-tone-3`, sits at 0.23 against a 0.25 threshold; reading it
+beside its three source lines shows it is faithful and paraphrased, over a source of only 23 content
+words. The threshold is a heuristic with a small denominator, and it is left failing rather than tuned
+until it passes.
 
 The whole bank was then run through the real session server end to end — 144 presentations, 139 items
 plus 5 repeats — and the recorded session shows exact side balance per factor and all five repeats on the
@@ -79,34 +84,66 @@ the sides shuffled. Each was asked to describe the difference in its own words f
 category. The item ids name the factor — `astra-tone-1` — so they were replaced with opaque tokens; that
 leak was caught before the check ran, not after.
 
-| Factor | Checker named the intended factor |
-|---|---|
-| answer-first | **36/40 (90%)** |
-| metaphor | 21/40 (52%) |
-| promotional tone | **12/40 (30%)** |
+It was run three times. The first run measured the bank's first version; the tone and metaphor items were
+rewritten because of what it found; the second run measured the rewrite and exposed a flaw in the question
+itself; the third measured the rewrite with the question fixed. All three sets of verdicts are kept.
 
-**The promotional-tone items are not single-factored, and this is the bank's main defect.** Twenty of the
-forty read as changing more than one thing at once and six as one side simply being written better.
-`item-bank.md` predicted exactly this — "nobody has verified that *state what it does and why it is good*
-changes tone and nothing else" — and it is now measured rather than suspected.
+| Factor | Run 1, first version | Run 3, after the rewrite |
+|---|---|---|
+| answer-first — never rewritten, so a control on the checkers | 36/40 (90%) | 34/40 (85%) |
+| metaphor | 21/40 (52%) | **32/40 (80%)** |
+| promotional tone | **12/40 (30%)** | **29/40 (73%)** |
 
-The obvious objection is that the checker leans on the safe answer. It does not: edit size fails to
-predict the verdict (median 0.28 of the pair changed on "more than one" verdicts against 0.25 on
-single-factor ones), and **answer-first has the largest median edit of the three factors, 0.32, while
-scoring 90%.** How much text moved and how legible the move is are independent here.
+**Run 1 found that the promotional-tone items were not single-factored.** Twenty of the forty read as
+changing more than one thing at once. `item-bank.md` had predicted exactly this — "nobody has verified
+that *state what it does and why it is good* changes tone and nothing else" — and it became measured
+rather than suspected.
+
+The objection that the checker leans on a safe answer does not hold. Edit size failed to predict the
+verdict — median 0.28 of the pair changed on "more than one" verdicts against 0.25 on single-factor ones —
+and answer-first had the largest median edit of the three factors, 0.32, while scoring 90%. How much text
+moved and how legible the move is are independent.
+
+### What the rewrite changed
+
+The instruction now carries a mechanical rule: **the two sides differ in exactly one contiguous span of
+words and are identical everywhere else**, checked with a diff rather than trusted. Before the rewrite,
+nought of forty tone pairs and seven of forty metaphor pairs met it. After three passes — the third
+showing each engine the exact spans where its own pair still parted company twice — all forty of each do.
+
+Answer-first is exempt: moving a sentence is a deletion and an insertion, two spans by nature, and 22 of
+its 40 pairs have exactly that signature. It was the factor that already read cleanly.
+
+### The question was wrong, and re-asking it was cheaper than arguing
+
+Run 2 put the rewritten items to fresh checkers and returned 58% for tone, with thirteen items filed under
+"something else". Reading what those thirteen described settled it: every one named the intended span —
+"one describes the benefit, the other describes what the tool does". The category offered was *one adds
+justification*, and after the rewrite nothing is added; a benefit clause and a factual clause occupy the
+same span. The checkers had nowhere to put the answer they had given.
+
+Adding those thirteen to the twenty-three would have been the exact move `SKILL.md` warns about, where
+filtering to the favourable items moved a published judge from 66% to 85%. The category was corrected to
+*one side claims a benefit where the other states a plain fact* and the check re-run from scratch: 73%.
+
+One conclusion survives whichever label is used, because it does not depend on one: **"the two differ in
+more than one of these at once" went from 20 of 40 tone items to 0.**
 
 ### A finding about the checker, not the bank
 
-The checkers called one side worse in 52 of 120 items, which reads like a defect count and is not one.
-**The side they called worse was the `off` side 36 times against 16** — and in the same direction in all
-three factors, though `off` means the plain version in one and the figurative version in another. That is
-the checker's taste, not a quality report, and it is the reason "43% of items have a bad side" is not
-stated anywhere above.
+In run 1 the checkers called one side worse in 52 of 120 items, and the side they called worse was the
+`off` side 36 times against 16 — in the same direction in all three factors, though `off` is the plain
+version in one and the figurative version in another. That is taste, not a defect count, and it is why
+"43% of items have a bad side" appears nowhere above.
 
-It leaves a live hypothesis, **not proven**: in every factor the `on` instruction is the more specific one,
-and a more specific instruction may simply produce more deliberate prose. If so, variant identity
-correlates with craft across the whole bank, and all three factors would lean the same way for a reason
-that has nothing to do with any of them. The transfer test is where this would show up.
+Runs 2 and 3 judged **identical items** and disagreed with each other about it: "neither side is worse"
+came back 29/32/26 times per factor in one and 21/16/13 in the other. A judgement that unstable between
+two passes over the same text cannot gate anything, and is reported here rather than used.
+
+The live hypothesis run 1 left — that the `on` instruction, being the more specific one, simply produced
+more deliberate prose — is now largely answered. Once neither side could be rewritten around its span, the
+asymmetry stopped being systematic, which puts it down to unconstrained rewriting rather than to the
+instructions themselves.
 
 ## Two defects in the session tool, found by running a real bank
 
@@ -146,5 +183,14 @@ honest answer is to place none rather than to clamp one next to its original.
   September chain as much as they test the person.
 - **Five items cite lines outside their writer's assigned blocks.** None collided with another item, so
   one-item-per-passage holds, but the disjointness was enforced by construction and not by the writers.
-- The metaphor factor's `off` instruction is "no constraint on figurative language", which does not
-  guarantee a figure of speech appears. Three items were judged to have no difference worth noticing.
+- **Eleven tone items and eight metaphor items still do not read as single-factored** to a blind checker,
+  even though every one of them differs in exactly one span. A single span is necessary and not
+  sufficient: eight metaphor pairs were read as one side simply being written better, which is what
+  swapping a phrase for a figure of speech can amount to.
+- The metaphor factor's free side used to be "no constraint on figurative language", which does not make a
+  figure of speech appear — three pairs came back with no difference a reader could see. It is now told to
+  use one, and `item-bank.md` records the change with its reason.
+- **The tone factor now substitutes rather than adds.** Both sides carry a clause in the same span; one
+  claims a benefit, the other states a fact. That is what makes it length-matched and single-span, and it
+  is a narrower question than "does promotional language help", which is what the 27%-of-usability figure
+  behind the factor was measuring.

@@ -19,18 +19,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "Release tags now include the plugin name, preventing a sibling's release from being mistaken for this plugin's version. All published tags were renamed. The marketplace address is Nowely/agent-skills: replace the old registration with the new one. The nowely registration name, codex-delegate@nowely identifier and existing data directory remain unchanged, easing migration.",
-     "words": 50
+     "text": "Release tags now include the plugin name, preventing confusion with sibling releases. All published tags were renamed. The marketplace address is Nowely/agent-skills: replace the old registration with the new one. The nowely registration name, codex-delegate@nowely identifier and existing data directory remain unchanged.",
+     "words": 42
     },
     "off": {
-     "text": "Release tags now include the plugin name, so each tag identifies one plugin's version within the shared marketplace namespace. All published tags were renamed. The marketplace address is Nowely/agent-skills: replace the old registration with the new one. The registration name remains nowely, the identifier remains codex-delegate@nowely, and the data directory stays in place.",
-     "words": 53
+     "text": "Release tags now include the plugin name, using the shared marketplace namespace. All published tags were renamed. The marketplace address is Nowely/agent-skills: replace the old registration with the new one. The nowely registration name, codex-delegate@nowely identifier and existing data directory remain unchanged.",
+     "words": 42
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -40,18 +40,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "The snapshot test now builds a replacement beside the original directory before renaming it over the original. Keeping both directories allocated prevents an inode collision on any filesystem. This reliably establishes the identity change the test needs; rebuilding in place let ext4 reuse the inode and caused both Linux CI jobs to fail.",
-     "words": 53
+     "text": "The snapshot test now builds a replacement beside the original directory before renaming it over the original, reliably establishing the required identity change. Previously, rebuilding in place let ext4 reuse the inode, leaving dev:ino unchanged. The test's identity-change precondition then failed, and both Linux CI jobs reported failures.",
+     "words": 48
     },
     "off": {
-     "text": "The snapshot test now builds a replacement beside the original directory before renaming it over the original. This prevents inode collisions on any filesystem. Previously, rebuilding in place let ext4 reuse the inode, leaving dev:ino unchanged. The test's identity-change precondition then failed, and both Linux CI jobs reported failures.",
+     "text": "The snapshot test now builds a replacement beside the original directory before renaming it over the original, retaining both directories throughout replacement tree creation. Previously, rebuilding in place let ext4 reuse the inode, leaving dev:ino unchanged. The test's identity-change precondition then failed, and both Linux CI jobs reported failures.",
      "words": 49
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -65,14 +65,14 @@
      "words": 51
     },
     "off": {
-     "text": "A single read helper returns either a value or a reason the value could not be obtained. ENOENT is the only error converted to a value because it establishes absence. Other errors leave the state unknown. Every caller that receives a reason classifies the item as one to keep.",
-     "words": 49
+     "text": "A single read helper returns either a value or a reason the value could not be obtained. Only ENOENT becomes a value: absence is known, while other errors leave the state unknown. Callers keep the item whenever a reason is returned, including when reads fail for reasons other than file absence.",
+     "words": 51
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -82,18 +82,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "Cleanup verifies every selected number against one inventory before deleting anything, making the result independent of selection order. Previously, a fresh inventory for each number could change the outcome: deleting a run renamed its associated seat, invalidating the seat's selection. Reversing those two numbers deleted both. The shared inventory removes that inconsistency.",
-     "words": 52
+     "text": "Cleanup verifies every selected number against one inventory, making cleanup predictable regardless of selection order. Previously, a fresh inventory for each number could change the outcome: deleting a run renamed its associated seat, invalidating the seat's selection. Reversing those two numbers deleted both.",
+     "words": 43
     },
     "off": {
-     "text": "Cleanup verifies every selected number against one inventory before deleting anything. The selection order therefore does not affect the result. Previously, cleanup created a fresh inventory for each number. Deleting a run renamed its associated seat, so that seat's number was refused as changed; selecting the seat first allowed both items to be deleted.",
-     "words": 54
+     "text": "Cleanup verifies every selected number against one inventory, completing verification before any removal begins. Previously, a fresh inventory for each number could change the outcome: deleting a run renamed its associated seat, invalidating the seat's selection. Reversing those two numbers deleted both.",
+     "words": 42
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -103,18 +103,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "Install codex on PATH and authenticate it; codex login status checks the session. Runs reuse credentials through an auth.json symlink from your real ~/.codex. Each report identifies the pinned CLI build as codexVersionPinned, with its protocol reference in schema-<version>/. Running the fidelity suite after upgrades provides a useful compatibility check before trusting results.",
-     "words": 53
+     "text": "Install codex on PATH and authenticate it; codex login status checks the session. Runs reuse credentials through an auth.json symlink from your real ~/.codex. Each report identifies the pinned CLI build as codexVersionPinned, with its protocol reference in schema-<version>/. Running the fidelity suite after upgrades helps establish confidence in subsequent results.",
+     "words": 51
     },
     "off": {
-     "text": "Install codex on PATH and authenticate it; codex login status checks the session. Runs reuse credentials through an auth.json symlink from your real ~/.codex. Each report identifies the pinned CLI build as codexVersionPinned. The corresponding schema-<version>/ directory contains its protocol reference. After upgrading codex, run the fidelity suite before trusting a run.",
+     "text": "Install codex on PATH and authenticate it; codex login status checks the session. Runs reuse credentials through an auth.json symlink from your real ~/.codex. Each report identifies the pinned CLI build as codexVersionPinned, with its protocol reference in schema-<version>/. Running the fidelity suite after upgrades checks behavior with the updated codex version.",
      "words": 52
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -124,18 +124,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "Cleanup checks the directory's dev:ino again at removal, giving the user's selection protection against a replacement made after inventory. If the listed directory has been removed and another now occupies its path, cleanup refuses that replacement. The identity comparison keeps deletion tied to the directory the listing actually measured.",
-     "words": 49
+     "text": "Cleanup checks the directory's dev:ino again at removal, protecting the user's selection against replacement after inventory. If the listed directory has been removed and another now occupies its path, cleanup refuses to remove the replacement. The listing supplies the identity used for this comparison.",
+     "words": 44
     },
     "off": {
-     "text": "Cleanup checks the directory's dev:ino again at removal and compares it with the identity recorded by the listing. If the listed directory has been removed and another now occupies its path, cleanup refuses to remove the replacement. The comparison occurs after inventory, immediately before the selected directory is removed.",
-     "words": 49
+     "text": "Cleanup checks the directory's dev:ino again at removal, comparing its current identity with previously recorded values. If the listed directory has been removed and another now occupies its path, cleanup refuses to remove the replacement. The listing supplies the identity used for this comparison.",
+     "words": 44
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    },
    "repeat": true
   },
@@ -146,18 +146,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "The driver now places TMPPREFIX under each run's writable TMPDIR, enabling zsh here-documents within the existing grant. Previously, zsh used /tmp/zsh, where seats could not write. The failure appeared in 15 rollouts between August 31 and September 8, 2026, and was reproduced under the read sandbox. The /bin/sh shell was unaffected.",
-     "words": 51
+     "text": "The driver now places TMPPREFIX under each run's writable TMPDIR, keeping zsh here-documents usable without broader permissions. Previously, zsh here-documents used /tmp/zsh and failed because seats could not write there. The failure appeared in 15 rollouts between August 31 and September 8, 2026, and was reproduced under the read sandbox. The /bin/sh shell was unaffected.",
+     "words": 55
     },
     "off": {
-     "text": "The driver now places TMPPREFIX under each run's writable TMPDIR. Previously, zsh here-documents used /tmp/zsh and failed because seats could not write there. The failure appeared in 15 rollouts between August 31 and September 8, 2026, and was reproduced under the read sandbox. The /bin/sh shell did not exhibit the failure.",
-     "words": 51
+     "text": "The driver now places TMPPREFIX under each run's writable TMPDIR, applying this setting at every permission level. Previously, zsh here-documents used /tmp/zsh and failed because seats could not write there. The failure appeared in 15 rollouts between August 31 and September 8, 2026, and was reproduced under the read sandbox. The /bin/sh shell was unaffected.",
+     "words": 55
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -167,18 +167,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "The plugin makes a Codex second opinion convenient within Claude Code. Claude can delegate analysis, document review, competing designs or implementation, declaring write permissions for each call. The driver returns observed events as a structured JSON report. A successful exit or matching session record alone does not prove that the requested task succeeded.",
-     "words": 53
+     "text": "The plugin provides a Codex second opinion within Claude Code, making independent review convenient during ongoing work. Claude can delegate analysis, document review, competing designs or implementation. The driver returns observed events as structured JSON. A successful exit or matching session record alone does not prove task success.",
+     "words": 48
     },
     "off": {
-     "text": "The plugin lets Claude Code delegate work to Codex for a second opinion, including analysis, document review, competing designs or implementation. Each call declares write permissions, and the driver returns a structured JSON report of observed events. A successful exit or matching session record alone does not prove that the requested task succeeded.",
-     "words": 53
+     "text": "The plugin provides a Codex second opinion within Claude Code, using write permissions declared separately for each call. Claude can delegate analysis, document review, competing designs or implementation. The driver returns observed events as structured JSON. A successful exit or matching session record alone does not prove task success.",
+     "words": 49
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the varying span to state why the thing is good.",
+    "off": "Use the varying span to state a further fact about the thing."
    }
   },
   {
@@ -188,18 +188,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "Release 0.12.0 was measured against codex-cli 0.153.4 on macOS. It changes no driver behavior. It adds a third skill and its script, revises user-facing material across all three skills, and renames user-visible names. Upgrading requires replacing the marketplace registration with nowely; running plugin update alone does not complete the migration.",
-     "words": 50
+     "text": "Release 0.12.0 was measured against codex-cli 0.153.4 on macOS. It changes no driver behavior. It adds a third skill and its script, revises user-facing material across all three skills, and renames user-visible names. Upgrading requires replacing the marketplace registration with nowely; running plugin update alone cannot complete the migration.",
+     "words": 49
     },
     "off": {
-     "text": "Release 0.12.0 was measured against codex-cli 0.153.4 on macOS. It changes no driver behavior. It adds a third skill and its script, revises user-facing material across all three skills, and renames user-visible names. Upgrading requires replacing the marketplace registration with nowely; running plugin update alone will not get you there.",
-     "words": 50
+     "text": "Release 0.12.0 was measured against codex-cli 0.153.4 on macOS. It changes no driver behavior. It adds a third skill and its script, revises user-facing material across all three skills, and renames user-visible names. Upgrading requires replacing the marketplace registration with nowely; running plugin update alone leaves you halfway there.",
+     "words": 49
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -209,18 +209,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "The plugin stores state in CLAUDE_PLUGIN_DATA, resolved here to ~/.claude/plugins/data/codex-delegate-nowely/. That directory contains answers, the isolated Codex home, write locks, the worktree ledger and orchestrator run directories. Updates preserve it; uninstall removes it unless --keep-data is passed. The cleanup skill lists its contents and removes the items you select.",
-     "words": 49
+     "text": "The plugin keeps state in one location in CLAUDE_PLUGIN_DATA, resolved here to ~/.claude/plugins/data/codex-delegate-nowely/. That directory contains answers, the isolated Codex home, write locks, the worktree ledger and orchestrator run directories. Updates preserve it; uninstall removes it unless --keep-data is passed. The cleanup skill lists its contents and removes the items you select.",
+     "words": 52
     },
     "off": {
-     "text": "The plugin keeps state under one roof in CLAUDE_PLUGIN_DATA, resolved here to ~/.claude/plugins/data/codex-delegate-nowely/. That directory contains answers, the isolated Codex home, write locks, the worktree ledger and orchestrator run directories. Updates preserve it; uninstall removes it unless --keep-data is passed. The cleanup skill lists its contents and removes the items you select.",
-     "words": 52
+     "text": "The plugin keeps state under a single roof in CLAUDE_PLUGIN_DATA, resolved here to ~/.claude/plugins/data/codex-delegate-nowely/. That directory contains answers, the isolated Codex home, write locks, the worktree ledger and orchestrator run directories. Updates preserve it; uninstall removes it unless --keep-data is passed. The cleanup skill lists its contents and removes the items you select.",
+     "words": 53
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -230,18 +230,18 @@
    "engine": "gpt-6-astra",
    "variants": {
     "on": {
-     "text": "Run suites from the repository or plugin root. Appending ../.. to a symlinked skill path can produce a nonexistent path because Node resolves those segments lexically, although ls follows the link successfully. Resolve the symlink, use the install path announced when the skill loads, or read installPath from installed_plugins.json.",
-     "words": 49
+     "text": "Run suites from the repository or plugin root. Appending ../.. to a symlinked skill path can produce nonexistent paths because Node resolves those segments lexically, although ls follows the link successfully. Resolve the symlink, use the install path announced when the skill loads, or read installPath from installed_plugins.json.",
+     "words": 48
     },
     "off": {
-     "text": "Run suites from the repository or plugin root. Appending ../.. to a symlinked skill path can lead to a dead end because Node resolves those segments lexically, although ls follows the link successfully. Resolve the symlink, use the install path announced when the skill loads, or read installPath from installed_plugins.json.",
-     "words": 50
+     "text": "Run suites from the repository or plugin root. Appending ../.. to a symlinked skill path can lead nowhere because Node resolves those segments lexically, although ls follows the link successfully. Resolve the symlink, use the install path announced when the skill loads, or read installPath from installed_plugins.json.",
+     "words": 47
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -255,14 +255,14 @@
      "words": 52
     },
     "off": {
-     "text": "Both permission levels allow network access without a host allowlist. The --no-network flag blocks sandbox traffic; provider web search has its own switch in --web-search and may still be enabled. Network access does not expand filesystem write permissions: a read seat writes only TMPDIR, but it can transmit any file it can read.",
-     "words": 53
+     "text": "Both permission levels allow network access without a host allowlist. The --no-network flag blocks sandbox traffic; provider web search has a separate gate controlled by --web-search and may still be enabled. Network access does not expand filesystem write permissions: a read seat writes only TMPDIR, but it can transmit any file it can read.",
+     "words": 54
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -282,8 +282,8 @@
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -303,8 +303,8 @@
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    },
    "repeat": true
   },
@@ -325,8 +325,8 @@
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -340,14 +340,14 @@
      "words": 43
     },
     "off": {
-     "text": "A fresh worktree starts at HEAD, the repository's current commit. Uncommitted edits, untracked files and ignored files are left behind, including dependencies installed only in the live checkout. Commit relevant changes before selecting a worktree; stashing alone does not carry those changes into HEAD.",
+     "text": "A fresh worktree starts at HEAD, the repository's current commit. Uncommitted edits, untracked files and ignored files are left behind, including dependencies installed only in the live checkout. Commit relevant changes before selecting a worktree; stashing alone does not include those changes in HEAD.",
      "words": 44
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase in the varying span.",
+    "off": "Use a figure of speech for the same idea in the varying span."
    }
   },
   {
@@ -589,18 +589,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Follow the three-command upgrade path: remove the old marketplace, add Nowely/agent-skills as nowely, then install codex-delegate@nowely. Before that, with every seat stopped, move the data directory to the new marketplace name. This orderly sequence preserves existing state; any stale copy is still surfaced by cleanup as another copy's data.",
-     "words": 49
+     "text": "Follow the three-command upgrade path: remove the old marketplace, add Nowely/agent-skills as nowely, then install codex-delegate@nowely. Before doing so, stop every seat and move the data directory to the new marketplace name. This orderly sequence protects existing state and makes overlooked leftovers straightforward to review.",
+     "words": 45
     },
     "off": {
-     "text": "Follow the three-command upgrade path: remove the old marketplace, add Nowely/agent-skills as nowely, then install codex-delegate@nowely. Before doing so, stop every seat and move the data directory to the new marketplace name. Cleanup lists any stale directory left under the former name as another copy's data.",
-     "words": 46
+     "text": "Follow the three-command upgrade path: remove the old marketplace, add Nowely/agent-skills as nowely, then install codex-delegate@nowely. Before doing so, stop every seat and move the data directory to the new marketplace name. Cleanup flags the former-name directory so operators know which residual data to review.",
+     "words": 45
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use the promotional justification clause emphasizing protection and ease.",
+    "off": "Use the neutral cleanup clause describing what operators review."
    }
   },
   {
@@ -610,18 +610,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Under the oldest supported Node runtime, run node --check on seat scripts and evaluation files, then npm test. That command includes the package suite, which verifies payload and version agreement. This disciplined sequence catches compatibility and packaging mistakes; require the final count before describing any suite as green.",
+     "text": "Under the oldest supported Node runtime, run node --check on the seat scripts and evaluation files, then run npm test. That command runs every suite, including the package suite, which checks payload and version agreement. This disciplined sequence catches compatibility and packaging mistakes ahead of premature release claims.",
      "words": 48
     },
     "off": {
-     "text": "Under the oldest supported Node runtime, run node --check on the seat scripts and evaluation files, then run npm test. That command runs every suite, including the package suite, which checks the payload and version agreement. Do not describe a suite as green until its final count has been reported.",
-     "words": 50
+     "text": "Under the oldest supported Node runtime, run node --check on the seat scripts and evaluation files, then run npm test. That command runs every suite, including the package suite, which checks payload and version agreement. The final count must be reported before any suite is described as green.",
+     "words": 48
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -631,18 +631,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "By default, a report must include at least one command from the main Codex thread; commands reported only by Codex's subagents do not count. This provenance rule keeps the evidence attributable. Because a failed command or one with unknown outcome can still satisfy the count, careful reviewers inspect its status and exitCode before accepting the run.",
-     "words": 56
+     "text": "By default, a report must include at least one command item from the main Codex thread. Commands reported only by Codex's subagents do not count. A failed command or one with an unknown outcome can satisfy the count, so reviewers examine its status and exitCode separately. This provenance rule keeps evidence directly attributable within Codex's main thread.",
+     "words": 57
     },
     "off": {
-     "text": "By default, a report must include at least one command item from the main Codex thread. Commands reported only by Codex's subagents do not count toward that requirement. A failed command or a command with an unknown outcome can satisfy the default count, so the reviewer examines its status and exitCode separately.",
-     "words": 52
+     "text": "By default, a report must include at least one command item from the main Codex thread. Commands reported only by Codex's subagents do not count. A failed command or one with an unknown outcome can satisfy the count, so reviewers examine its status and exitCode separately. The requirement applies specifically to the default command count.",
+     "words": 55
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -652,18 +652,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Commands printed by cleanup are safely single-quoted before a user pastes them. That protection matters because a directory named codex-delegate-$(touch PWNED) must remain inert data, not executable syntax. Both the suggested rm command and the find command use shell quoting, since JSON quoting alone does not secure shell input.",
-     "words": 49
+     "text": "Cleanup single-quotes the rm command it prints for another copy's data directory and the find command for entries beyond its coverage. A directory named codex-delegate-$(touch PWNED) therefore remains data when the command is pasted. This robust escaping prevents pasted cleanup instructions from executing hostile directory names.",
+     "words": 46
     },
     "off": {
-     "text": "Cleanup single-quotes the rm command it prints for another copy's data directory and the find command for entries beyond its coverage. A directory named codex-delegate-$(touch PWNED) is therefore represented as data when the command is pasted. The implementation uses shell quoting for this purpose; JSON quoting is not shell quoting.",
-     "words": 50
+     "text": "Cleanup single-quotes the rm command it prints for another copy's data directory and the find command for entries beyond its coverage. A directory named codex-delegate-$(touch PWNED) therefore remains data when the command is pasted. JSON quoting serves a different purpose and does not secure shell input.",
+     "words": 46
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -673,18 +673,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Each delegation runs its own app server; host-home mode also loads its own MCP servers. Median memory measured about 181 MB per isolated seat and 471 MB with host-home, while provider round-trips dominated 7–12 seconds of overhead. Because excess demand ends runs with SIGTERM, these figures enable safer fan-out: count in-flight delegations, drain waves, and separate writers' working directories.",
-     "words": 59
+     "text": "Each delegation has its own app server; under host-home, each also loads its own MCP servers. Measured median memory was about 181 MB per isolated seat and 471 MB with host-home, while provider round-trips dominated 7–12 seconds of overhead. Exceeding available memory ends runs with SIGTERM. These measurements enable safer capacity planning for simultaneous work across batched launches.",
+     "words": 58
     },
     "off": {
-     "text": "Each delegation has its own app server; under host-home, each also loads its own MCP servers. Measured median memory was about 181 MB per isolated seat and 471 MB with host-home, while provider round-trips dominated 7–12 seconds of overhead. Exceeding available memory ends runs with SIGTERM. Count in-flight delegations, drain waves, and separate writers' working directories.",
-     "words": 56
+     "text": "Each delegation has its own app server; under host-home, each also loads its own MCP servers. Measured median memory was about 181 MB per isolated seat and 471 MB with host-home, while provider round-trips dominated 7–12 seconds of overhead. Exceeding available memory ends runs with SIGTERM. Operators should count in-flight delegations, drain waves, and separate writers' working directories.",
+     "words": 58
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -694,18 +694,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Read-level seats run browser tests at write level because Chromium requires a root-level override, while Node-environment Vitest needs --configLoader runner. Concurrency is bounded by memory, and excess runs are killed rather than throttled. Pinning the experimental app-server schema and maintaining a fidelity suite provide a prudent safeguard against an unstable protocol.",
-     "words": 51
+     "text": "Read-level seats cannot run browser-mode tests because Chromium requires a root-level override, so those tests run at write level. Node-environment Vitest at read level needs --configLoader runner. Concurrency is bounded by memory, and excess runs are killed rather than throttled. Together, the pinned schema and fidelity suite provide valuable protection from unstable app-server protocol changes.",
+     "words": 55
     },
     "off": {
-     "text": "Read-level seats cannot run browser-mode tests because Chromium needs an override written at the tree root; those tests run at write level. Node-environment Vitest at read level needs --configLoader runner. Concurrency is memory-bound, and excess runs are killed rather than throttled. The experimental app-server protocol is covered by a pinned schema and fidelity suite.",
-     "words": 54
+     "text": "Read-level seats cannot run browser-mode tests because Chromium requires a root-level override, so those tests run at write level. Node-environment Vitest at read level needs --configLoader runner. Concurrency is bounded by memory, and excess runs are killed rather than throttled. Experimental server communication is checked against a fixed specification alongside corresponding behavior tests.",
+     "words": 53
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -715,18 +715,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Each cleanup listing uses mktemp to create its own snapshot file. This reliable isolation matters because a name built from the shell PID can be shared by two listings in one shell, causing a number from the first to be checked against the second. A unique temporary name prevents that cross-listing collision.",
-     "words": 52
+     "text": "Each cleanup listing uses mktemp to create a separate snapshot file. A filename based on the shell PID can be shared by two listings created in one shell. Unique temporary filenames reliably prevent cross-listing number checks against unrelated saved snapshots.",
+     "words": 40
     },
     "off": {
-     "text": "Each cleanup listing uses mktemp to create a separate snapshot file. A filename based on the shell PID can be shared by two listings created in one shell. In that case, a number taken from the first listing could later be read against the second listing's snapshot.",
-     "words": 47
+     "text": "Each cleanup listing uses mktemp to create a separate snapshot file. A filename based on the shell PID can be shared by two listings created in one shell. Two inventories created by one shell can otherwise share a single PID-based file.",
+     "words": 41
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -736,18 +736,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "With --seat-file supplying the prompt, a headerless prompt defaults to read level in the current directory; --report-file names an absolute, unused path. The driver creates missing parents at mode 0700 and publishes the complete report at 0600 without replacement. This reliable, no-clobber delivery makes a missing report mean an unknown outcome.",
-     "words": 51
+     "text": "With --seat-file supplying the prompt, a headerless prompt defaults to read level in the current directory; --report-file names an absolute, unused path. The driver creates missing parents at mode 0700 and publishes the complete report at 0600 without replacing an existing entry. Reliable no-clobber publication clearly signals uncertainty whenever report delivery is absent.",
+     "words": 53
     },
     "off": {
-     "text": "With --seat-file supplying the prompt, a headerless prompt defaults to read level in the current directory; --report-file names an absolute, unused path. The driver creates missing parents at mode 0700 and publishes the complete report at 0600 without replacing an existing entry. A missing report means the outcome is unknown.",
-     "words": 50
+     "text": "With --seat-file supplying the prompt, a headerless prompt defaults to read level in the current directory; --report-file names an absolute, unused path. The driver creates missing parents at mode 0700 and publishes the complete report at 0600 without replacing an existing entry. The outcome remains unknown to callers and later reviewers when no file appears.",
+     "words": 55
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    },
    "repeat": true
   },
@@ -758,18 +758,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "For a source installation, retain the state-directory export in the shell profile and launch Claude Code from a shell that inherited it. Source installations do not provide the plugin's data-directory placeholder. Before creating any skill link, inspect its destination and preserve an existing skill rather than overwriting it.",
-     "words": 48
+     "text": "For a source installation, configure the profile so its state-directory export is inherited when Claude Code launches. Source installations do not provide the plugin's data-directory placeholder. Before creating any skill link, inspect its destination and preserve an existing skill rather than overwriting it.",
+     "words": 43
     },
     "off": {
-     "text": "For a source installation, the shell profile is the bridge that carries the state-directory export into Claude Code. Source installations do not provide the plugin's data-directory placeholder. Before creating any skill link, inspect its destination and leave an existing skill standing rather than overwriting it.",
-     "words": 45
+     "text": "For a source installation, make your startup settings a bridge carrying environmental state into each new coding session. Source installations do not provide the plugin's data-directory placeholder. Before creating any skill link, inspect its destination and preserve an existing skill rather than overwriting it.",
+     "words": 44
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -779,18 +779,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Publish only from a clean tree. Releases use annotated codex-delegate@X.Y.Z tags with matching GitHub release notes, and a published tag must never be moved or recreated. The repository is a marketplace whose plugins share one tag namespace, so every tag includes the plugin's name.",
-     "words": 44
+     "text": "Require a repository without uncommitted changes before publishing. Releases use annotated codex-delegate@X.Y.Z tags with matching GitHub release notes, and a published tag must never be moved or recreated. The repository is a marketplace whose plugins share one tag namespace, so every tag includes the plugin's name.",
+     "words": 46
     },
     "off": {
-     "text": "A dirty tree is no launchpad for a release. Use annotated codex-delegate@X.Y.Z tags with matching GitHub release notes, and treat every published tag as a mile marker that cannot be moved or recreated. The marketplace's plugins share one tag namespace, so each tag carries the plugin's name.",
-     "words": 47
+     "text": "Use pristine version control as the sole launchpad for release. Releases use annotated codex-delegate@X.Y.Z tags with matching GitHub release notes, and a published tag must never be moved or recreated. The repository is a marketplace whose plugins share one tag namespace, so every tag includes the plugin's name.",
+     "words": 48
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -800,18 +800,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "A receipt is Codex's saved session record. The driver checks only opening metadata, within 64 KiB, in today's and yesterday's session directories. receiptOk true establishes that metadata names the reported thread; it does not validate commands, completion, or the answer. False does not change the verdict. Older resumed sessions may fall outside the window.",
+     "text": "A receipt is Codex's saved session record. The driver checks only opening metadata, within 64 KiB, in today's and yesterday's session directories. receiptOk true confirms solely which session is named by opening metadata while leaving commands, completion, and answer unchecked. False does not change the verdict. Older resumed sessions may fall outside the window.",
      "words": 54
     },
     "off": {
-     "text": "A receipt is Codex's saved session record. The driver checks only opening metadata, within 64 KiB, in today's and yesterday's session directories. receiptOk true is a signpost to the reported thread, not a seal on commands, completion, or the answer. False does not change the verdict. Older resumed sessions may fall outside the window.",
-     "words": 54
+     "text": "A receipt is Codex's saved session record. The driver checks only opening metadata, within 64 KiB, in today's and yesterday's session directories. receiptOk true acts as a signpost toward one reported conversation rather than a seal upon its work or response. False does not change the verdict. Older resumed sessions may fall outside the window.",
+     "words": 55
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -821,18 +821,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "A same-user process could still replace the bare leaf between its final file-descriptor check and removal, leaving one instruction interval exposed. Broader replacement cases are prevented: pinned-parent resolution handles renamed ancestors, identity comparison detects a swapped parent, and snapshot device-and-inode data catches a directory replaced between listing and deletion.",
-     "words": 49
+     "text": "A same-user process could still replace the bare leaf between its final file-descriptor check and removal, leaving a single interval in which replacement remains possible. Broader replacement cases are prevented: pinned-parent resolution handles renamed ancestors, identity comparison detects a swapped parent, and snapshot device-and-inode data catches a directory replaced between listing and deletion.",
+     "words": 53
     },
     "off": {
-     "text": "A same-user process could still replace the bare leaf between its final file-descriptor check and removal, leaving one narrow race window open. The design closes the wider windows: pinned-parent resolution blocks renamed ancestors, identity comparison catches a swapped parent, and snapshot device-and-inode data catches a directory replaced between listing and deletion.",
-     "words": 51
+     "text": "A same-user process could still replace the bare leaf between its final file-descriptor check and removal, leaving one narrow window of opportunity still standing open. Broader replacement cases are prevented: pinned-parent resolution handles renamed ancestors, identity comparison detects a swapped parent, and snapshot device-and-inode data catches a directory replaced between listing and deletion.",
+     "words": 53
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -846,14 +846,14 @@
      "words": 47
     },
     "off": {
-     "text": "Choose the release version, then keep every compared copy marching in lockstep: the plugin manifest, the metadata.version line in every skill, and the driver's VERSION constant. If one copy falls out of step, the version test fails and points directly to the location that was missed.",
-     "words": 46
+     "text": "Choose the release version and keep every compared copy marching in lockstep across all release locations: the plugin manifest, the metadata.version line in every skill, and the driver's VERSION constant. If one location retains a different value, the version test fails and identifies the location that was missed.",
+     "words": 48
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -863,18 +863,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "A worktree contains repository HEAD rather than uncommitted files in the current tree, so relevant work must first be committed or stashed; alternatively, use write level in the repository after settling its scope. Dependencies and ignored files are absent, and a verifier that requires them exits with status 1 unless they are installed in the worktree.",
+     "text": "A worktree contains the checked-in revision while excluding any changes not yet committed, so relevant work must first be committed or stashed; alternatively, use write level in the repository after settling its scope. Dependencies and ignored files are absent, and a verifier that requires them exits with status 1 unless they are installed in the worktree.",
      "words": 56
     },
     "off": {
-     "text": "A worktree is a time capsule of repository HEAD, leaving current uncommitted work behind. Relevant changes must first be committed or stashed; alternatively, use write level in the repository after settling its scope. Dependencies and ignored files travel separately, so a verifier that needs them exits with status 1 unless they are installed in the worktree.",
-     "words": 56
+     "text": "A worktree is a time capsule of repository HEAD, leaving today's unfinished edits behind, so relevant work must first be committed or stashed; alternatively, use write level in the repository after settling its scope. Dependencies and ignored files are absent, and a verifier that requires them exits with status 1 unless they are installed in the worktree.",
+     "words": 57
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -894,8 +894,8 @@
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -905,18 +905,18 @@
    "engine": "gpt-5.6-sol",
    "variants": {
     "on": {
-     "text": "Do not rerun cleanup's listing between approval and deletion. The saved snapshot associates each selected number with the item the user saw, and anything changed afterward is retained and reported. The deletion command then prints one paragraph for every outcome followed by a fresh listing; report those outcomes using its names and reasons, without additions.",
-     "words": 55
+     "text": "Do not rerun cleanup's listing between approval and deletion. The saved snapshot records the correspondence between each number and the entry shown during approval, and anything changed afterward is retained and reported. The deletion command then prints one paragraph for every outcome followed by a fresh listing; report those outcomes using its names and reasons, without additions.",
+     "words": 57
     },
     "off": {
-     "text": "Do not rerun cleanup's listing between approval and deletion. The saved snapshot anchors each selected number to the item the user saw, and anything changed afterward is retained and reported. The deletion command then prints one paragraph for every outcome followed by a fresh listing; report those outcomes using its names and reasons, without additions.",
-     "words": 55
+     "text": "Do not rerun cleanup's listing between approval and deletion. The saved snapshot anchors every selection firmly to its previously displayed item, and anything changed afterward is retained and reported. The deletion command then prints one paragraph for every outcome followed by a fresh listing; report those outcomes using its names and reasons, without additions.",
+     "words": 54
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    },
    "repeat": true
   },
@@ -1159,18 +1159,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "`--resume last` selects the most recently started run for the current `--cwd`, or for the repository when `--worktree` is used. This avoids letting a long-running seat overshadow a shorter, later run that has already finished, while preserving exit 10 when the newest run is still active.",
-     "words": 46
+     "text": "`--resume last` selects the most recently started run for the current `--cwd`, or for the repository when `--worktree` is used. It does not select the most recently written run. A long-running seat cannot outrank a shorter, later run that has finished, so callers never resume a half-finished thread by mistake.",
+     "words": 50
     },
     "off": {
-     "text": "`--resume last` selects the most recently started run for the current `--cwd`, or for the repository with `--worktree`. It does not select the most recently written run. A long-running seat therefore cannot outrank a shorter, later run that has finished; an active newest run still produces exit 10.",
-     "words": 48
+     "text": "`--resume last` selects the most recently started run for the current `--cwd`, or for the repository when `--worktree` is used. It does not select the most recently written run. A long-running seat cannot outrank a shorter, later run that has finished, and the active newest run produces exit 10.",
+     "words": 49
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The differing span states why the behavior is good.",
+    "off": "The differing span states a further fact about the behavior."
    }
   },
   {
@@ -1180,18 +1180,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "The runner lists twelve suites in cost order and refuses to start if that list differs from the directory, so unlisted suites cannot be missed. It treats a signal-killed suite as a failure and removes skipped or unrun suites from the green count, naming them in the final line.",
+     "text": "The runner lists twelve suites in cost order and refuses to start if that list differs from the directory. This makes every suite visible before the run begins. A signal-killed suite is a failure; skipped or unrun suites do not count as green, and the final line names them.",
      "words": 49
     },
     "off": {
-     "text": "The runner lists twelve suites in cost order and refuses to start if its list differs from the directory. A signal-killed suite is a failure. Skipped or unrun suites do not count as green, and the final line names them. This prevents a suite absent from the list from going unrun.",
-     "words": 51
+     "text": "The runner lists twelve suites in cost order and refuses to start if that list differs from the directory. An omitted entry may never run. A signal-killed suite is a failure; skipped or unrun suites do not count as green, and the final line names them.",
+     "words": 46
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The differing span gives a favorable justification for the behavior.",
+    "off": "The differing span gives a neutral operational fact instead."
    }
   },
   {
@@ -1201,18 +1201,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "The report’s `tokenUsage` covers the root thread and excludes Codex subagent threads. With `--resume`, `total` is cumulative for the thread, while `last` is only the most recent API request. This makes `total` useful as a turn-cost measure rather than confusing its final request with the whole turn.",
-     "words": 47
+     "text": "The report’s `tokenUsage` covers the root thread and excludes Codex subagent threads. With `--resume`, `total` is cumulative for the thread, while `last` is only the most recent API request. So `total` gives a fuller account of what that turn cost.",
+     "words": 40
     },
     "off": {
-     "text": "The report’s `tokenUsage` covers the root thread and excludes Codex subagent threads. With `--resume`, `total` is cumulative for the thread, while `last` is only the most recent API request. `total` measures the thread’s cost across a turn, whereas `last` describes only the final request.",
-     "words": 44
+     "text": "The report’s `tokenUsage` covers the root thread and excludes Codex subagent threads. With `--resume`, `total` is cumulative for the thread, while `last` is only the most recent API request. That number records accumulated consumption during resumed session alone, without estimating.",
+     "words": 40
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The differing span favorably characterizes total as a fuller account.",
+    "off": "The differing span neutrally describes what the number records."
    }
   },
   {
@@ -1222,18 +1222,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "Cleanup lists managed worktrees and their ledger, write locks, and the shared Codex home but never removes them. The driver reconciles the first two, and every seat shares the home. For another plugin copy’s data directory, it shows the manual command, keeping ownership and the applicable removal boundary clear.",
-     "words": 49
+     "text": "Cleanup lists but never removes managed worktrees and their ledger, write locks, or the shared Codex home. The driver reconciles the worktrees and locks, and every seat shares the home. This keeps another plugin copy’s data under its owner’s control. Its manual command is shown when requested.",
+     "words": 47
     },
     "off": {
-     "text": "Cleanup lists but never removes managed worktrees and their ledger, write locks, or the shared Codex home. The driver reconciles the worktrees and locks, and every seat shares the home. Another plugin copy’s data directory remains the user’s to remove; its manual command is shown when requested.",
-     "words": 47
+     "text": "Cleanup lists but never removes managed worktrees and their ledger, write locks, or the shared Codex home. The driver reconciles the worktrees and locks, and every seat shares the home. A distinct installation stays subject to user deletion. Its manual command is shown when requested.",
+     "words": 45
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The differing span favorably explains that the data stays under its owner's control.",
+    "off": "The differing span neutrally states a removal responsibility."
    }
   },
   {
@@ -1243,18 +1243,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "Orchestrate stores each run directory in the plugin data directory, at `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`. The project slug is the working directory path as Claude Code spells it under `~/.claude/projects/`. As a result, a run leaves its working tree unchanged and no longer needs the old self-ignoring `.gitignore`.",
-     "words": 45
+     "text": "Orchestrate stores each run directory in the plugin data directory, at `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`. The project slug is the working directory path as Claude Code spells it under `~/.claude/projects/`. As a result, a run preserves repository contents and eliminates an obsolete ignore-file requirement.",
+     "words": 41
     },
     "off": {
-     "text": "Orchestrate moves each run directory out of the repository and into `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`. The project slug follows Claude Code’s spelling of the working directory under `~/.claude/projects/`. The move keeps a run’s footprints out of its working tree, so the old self-ignoring `.gitignore` can disappear.",
-     "words": 43
+     "text": "Orchestrate stores each run directory in the plugin data directory, at `${CLAUDE_PLUGIN_DATA}/orchestrate/<project-slug>/<run>/`. The project slug is the working directory path as Claude Code spells it under `~/.claude/projects/`. As a result, a run keeps its working tree free of footprints, letting the old self-ignoring `.gitignore` fade away.",
+     "words": 46
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The differing span describes the result literally.",
+    "off": "The differing span uses the figures of speech “free of footprints” and “fade away.”"
    }
   },
   {
@@ -1264,18 +1264,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "On unmanaged machines, the official plugin’s `--write` path can handle in-repository tasks because `workspace-write` opens `$TMPDIR` and `/tmp`. Read and review seats, however, cannot run tests on any machine. Their failure is silent at the crucial point: a review can return a confident verdict after running nothing.",
-     "words": 47
+     "text": "On unmanaged machines, the official plugin’s `--write` path can handle in-repository tasks because `workspace-write` opens `$TMPDIR` and `/tmp`. Read and review seats, however, lack permission for test execution on all machines. Their failure is silent at the crucial point: a review can return a confident verdict after running nothing.",
+     "words": 49
     },
     "off": {
-     "text": "On unmanaged machines, the official plugin’s `--write` path is usable for in-repository tasks because `workspace-write` opens `$TMPDIR` and `/tmp`. Read and review seats hit a wall everywhere: they cannot run tests. Worse, the failure stays hidden where it matters, returning a confident review that has run nothing.",
-     "words": 47
+     "text": "On unmanaged machines, the official plugin’s `--write` path can handle in-repository tasks because `workspace-write` opens `$TMPDIR` and `/tmp`. Read and review seats, however, hit a wall before they can run tests anywhere. Their failure is silent at the crucial point: a review can return a confident verdict after running nothing.",
+     "words": 50
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The differing span states the testing limitation literally.",
+    "off": "The differing span uses “hit a wall” as a figure of speech."
    }
   },
   {
@@ -1289,14 +1289,14 @@
      "words": 49
     },
     "off": {
-     "text": "The third pass unearthed 24 hidden prerequisites. It defined terms and path placeholders where needed, moved required state before the first task, and separated optional configuration, prompt instructions, automated gates, source exports, and the repository root. It added 105 words to fill missing framing instead of piling on implementation background.",
-     "words": 50
+     "text": "The third pass unearthed 24 hidden prerequisites. It defined terms and path placeholders where needed, moved required state before the first task, and separated optional configuration, prompt instructions, automated gates, source exports, and the repository root. The pass added 105 words to supply missing framing rather than implementation background.",
+     "words": 49
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The differing span is a plain, literal phrase.",
+    "off": "The differing span is a figure of speech for the same idea."
    }
   },
   {
@@ -1306,18 +1306,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "At read level, the driver requests `on-request` approval and omits the explicit sandbox parameter so the temporary-directory grant can apply. It verifies the reported permissions before continuing. The comparison with the official plugin records tests dated 2026-08-31 against version 1.0.6 and Codex CLI 0.150.1, and advises checking current behavior.",
-     "words": 49
+     "text": "At read level, the driver requests `on-request` approval and relies on defaults so temporary workspace permission remains enabled. It verifies the reported permissions before continuing. The comparison with the official plugin records tests dated 2026-08-31 against version 1.0.6 and Codex CLI 0.150.1, and advises checking current behavior.",
+     "words": 47
     },
     "off": {
-     "text": "At read level, the driver requests `on-request` approval and leaves out the explicit sandbox parameter, letting the temporary-directory grant come through. It checks reported permissions before proceeding. Its comparison with the official plugin, frozen on 2026-08-31 against version 1.0.6 and Codex CLI 0.150.1, should not be treated as today’s behavior.",
-     "words": 50
+     "text": "At read level, the driver requests `on-request` approval and leaves the explicit sandbox parameter out of the way, letting the temporary-directory grant through. It verifies the reported permissions before continuing. The comparison with the official plugin records tests dated 2026-08-31 against version 1.0.6 and Codex CLI 0.150.1, and advises checking current behavior.",
+     "words": 52
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The differing span states the default-permission effect literally.",
+    "off": "The differing span uses the figures of speech “out of the way” and “grant through.”"
    }
   },
   {
@@ -1453,18 +1453,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "Unless `--host-home` is used, each run uses the private `CODEX_HOME` at `<state>/home`. Sharing it across runs, rather than recreating it for each turn, retains Codex caches and databases and makes isolated runs faster. The caller’s plugins, skills, and MCP servers stay out, and no trust records are written back.",
-     "words": 49
+     "text": "Unless `--host-home` is used, each run uses the private `CODEX_HOME` at `<state>/home`. It retains Codex caches and databases between turns, so isolated runs start without rebuilding their local working state. The caller’s plugins, skills, and MCP servers stay out, and no trust records are written back.",
+     "words": 46
     },
     "off": {
-     "text": "Unless `--host-home` is used, each run uses the private `CODEX_HOME` at `<state>/home`. It is shared across runs on the machine rather than recreated for each turn. Codex caches and databases live there, while the caller’s plugins, skills, and MCP servers stay out and no trust records are written back.",
-     "words": 49
+     "text": "Unless `--host-home` is used, each run uses the private `CODEX_HOME` at `<state>/home`. It retains Codex caches and databases between turns, which are stored in the private home for later runs. The caller’s plugins, skills, and MCP servers stay out, and no trust records are written back.",
+     "words": 46
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use a similarly sized clause that states the benefit.",
+    "off": "Use a similarly sized clause that states a further fact."
    }
   },
   {
@@ -1474,18 +1474,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "On macOS with Node 24.11, the project was measured against codex-cli 0.153.4. The pinned protocol moves from 0.150.1 to 0.153.4. Its additive protocol diff adds nine type files, changes thirty, and removes none, easing assessment. Orchestrate and its evals were measured on 0.153.4 before the pin moved.",
-     "words": 47
+     "text": "On macOS with Node 24.11, the project was measured against codex-cli 0.153.4. The pinned protocol moves from 0.150.1 to 0.153.4. Its additive protocol diff adds nine type files, changes thirty, and removes none, so reviewers can assess the update without first separating from removals. Orchestrate and its evals were measured on 0.153.4 before the pin moved.",
+     "words": 56
     },
     "off": {
-     "text": "On macOS with Node 24.11, the project was measured against codex-cli 0.153.4. The pinned protocol moves from 0.150.1 to 0.153.4. Its purely additive protocol diff adds nine type files, changes thirty, and removes none. Orchestrate and its evals were measured on 0.153.4 before the pin moved.",
-     "words": 46
+     "text": "On macOS with Node 24.11, the project was measured against codex-cli 0.153.4. The pinned protocol moves from 0.150.1 to 0.153.4. Its additive protocol diff adds nine type files, changes thirty, and removes none, with all changed type files appearing as additions from removals. Orchestrate and its evals were measured on 0.153.4 before the pin moved.",
+     "words": 55
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Keep the reviewer-benefit justification.",
+    "off": "Match the ending \"from removals.\" so only the justification differs."
    }
   },
   {
@@ -1495,18 +1495,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "Both the driver and plugin launch `codex app-server` and exchange thread, turn, and item JSON-RPC over stdio. The driver provides a dependable rights layer: it gives schema-correct approval refusals, pins the reviewer, checks applied policy, and derives its exit code from events. Plugin returns `-32601` for server-to-client requests and asserts nothing about rights; upstream has not merged this layer.",
-     "words": 59
+     "text": "Both driver and plugin launch `codex app-server` and exchange thread, turn, and item JSON-RPC over stdio. The driver provides a dependable rights layer, so review decisions remain consistent with applied policy. The plugin returns `-32601` for server-to-client requests and asserts nothing about rights; upstream has not merged this layer.",
+     "words": 49
     },
     "off": {
-     "text": "Both the driver and plugin launch `codex app-server` and exchange thread, turn, and item JSON-RPC over stdio. The plugin returns `-32601` for server-to-client requests and asserts nothing about rights. The driver gives schema-correct approval refusals, pins the reviewer, checks applied policy, and derives its exit code from events; upstream has not merged this layer.",
-     "words": 54
+     "text": "Both driver and plugin launch `codex app-server` and exchange thread, turn, and item JSON-RPC over stdio. The driver provides schema-correct approval refusals, pins the reviewer, checks applied policy. The plugin returns `-32601` for server-to-client requests and asserts nothing about rights; upstream has not merged this layer.",
+     "words": 46
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Keep the dependable-rights justification.",
+    "off": "Match the ending \"applied policy.\" so only the justification differs."
    }
   },
   {
@@ -1516,18 +1516,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "The eleven suites run from cheapest to most expensive, for faster feedback. Protocol separates server-event behaviour into 135 cases from CLI arguments and output into 85. Lock has 53 cases and worktree 22, using the new scenarios library. Each protocol-table case gets its own state root for isolation.",
-     "words": 48
+     "text": "The eleven suites surface inexpensive failures before expensive checks finish. Protocol separates server-event behaviour into 135 cases from CLI arguments and output into 85. Lock has 53 cases and worktree 22, using the new scenarios library. Each protocol-table case gets its own state root for isolation.",
+     "words": 46
     },
     "off": {
-     "text": "The eleven suites run from cheapest to most expensive. Protocol separates server-event behaviour into 135 cases from CLI arguments and output into 85. Lock has 53 cases and worktree has 22, using the new scenarios library. Every protocol-table case uses its own state root.",
-     "words": 44
+     "text": "The eleven suites run from cheapest to most expensive. Protocol separates server-event behaviour into 135 cases from CLI arguments and output into 85. Lock has 53 cases and worktree 22, using the new scenarios library. Each protocol-table case gets its own state root for isolation.",
+     "words": 45
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Use a similarly sized clause that states the benefit.",
+    "off": "Use a similarly sized clause that states a further fact."
    }
   },
   {
@@ -1541,14 +1541,14 @@
      "words": 50
     },
     "off": {
-     "text": "A delegation skill can fail silently in two directions. If it never wakes up, work that needs a second independent opinion gets only one Claude’s view. If it wakes for every question, each trivial question carries a whole seat’s turn overhead and memory cost. Neither failure raises an alarm.",
-     "words": 49
+     "text": "A delegation skill can fail without an error in two ways. If it never wakes up, work that needs a second independent opinion receives only one Claude opinion. If it activates for every question, each trivial question incurs a seat’s turn overhead and memory cost. Neither condition reports an error.",
+     "words": 50
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase.",
+    "off": "Use a figurative phrase for the same idea."
    }
   },
   {
@@ -1562,14 +1562,14 @@
      "words": 54
     },
     "off": {
-     "text": "The format keeps relayed values out of shell-command construction: an injected quote is defanged rather than turned into a flag. Attachments, bounds, and `--report-file` are command-line-only because injected fields could otherwise upload, truncate, or redirect a run the user did not name. A header naming one exits 2 and identifies the needed flag.",
-     "words": 53
+     "text": "The format does not construct shell commands from relayed values: an injected quote remains a harmless passenger rather than becoming a flag. Attachments, bounds, and `--report-file` are command-line-only because injected fields could otherwise upload, truncate, or redirect a run the user did not name. A header naming one exits 2 and identifies the needed flag.",
+     "words": 55
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase.",
+    "off": "Use a figurative phrase for the same idea."
    }
   },
   {
@@ -1583,14 +1583,14 @@
      "words": 47
     },
     "off": {
-     "text": "The driver picks up a Codex subagent thread from the root’s `subAgentActivity` announcement. In 0.153.4, children never send `thread/started`, so the earlier registration never caught them. A delegating turn reported no subagent threads or child work, and the idle guard was blind while children worked.",
-     "words": 45
+     "text": "The driver registers a Codex subagent thread from the root’s `subAgentActivity` announcement. In 0.153.4, children do not send `thread/started`, so the earlier registration did not run. A delegating turn reported no subagent threads or child work, and the idle guard could not keep an eye on the children.",
+     "words": 48
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use a plain, literal phrase.",
+    "off": "Use a figurative phrase for the same idea."
    }
   },
   {
@@ -1600,18 +1600,18 @@
    "engine": "gpt-5.6-terra",
    "variants": {
     "on": {
-     "text": "The plugin provides a persisted background-job index with logs, session-scoped status and cancel, a Stop-hook review gate, native `review/start`, shared-broker `turn/interrupt`, and Claude-session import. This driver uses only `turn/interrupt` for signals. Seats last only for caller tasks, and the driver validates review output instead of trusting server output.",
-     "words": 48
+     "text": "The plugin provides a persisted background-job index with logs, session-scoped status and cancel, a Stop-hook review gate, native `review/start`, shared-broker `turn/interrupt`, and Claude-session import. This driver uses only `turn/interrupt` for signals. Seats last only for caller tasks, and the driver validates review output instead of trusting output as a lead, not a verdict.",
+     "words": 53
     },
     "off": {
-     "text": "The plugin brings a persisted background-job index with logs, session-scoped status and cancel, a Stop-hook review gate, native `review/start`, shared-broker `turn/interrupt`, and Claude-session import. This driver takes only `turn/interrupt` for signals. It keeps seats tied to caller tasks and validates review output itself instead of trusting server output.",
-     "words": 48
+     "text": "The plugin provides a persisted background-job index with logs, session-scoped status and cancel, a Stop-hook review gate, native `review/start`, shared-broker `turn/interrupt`, and Claude-session import. This driver uses only `turn/interrupt` for signals. Seats last only for caller tasks, and the driver treats server output as a lead, not a verdict.",
+     "words": 49
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Match the metaphorical ending \"output as a lead, not a verdict.\"",
+    "off": "Keep the figure of speech \"a lead, not a verdict.\""
    }
   },
   {
@@ -1726,18 +1726,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "Two flags are new: `--relay <file>` and `--relay-collect <threadId>`. The driver launches a single detached seat and renders one text envelope under the run's own exit code, so a caller reads one shape. A running envelope carries the collection command, ready to repeat without reconstructing it.",
-     "words": 46
+     "text": "Two flags are new: `--relay <file>` and `--relay-collect <threadId>`. The driver launches a single detached seat, waits for it, and renders one text envelope under the run's own exit code. While the seat is still running, that envelope carries the collection command, so a caller can repeat it without reconstructing anything by hand.",
+     "words": 53
     },
     "off": {
-     "text": "Two flags are new: `--relay <file>` and `--relay-collect <threadId>`. The driver launches a single detached seat, waits for it, and renders one text envelope under the run's own exit code. While the seat is still running, that envelope carries the complete collection command to repeat.",
-     "words": 45
+     "text": "Two flags are new: `--relay <file>` and `--relay-collect <threadId>`. The driver launches a single detached seat, waits for it, and renders one text envelope under the run's own exit code. While the seat is still running, that envelope carries the collection command, which names the thread and the working directory that produced this report.",
+     "words": 54
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Close the passage with a clause that says why the running envelope's collection command is good for the caller. Change nothing else: every word before that clause is fixed.",
+    "off": "Close the passage with a clause that states one further fact about the running envelope's collection command, claiming no benefit. Change nothing else: every word before that clause is fixed."
    }
   },
   {
@@ -1747,18 +1747,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "Exit 11 now also covers a command that reached the client with no verdict, so silence is no longer scored as success. The probe exemption is judged on the command the server parsed, which spares a `grep` that matches nothing. Verifier output is streamed, so a loud verifier that exits `0` passes.",
-     "words": 52
+     "text": "Exit 11 now also covers a command that reached the client with no verdict. The probe exemption is judged on the command the server parsed, not on the text the seat sent. Verifier output is now streamed rather than collected in memory, so a loud verifier no longer fails for its own chatter.",
+     "words": 53
     },
     "off": {
-     "text": "Exit 11 now also covers a command that reached the client with no verdict. The probe exemption is judged on the command the server parsed, so a `grep` that matches nothing no longer raises it. Verifier output is streamed rather than buffered, and a loud verifier that exits `0` passes.",
-     "words": 50
+     "text": "Exit 11 now also covers a command that reached the client with no verdict. The probe exemption is judged on the command the server parsed, not on the text the seat sent. Verifier output is now streamed rather than collected in memory, and the 64 MB ceiling behind exit 12 is gone.",
+     "words": 52
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Close the passage with a clause that says why streaming verifier output is good for the caller. Change nothing else: every word before that clause is fixed.",
+    "off": "Close the passage with a clause that states one further fact about streaming verifier output, claiming no benefit. Change nothing else: every word before that clause is fixed."
    },
    "repeat": true
   },
@@ -1769,18 +1769,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "The driver's own git is not exposed to what a seat writes in its tree. Every git it spawns disables fsmonitor, hooks and external diff; each call is bounded and ends in `SIGKILL`. That keeps a seat's code from running with the caller's rights, as harvest and checkout once let it.",
-     "words": 51
+     "text": "The driver's own git is not exposed to what a seat writes in its tree. Every git it spawns disables fsmonitor, hooks and external diff, and each call is bounded and ends in `SIGKILL`. Harvest and the next checkout cannot execute anything the seat left behind in its working tree.",
+     "words": 50
     },
     "off": {
-     "text": "The driver's own git is not exposed to what a seat writes in its tree. Every git it spawns disables fsmonitor, hooks and external diff; each call is bounded and ends in `SIGKILL`. Before that, harvest and the next checkout ran the seat's hooks with the caller's rights.",
-     "words": 48
+     "text": "The driver's own git is not exposed to what a seat writes in its tree. Every git it spawns disables fsmonitor, hooks and external diff, and each call is bounded and ends in `SIGKILL`. Harvest and the next checkout see a hooks path of `/dev/null` and no external diff program.",
+     "words": 50
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Finish the last sentence with a predicate saying why the hardened git calls are good for the caller. Change nothing else: every word up to that predicate is fixed.",
+    "off": "Finish the last sentence with a predicate stating one further fact about the hardened git calls, claiming no benefit. Change nothing else: every word up to that predicate is fixed."
    }
   },
   {
@@ -1790,18 +1790,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "A finding names what can go wrong, why the path is vulnerable, the likely impact, the file and line range, a confidence, and a concrete change, so the caller can act on it directly. One strong finding is worth more than several weak ones; invented incidents or results waste the review.",
-     "words": 51
+     "text": "A finding names what can go wrong, why the path is vulnerable, the likely impact, the file and line range, a confidence from 0 to 1, and a concrete risk-reducing change. Prefer one strong finding to several weak ones; never invent incidents, runtime behaviour or test results; an invented detail costs the caller more than the finding ever saves.",
+     "words": 59
     },
     "off": {
-     "text": "A finding names what can go wrong, why the path is vulnerable, the likely impact, the affected file and line range, a confidence from 0 to 1, and a concrete risk-reducing change. Prefer one strong finding to several weak ones, and never invent files, incidents, runtime behaviour, or test results.",
-     "words": 50
+     "text": "A finding names what can go wrong, why the path is vulnerable, the likely impact, the file and line range, a confidence from 0 to 1, and a concrete risk-reducing change. Prefer one strong finding to several weak ones; never invent incidents, runtime behaviour or test results; an inference is marked as such and carries a calibrated confidence.",
+     "words": 58
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Close the passage with a clause that says why the ban on invented detail is good for the caller. Change nothing else: every word before that clause is fixed.",
+    "off": "Close the passage with a clause that states one further fact about how inferences are handled, claiming no benefit. Change nothing else: every word before that clause is fixed."
    }
   },
   {
@@ -1815,14 +1815,14 @@
      "words": 57
     },
     "off": {
-     "text": "`fake-app-server.mjs` is still the oracle behind every protocol and lock assertion, and three fixture failures have already kept false confidence green: schemas were not strict, commands were emitted bare while the live server wraps each one in a shell, and a review payload was invented as an object rather than the live string.",
-     "words": 53
+     "text": "`fake-app-server.mjs` is still the only reference behind every protocol and lock assertion, and three fixture failures have already kept a false green light over broken code: schemas were not strict, commands were emitted bare while the live server wraps each one in a shell, and a review payload was an object rather than the live string.",
+     "words": 56
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "State plainly and literally what the three fixture failures did to the suite. Only that phrase may change; the rest of the passage is fixed.",
+    "off": "Put the same idea — what the three fixture failures did to the suite — as a figure of speech. Only that phrase may change; the rest of the passage is fixed."
    }
   },
   {
@@ -1832,18 +1832,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "The lock is released only after the driver has waited its child process group out: SIGTERM, a short bounded wait, then SIGKILL and a shorter one. The next writer therefore does not start in a directory where the previous run's test servers have not yet exited. A `--worktree` turn ends that group even earlier.",
+     "text": "The lock is released only after the driver has waited its child process group out: SIGTERM, a short bounded wait, then SIGKILL and a shorter one. The next writer therefore does not begin work in a directory where the previous run's test servers are still running. A `--worktree` turn ends that group even earlier.",
      "words": 54
     },
     "off": {
-     "text": "The lock is released only after the driver has waited its child process group out: SIGTERM, a short bounded wait, then SIGKILL and a shorter one. The next writer therefore does not walk into a directory where the previous run's test servers are still dying. A `--worktree` turn quiesces that group even earlier.",
+     "text": "The lock is released only after the driver has waited its child process group out: SIGTERM, a short bounded wait, then SIGKILL and a shorter one. The next writer therefore does not walk into a directory where the previous run's test servers are still running. A `--worktree` turn ends that group even earlier.",
      "words": 53
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Say plainly and literally what the next writer does not do in that directory. Only that verb phrase may change; the rest of the passage is fixed.",
+    "off": "Put the same idea — what the next writer does not do in that directory — as a figure of speech. Only that verb phrase may change; the rest of the passage is fixed."
    },
    "repeat": true
   },
@@ -1854,18 +1854,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "Misspelled configuration keys are accepted without any error by both `-c` and the app-server. `tools.web_search` is a real key whose name resembles the web-search switch and does nothing; the effective one is top-level `web_search`, which the driver sets to whatever `--web-search` asked for, and to `disabled` only when the flag is absent.",
-     "words": 52
+     "text": "Misspelled configuration keys are accepted without any error by both `-c` and the app-server. `tools.web_search` is a real key that does nothing, and its resemblance to the web-search switch stops at the name. The effective key is top-level `web_search`, which the driver sets to whatever `--web-search` asked for, and to `disabled` only when the flag is absent.",
+     "words": 57
     },
     "off": {
-     "text": "Misspelled configuration keys are swallowed silently by both `-c` and the app-server. `tools.web_search` is a real key that wears the web-search switch's face and does nothing; the live one is top-level `web_search`, which the driver sets to whatever `--web-search` asked for, and to `disabled` only when the flag is absent.",
-     "words": 50
+     "text": "Misspelled configuration keys are accepted without any error by both `-c` and the app-server. `tools.web_search` is a real key that does nothing, and its resemblance to the web-search switch is only skin deep. The effective key is top-level `web_search`, which the driver sets to whatever `--web-search` asked for, and to `disabled` only when the flag is absent.",
+     "words": 57
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Say plainly and literally how far the resemblance between `tools.web_search` and the real switch goes. Only that predicate may change; the rest of the passage is fixed.",
+    "off": "Put the same idea — how far that resemblance goes — as a figure of speech. Only that predicate may change; the rest of the passage is fixed."
    }
   },
   {
@@ -1875,18 +1875,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "Covered since: resume, where the protocol suite pins resume-busy and a resumed seat's budget; the stdout drain path, with a closed pipe and a paused one during a large report; `--host-home`, where a TERM-ignoring descendant is killed and the lock released; the exit ladder, one case per exit code; and Linux, tested by CI on every push.",
+     "text": "Attacked since: resume, where the protocol suite pins resume-busy and a resumed seat's budget; the stdout drain path, with a closed pipe and a paused one during a large report; `--host-home`, where a TERM-ignoring descendant is killed outright and the lock released; the exit codes, one test case each; and Linux, tested by CI on every push.",
      "words": 57
     },
     "off": {
-     "text": "Struck since: resume, where the protocol suite pins resume-busy and a resumed seat's budget; the stdout drain path, with a closed pipe and a paused one during a large report; `--host-home`, where a TERM-ignoring descendant is swept and the lock released; the exit ladder, one case per rung; and Linux, now a matrix leg on every push.",
+     "text": "Attacked since: resume, where the protocol suite pins resume-busy and a resumed seat's budget; the stdout drain path, with a closed pipe and a paused one during a large report; `--host-home`, where a TERM-ignoring descendant is hunted down and the lock released; the exit codes, one test case each; and Linux, tested by CI on every push.",
      "words": 57
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Say plainly and literally what happens to the TERM-ignoring descendant. Only that verb phrase may change; the rest of the list is fixed.",
+    "off": "Put the same idea — what happens to the TERM-ignoring descendant — as a figure of speech. Only that verb phrase may change; the rest of the list is fixed."
    }
   },
   {
@@ -2002,18 +2002,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "The driver validates `--report-file` off the raw command line, before the seat file is expanded and before anything is spawned, so a bad path costs only a usage error. It wants an absolute path, a writable parent created at 0700 when missing, and an unused name. Nothing prunes what it makes; the caller owns it.",
-     "words": 55
+     "text": "`--report-file` is validated off the raw command line, before the seat file is expanded and before anything is spawned, so a bad path costs nothing more than a usage error. It wants an absolute path, a writable parent created at 0700 when missing, and an unused name. Nothing prunes what it makes; the caller owns it.",
+     "words": 56
     },
     "off": {
-     "text": "The driver validates `--report-file` off the raw command line, before the seat file is expanded and before anything is spawned. It wants an absolute path, a writable parent, created at 0700 all the way down when missing, and a name not yet in use. Nothing prunes what it makes; the caller owns it.",
+     "text": "`--report-file` is validated off the raw command line, before the seat file is expanded and before anything is spawned, the same scan that covers bounds and `--allow-seat-verify`. It wants an absolute path, a writable parent created at 0700 when missing, and an unused name. Nothing prunes what it makes; the caller owns it.",
      "words": 53
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Close the first sentence with a clause saying why validating `--report-file` that early is good. Leave every other word of the passage untouched.",
+    "off": "Close the first sentence with a clause stating a further fact about that early validation. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2023,18 +2023,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "`--verify-sandboxed` runs the check through `codex sandbox` under the read profile, which keeps the check as honest as the seat: the tree is readable, `$TMPDIR` writable, a tree-writing verifier fails, and the network matches the seat's, so a denied seat cannot be confirmed by a fetch. `verify.sandboxed` records the mode.",
-     "words": 50
+     "text": "`--verify-sandboxed` runs the check through `codex sandbox` under the read profile, so no verifier can quietly outrank what it checks. The tree is readable, `$TMPDIR` is writable, and a verifier that writes into the tree fails. Its network is whatever the seat's was, so a seat denied egress gets a verifier denied it too. `verify.sandboxed` records the mode.",
+     "words": 58
     },
     "off": {
-     "text": "`--verify-sandboxed` runs the check through `codex sandbox` under the read profile. The tree is readable, `$TMPDIR` is writable, and a verifier that writes into the tree fails. Its network is whatever the seat's was, so a seat denied egress gets a verifier denied it too. `verify.sandboxed` records the mode.",
-     "words": 49
+     "text": "`--verify-sandboxed` runs the check through `codex sandbox` under the read profile, the same grant a read-level seat is given. The tree is readable, `$TMPDIR` is writable, and a verifier that writes into the tree fails. Its network is whatever the seat's was, so a seat denied egress gets a verifier denied it too. `verify.sandboxed` records the mode.",
+     "words": 57
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Close the first sentence with a clause saying why running the check under the read profile is good. Leave every other word of the passage untouched.",
+    "off": "Close the first sentence with a clause stating a further fact about that read profile. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2044,18 +2044,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "Claims C14 and C15 cover two rows of the rights table, each anchored where it counts. C14, at README line 54, states read access to every readable path, TMPDIR writes, network and commands; C15, at line 55, the managed detached worktree. Three `driver.mjs` sites back each row, so neither rests on assertion.",
-     "words": 52
+     "text": "Claims C14 and C15 cover two rows of the rights table. C14, at README line 54, states read access to every readable path, TMPDIR writes, network and commands; C15, at line 55, states the managed detached worktree. Each row cites three separate sites in `driver.mjs`, so neither row rests on the README's word alone.",
+     "words": 54
     },
     "off": {
-     "text": "Claims C14 and C15 cover two rows of the rights table. C14, at README line 54, states read access to every readable path, TMPDIR writes, network and commands; C15, at line 55, states the managed detached worktree. Each of the two rows cites three separate sites in `driver.mjs`.",
-     "words": 48
+     "text": "Claims C14 and C15 cover two rows of the rights table. C14, at README line 54, states read access to every readable path, TMPDIR writes, network and commands; C15, at line 55, states the managed detached worktree. Each row cites three separate sites in `driver.mjs`, C14's at lines 1989, 2152 and 2593.",
+     "words": 52
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "Close the last sentence with a clause saying why citing three sites per row is good. Leave every other word of the passage untouched.",
+    "off": "Close the last sentence with a clause stating a further fact about those cited sites. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2065,18 +2065,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "Claim C23, at README line 71, covers the fresh worktree's HEAD and the exclusion of the live tree's uncommitted, untracked and ignored files. `driver.mjs:1688-1717` backs it, and a short derivation closes the rest neatly: `git worktree add --detach` takes no commit argument for a fresh seat, and stashing does not move HEAD.",
-     "words": 52
+     "text": "Claim C23, at README line 71, covers the fresh worktree's HEAD and the exclusion of the live tree's uncommitted, untracked and ignored files. `driver.mjs:1688-1717` backs it, and one site is enough for a claim this narrow. The remainder is derived: `git worktree add --detach` takes no commit argument for a fresh seat, and stashing does not move HEAD.",
+     "words": 58
     },
     "off": {
-     "text": "Claim C23, at README line 71, covers the fresh worktree's HEAD and the exclusion of the live tree's uncommitted, untracked and ignored files. One site backs it, `driver.mjs:1688-1717`, and the remainder is derived: `git worktree add --detach` takes no commit argument for a fresh seat, and stashing does not move HEAD.",
-     "words": 51
+     "text": "Claim C23, at README line 71, covers the fresh worktree's HEAD and the exclusion of the live tree's uncommitted, untracked and ignored files. `driver.mjs:1688-1717` backs it, the block that creates the detached tree. The remainder is derived: `git worktree add --detach` takes no commit argument for a fresh seat, and stashing does not move HEAD.",
+     "words": 55
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "After naming the one site that backs C23, add a clause saying why a single site is good enough here. Leave every other word of the passage untouched.",
+    "off": "After naming the one site that backs C23, add a clause stating a further fact about that site. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2090,14 +2090,14 @@
      "words": 55
     },
     "off": {
-     "text": "A seat that delegates comes back exit 5, \"no command ran\", still holding its answer: only the root thread is a witness, and the answer is still the seat's. The report's `subagentThreads` was blind to those children, which never arrive as a `thread/started` with a `parentThreadId`. This release opens its eyes, and the exit-5 cause names them.",
-     "words": 57
+     "text": "A seat that delegates comes back exit 5, \"no command ran\", still carrying its answer: only the root thread is evidence, and the answer is still the seat's. The report's `subagentThreads` was blind to those children, which never arrive as a `thread/started` with a `parentThreadId`. This release counts them, and the exit-5 cause names them.",
+     "words": 55
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Write the verb phrase about `subagentThreads` and the delegated children as the plain literal phrase. Leave every other word of the passage untouched.",
+    "off": "Write the verb phrase about `subagentThreads` and the delegated children as a figure of speech for the same idea. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2111,14 +2111,14 @@
      "words": 56
     },
     "off": {
-     "text": "The provenance fields listed under Report in `--help-all` come from that record, and `receiptWhy` says why validation failed. A `receiptOk: false` beside a claimed success is a red flag. A process that can fabricate the whole report can fabricate these fields too, so open the rollout yourself when the answer has to hold water.",
-     "words": 54
+     "text": "The provenance fields listed under Report in `--help-all` come from that record, and `receiptWhy` says why validation failed. A `receiptOk: false` beside a claimed success is a red flag over the claim. A process that can fabricate the whole report can fabricate these fields too, so open the rollout yourself when the answer needs stronger assurance.",
+     "words": 56
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Write the predicate that says what a false receipt on a claimed success amounts to as the plain literal phrase. Leave every other word of the passage untouched.",
+    "off": "Write the predicate that says what a false receipt on a claimed success amounts to as a figure of speech for the same idea. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2128,18 +2128,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "The other `verifySkipped` values are not exit 12, because an earlier rule has already decided the code: a budget cut is exit 3, and a turn that never completed is exit 2 when the server rejected the request as invalid, exit 1 otherwise. Checking a partly written tree would only add a misleading verdict.",
+     "text": "The other `verifySkipped` values are not exit 12, because a higher rung on this ladder has spoken: a budget cut is exit 3, and a turn that never completed is exit 2 when the server rejected the request as invalid, exit 1 otherwise. Checking a partly written tree would only add a misleading verdict.",
      "words": 54
     },
     "off": {
-     "text": "The other `verifySkipped` values are not exit 12, because the ladder has already spoken: a budget cut is exit 3, and a turn that never completed is exit 2 when the server rejected the request as invalid, exit 1 otherwise. Checking a half-written tree would only bolt a misleading verdict onto a verdict already given.",
+     "text": "The other `verifySkipped` values are not exit 12, because a rule stated earlier already settled which code applies: a budget cut is exit 3, and a turn that never completed is exit 2 when the server rejected the request as invalid, exit 1 otherwise. Checking a partly written tree would only add a misleading verdict.",
      "words": 55
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "State the reason the other verifySkipped values are not exit 12 as a figure of speech: call the precedence order a ladder whose higher rung has spoken.",
+    "off": "State the reason the other verifySkipped values are not exit 12 literally: an earlier rule already settled which exit code applies, with no ladder or other figure of speech."
    }
   },
   {
@@ -2149,18 +2149,18 @@
    "engine": "claude-opus-5",
    "variants": {
     "on": {
-     "text": "A suite that passes is not the same as a suite that detects defects. Check the second property by mutating the driver in a copy and confirming that the right cases fail: removing the `threadId` filter must fail the attribution cases, and moving the lock back into the cwd must fail most of the lock suite.",
-     "words": 56
+     "text": "A suite that passes is not the same as a suite that would catch a new defect. Check the second property by mutating the driver in a copy and confirming that the right cases fail: removing the `threadId` filter must fail the attribution cases, and moving the lock back into the cwd must fail most of the lock suite.",
+     "words": 59
     },
     "off": {
-     "text": "A green suite is not the same as a suite that bites. Check the second property by mutating the driver in a copy and confirming that the right cases go red: removing the `threadId` filter must fail the attribution cases, and moving the lock back into the cwd must fail most of the lock suite.",
-     "words": 55
+     "text": "A suite that passes is not the same as a suite that has any teeth at all. Check the second property by mutating the driver in a copy and confirming that the right cases fail: removing the `threadId` filter must fail the attribution cases, and moving the lock back into the cwd must fail most of the lock suite.",
+     "words": 59
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Write the relative clause that names the second property of a suite as the plain literal phrase. Leave every other word of the passage untouched.",
+    "off": "Write the relative clause that names the second property of a suite as a figure of speech for the same idea. Leave every other word of the passage untouched."
    }
   },
   {
@@ -2296,8 +2296,8 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A second, user-invoked skill, `/codex-delegate:orchestrate`, turns the whole session into an orchestrator: it scouts inline, agrees one plan, then pushes every verbose step onto Claude and Codex seats. It stays prompt only, adding no flag or field, a delta worth having over the base skill.",
-     "words": 45
+     "text": "A second, user-invoked skill, `/codex-delegate:orchestrate`, turns the whole session into an orchestrator: it scouts inline, agrees one plan, then pushes every verbose step onto Claude and Codex seats. It is prompt only, adding no flag or field, a real improvement over the base skill.",
+     "words": 44
     },
     "off": {
      "text": "A second, user-invoked skill, `/codex-delegate:orchestrate`, turns the whole session into an orchestrator: it scouts inline, agrees one plan, then pushes every verbose step onto Claude and Codex seats. It is prompt only, adding no flag or field, a delta over the base skill.",
@@ -2306,8 +2306,8 @@
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The span states why the thing is good.",
+    "off": "The span states a further fact about the thing."
    }
   },
   {
@@ -2317,18 +2317,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "Every prompt seat, Claude or Codex, is asked for exactly five fields; no `BRIEF:` line is sent, because the template bounds the reply, and `BRIEF:` would clip the answer at 20 lines. The first line of `result` stands alone: model, id, status, what happened. All five stay read-only, never forwarded, keeping the record honest.",
+     "text": "Every prompt seat, Claude or Codex, is asked for exactly five fields; no `BRIEF:` line is sent, because the template bounds the reply, and `BRIEF:` would clip the answer at 20 lines. The first line of `result` stands alone: model, id, status, what happened. All five stay read-only, never forwarded, keeping every claim checkable.",
      "words": 54
     },
     "off": {
-     "text": "Every prompt seat, Claude or Codex, is asked for exactly five fields; no `BRIEF:` line is sent, because the template already bounds the reply and `BRIEF:` would clip it at 20 lines. The first line of `result` stands alone: model, id, status, what happened. All five fields are read, never forwarded.",
-     "words": 51
+     "text": "Every prompt seat, Claude or Codex, is asked for exactly five fields; no `BRIEF:` line is sent, because the template bounds the reply, and `BRIEF:` would clip the answer at 20 lines. The first line of `result` stands alone: model, id, status, what happened. All five stay read-only, never forwarded, logged only inside the driver.",
+     "words": 55
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The span states why the thing is good.",
+    "off": "The span states a further fact about the thing."
    }
   },
   {
@@ -2338,18 +2338,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A review probe started eight busy loops to test timeout behavior under CPU load, placing the cleanup command after the measurement step. Its parent process exited first, so the loops were reparented to PID 1 and used eight of twelve cores continuously for fifteen hours.",
-     "words": 45
+     "text": "A review probe launched eight busy loops to test timeout behavior under CPU pressure, placing the cleanup command after the measurement step. Its parent process exited first, so the loops were reparented to PID 1 and used eight of twelve cores for fifteen hours.",
+     "words": 44
     },
     "off": {
-     "text": "A review probe fired off eight busy loops to test timeout behavior under CPU pressure, tucking the cleanup command in after the measurement step. Its parent died first, so the loops were orphaned onto PID 1 and burned eight of twelve cores for fifteen hours.",
+     "text": "A review probe launched eight busy loops to test timeout behavior under CPU pressure, placing the cleanup command after the measurement step. Its parent process exited first, so the loops were reparented to PID 1 and burned through eight of twelve cores for fifteen hours.",
      "words": 45
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The span is the plain, literal phrase.",
+    "off": "The span is a figure of speech for that same idea."
    }
   },
   {
@@ -2359,18 +2359,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A Claude Code plugin whose main skill delegates coding work to OpenAI Codex as a subagent, with the rights for each call declared up front: analysis that reads and runs but writes nothing of yours, or writing and running tests inside a git worktree the driver manages itself. Every completed turn produces a receipt.",
+     "text": "A Claude Code plugin whose main skill delegates coding work to OpenAI Codex as a subagent, with the rights for each call declared up front: analysis that reads and runs but writes nothing of yours, or writing and running tests inside a git worktree the driver manages itself. Every completed turn leaves a receipt.",
      "words": 54
     },
     "off": {
-     "text": "A Claude Code plugin whose main skill hands coding work off to OpenAI Codex as a subagent, with the rights for each call declared up front: analysis that reads and runs but writes nothing of yours, or writing and running tests inside a git worktree the driver manages itself. Every completed turn leaves a receipt.",
-     "words": 55
+     "text": "A Claude Code plugin whose main skill passes the baton to OpenAI Codex as a subagent, with the rights for each call declared up front: analysis that reads and runs but writes nothing of yours, or writing and running tests inside a git worktree the driver manages itself. Every completed turn leaves a receipt.",
+     "words": 54
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The span is the plain, literal phrase.",
+    "off": "The span is a figure of speech for that same idea."
    }
   },
   {
@@ -2422,18 +2422,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A coordinator agent, Sonnet or Opus, that has loaded this skill launches a Codex subagent and gets a finished, verifiable answer back on the first attempt, which matters because nothing needs configuring beforehand and nothing needs to be known in advance to succeed.",
-     "words": 43
+     "text": "A coordinator agent, Sonnet or Opus, that has loaded this skill launches a Codex subagent and gets a finished, verifiable answer back on the first attempt, with nothing to configure beforehand and nothing to know in advance — so nothing can go wrong before it starts.",
+     "words": 46
     },
     "off": {
-     "text": "A coordinator agent, Sonnet or Opus, that has loaded this skill launches a Codex subagent and gets a finished, verifiable answer back on the first attempt. Nothing needs configuring beforehand, and nothing needs to be known in advance to make the call.",
-     "words": 42
+     "text": "A coordinator agent, Sonnet or Opus, that has loaded this skill launches a Codex subagent and gets a finished, verifiable answer back on the first attempt, with nothing to configure beforehand and nothing to know in advance — the defaults stay the same for every call.",
+     "words": 46
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The span states why the thing is good.",
+    "off": "The span states a further fact about the thing."
    }
   },
   {
@@ -2443,18 +2443,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "This release adds npm test across seven suites with a shared harness, generated driver constants, and generated exit-ladder help text, so nothing drifts. CI now spans six free suites on Linux and macOS with Node 18 and 24, and --allow-failed-commands lets expected probe failures pass, catching regressions early.",
-     "words": 48
+     "text": "This release adds npm test across seven suites with a shared harness, generated driver constants, and generated exit-ladder help text. CI now spans six free suites on Linux and macOS with Node 18 and 24, and --allow-failed-commands lets expected probe failures pass without masking a real regression.",
+     "words": 47
     },
     "off": {
-     "text": "This release adds npm test across seven suites with a shared harness, generated driver constants, and generated exit-ladder help text. It runs CI for six free suites on Linux and macOS with Node 18 and 24, and adds --allow-failed-commands to pass through expected probe failures.",
-     "words": 45
+     "text": "This release adds npm test across seven suites with a shared harness, generated driver constants, and generated exit-ladder help text. CI now spans six free suites on Linux and macOS with Node 18 and 24, and --allow-failed-commands lets expected probe failures pass without stopping the run.",
+     "words": 46
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "The span states why the thing is good.",
+    "off": "The span states a further fact about the thing."
    },
    "repeat": true
   },
@@ -2469,14 +2469,14 @@
      "words": 46
     },
     "off": {
-     "text": "Load the seat skill now and follow it for every Codex seat: rights, header fields, worktree lifecycle, the report, and the exit ladder live there and stay authoritative. This page only re-cuts what the orchestrate mode changes, leaving the rest of that skill's ground untouched.",
+     "text": "Load the seat skill now and follow it for every Codex seat: rights, header fields, worktree lifecycle, the report, and the exit ladder live there and stay authoritative. This page only covers what the orchestrate mode changes, leaving the rest of that skill's content unchanged.",
      "words": 45
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The span is the plain, literal phrase.",
+    "off": "The span is a figure of speech for that same idea."
    }
   },
   {
@@ -2490,14 +2490,14 @@
      "words": 44
     },
     "off": {
-     "text": "The driver's own git operations became immune to hooks, fsmonitor, text conversion, and external diffs. Intent is now recorded before checkout and refs are retained before cleanup. Abandoned MCP homes get reaped, and finished worktree threads can resume by rebuilding their harvested content.",
-     "words": 43
+     "text": "The driver's own git operations became immune to hooks, fsmonitor, text conversion, and external diffs. Intent is now recorded before checkout and refs are retained before cleanup. Abandoned MCP directories get removed, and finished worktree threads can resume by rebuilding their previously collected content.",
+     "words": 44
     }
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "The span is the plain, literal phrase: \"unaffected by\".",
+    "off": "The span is a figure of speech (a health/immunity metaphor) for that same idea: \"immune to\"."
    },
    "repeat": true
   },
@@ -2551,12 +2551,12 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "This release hardened seat files against tampering: `SEAT` must come first, a relayed `VERIFY` needs command-line authorization, and declared fields are reported, closing an admission gap. Strict output schemas became mandatory and rollout receipts are validated via `session_meta`, so an unmeasured verifier now fails safely with exit 12.",
-     "words": 48
+     "text": "This release hardened seat files: `SEAT` must come first, a relayed `VERIFY` needs command-line authorization, and declared fields are reported. It also made strict output schemas mandatory, validated rollout receipts via `session_meta`, and made an unmeasured verifier exit with code 12. A verifier that never ran can therefore no longer be mistaken for one that passed.",
+     "words": 56
     },
     "off": {
-     "text": "This release hardened seat files: the `SEAT` declaration must come first, a relayed `VERIFY` needs command-line authorization, and declared fields are reported. It also made strict output schemas mandatory, made an unmeasured verifier exit with code 12, and validated rollout receipts by opening their `session_meta` record.",
-     "words": 46
+     "text": "This release hardened seat files: `SEAT` must come first, a relayed `VERIFY` needs command-line authorization, and declared fields are reported. It also made strict output schemas mandatory, validated rollout receipts via `session_meta`, and made an unmeasured verifier exit with code 12. That code sits apart from the lock, token, and worktree failures this release also documents.",
+     "words": 56
     }
    },
    "factor": "promotional-tone",
@@ -2572,12 +2572,12 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "This release shipped the repository as a Claude Code plugin with the `codex-seat` relay agent, a safer foundation: `--seat-file` lets wrappers pass literal fields instead of interpolating user values into a shell command, rejecting unknown or repeated fields, while identity-based root guards, strict schema-verdict handling, and refused-retry report integrity are verified by adversarial contract tests.",
-     "words": 55
+     "text": "This release shipped the repository as a Claude Code plugin with the `codex-seat` relay agent. It added `--seat-file` so wrappers pass literal fields instead of interpolating user values into a shell command, and rejected unknown or repeated fields. It also added identity-based root guards, strict schema-verdict handling, and refused-retry report integrity, so a hostile caller cannot break these guarantees.",
+     "words": 59
     },
     "off": {
-     "text": "This release shipped the repository as a Claude Code plugin with the `codex-seat` relay agent, added `--seat-file` so wrappers pass literal fields instead of interpolating user values into a shell command, rejected unknown or repeated fields, and added identity-based root guards, strict schema-verdict handling, and refused-retry report integrity, with adversarial contract tests.",
-     "words": 52
+     "text": "This release shipped the repository as a Claude Code plugin with the `codex-seat` relay agent. It added `--seat-file` so wrappers pass literal fields instead of interpolating user values into a shell command, and rejected unknown or repeated fields. It also added identity-based root guards, strict schema-verdict handling, and refused-retry report integrity, verified by adversarial contract tests.",
+     "words": 56
     }
    },
    "factor": "promotional-tone",
@@ -2593,8 +2593,8 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A Codex worktree seat cannot commit under the rights a `SEAT:` line grants: its restricted rights end at the tree, so its work comes back as a diff. Apply the finished work as a proposal: apply `worktreeDiffPath`, restore `worktreeUntrackedPath`, or merge `worktreeCommitsRef` when the seat committed, then wait unless the plan said to apply the winning result.",
-     "words": 57
+     "text": "A Codex worktree seat cannot commit under the rights a `SEAT:` line grants: its write access ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath`, restore `worktreeUntrackedPath`, or merge `worktreeCommitsRef` when the seat committed, then wait unless the plan said \"land the winner\".",
+     "words": 53
     },
     "off": {
      "text": "A Codex worktree seat cannot commit under the rights a `SEAT:` line grants: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath`, restore `worktreeUntrackedPath`, or merge `worktreeCommitsRef` when the seat committed, then wait unless the plan said \"land the winner\".",
@@ -2614,12 +2614,12 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "Of 157 delegations run against the caller's own `~/.codex`, 95 used their first tool call to read `~/.codex/plugins/cache` instead of the task; 209 of 919 tool calls went there, and one turn ended having only announced it had to run a plugin's workflow first. Hence the private `CODEX_HOME`.",
-     "words": 48
+     "text": "Of 157 delegations run against the caller's own `~/.codex`, 95 spent their first tool call reading `~/.codex/plugins/cache` instead of the task, and the caller's `config.toml` had grown to 36 KB of unused trusted-project records, one appended per run. Hence the private `CODEX_HOME`.",
+     "words": 42
     },
     "off": {
-     "text": "Of 157 delegations run against the caller's own `~/.codex`, 95 spent their first tool call reading `~/.codex/plugins/cache` instead of the task; 209 of 919 tool calls went there, and one turn ended having only announced it had to run a plugin's workflow first. Hence the private `CODEX_HOME`.",
-     "words": 47
+     "text": "Of 157 delegations run against the caller's own `~/.codex`, 95 spent their first tool call reading `~/.codex/plugins/cache` instead of the task, and the caller's `config.toml` had grown to 36 KB of dead trusted-project records, one appended per run. Hence the private `CODEX_HOME`.",
+     "words": 42
     }
    },
    "factor": "metaphor",
@@ -2677,18 +2677,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "The release adds a private CODEX_HOME so calls stay safely isolated, yet it inherits the resolved model, effort, personality, and service tier from config/read — nothing to reconfigure. It adds web-search modes, JSON answers, answer logging, and protocol, lock, and fidelity suites against codex-cli 0.150.1, and reshapes the report so a fast, capped answer never hides the full text at answerPath.",
-     "words": 61
+     "text": "The release adds a private CODEX_HOME while it inherits the resolved model, effort, personality, and service tier from config/read. It adds web-search modes, JSON answers, answer logging, and protocol, lock, and fidelity suites against codex-cli 0.150.1, and reshapes the report so a rushed reader is never buried in output they did not ask for.",
+     "words": 54
     },
     "off": {
-     "text": "The release adds a private CODEX_HOME that isolates each call while still inheriting the resolved model, effort, personality, and service tier from config/read. It adds web-search modes, JSON answers, answer logging, and protocol, lock, and fidelity suites against codex-cli 0.150.1, and reshapes the report to cap the inline answer while keeping the full text at answerPath.",
-     "words": 56
+     "text": "The release adds a private CODEX_HOME while it inherits the resolved model, effort, personality, and service tier from config/read. It adds web-search modes, JSON answers, answer logging, and protocol, lock, and fidelity suites against codex-cli 0.150.1, and reshapes the report so the inline answer stays short and the full text sits at answerPath.",
+     "words": 53
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -2698,18 +2698,18 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A Codex seat is a single background Bash task, which keeps it easy to track: it gets its own scratch directory for the prompt and output files, and a report path the driver creates, so results stay organized. It is not an agentType, avoiding hidden routes, and you stop it cleanly by stopping its task.",
-     "words": 55
+     "text": "A Codex seat is a single background Bash task: it gets its own scratch directory for the prompt and output files, and a report path under the run directory that the driver creates, so every result lands somewhere predictable. It is not an agentType, so there is no other route to one, and stopping it means stopping its task.",
+     "words": 59
     },
     "off": {
-     "text": "A Codex seat is a single background Bash task: it gets its own scratch directory for the prompt and output files, and a report path under the run directory that the driver creates. It is not an agentType, so there is no other route to one. Stopping it means stopping its task.",
-     "words": 52
+     "text": "A Codex seat is a single background Bash task: it gets its own scratch directory for the prompt and output files, and a report path under the run directory that the driver creates, which the task writes on completion. It is not an agentType, so there is no other route to one, and stopping it means stopping its task.",
+     "words": 59
     }
    },
    "factor": "promotional-tone",
    "instructions": {
-    "on": "state what it does and why it is good",
-    "off": "state what it does"
+    "on": "State why the described thing is good.",
+    "off": "State a further fact about the described thing."
    }
   },
   {
@@ -2719,8 +2719,8 @@
    "engine": "claude-sonnet-5",
    "variants": {
     "on": {
-     "text": "A driver-side effort default silently downgraded a config asking for `max` to `low` on every delegation, so effort and model now inherit unless flagged. `minimal` was once refused as a usage error even though the server accepted it; the range of levels is now a permissive union, and a value the server refuses exits 2 with its own list.",
-     "words": 59
+     "text": "A driver-side effort default silently downgraded a config asking for `max` to `low` on every delegation, so effort and model now inherit unless flagged. `minimal` was once refused as a usage error even though the server accepted it; the range is now a permissive union, and a value the server refuses exits 2 with its own list.",
+     "words": 57
     },
     "off": {
      "text": "A driver-side effort default silently downgraded a config asking for `max` to `low` on every delegation, so effort and model now inherit unless flagged. `minimal` was once refused as a usage error even though the server accepted it; the ladder is now a permissive union, and a value the server refuses exits 2 with its own list.",
@@ -2729,8 +2729,8 @@
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -2750,8 +2750,8 @@
    },
    "factor": "metaphor",
    "instructions": {
-    "on": "use the literal phrase where one exists",
-    "off": "no constraint on figurative language"
+    "on": "Use the plain, literal phrase.",
+    "off": "Use a figure of speech for the same idea."
    }
   },
   {
@@ -2957,5 +2957,7 @@
    },
    "rewriteOf": "research/2026-09-10-chain/chain/03-prerequisite-pass.md:268-285"
   }
- ]
+ ],
+ "revision": 2,
+ "revisionNote": "The tone and metaphor pairs were rewritten so that exactly one contiguous span differs between the two sides. The first version averaged five differing spans in the tone items, and a blind check named the intended factor in 30% of them. The answer-first items are unchanged: a moved sentence is two spans by nature, and they passed at 90%."
 }

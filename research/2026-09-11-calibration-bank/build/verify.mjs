@@ -100,6 +100,34 @@ if (reps.length < want) fail.push(`${reps.length} items nominated for repeat, fe
 const repFactors = new Set(reps.map((i) => i.factor))
 if (repFactors.size < 3) warn.push(`repeat candidates cover ${repFactors.size} factors, not 3`)
 
+// 10. "One factor varies" is checkable as a diff. A pair whose sides part company in several places has
+//     varied several things, whatever the instruction said: the first build averaged five differing
+//     spans in the tone items, and a blind reader named the intended factor in 30% of them. Moving a
+//     sentence is two spans by nature - a deletion and an insertion - so answer-first is counted and
+//     reported, not failed.
+function spans(a, b) {
+  const n = a.length, m = b.length
+  const L = Array.from({ length: n + 1 }, () => new Int32Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+  let i = 0, j = 0, groups = 0, inDiff = false
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { i++; j++; inDiff = false }
+    else { if (!inDiff) { groups++; inDiff = true }; if (L[i + 1][j] >= L[i][j + 1]) i++; else j++ }
+  }
+  if (i < n || j < m) groups += inDiff ? 0 : 1
+  return groups
+}
+const spanCount = {}
+for (const it of single) {
+  const k = spans(it.variants.on.text.split(/\s+/), it.variants.off.text.split(/\s+/))
+  spanCount[it.factor] ??= {}
+  spanCount[it.factor][k] = (spanCount[it.factor][k] || 0) + 1
+  if (['promotional-tone', 'metaphor'].includes(it.factor) && k !== 1) fail.push(`${it.id}: ${k} differing spans, not 1 — more than one thing varies`)
+}
+console.log('differing spans per pair:')
+for (const f of F) console.log(`  ${f.padEnd(18)} ` + Object.entries(spanCount[f] || {}).sort((x, y) => x[0] - y[0]).map(([k, v]) => `${k}:${v}`).join('  '))
+
 console.log(`items ${bank.items.length}  single-factor ${single.length}  code-comment ${bank.items.filter((i) => i.type === 'code-comment').length}  whole-text ${bank.items.filter((i) => i.type === 'whole-text').length}`)
 console.log('per engine per factor:')
 for (const e of engines) console.log(`  ${e.padEnd(18)} ${F.map((f) => `${f} ${cell[e][f] || 0}`).join('   ')}`)

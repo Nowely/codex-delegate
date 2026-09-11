@@ -52,6 +52,19 @@ forensics remain in the repository references and release notes.
   which side was which, then measured how single-factored the items really are: 90% for answer-first, 52%
   for metaphor, **30% for promotional tone**, which confirms the doubt `item-bank.md` had already
   recorded about that instruction.
+- Eighty of those items were then rewritten against a rule the first build did not have: **the two sides
+  of a pair differ in exactly one contiguous span of words and are identical everywhere else**, checked
+  with a diff rather than trusted. Nought of forty tone pairs met it before and all forty do now. The
+  blind check, re-run from scratch on fresh readers, moved to 73% for tone and 80% for metaphor, against
+  an answer-first control that stayed where it was. `item-bank.md` carries the rule, the measurement that
+  forced it, and the changed metaphor instruction — "no constraint on figurative language" does not make
+  a figure of speech appear.
+- One of those re-runs found the fault in the question rather than the items: thirteen tone pairs were
+  filed under "something else" by readers who had just described the intended difference in their own
+  words, because the category offered said *adds* justification and the rewritten items substitute one.
+  Counting those thirteen as hits would have been the move this plugin warns about, where filtering to
+  the favourable items moved a published judge from 66% to 85%. The category was fixed and the check paid
+  for again. All three runs of verdicts are kept.
 - Building that bank found two defects in `session.mjs` that a four-item fixture could not show, and both
   are fixed. Groups of unequal size were dealt one per round, which put every whole-text item in the
   opening third; each group is now spread across the whole session, with the six Latin orders still

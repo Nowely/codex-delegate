@@ -28,10 +28,10 @@ shown.forEach((x, i) => batches[i % N].push(x))
 batches.forEach((b, i) => fs.writeFileSync(`${DIR}/batch-${i + 1}.json`, JSON.stringify(b, null, 1)))
 fs.writeFileSync(`${DIR}/key.json`, JSON.stringify(key, null, 1))
 
-// A batch that carried a factor name would answer the question it was sent to ask.
-const leak = fs.readdirSync(DIR).filter((f) => f.startsWith('batch')).filter((f) => {
-  const t = fs.readFileSync(`${DIR}/${f}`, 'utf8')
-  return /promotional-tone|answer-first|"factor"|"on"|"off"|instruction/.test(t)
-})
+// A batch that carried a factor name would answer the question it was sent to ask. The patterns are the
+// ones that can only be labels: a bare "instruction" or "--answer-json" is the documentation's own prose
+// and appears in the passages, so matching those cried wolf on every run.
+const LABEL = /"factor"|"instruction|promotional-tone|-tone-\d|-metaphor-\d|-answer-\d|"key"\s*:\s*"(on|off)"/
+const leak = fs.readdirSync(DIR).filter((f) => f.startsWith('batch')).filter((f) => LABEL.test(fs.readFileSync(`${DIR}/${f}`, 'utf8')))
 console.log(`${single.length} pairs -> ${N} batches of ~${batches[0].length}`)
 console.log(leak.length ? `LEAK in ${leak.join(', ')}` : 'no factor name, instruction or variant key appears in any batch')

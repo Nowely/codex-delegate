@@ -47,8 +47,21 @@ answers before anything else.
 | Factor | The two instructions | Why this one |
 |---|---|---|
 | promotional tone | "state what it does" against "state what it does and why it is good" | the only formatting factor ever isolated cleanly: worth 27% of a measured usability score on its own, n=51 |
-| metaphor against literal | "use the literal phrase where one exists" against no such constraint | a documented rule with no measurement behind it, and this plugin's writing rules say nothing about metaphor |
+| metaphor against literal | "use the literal phrase" against "use a figure of speech for the same idea" | a documented rule with no measurement behind it, and this plugin's writing rules say nothing about metaphor |
 | answer first against context first | "open with the answer" against "open with situation, complication, question" | structure explained 86% of the explained variance in comprehensibility in the one experiment that separated it from wording, against 3.5% for linguistic simplicity — and the best-known authority on answer-first contradicts herself here |
+
+**The two sides of a pair must differ in exactly one contiguous span of words, and this is checked with a
+diff rather than trusted.** An instruction that only names the factor does not produce a single-factor
+item: told to add a justification, an engine rewrites the sentence around it and several other sentences
+besides. Measured on the first build of this bank — nought of forty tone pairs and seven of forty
+metaphor pairs differed in one place, the tone pairs averaging five, and a blind reader could name the
+intended factor in 30% of them. Written against the span rule instead, the same engines on the same
+passages reached 34 of 40 in both factors. Moving a sentence is two spans by nature, a deletion and an
+insertion, so answer-first is exempt and was the one factor that already read cleanly at 90%.
+
+The metaphor instruction changed with it. "No constraint on figurative language" does not make a figure
+of speech appear, and three pairs came back with no difference a reader could see; the free side is now
+told to use one.
 
 **The promotional-tone instruction adds justification, which adds length, and length is not neutral.**
 Human annotators have been measured choosing the longer answer 62% of the time and the one with lists 69%
