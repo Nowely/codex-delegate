@@ -146,7 +146,9 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
   stderr when it could not publish. Read that line before trusting a report you did not see it write.
 - `exitCode: 0` means the completed turn passed its declared evidence gates. `answer` is the seat's text;
   with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed.
-- `exitCode: 3` is a cut; read the retained answer or partial and the `RESUME:` hint.
+- `exitCode: 3` is a cut; read the retained answer or partial and the `RESUME:` hint. Give the continuation a
+  report path of its own: the driver refuses one already taken and exits before it announces its pid, so a
+  retry at the last path cannot start.
 - `exitCode: 10` is a held lock or a busy resumed thread: the report says `ok: false` and carries the
   refusal in `error`, and `<DIR>/err.txt` has it in full.
 - Exit 2 is always a refusal before the turn: `ok: false`, `turnStatus: null`, the reason in `error`,

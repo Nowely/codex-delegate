@@ -123,9 +123,9 @@ that round fails too.
 
 | Result | What to do |
 | --- | --- |
-| no report file at all | the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights, only when none is live |
+| no report file at all | the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights and a report path of its own, only when none is live. A relaunch at the previous path exits 2 before it prints that pid line |
 | a stderr file naming no driver | report it; no relaunch fixes an install |
-| `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:` |
+| `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:`, under a report path of its own |
 | `exitCode: 10` | a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry |
 | `ok: false` with `turnStatus: null`, exit 2 or 4 | no turn ran, or it was aborted: read `error` and the stderr file |
 | exit 4 with a `turnStatus` | the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict |
