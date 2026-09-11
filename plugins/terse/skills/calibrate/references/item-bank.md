@@ -113,6 +113,11 @@ without spoiling it.
 
 ## Limits to write down beside the bank
 
+**The frame is English project documentation**, by decision on 2026-09-11. The bank carries no Russian
+items. Nothing measured here says anything about Russian text — including the Russian this coordinator
+writes in conversation. A rule derived on English passages is a hypothesis about Russian until a Russian
+block measures it.
+
 An item is only as single-factored as the instructions that made it. Nobody has verified that "state what
 it does and why it is good" changes tone and nothing else; length is known not to be held constant, which
 is why it is measured per item.

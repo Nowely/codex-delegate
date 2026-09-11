@@ -145,8 +145,8 @@ The bank it was run on, who was measured, the dates and session boundaries, the 
 order, every answer with its timing and position, where the person stopped, and the limits the run
 inherited.
 
-The estimand travels with it: **this person, on passages from this declared source frame.** Not people,
-and not text from anywhere else.
+The estimand travels with it: **this person, on English passages from this declared source frame.** Not
+people, not other languages, and not text from anywhere else.
 
 ## Reference
 
