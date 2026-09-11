@@ -36,21 +36,22 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
 2. Show the plan and stop, in the user's own language and in ordinary words: what will be done, who does each part by model name, what each may write, that the seats reach the network and any you are keeping off it, and that
-   artifacts land outside the repository. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with the grants parity.md's
+   reports and artifacts land outside the repository, except a worktree seat's own tree, which the driver makes and removes inside the repository under its `.claude` directory. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with the grants parity.md's
    [Browser-mode sandbox](../seat/references/parity.md#browser-mode-sandbox) section names; a read seat cannot, because that section's Chromium override is a file in the tree it may not write.
    Announce the composition here, and the caps beside it in a sentence: your own model, one Fable and one `gpt-6-astra` at a time, six alive. A cap the user overrides in words ("two Fable")
    replaces the default for this run; composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches are viable, show them all with a
    recommendation and let the user pick.
 3. The user's "go" covers only what the plan listed. After it, live-tree implementers write in the live working directory and a
    seat the plan put in a worktree stays there; no commit to the live tree without a separate word from the user.
-4. A worktree is cut at `HEAD`, so a worktree seat suits only work that starts there: competing implementations, a suite on
+4. A new thread's worktree is cut at `HEAD`, so a worktree seat suits only work that starts there: competing implementations, a suite on
    committed code, atomically parallel work that must run its own tests. Never use one to test uncommitted live edits: it sees
-   none of them and passes untouched code. When a plan needs both, the commit or stash that feeds the worktree is a live-tree
-   commit and goes into the plan. Use one only where a fresh tree can run: dependencies installable inside it under the planned
+   none of them and passes untouched code. When a plan needs both, the commit that feeds the worktree is a live-tree
+   commit and goes into the plan; a stash feeds it nothing. Use one only where a fresh tree can run: dependencies installable inside it under the planned
    rights (the live checkout's are absent), no daemon or socket. You decide; ask when unsure. A Codex worktree seat cannot
    commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
    restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait,
-   unless the plan said "land the winner".
+   unless the plan said "land the winner". A preserved tree is not a harvest: check each of the three pointers before proposing
+   anything, and when they are null, propose from `worktreePath` instead.
 5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped. After any seat returns, Claude or Codex, write one short paragraph of your own, in the user's language and naming the agent by its model, in the same shape for both sides; the five fields are your own input, so never paste a five-field block, a header field name or a path into user-facing text.
 
 ## Model tiers

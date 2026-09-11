@@ -48,8 +48,8 @@ A read seat's prompt needs no header at all:
     CHECK: …
     RETURN: …
 
-For an isolated writer, one rights line above it (cut at `HEAD`, see
-[Worktree lifecycle](#worktree-lifecycle)):
+For an isolated writer, one rights line above it (see
+[Worktree lifecycle](#worktree-lifecycle) for what it contains):
 
     SEAT: worktree <repo>
 
@@ -129,14 +129,22 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 
 ## Worktree lifecycle
 
-- A worktree seat starts from repository `HEAD`, not the live working tree.
-- Commit or stash relevant work first; staged, unstaged, untracked, ignored, and installed files are absent.
+- A new thread's worktree starts at current `HEAD`; a resumed worktree starts at its recorded base and
+  restores its harvested diff and untracked files; neither copies live edits nor applies a stash.
+- Staged, unstaged, untracked, ignored and installed files are absent. To put current work in, commit it
+  first with the user's approval, or use an authorised live tree.
+- The driver creates the tree under the repository's own `.claude/worktrees/`, and removes it after a
+  successful harvest.
 - A completed turn harvests tracked work to `worktreeDiffPath`.
 - It archives non-ignored untracked files at `worktreeUntrackedPath`; `worktreeCommitsRef` is populated
   only where the caller's own `--verify` committed — a seat cannot commit without `WRITABLE: <repo>/.git`,
   a widening to settle first.
 - After a successful harvest the driver removes the worktree.
 - When the turn failed or harvest failed, the driver preserves it and reports `worktreePreserved`.
+- A preserved tree is not a harvest: `worktreeDiffPath`, `worktreeUntrackedPath` and `worktreeCommitsRef`
+  can all be null, so the landing recipe has nothing to apply. The tree itself is the artifact, at
+  `worktreePath`; read it, take what is worth keeping, then remove it with
+  `git -C <repo> worktree remove --force <path>`. Removing it discards whatever was never harvested.
 
 ## Reading the result
 

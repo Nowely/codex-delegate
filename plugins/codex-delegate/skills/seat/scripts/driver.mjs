@@ -305,11 +305,12 @@ const HELP = [
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
                      there at write level, harvest the work to
                      <state>/answers/ (paths in the report) and remove
-                     the tree. It is cut at HEAD — the LAST COMMIT — so
-                     uncommitted changes, untracked and ignored files and
+                     the tree. A new thread's is cut at HEAD — the LAST COMMIT —
+                     and a resumed one at its recorded base, so uncommitted
+                     changes, untracked and ignored files and
                      installed dependencies are NOT in it: a seat asked about work
-                     in progress finds an empty diff and reports success. Commit or
-                     stash first, or run on the live tree with
+                     in progress finds an empty diff and reports success. A stash
+                     reaches neither. Commit first, or run on the live tree with
                      --level write --cwd REPO
   --writable DIR     grant one more root (write level only, repeatable)
   --no-network       deny egress. BOTH levels have it by default, as Claude's own
