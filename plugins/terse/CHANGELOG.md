@@ -83,6 +83,20 @@ forensics remain in the repository references and release notes.
   never which. It answers a real complaint — both metaphor items in the first sitting came back as ties
   with a note saying the difference was invisible — and it changes the question the session asks, which
   `SKILL.md` now states in place rather than leaving to be discovered.
+- `skills/revise/references/structure-first.md`, for a document whose shape is what is wrong rather than
+  its sentences. It carries the measurement that forced it: ten sections written at ordinary quality
+  were handed to a reader who stopped at the third and returned nine objections, **none of them about
+  wording** — every one was about what the document contained, where it sat, or how much of it there
+  was. A bake-off that scores whole candidates on phrasing returns the best-phrased document in the
+  wrong order, so the structure is decided first, by about ten proposals from deliberately different
+  readings of what the document is for, compared together rather than one at a time, with the reader's
+  word on the skeleton before a sentence is written. Seven content rules came out of the same reading,
+  and they outrank the sentence rules, which are a different layer.
+- `calibrate` has been run once and the result is against it, which its own page now says. One person,
+  42 answers: one factor separated, one was undetermined, and one was unjudgeable — eight of fourteen
+  answers on answer-first were a tie or a refusal. Then the same person rejected a draft on nine grounds
+  that this skill cannot see, because it measures which of two phrasings a reader prefers and the
+  question was whether the document said the right things in the right order.
 - **A white page was the tool's answer to every failure.** Restarting the server under an open tab left
   the fetch rejected, the container never filled and nothing on screen: no cause, no instruction, on a
   measurement meant to run five hours. Every failure now renders what happened, says that answers are

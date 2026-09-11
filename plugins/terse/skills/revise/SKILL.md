@@ -62,6 +62,13 @@ the writer brief and the judging sheet, are in [bake-off.md](references/bake-off
 If the user refuses the fan-out, write one candidate yourself from the same brief, in the same four
 passes, and report that the comparison step was skipped.
 
+**Where the document's shape is what is wrong, this bake-off is the wrong instrument.** Three whole
+candidates scored on measured failures will return the best-phrased of three documents in the wrong
+order. Settle the structure first, and get the user's word on it before any prose:
+[structure-first.md](references/structure-first.md), which also carries the seven content rules that a
+rejected draft produced on 2026-09-11 and the finding behind them — nine objections from a real reader,
+none of them about wording.
+
 ## Step 4. The safeguards
 
 These override the writing rules wherever they collide, and the rules say so themselves.
@@ -106,6 +113,8 @@ word, and a diff they have read is what earns it.
 
 - The writer brief, the judging sheet, and how the winner absorbs the losers:
   [bake-off.md](references/bake-off.md).
+- Deciding the shape before writing, and the content rules that outrank the sentence rules:
+  [structure-first.md](references/structure-first.md).
 - The rules, fixed: [writing-rules.md](references/writing-rules.md).
 - The third pass, fixed: [curse-of-knowledge.md](references/curse-of-knowledge.md).
 - Run file and ledger formats: [ledgers.md](../audit/references/ledgers.md).

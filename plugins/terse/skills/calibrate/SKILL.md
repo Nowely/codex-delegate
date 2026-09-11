@@ -19,9 +19,24 @@ preference analysis **only after both alternatives meet the predeclared comprehe
 Comprehension first, preference second; no model and no correction may average a comprehension failure
 away.
 
-Nothing in this skill has been run. Its arithmetic has been wrong twice and was rebuilt from two
-independent reviews — read
+Its arithmetic has been wrong twice and was rebuilt from two independent reviews — read
 [scoring-and-transfer.md](references/scoring-and-transfer.md) before changing any number in it.
+
+**It has now been run once, and the result is against it.** On 2026-09-11 one person gave 42 answers on
+a 139-item bank. Of the three factors, one separated — the literal phrase over the figure of speech, ten
+of twelve decisive answers, no ties — one was undetermined at ten, and one was unjudgeable: eight of
+fourteen answers on answer-first were a tie or a refusal to judge.
+
+Then the same person was shown 2233 words the author had written, and asked whether he would ship them
+unchanged. He stopped at the third section and returned nine objections. **None of the nine was about
+wording.** Every one was about what the document contained, where it sat, or how much of it there was.
+
+Read that as the limit of this skill rather than as its failure. It measures which of two phrasings a
+person prefers, and it does that honestly. What it cannot see is whether the document says the right
+things in the right order, which is what decided the question this measurement existed to serve. Before
+spending hours here, spend one evening on
+[structure-first.md](../revise/references/structure-first.md) and find out which axis your reader is
+actually judging on.
 
 ## What it costs, before anything else
 
