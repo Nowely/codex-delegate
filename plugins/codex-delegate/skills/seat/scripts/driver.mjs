@@ -1296,7 +1296,7 @@ function inspectLock(p, dir) {
   catch (e) {
     if (e.code === "ENOENT") return { gone: true };
     if (e.code === "ELOOP") fail(EXIT.USAGE, `cannot lock ${dir}: ${p} is a symbolic link, not a lock file; remove it and retry`);
-    fail(EXIT.USAGE, `cannot lock ${dir}: ${p} exists but cannot be read (${e.code}); remove it or fix its permissions`);
+    fail(EXIT.USAGE, `cannot lock ${dir}: ${p} exists but cannot be read (${e.code}); fix its permissions and retry. Do not remove it: a lock that cannot be read cannot be shown to be stale`);
   }
   try {
     const st = fs.fstatSync(fd);
@@ -1444,12 +1444,12 @@ function acquireLock(dir) {
       const holder = Number(held?.pid);
       if (holderAlive(held)) fail(EXIT.BUSY,
         `${dir} is in use by codex-delegate pid ${holder} (started ${held?.started ?? "unknown"}); ` +
-        `give each concurrent run its own cwd. If that process is gone, delete ${p}`);
+        `give each concurrent run its own cwd, or wait for that run to finish. Its lock is ${p}; leave it there, a lock whose holder is gone is reclaimed on the next attempt without your help`);
       // The driver is gone but its codex group is not: the tree is still being written, so this is a
       // busy directory rather than a stale lock, and it is named as the orphan it is.
       if (holderGroupAlive(held)) fail(EXIT.BUSY,
         `${dir} is still being written by the codex process group ${held?.appServerPgid} of codex-delegate pid ${holder}, ` +
-        `which is itself gone; wait for it, or kill -TERM -${held?.appServerPgid} and delete ${p}`);
+        `which is itself gone; wait for it, or stop it with kill -TERM -${held?.appServerPgid}; the lock is then reclaimed on the next attempt without your help`);
       // Reclaiming a stale lock is where mutual exclusion actually breaks, and neither an unlink nor a
       // rename closes it: both act on the PATH, not on the file that was inspected, so a peer that judged
       // the STALE lock dead removes the FRESH one that has since replaced it and takes the directory.
