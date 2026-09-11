@@ -902,8 +902,8 @@ had caught, corrected an overstated census, and is kept whole in the archive.
 Round two's structured returns hold **271 practices**; about forty are ranked above and all 271 are kept
 in [practices-full.md](practices-full.md). The raw returns — eleven Codex seat reports and sixteen agent
 returns including the critic's — are preserved under `research/2026-09-11-terse-survey/` at the repository
-root, outside every plugin payload, together with the eleven seats of round three. Round one's raw returns
-were not archived before their transcript aged out; only their findings survive, here.
+root, outside every plugin payload, together with round one's twelve returns and round three's eleven
+seats. Every raw return from all three rounds is in the repository.
 
 **The evidence this plugin was built on is one directory over:** `research/2026-09-10-chain/` holds the
 four-pass rewrite stage by stage, the claim ledger C01–C67 that the plugin's ledger format comes from, the

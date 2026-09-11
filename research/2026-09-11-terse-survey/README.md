@@ -33,7 +33,13 @@ The 271 practices inside these JSON returns are rendered as Markdown in
 `plugins/terse/references/practices-full.md`. The JSON is kept because it carries the fields that
 rendering drops.
 
-## What is not here
+`round1-returns/` — twelve structured returns from the first round: four scouts by search angle and
+eight deep readers, one per repository. `_workflow-result.json` is the workflow's own assembled output,
+which carries the eight full records, the thirty-three candidates that were found and not opened, and
+each scout's account of what its angle could and could not reach.
 
-Round one's twelve agents. Their findings are in `prior-art.md`; their raw returns were not archived
-before the workflow transcript aged out. Recorded so nobody looks for them.
+An earlier version of this file said round one's raw returns had been lost to an expired transcript.
+That was wrong, and it was wrong in the way this plugin exists to catch: it was inferred from not
+finding the material in the place the later rounds were stored, and published without anyone looking in
+the other place. The returns were intact the whole time. Corrected on the same day, after the claim was
+questioned rather than because anyone checked it.
