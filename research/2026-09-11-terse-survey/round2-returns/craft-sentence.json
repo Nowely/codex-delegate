@@ -1,0 +1,327 @@
+{
+  "items": [
+    {
+      "id": "gopen-swan-1990",
+      "url": "https://www.e-education.psu.edu/styleforstudents/book/export/html/1971",
+      "opened": true,
+      "evidence": "Full article text opened. Penn State reprint (permission of American Scientist) fetched and converted to /Users/ruliny/../tmp: /tmp/gopen_psu.txt, 8,145 words, 194 lines. Loci below are line numbers in that file; the print original is American Scientist 78(6):550-558. Two PDF copies also downloaded (/tmp/gopen_gatsby.pdf 94 KB, /tmp/gopen_usenix.pdf 109 KB) but not needed once the HTML reprint gave clean text.",
+      "whatItIs": "The 1990 reader-expectation paper. Four real science passages are diagnosed and rewritten in front of the reader, and seven structural principles are derived from the rewrites rather than stated up front.",
+      "measures": "Nothing. No comprehension test, no subjects, no numbers. The demonstration is the argument: the authors rewrite a passage and invite you to agree it reads better. They say so themselves - they offer 'likelihood' that a community of readers converges on the intended reading (line 83), not measured convergence.",
+      "method": "Locate substance by structural position. Each unit of discourse (clause, sentence, section - anything with a beginning and an end, line 42) has a topic position at the front where readers look for context and backward linkage, and a stress position at the point of syntactic closure where readers apply emphasis. Diagnosis runs on the paragraph: strip each sentence to the words in its topic position and read that column (lines 100-109); if those words are all new, no two readers build the same story. Repair is a three-item checklist per sentence (lines 112-115): backward-linking old information into the topic position, the person or thing whose story it is into the topic position, the emphasis-worthy new information into the stress position. Then two more expectations: subject followed immediately by its verb (interruptions get read as parenthetical and therefore unimportant, lines 58-59), and the action of the clause carried by the verb, not buried in a noun (lines 156-168). The closing seven principles (lines 173-179) are explicitly demoted from rules: any of them can be violated to effect, and slavish adherence fails as badly as slavish avoidance of split infinitives (line 181). A byproduct they stress: structural repair keeps surfacing missing content - in three of four examples they could not finish the revision without inventing connections the author never supplied (line 183).",
+      "practices": [
+        {
+          "practice": "Diagnose a paragraph by extracting the first few words of every sentence into a column and reading only that column. If the column is a list of unrelated new terms, the paragraph has no story and readers will each build a different one.",
+          "locus": "/tmp/gopen_psu.txt lines 100-110 (earthquake example)",
+          "evidenceForIt": "Argued, with a worked demonstration; no measurement. The adjacent given-new psycholinguistics (Clark & Haviland) is measured - see the britton-mcnamara item.",
+          "costAndCollision": "Cheap: it is a mechanical extraction our revise pass could run before rewriting. Collides with nothing in terse; it is a diagnostic, not a word budget."
+        },
+        {
+          "practice": "Per sentence, apply three placements: old information that links backward goes first; the character whose story the sentence tells goes first; the new information you want emphasized goes last, at the point of syntactic closure.",
+          "locus": "/tmp/gopen_psu.txt lines 112-115, restated as principles 2-4 at lines 174-176",
+          "evidenceForIt": "Asserted and demonstrated by the authors; the underlying given-new ordering has measured support elsewhere (Clark & Haviland 1977; Britton & Gulgoz 1991).",
+          "costAndCollision": "Low cost, high payoff. Touches terseness only where a backward link costs a few words; it forbids opening a sentence with the punchline, which some short sentences do."
+        },
+        {
+          "practice": "Do not cap sentence length by word count. A sentence is too long when it carries more emphasis-worthy items than it has points of syntactic closure to put them in; a semicolon or colon manufactures another stress position, so a long sentence with medial closures is fine.",
+          "locus": "/tmp/gopen_psu.txt line 88 (explicit rejection of the 29-word readability threshold); lines 72-76 on secondary stress positions",
+          "evidenceForIt": "Asserted, by authors who taught this to scientists for decades; they cite 10-word impenetrable sentences and 100-word readable ones as counterexamples, not as data.",
+          "costAndCollision": "Zero cost, and it is a named authority backing a rule terse already rejected (hard per-sentence word limits). Worth citing in the skill so the rejection is not just our taste."
+        },
+        {
+          "practice": "Keep the grammatical subject next to its verb; anything long that intervenes is read as an aside and discounted, however important it is.",
+          "locus": "/tmp/gopen_psu.txt lines 57-59, 81; principle 1 at line 173",
+          "evidenceForIt": "Asserted here; independently supported by sentence-processing research on long subject-verb dependencies, which I did not open in this round.",
+          "costAndCollision": "Free. No collision - splitting an interrupted sentence usually shortens the parts."
+        },
+        {
+          "practice": "Name the action of each clause in its verb. If the verbs of a passage reduce to is / are / has / are presumed to be, the real actions are hiding in nouns and the reader has to guess who does what.",
+          "locus": "/tmp/gopen_psu.txt lines 156-168 (the verb list 'is / is...is / are presumed to be / are transcribed / has'); principle 5 at line 177",
+          "evidenceForIt": "Argued; the same principle is Williams' Lesson on Actions. Plain-language field trials (Kimble) measure the package, not this move alone.",
+          "costAndCollision": "Free or negative cost - de-nominalising shortens. No collision with terse."
+        },
+        {
+          "practice": "Treat a structural rewrite as a content audit: wherever you cannot place old information because none exists, you have found a missing explanation, not a wording problem. Add the missing sentence rather than smoothing the seam.",
+          "locus": "/tmp/gopen_psu.txt lines 145-147 (two sentences of chemistry had to be invented) and line 183",
+          "evidenceForIt": "Argued from their own revision attempts; no measurement.",
+          "costAndCollision": "This is the one practice that adds words. It collides head-on with terse-as-brevity and matches terse-as-answerable: our audit already classifies such gaps as lies/placement/findability."
+        },
+        {
+          "practice": "State every style directive as a principle with a stated failure mode, never as a rule; note that skilled writers violate them deliberately and that the violation only reads as deliberate when the rest of the text obeys.",
+          "locus": "/tmp/gopen_psu.txt lines 131 and 181",
+          "evidenceForIt": "Asserted; but it is the same conclusion our own bake-off reached when standards produced audits instead of rewrites.",
+          "costAndCollision": "Affects how revise phrases its rules. No token cost."
+        }
+      ],
+      "verdict": "compose",
+      "weaknesses": "Zero measurement inside the paper; every claim rests on the authors' demonstration. Their own revisions are admittedly interpretations of intent (line 89-90), so a reader who disagrees with the revision has no test to appeal to. The examples are all dense experimental science; nothing about task documentation, README-shaped prose, or lists and code blocks - the forms our plugin mostly faces. The advice is per-sentence and per-paragraph; above the paragraph it offers only 'sections have topic and stress paragraphs' by analogy."
+    },
+    {
+      "id": "williams-style-lessons",
+      "url": "https://sdsuwriting.pbworks.com/f/Style_BIG_COLLECTION_COMPILED.doc",
+      "opened": false,
+      "evidence": "I did NOT open Williams' book. No legitimate free copy exists; the free copies found are pirate mirrors (dokumen.pub, vdoc.pub, pdfcoffee) which I did not download. What I opened instead: Jim Garrett (CSU Los Angeles) course notes on Style: Ten Lessons in Clarity and Grace, 7th ed., downloaded to /tmp/sdsu.doc and converted to /tmp/sdsu.txt (5,367 words, 259 lines), which quote the book with page numbers (pp. 4, 10, 11-12, 15, 30-3, 43, 50, 85-8, 93-4). Corroboration that these are Williams' principles and not the note-taker's: Gopen & Swan cite Williams 1988 as their first bibliography entry (/tmp/gopen_psu.txt line 187), and their seven principles restate his. Page-level claims below are as reported by the notes, not as read by me.",
+      "whatItIs": "The book that put characters-as-subjects and actions-as-verbs into general circulation, organised as lessons with diagnosis procedures and exercises. Editions renumber the lessons (Actions/Characters are 3 and 4 in the 7th, 2 and 3 in the 13th), so cite by lesson name, not number.",
+      "measures": "Nothing in the book itself, as far as these notes show. One indirect measurement is claimed: Williams' co-author Colomb ran reader studies (Colomb & Williams 1985, 'Perceiving structure in professional prose'), which I did not open. The book's stance is that its rules are reason-based approaches, not rules.",
+      "method": "Three named steps. DIAGNOSIS: ignore short introductory phrases, underline the first seven or eight words of every sentence, and look for exactly three tells - (1) the sentence opens with an abstract noun rather than a character, (2) it takes more than six or seven words to reach a verb, (3) the verb is less specific than an action buried in the nouns around it. ANALYSIS: find or invent the cast of characters (who is doing this?), then find the nominalizations that name what those characters do. REVISION: turn the nominalizations back into verbs and adjectives, make the characters the subjects of those verbs, and reassemble with subordinators (because, if, when, although, whether, that). A second pass handles characters specifically: if the opening is abstract, hunt the real character in possessives, in objects of 'by' and 'of', or implied in an adjective; a character need not be a person - it is whatever you can tell a story about. Voice is decided by three questions, not by a ban: must readers know who acted; does active or passive let the sentence open with old information; does active or passive keep a consistent sequence of subjects. Above the sentence he splits two things that get conflated: cohesion (each sentence hooks to the last - old to new) and coherence (the topics of a run of sentences form one connected set); a passage can be cohesive and still incoherent (the snowmobile/mashed-potatoes example).",
+      "practices": [
+        {
+          "practice": "Run the seven-word test: underline the first seven or eight words of each sentence and flag any that (a) start with an abstract noun instead of a character, (b) have not reached a verb, or (c) use a vaguer verb than the action sitting in the surrounding nouns.",
+          "locus": "/tmp/sdsu.txt lines 83-85 (notes citing Style 7th ed., Lesson 3, exercises at p. 50)",
+          "evidenceForIt": "Asserted by Williams; it is the most mechanical diagnostic in this whole batch, which is why it survives translation into a checkable instruction.",
+          "costAndCollision": "Mechanisable and cheap - it is three yes/no questions per sentence. No collision with terse; it usually shortens."
+        },
+        {
+          "practice": "Fix by relocation, not by deletion: convert the nominalization to a verb, promote the character to subject, then rejoin the fragments with because/if/when/although rather than leaving a string of short declaratives.",
+          "locus": "/tmp/sdsu.txt lines 89-92 and 102-107",
+          "evidenceForIt": "Asserted; the same move is Gopen & Swan principle 5, and plain-language rewrites that include it show measured comprehension gains (Kimble item), though never isolated.",
+          "costAndCollision": "Free. Mild collision with a naive reading of terse: the repair step explicitly re-joins clauses with subordinators instead of chopping everything into 8-word sentences."
+        },
+        {
+          "practice": "Decide passive vs active with three questions (do readers need the agent; which order puts old information first; which keeps the subject sequence consistent) and never as a blanket ban.",
+          "locus": "/tmp/sdsu.txt lines 115-124; notes cite Style 7th ed. pp. 85-6 on the 'objective' passive in science writing",
+          "evidenceForIt": "Argued. Independently, Pullum shows the blanket ban is enforced by people who cannot identify a passive, which makes the ban worse than useless.",
+          "costAndCollision": "Zero cost. Collides with any lint-style rule that flags passives; terse has already rejected prose linters as gates, so this is consistent."
+        },
+        {
+          "practice": "Keep topics short, concrete and consistent across a run of sentences - readers infer what a passage is about from the sequence of sentence topics, not from its topic sentence.",
+          "locus": "/tmp/sdsu.txt lines 150-162",
+          "evidenceForIt": "Argued; matched by Gopen & Swan's topic-string diagnostic and by measured given-new work.",
+          "costAndCollision": "Cheap. Slight tension with variety-for-its-own-sake; none with terse."
+        },
+        {
+          "practice": "Do not manufacture flow with connectives. If a passage needs more than a few therefore/however/indeed per page, the underlying order is wrong; delete the connectives and reorder instead.",
+          "locus": "/tmp/sdsu.txt lines 166-171 (illusory cohesion, with the Truman example)",
+          "evidenceForIt": "Asserted, with a demonstration passage where every connective is meaningless.",
+          "costAndCollision": "Saves words. No collision. Useful as an audit signal: connective density as a smell, not a gate."
+        },
+        {
+          "practice": "Apply the concision list only after the structural fixes: delete meaningless modifiers, doubled words, redundant modifiers and category words; replace multi-word phrases with one word (due to the fact that -> because).",
+          "locus": "/tmp/sdsu.txt lines 174-259 (notes on Lesson 7)",
+          "evidenceForIt": "Asserted, with closed lists of examples. This is the part of Williams that most resembles Strunk & White, and the part Pullum's critique would call useless-if-you-already-know.",
+          "costAndCollision": "This is the only pass that is purely about brevity, which is why it should run last - it is the cheapest to automate and the least likely to fix a comprehension failure."
+        }
+      ],
+      "verdict": "compose",
+      "weaknesses": "I could not open the primary text, so page-level fidelity of the quoted procedure is unverified; a second reader with the book should confirm the three diagnosis tells. Nothing in the lessons is measured. Edition drift makes citation fragile. The book's own concision lesson is a list of prohibitions of exactly the kind our bake-off found produces audits rather than rewriting - so import the diagnosis procedure, and treat the word lists as optional cleanup."
+    },
+    {
+      "id": "pinker-curse-of-knowledge",
+      "url": "https://davidlabaree.com/2021/07/08/pinker-why-academics-stink-at-writing/",
+      "opened": true,
+      "evidence": "I did NOT open The Sense of Style chapter 3. The Internet Archive copy (identifier senseofstylethin0000pink) is lending-restricted: the djvu text returned HTTP 403 and the search-inside API timed out. What I opened is Pinker's own condensation of that chapter, 'Why Academics Stink at Writing' (Chronicle of Higher Education, 26 Sep 2014), full text, via a blog repost fetched to /tmp/labaree.html and converted to /tmp/labaree.txt (6,576 words, 228 lines). Loci are line numbers in that file. The Chronicle original is paywalled; the essay covers the same two mechanisms and the same cures as the chapter.",
+      "whatItIs": "Pinker's diagnosis of bad expert prose: two causes (self-conscious style vs classic style, borrowed from Thomas & Turner) plus the curse of knowledge, with cognitive mechanisms and a short list of cures.",
+      "measures": "Nothing of its own. It cites Helen Sword's stylistic analysis of 500 scholarly articles (line 90) and the standard experimental demonstrations (false-belief task, candle-box problem) as background, but reports no new data.",
+      "method": "Name the curse, then explain it mechanistically rather than moralistically. Mechanism one is chunking: expertise packages ideas into named units, and the writer cannot tell which of their chunks the reader lacks, so jargon and alphabet soup leak out (lines 176-180). Mechanism two is functional fixity: as something becomes familiar you think of it by the role it plays for you, not by what it is, so a tap on the arm becomes a 'poststimulus event' and TRUE/FALSE labels become 'assessment words' (lines 182-186). The curse then hides both mechanisms from the writer. The cure is explicitly not more empathy: since telepathy is limited, you show the draft to a sample of real readers and check whether they can follow it, and you show it to yourself after enough time has passed that it is no longer familiar, then draft again (line 194). Separately he lists the self-conscious tics to strip: metadiscourse, professional narcissism, apologizing, shudder quotes, hedging, metaconcepts, nominalizations (lines 104-146).",
+      "practices": [
+        {
+          "practice": "Do not rely on imagining the reader. Measure the curse instead: put the draft in front of readers who lack your context and see what they get wrong, and reread your own draft only after it has gone cold.",
+          "locus": "/tmp/labaree.txt line 194",
+          "evidenceForIt": "Asserted by Pinker, but it is the assertion that our own 2026-09-10 run measured: fresh cheap readers moved a README from 3/6 to 6/6. Our audit IS this cure, mechanised.",
+          "costAndCollision": "No new cost - it is what audit already does. Worth quoting in the skill as the reason the third pass cannot be a self-inspection."
+        },
+        {
+          "practice": "Treat unexplained role-names as the primary defect signal: any noun that names what a thing does for you rather than what it is ('assessment word', 'poststimulus event', 'the framework', 'the pipeline') is a curse-of-knowledge hit, and the repair is to name the concrete thing.",
+          "locus": "/tmp/labaree.txt lines 182-186",
+          "evidenceForIt": "Argued from the functional-fixity experiment, applied by analogy to prose; the analogy is Pinker's, not a measured transfer.",
+          "costAndCollision": "Concrete names are usually shorter than role-names, so it helps terseness. This is the single most operational thing Pinker adds that our third pass does not currently encode."
+        },
+        {
+          "practice": "Spell out every abbreviation on first use and add two or three words of gloss to a technical term ('Arabidopsis, a flowering mustard plant'); count the cost in the reader's minutes, not the writer's keystrokes.",
+          "locus": "/tmp/labaree.txt lines 160-164",
+          "evidenceForIt": "Asserted, with a cost argument (keystrokes saved vs minutes stolen). Plain-language trials measure the same class of change in aggregate (Kimble).",
+          "costAndCollision": "Costs a handful of words per term. Direct collision with terse-as-brevity; resolve by counting only first occurrences."
+        },
+        {
+          "practice": "Follow every explanation with an instance - 'for example', 'as in', 'such as'. An explanation without an example is barely better than no explanation.",
+          "locus": "/tmp/labaree.txt line 164",
+          "evidenceForIt": "Asserted.",
+          "costAndCollision": "Adds words, sometimes a whole clause. Collides with terse-as-brevity; defensible only where an audit question actually failed."
+        },
+        {
+          "practice": "Strip the seven self-conscious tics before anything else: metadiscourse and roadmap paragraphs, talk about the field rather than the subject, pre-emptive apologies about complexity, shudder quotes, reflex hedges, metaconcepts (level, approach, framework, process), nominalizations.",
+          "locus": "/tmp/labaree.txt lines 104-146",
+          "evidenceForIt": "Asserted, each with a worked before/after. The metadiscourse argument has a mechanism: signposts cost the reader more than they save.",
+          "costAndCollision": "Pure savings; this is the most terse-aligned list in the whole batch. Note the qualifier: hedging is to be a choice, not a tic - qualify with numbers instead of cushioning with 'relatively'."
+        },
+        {
+          "practice": "Replace self-reference with either a question or a shared-vision 'we': not 'this section discusses X' but 'what makes X happen?' or 'as we have seen'.",
+          "locus": "/tmp/labaree.txt line 110",
+          "evidenceForIt": "Asserted, with three rewritten pairs.",
+          "costAndCollision": "Saves words. Mild collision with docs conventions that expect section previews."
+        }
+      ],
+      "verdict": "compose",
+      "weaknesses": "Nothing here is tested; the mechanisms (chunking, functional fixity) are borrowed from lab tasks and applied to prose by analogy, and Pinker offers no way to tell in advance which chunks a given audience lacks - he concedes that requires clairvoyance. The essay is about academic prose; the incentives section does not transfer to software docs. Also note what he does NOT claim: that a writer can debug the curse alone. Our third pass, if it stays a self-inspection prompt, is doing something Pinker says does not work."
+    },
+    {
+      "id": "pullum-2009-stupid-grammar-advice",
+      "url": "https://www.lel.ed.ac.uk/~gpullum/50years.pdf",
+      "opened": true,
+      "evidence": "Full text opened. Author's own PDF downloaded to /tmp/pullum_50years.pdf (193 KB) and extracted to /tmp/pullum_clean.txt (article body, ~4,000 words, one long line); a second independent copy (Cambridge University Press adaptation, /tmp/pullum_cup.pdf, 33 KB) extracted to /tmp/pullum_cup.txt and agrees. Original: Chronicle of Higher Education, 17 Apr 2009, v55 i32 B15.",
+      "whatItIs": "A linguist's demolition of The Elements of Style on its 50th anniversary, aimed specifically at its grammar claims, with counterexamples drawn from the book's own prose and from corpora.",
+      "measures": "Partly. It reports corpus checks rather than experiments: 'none of us' takes plural agreement in Wilde (1895), Stoker (1897) and Montgomery (1909); Mark Liberman's counts of sentence-initial 'however' give roughly 7:3 in Twain and 1:15 in James, with about 1:5 in Dracula - i.e. good writers alternate, so the prohibition has no basis. It also counts: of the four pairs of examples Strunk & White give for 'use the active voice', three are not passives at all.",
+      "method": "Separate style advice from grammar claims and judge them differently. Style maxims ('be clear', 'omit needless words') are dismissed as harmless but useless - vapid, tautologous, or unusable by anyone who does not already know the answer. Grammar claims are then tested three ways: (1) internal consistency - does the book obey its own edict in the sentence that states it (the 'adjective hasn't been built' sentence violates four of its own rules at once); (2) diagnostic competence - can the authors identify the construction they condemn (three of four 'passive' examples are misidentified); (3) external evidence - does the prohibited form appear in respected prose (Gutenberg searches on 'none of us', sentence-initial 'however', restrictive 'which', which Strunk himself used and White edited out of his teacher's text). The damage claim is about downstream enforcement: tutors red-circle anything that looks passive, and graduates end up anxious about 'however' and 'which' without being able to say why.",
+      "practices": [
+        {
+          "practice": "Before enforcing any usage rule, check it against a corpus of prose you respect. If good writers alternate, the rule is a preference and must not be a gate.",
+          "locus": "/tmp/pullum_clean.txt, sections on 'none of us' and on sentence-initial 'however' (Liberman's Twain/James counts)",
+          "evidenceForIt": "Measured - actual counts from actual texts, the only corpus evidence in this batch.",
+          "costAndCollision": "Cheap and one-off per rule. Directly supports terse's existing rejection of CI punctuation gates and prose linters; gives us a test to apply to our own fixed writing rules."
+        },
+        {
+          "practice": "Never instruct 'avoid the passive'. Any tool or reviewer that flags passives will mostly flag non-passives; state the actual want instead (name the agent when readers need it; keep the old information first).",
+          "locus": "/tmp/pullum_clean.txt, passive section: 'At dawn the crowing of a rooster could be heard' is the only genuine passive of four examples; 'There were a great number of dead leaves lying on the ground' contains no passive at all",
+          "evidenceForIt": "Measured/demonstrated by counterexample, plus the observation that Word's grammar checker mechanises the error.",
+          "costAndCollision": "Saves us from shipping a rule that produces false positives. Consistent with our rejection of prose linters as gates."
+        },
+        {
+          "practice": "Maintain an explicit do-not-check list of famous rules that carry no evidence: no sentence-initial 'however', no restrictive 'which', no split infinitives, singular agreement with 'none', 'write with nouns and verbs, not adjectives and adverbs'.",
+          "locus": "/tmp/pullum_clean.txt, the split-infinitive, 'which', 'none' and 'nouns and verbs' passages",
+          "evidenceForIt": "Argued plus corpus-checked; Williams 1981 independently classes most of these as 'folklore'.",
+          "costAndCollision": "Free, and it shortens our rule set. A negative list is itself a best practice: it stops reviewers spending attention where the evidence says there is nothing to find."
+        },
+        {
+          "practice": "Test any style guide you are tempted to adopt by checking whether its own prose obeys its rules on the same page; if it does not, the rules are not usable as stated.",
+          "locus": "/tmp/pullum_clean.txt, the 'adjective hasn't been built' and 'keep related words together' analyses (four violations each)",
+          "evidenceForIt": "Demonstrated directly on the text.",
+          "costAndCollision": "One cheap check. Applies to our own SKILL.md files too - and to terse's output rules."
+        }
+      ],
+      "verdict": "steal-a-part",
+      "weaknesses": "Pullum offers no replacement: asked repeatedly for an alternative book he said he wished there were one. The essay is about grammar, not readability - it says the style advice is 'mostly harmless', so it cannot adjudicate between good and bad rewriting. Tone is polemical ('grammatical incompetents', 'idiosyncratic bumblers'), which makes it quotable but not a method. And his central damage claim - that the book degraded Americans' grasp of grammar - is asserted, not measured."
+    },
+    {
+      "id": "strunk-white-elements-of-style",
+      "url": "https://www.chronicle.com/article/50-years-of-stupid-grammar-advice/",
+      "opened": false,
+      "evidence": "I did NOT open The Elements of Style. Everything below is what Pullum quotes from it (/tmp/pullum_clean.txt), cross-checked against the Cambridge adaptation (/tmp/pullum_cup.txt) for consistency of quotation. Treat rule wordings as second-hand.",
+      "whatItIs": "The 1959 White revision of Strunk's 1918 private textbook; for most American graduates it is the only grammar instruction they ever receive, and it is the ancestor of most short style-rule lists, including the ones our bake-off tested.",
+      "measures": "Nothing. It is a list of maxims with invented examples; Pullum's complaint is precisely that the authors never checked a single book for evidence.",
+      "method": "Numbered prohibitions and imperatives with one-line rationales and constructed examples ('Use the active voice', 'Omit needless words', 'Put statements in positive form', 'Write with nouns and verbs', 'Keep related words together', 'Place the emphatic words of a sentence at the end'). Self-described as style, but roughly half is grammar prescription.",
+      "practices": [
+        {
+          "practice": "Place the emphatic words of a sentence at the end.",
+          "locus": "Quoted in /tmp/pullum_clean.txt (Pullum notes White contradicts it himself in the split-infinitive section)",
+          "evidenceForIt": "Asserted. It is the one S&W rule that survives independent restatement - it is Gopen & Swan's stress position - which is why it is worth keeping while the rest goes.",
+          "costAndCollision": "Free. Already covered by the gopen-swan item; keep that formulation, which explains when the position is available."
+        },
+        {
+          "practice": "Do not import 'omit needless words' as an operational rule. It tells a writer nothing they can act on: whoever can identify the needless words does not need the instruction.",
+          "locus": "Pullum's assessment in /tmp/pullum_clean.txt (vapid / tautologous / useless maxims)",
+          "evidenceForIt": "Argued. Consistent with our own measured finding that published standards produce audits rather than rewriting.",
+          "costAndCollision": "Negative cost: dropping it removes a rule that sounds like the core of terse but cannot be executed. Replace with Williams' concision moves, which are checkable."
+        }
+      ],
+      "verdict": "reference-only",
+      "weaknesses": "Unopened primary; no evidence base of any kind; three of its four active-voice examples are misdiagnosed; several rules are internally violated on the page that states them. Its historical importance is as the thing our readers' instincts are calibrated to, so knowing its rules helps predict objections - not as a source of practice."
+    },
+    {
+      "id": "williams-1981-phenomenology-of-error",
+      "url": "https://www.cs.tufts.edu/~nr/cs257/archive/joseph-williams/phenomenology-of-error.pdf",
+      "opened": true,
+      "evidence": "Full text opened via the Wayback Machine (the direct Tufts host is unreachable from this machine - the TLS handshake returns a Russian regulator block page). Downloaded to /tmp/wpe.pdf (412 KB, JSTOR scan of College Composition and Communication 32:2, May 1981, pp. 152-168) and extracted to /tmp/wpe_flat.txt (9,636 words). Page images are shuffled in the scan, so I cite by printed page as it appears in the running text: the 100-errors reveal sits at p. 165, the research proposal at p. 164.",
+      "whatItIs": "Williams' other famous piece, and the intellectual ancestor of our audit: an argument that a usage error exists only where a reader notices it, demonstrated by planting about 100 errors in the article itself and asking readers to report which ones jumped out on first reading.",
+      "measures": "Yes, by design, though the results are elsewhere. Williams built the instrument (about 100 planted errors, readers asked to report on first reading, tallies to be compiled and published in a later issue by Prof. Hairston) and insisted the distinction between deliberate search and first reading be recorded. He also reviews five earlier usage surveys (Leonard, Marckwardt, Crisp, Newcastle, AHD) and rejects them: asking people what they think of 'finalize' measures their professed values, not their reading, because as Labov showed we are poor informants about our own usage.",
+      "method": "Relocate error from the handbook to the reader's response. Step 1: observe that the same passage draws wildly different error judgments from expert readers, so error lives in at least three places (the page, the handbook, and the reader who resonates or does not). Step 2: show that authorities violate their own rules in the act of stating them - Orwell's anti-passive passage is written in the passive, with nominalizations, throughout. Step 3: conclude that which rules to enforce is an empirical question, not a matter of value: accept any proposed rule, then find out unobtrusively which violations a significant majority of careful readers actually notice, and look for those first. Step 4: run the experiment on your own readers by seeding the text and collecting first-reading reports.",
+      "practices": [
+        {
+          "practice": "Decide which defects to hunt by measuring which ones readers notice unprompted, not by which ones a style guide lists. Rules whose violations nobody notices go to the bottom of the queue whatever their pedigree.",
+          "locus": "/tmp/wpe_flat.txt, p. 164 ('We have to determine in some unobtrusive way which rules of grammar the significant majority of careful readers notice')",
+          "evidenceForIt": "Argued, and backed by his own instrument; it is also the explicit rationale for our audit's failure classification.",
+          "costAndCollision": "Free - it reorders work rather than adding it. Fits terse exactly: it is the same move as deriving the answer key from code and scoring by reader outcome."
+        },
+        {
+          "practice": "Distinguish first-reading response from deliberate search, and record which mode produced each finding. Findings that only appear under deliberate search are weak evidence of a real defect.",
+          "locus": "/tmp/wpe_flat.txt, p. 165 (readers asked to mark errors noticed on first reading, and to state separately if a list came from a deliberate second pass)",
+          "evidenceForIt": "Designed measurement.",
+          "costAndCollision": "Cheap and directly implementable: our audit could tag each reader failure as first-pass or search-only. Supports the owner's 'human-friendly wording, not error-hunting' instruction with a method."
+        },
+        {
+          "practice": "Validate a proposed writing rule by seeding a document with its violations and seeing whether readers report them - not by asking readers whether they approve of the rule.",
+          "locus": "/tmp/wpe_flat.txt, pp. 164-165 (the planted-error design, and the rejection of the five usage surveys on Labov's grounds)",
+          "evidenceForIt": "Measured design plus a methodological critique of survey evidence.",
+          "costAndCollision": "Costs one extra audit run per candidate rule. This is the cheapest available way for terse to grade its own fixed writing rules instead of asserting them."
+        }
+      ],
+      "verdict": "compose",
+      "weaknesses": "The article reports the design, not the tally - the results were to appear in a later issue, which I did not chase. It concerns usage errors (sentence-level correctness), not comprehension: noticing is not understanding, and a document can be noticed-clean and still unanswerable. And the demonstration is self-referential by construction: nobody can tell which of its own oddities are planted, which makes it unfalsifiable as written."
+    },
+    {
+      "id": "kimble-1996-writing-for-dollars",
+      "url": "https://scribes.org/wp-content/uploads/2022/12/Scribes_vol6_04_Writing_for_Dollars.pdf",
+      "opened": true,
+      "evidence": "Full text opened. Downloaded to /tmp/kimble.pdf (1.58 MB) and extracted to /tmp/kimble.txt / /tmp/kimble_flat.txt (10,464 words). Scribes Journal of Legal Writing vol. 6 (1996-97); the later book editions (50, then 60 studies) are not free and I did not open them.",
+      "whatItIs": "A compilation of 25 field studies of plain-language rewrites, each reporting what changed when a real document was rewritten and retested on real readers. This is the closest thing in the batch to a measurement base for sentence-level clarity advice.",
+      "measures": "Yes, and in the units we care about. Examples I read in the extracted text: a Veterans Affairs letter - readers who failed to understand it fell from 56% to 11%, reading time 8 min to 6 min, 'somewhat difficult' ratings 44% to 0%. Navy officers reading a plain vs bureaucratic memo - higher accuracy on all seven questions, 17-23% less reading time, half as many needed a reread. Rewritten manuals - search time 5 min to 3.6 min, correct answers 53% to 80%. A rewritten statute tested on 43 law students and 24 staff - 19% more accurate answers, 7% faster, difficulty rating 6.52 to 4.35 of 10. Forms: Royal Mail redirection form 87% error rate cut sharply; a UK 'Right to Buy' notice from ~60% errors to under 5%; an Alberta tree-request form 40% to 20%.",
+      "method": "Rewrite an entire real document; test old and new on the population that actually uses it; report four things - accuracy of answers, time to read or find, error or rework rate, and reader preference. Kimble groups results into writer-side savings (staff time, call volume, reprocessing) and reader-side benefits (understanding, speed, compliance, willingness to read at all), and argues the reader benefits cause the writer benefits.",
+      "practices": [
+        {
+          "practice": "Report a rewrite's effect as a four-tuple - answer accuracy, time to answer, error/rework rate, reader preference - rather than as a single quality score or a judge's verdict.",
+          "locus": "/tmp/kimble_flat.txt, VA letter, Navy memo, manuals, and South Africa statute study summaries",
+          "evidenceForIt": "Measured, across 25 independent field studies.",
+          "costAndCollision": "Our audit already measures accuracy. Adding time-to-answer is nearly free for model readers (token or turn count) and would give us a second axis that is not gameable by padding."
+        },
+        {
+          "practice": "Test the whole document on its real population, not sentences in isolation. Every gain in this literature comes from rewriting a complete artefact and retesting it on the people who use it.",
+          "locus": "/tmp/kimble_flat.txt, forms and manuals sections (Royal Mail, UK departmental forms, Alberta Agriculture)",
+          "evidenceForIt": "Measured.",
+          "costAndCollision": "Matches our profile-first design. Reinforces that per-sentence linting is the wrong unit."
+        },
+        {
+          "practice": "Expect the improvement to show up as fewer downstream questions and corrections, and count those: complaint volume, rework, support calls are the cheapest proxies for document quality.",
+          "locus": "/tmp/kimble_flat.txt, utility-bill study (customer complaints and inquiries down 25%) and the Royal Mail savings",
+          "evidenceForIt": "Measured in the field, though confounded - these were redesigns of form, layout and wording together.",
+          "costAndCollision": "Free if the repo has issue history. Gives terse an outcome metric that does not need a judge panel."
+        }
+      ],
+      "verdict": "steal-a-part",
+      "weaknesses": "The interventions are bundles - wording, structure, typography and graphics change together - so no individual sentence-level rule is isolated by any of these studies; they cannot tell you whether the stress position or the bigger typeface did the work. Several are consultant self-reports rather than controlled trials, and Kimble is an advocate compiling evidence for a position. Domain is forms, letters, statutes and manuals - closer to our documentation case than Gopen's science papers, but still not READMEs."
+    },
+    {
+      "id": "britton-gulgoz-1991-and-mcnamara-1996",
+      "url": "https://api.openalex.org/works?search=Are%20good%20texts%20always%20better",
+      "opened": false,
+      "evidence": "Abstracts only. ERIC (eric.ed.gov) refused the connection from this machine and Semantic Scholar returned 403; I retrieved records through the OpenAlex API. Britton & Gulgoz (1991, Journal of Educational Psychology 83(3):329-345) abstract came back truncated by OpenAlex's inverted index - I have the design paragraph, not the results. McNamara, Kintsch, Songer & Kintsch (1996, Cognition and Instruction) abstract came back in full. Neither full paper was opened.",
+      "whatItIs": "The measured core underneath the old-before-new principle, and the study that limits it. Britton & Gulgoz used Kintsch's comprehension model to find every place a 1000-word text forced the reader to make a bridging inference, repaired each one, and tested recall. McNamara et al. then varied local and global coherence against readers' prior knowledge.",
+      "measures": "Yes. Britton & Gulgoz: two experiments, 170 undergraduates and 125 Air Force recruits (sample sizes per the search record, not read by me in the paper), showing the principled revision conveyed the author's intent better on free recall and on the match between reader and author cognitive structures. McNamara et al.: junior-high and college readers, free recall, written questions, keyword sorting, plus inference and problem-solving questions - readers who know little about the domain benefit from coherent text, while high-knowledge readers do better with minimally coherent text, because the gaps force compensatory inference. The effect direction depends on which level of understanding the task taps.",
+      "method": "Make the repair rule mechanical and then test it: identify the exact points where the text requires an unstated inference (an argument in a sentence that has no antecedent in the preceding text), repair only those points by making the link explicit, change nothing else, and measure recall and structure. McNamara's addition is to cross that manipulation with reader knowledge and with depth of test, which is what turns a rule into a conditional rule.",
+      "practices": [
+        {
+          "practice": "Repair coherence at identified inference gaps only - places where a sentence introduces a term with no antecedent - rather than rewriting for flow generally.",
+          "locus": "Britton & Gulgoz 1991, JEP 83(3):329-345, abstract (OpenAlex record)",
+          "evidenceForIt": "Measured, in two experiments; I read the design, not the effect sizes.",
+          "costAndCollision": "Targeted and cheap; it is the mechanised form of Gopen's topic-position checklist and of our findability-failure repair."
+        },
+        {
+          "practice": "Condition the repair on the reader profile: fill gaps for readers without domain knowledge; for expert readers, more explicitness can lower deep understanding, so do not maximise coherence globally.",
+          "locus": "McNamara, Kintsch, Songer & Kintsch 1996, Cognition and Instruction, abstract (OpenAlex record)",
+          "evidenceForIt": "Measured - the reverse cohesion effect, replicated on the same Vietnam War text used by Britton & Gulgoz.",
+          "costAndCollision": "Free to state, expensive to honour: it means a single rewrite cannot be optimal for both audiences, so our reader profile has to carry a knowledge level, not just a role."
+        }
+      ],
+      "verdict": "steal-a-part",
+      "weaknesses": "I did not open either paper; effect sizes, materials and statistics are unverified and the Britton abstract was truncated. Both use expository school-science texts measured by recall - recall is not the same as our task success (finding the right command, not remembering the page). The 1996 result is 30 years old and later literature qualifies it further; I did not review that literature."
+    },
+    {
+      "id": "gopen-reader-expectation-evidence-page",
+      "url": "https://georgegopen.com/reader-expectation-research/",
+      "opened": true,
+      "evidence": "Opened and converted: /tmp/gopen_ev.html (232 KB) read as text; I inspected the whole of Section One (the psycholinguistics corroboration) and the head of Section Two.",
+      "whatItIs": "Gopen's own curated case that the Reader Expectation Approach is scientifically corroborated: each of his principles is paired with a published psychology paper.",
+      "measures": "Nothing itself. It points at measured work by others: Clark & Haviland's given-new contract (1977) for the old-first/new-last ordering; Vande Kopple (1982) for backward-linking sentence openings inside a paragraph; Pickering & Gambi (2018) on prediction during comprehension for the 'expectations' premise; Ebbinghaus (1885), Murdock (1962) and Glanzer & Cunitz (1966) for the stress position.",
+      "method": "State a principle in Gopen's words, then cite one peer-reviewed study said to corroborate it independently. Section Two lists disciplines that adopted the framework.",
+      "practices": [
+        {
+          "practice": "When citing the topic position, cite the given-new contract (Clark & Haviland 1977; Vande Kopple 1982) rather than Gopen; when citing the stress position, say plainly that it rests on assertion plus analogy.",
+          "locus": "https://georgegopen.com/reader-expectation-research/ Section One, items II-V",
+          "evidenceForIt": "Mixed by construction: the given-new items are measured comprehension work; the stress-position items are free-recall list experiments, which is a different phenomenon.",
+          "costAndCollision": "Free. Protects us from over-claiming in our own docs, which is the failure mode terse exists to prevent."
+        }
+      ],
+      "verdict": "reference-only",
+      "weaknesses": "Advocacy source, and the support is uneven. The stress-position chain is the weak link: serial-position and recency effects concern recall of item lists, not which part of a sentence a reader treats as the point - that is an analogy presented as corroboration. Section Two conflates studies that demonstrate efficacy with studies that merely propose adoption, in its own wording. No controlled comprehension trial of the topic/stress manipulation under this label surfaced in my searching."
+    }
+  ],
+  "groupNotes": "Covered: all four assigned sources at the sentence and paragraph level, plus four supports the brief did not name (Williams 1981 on error, Kimble's 25 field studies, the Britton/McNamara coherence-repair pair, Gopen's own evidence page).\n\nOpened as primary, in full: Gopen & Swan 1990 (Penn State authorised reprint, 8,145 words, /tmp/gopen_psu.txt); Pullum 2009 (author's own PDF plus an independent CUP copy, /tmp/pullum_clean.txt, /tmp/pullum_cup.txt); Williams 1981 \"The Phenomenology of Error\" (JSTOR scan via Wayback, /tmp/wpe.pdf); Kimble 1996-97 (/tmp/kimble.pdf); Pinker's own 2014 condensation of the curse-of-knowledge chapter (/tmp/labaree.txt).\n\nNOT opened, and stated as such in each item: Williams' \"Style: Lessons in Clarity and Grace\" itself (no lawful free copy; I used Jim Garrett's CSU-LA course notes, which quote it with 7th-edition page numbers, and cross-checked the principles against Gopen & Swan, who cite Williams 1988 as source); Pinker's \"The Sense of Style\" ch. 3 (Internet Archive copy is lending-restricted - djvu text 403, search-inside API timed out); \"The Elements of Style\" (read only through Pullum's quotations); Britton & Gulgoz 1991 and McNamara et al. 1996 (OpenAlex abstracts only - ERIC refused the connection, Semantic Scholar returned 403).\n\nTooling notes for the next round: this machine sits behind a filter that returns a Russian regulator block page for some .edu hosts (cs.tufts.edu failed TLS with a self-signed block cert; commons.gc.cuny.edu 403; eric.ed.gov connection refused). web.archive.org works and rescued one source. No poppler and no python PDF library are installed; I wrote /tmp/pdf_text_extract.py (zlib + text-operator parsing) which handled every PDF in this batch, and used macOS textutil for the .doc.\n\nEvidence grading across the batch, since the brief asked per rule: only three things here are measured. (1) Plain-language rewrites of whole documents improve answer accuracy, reading time and error rates - Kimble, 25 field studies, but always as bundles, never isolating a rule. (2) Repairing identified inference gaps improves recall - Britton & Gulgoz, with McNamara's reversal for expert readers. (3) Specific usage prohibitions fail corpus checks - Pullum, by counting. Everything else in Williams, Gopen & Swan and Pinker is expert consensus plus worked demonstration; the three of them converge independently on the same four moves (character as subject, action as verb, old information first, emphasis last), which is the strongest non-experimental warrant available. The stress position is the weakest-supported principle of the set.\n\nNot reached, and worth a later pass: Colomb & Williams 1985 \"Perceiving structure in professional prose\" (the one reader study behind Williams); the sentence-processing literature on subject-verb distance; the post-1996 coherence-vs-knowledge literature; Gopen's 2022 American Scientist follow-up and the 2026 Anthem book.",
+  "surprises": "Four things cut against what we believe about our own method.\n\n1. Our third pass may be built on a cure its own author rejects. Pinker says exorcising the curse \"requires more than just honing one's empathy for the generic reader\" - because telepathy is limited, it requires showing a draft to real readers and rereading yourself cold (/tmp/labaree.txt line 194). A revise pass that asks the writer-model to imagine a naive reader is the thing he says does not work; the thing that works is our audit. That argues for folding pass 3 into the measured loop rather than running it as introspection, and for adding the one operational signal he does give: role-names (\"assessment word\", \"poststimulus event\") as the detectable surface of the curse.\n\n2. More coherent is not monotonically better. McNamara, Kintsch, Songer & Kintsch (1996) measured the reverse: low-knowledge readers gain from coherent text, high-knowledge readers score higher on deep understanding from minimally coherent text, because gaps force them to infer. Our audit reader is a fresh cheap model with no repo knowledge - exactly the low-knowledge reader - so repairs tuned to it may flatten the document for the maintainers who read it daily. Our reader profile needs a knowledge axis, and \"6/6 for a fresh reader\" is not automatically the document's optimum.\n\n3. Williams got to our method in 1981, and went one step further than we do. He planted ~100 errors in his own article and asked readers to report which ones they noticed on first reading, insisting that deliberate-search findings be reported separately (pp. 164-165). Two things follow: rules should be admitted to a style guide only after a seeded test shows readers notice their violation - which is a way to grade the fixed writing rules in our revise pass instead of asserting them - and our audit failures should carry a first-pass vs search-only tag, because search-only findings are weak evidence of a defect.\n\n4. Our rejection of hard per-sentence word limits has a named authority, with a better replacement. Gopen & Swan reject the 29-word threshold outright and redefine length functionally: a sentence is too long when it has more emphasis-worthy items than it has points of syntactic closure to hold them; a semicolon creates another such point (/tmp/gopen_psu.txt line 88, lines 72-76). That is a checkable criterion that does the job the word limit was meant to do.\n\nOne smaller reversal: the most terse-aligned advice in the batch (Pinker's list of tics to strip) and the least terse-aligned (add a gloss to every term, follow every explanation with an example, add the missing connecting sentence) come from the same authors, in the same passages. Both Gopen & Swan and Pinker treat added words at the point of a measured failure as the correct repair. Whatever \"terse\" means in our plugin, it cannot mean shorter at the site of a failed reader question."
+}

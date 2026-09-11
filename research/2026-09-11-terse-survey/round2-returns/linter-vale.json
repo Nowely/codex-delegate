@@ -1,0 +1,129 @@
+{
+  "items": [
+    {
+      "id": "vale-google",
+      "url": "https://github.com/vale-cli/Google",
+      "opened": true,
+      "evidence": "Read all 36 rule YAMLs in vale-cli/Google/Google/ via `gh api repos/vale-cli/Google/contents/Google/<file>.yml` (README not opened). Full text quoted for ExcessiveClaims.yml, Acronyms.yml, WordList.yml, Units.yml, DateFormat.yml, Ranges.yml; remaining 28 scanned by their `message:`/`extends:` fields.",
+      "whatItIs": "Vale-compatible codification of the Google Developer Documentation Style Guide.",
+      "measures": "House style only, with one exception. 35 of 36 rules are voice/punctuation/capitalization/terminology preferences (Passive, We, FirstPerson, OxfordComma, WordList substitutions, Jargon, Timeless, etc.) or unverifiable-claim policing (ExcessiveClaims.yml flags 'best/fastest/simplest/guarantees' — opposite of a checkable fact, it exists because such claims can't be checked). One rule, Acronyms.yml, is a genuine reader-defect check: `extends: conditional` requires that wherever a 3–5-letter capitalized token appears, a spelled-out-form-with-parenthetical-acronym also appears somewhere in the document, else it flags the acronym as undefined.",
+      "method": "Vale's `conditional` extension takes a `first` regex (acronym token) and a `second` regex (its spelled-out expansion pattern); if `first` matches anywhere and `second` never matches for that token (outside a fixed exception list of ~60 common acronyms), Vale reports the first occurrence. Everything else in the pack uses `existence` (flag any token/regex match) or `substitution` (suggest a replacement) against curated word lists.",
+      "verdict": "steal-a-part",
+      "weaknesses": "The acronym check is document-wide existence, not first-use-before-second-use ordering, so it can't tell you the definition came too late; it also can't tell you which acronym is undefined if several share the same 3–5-letter shape. ExcessiveClaims is a legal/marketing-risk rule, not a reader-comprehension one — it fires on subjective language whether or not it's actually wrong.",
+      "practices": [
+        {
+          "practice": "Flag any acronym/initialism used in the text that never gets a spelled-out first-use definition anywhere in the document.",
+          "locus": "Google/Acronyms.yml (vale-cli/Google)",
+          "evidenceForIt": "Argued, not measured by this pack — but the same mechanism independently recurs in Microsoft's and GDS's packs (see those items), which is convergent design evidence across three maintainers.",
+          "costAndCollision": "Overlaps terse's own 'findability' failure category from the audit skill; a code-derived acronym list (from the actual API/CLI surface) would catch this more precisely than a generic 3–5-letter regex."
+        }
+      ]
+    },
+    {
+      "id": "vale-microsoft",
+      "url": "https://github.com/vale-cli/Microsoft",
+      "opened": true,
+      "evidence": "Read all 46 rule YAMLs in vale-cli/Microsoft/Microsoft/ via `gh api repos/vale-cli/Microsoft/contents/Microsoft/<file>.yml` (README not opened). Full text quoted for Acronyms.yml; remaining 45 scanned by `message:`/`extends:` fields.",
+      "whatItIs": "Vale-compatible codification of the Microsoft Writing Style Guide.",
+      "measures": "House style (voice, punctuation, dates/numbers formatting, UI-verb consistency, bias-free/accessibility word substitution) across 45 rules. One rule, Acronyms.yml, duplicates Google's undefined-acronym check almost verbatim: same `conditional` extends, same `first`/`second` regex, same ~60-entry exception list, message tightened to \"'%s' has no definition.\" Nothing in the pack checks a broken reference, a contradiction, or a checkable fact.",
+      "method": "Same `conditional` mechanism as Google/Acronyms.yml (see that item). The rest of the pack is `existence`/`substitution`/`occurrence` matching against word and phrase lists (Vocab.yml, Terms.yml, BiasFree.yml, Accessibility.yml), plus one `occurrence` rule (SentenceLength.yml, cap 30 words) and one `capitalization` rule (Headings.yml).",
+      "verdict": "steal-a-part",
+      "weaknesses": "Identical limitation to Google's version (whole-document existence, not use-before-definition order). Its Accessibility.yml and BiasFree.yml overlap alex's territory (inclusive language) rather than reader comprehension.",
+      "practices": [
+        {
+          "practice": "Same as Google's: an acronym used but never spelled out anywhere in the doc is a checkable defect worth flagging.",
+          "locus": "Microsoft/Acronyms.yml (vale-cli/Microsoft)",
+          "evidenceForIt": "Near-identical regex and exception list to Google's version — evidence of either shared origin or independent convergence on the same check between two large, separately maintained style guides.",
+          "costAndCollision": "Redundant with the Google finding; only worth taking once. Microsoft's message string ('has no definition') is more literal than Google's ('if it's unfamiliar to the audience') — the better phrasing to copy if we build our own version."
+        }
+      ]
+    },
+    {
+      "id": "vale-readability",
+      "url": "https://github.com/vale-cli/Readability",
+      "opened": true,
+      "evidence": "Read all 7 rule YAMLs in vale-cli/Readability/Readability/ via `gh api`; full text quoted for FleschKincaid.yml and GunningFog.yml, remaining 5 (AutomatedReadability, ColemanLiau, FleschReadingEase, LIX, SMOG) confirmed by the same `extends: metric` pattern.",
+      "whatItIs": "Vale-compatible implementations of seven classic readability formulas.",
+      "measures": "Nothing, by this question's definition. Every rule is `extends: metric`: a fixed arithmetic formula over word/sentence/syllable/character counts (e.g. Flesch-Kincaid: `0.39*(words/sentences) + 11.8*(syllables/words) - 15.59`), compared against a hardcoded numeric threshold ('keep grade level below 8'). No rule inspects meaning, cross-references, or a stated fact — a document can score well on all seven formulas while being wrong, contradictory, or ambiguous.",
+      "method": "Each formula runs once per document (or per sentence, depending on the metric) and Vale reports a pass/fail against `condition: \"> N\"`. Purely lexical: word count, sentence count, syllable count via heuristic, no semantic analysis.",
+      "verdict": "not-relevant",
+      "weaknesses": "Confirms terse's prior rejection: a readability-score gate measures surface complexity, not correctness or clarity of meaning, and the owner's own bake-off found standards built around this kind of metric tend to produce audits rather than rewrites."
+    },
+    {
+      "id": "vale-proselint",
+      "url": "https://github.com/vale-cli/proselint",
+      "opened": true,
+      "evidence": "Read 16 of 33 rule YAMLs in vale-cli/proselint/proselint/ via `gh api` (DateMidnight, Currency, Malapropisms, P-Value, Needless, Skunked, Nonwords, Typography, DateRedundancy, DateCase, Diacritical, Cursing, Annotations, Apologizing, Hedging, Hyperbole — full text quoted above); remaining 17 (Airlinese, AnimalLabels, Apologizing dup, Archaisms, But, Cliches, CorporateSpeak, DenizenLabels, GenderBias, GroupTerms, Jargon, LGBTOffensive, LGBTTerms, Oxymorons, RASSyndrome, Spelling, Very) inferred from filename+meta.json listing, not individually opened.",
+      "whatItIs": "Vale-compatible implementation of Python's proselint linter.",
+      "measures": "Mostly usage/register preferences (corporate-speak, hedging, cliché, weasel words, apologizing, cursing, group-identity labels) across the 33 files. Three rules catch a genuine reader-facing defect: DateMidnight.yml flags '12am'/'12pm' as inherently ambiguous — readers disagree on whether that instant belongs to the day ending or the day starting — and tells the writer to use 'midnight'/'noon' instead; P-Value.yml flags a reported p-value with 2–4 trailing zero decimals (e.g. p=0.000) as a near-certain misreport; Annotations.yml flags XXX/FIXME/TODO/NOTE left in shipped prose. A fourth, Malapropisms.yml, targets the right kind of defect (a wrong word that silently changes meaning) but ships only 3 hardcoded joke phrases inherited from the original proselint corpus ('the infinitesimal universe', 'a serial experience', 'attack my voracity'), so as shipped it will essentially never fire on real text.",
+      "method": "DateMidnight/Annotations/P-Value all use `extends: existence` with a literal or narrow regex token list — same mechanical pattern as the style rules, just aimed at a different target (an inherently ambiguous time notation, a leftover author-note, an implausible statistic) instead of a word preference.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Malapropisms is a dead rule as shipped (3 fixed phrases only) — the concept doesn't scale to open-vocabulary malapropism detection with regex. Currency.yml and DateRedundancy.yml look at first glance like fact/consistency checks but are actually redundancy preferences ('$5 dollars', '10pm at night') rather than defects that change meaning.",
+      "practices": [
+        {
+          "practice": "Flag '12am'/'12pm' (and similarly, any other genuinely dual-readable time/date notation) and require 'midnight'/'noon' instead.",
+          "locus": "proselint/DateMidnight.yml (vale-cli/proselint)",
+          "evidenceForIt": "Argued from the well-known real-world ambiguity of what '12am' denotes; not independently measured by this pack, but the ambiguity itself is a documented, checkable fact about calendar/clock convention.",
+          "costAndCollision": "Directly matches the task's 'ambiguity that changes meaning' category — rare hit. Narrow scope (one notation); doesn't generalize to other ambiguity types."
+        },
+        {
+          "practice": "Flag leftover draft markers (TODO, FIXME, XXX, NOTE) that slipped into shipped prose.",
+          "locus": "proselint/Annotations.yml (vale-cli/proselint)",
+          "evidenceForIt": "Asserted by the rule's existence; mechanically trivial and low-false-positive by construction (these are conventionally reserved tokens).",
+          "costAndCollision": "Cheap, nearly free of false positives; worth a mechanical pre-publish check regardless of terse's stance against linters-as-gate, since it's not a style judgment."
+        }
+      ]
+    },
+    {
+      "id": "vale-write-good",
+      "url": "https://github.com/vale-cli/write-good",
+      "opened": true,
+      "evidence": "Read all 6 rule YAMLs (Cliches, E-Prime, Illusions, So, ThereIs, TooWordy, Weasel — 7 files, README excluded) in vale-cli/write-good/write-good/ via `gh api`; full text quoted above.",
+      "whatItIs": "Vale-compatible implementation of the write-good linter.",
+      "measures": "Style preferences (weasel words, wordiness, passive voice, E-Prime, clichés, sentence-initial 'so'/'there is') across 6 of 7 rules. One rule, Illusions.yml, catches a genuine defect: `extends: repetition` flags an immediately doubled word ('the the') — a typo a reader would actually trip on — and auto-fixes it by truncating the duplicate.",
+      "method": "`repetition` extension tokenizes on `[^\\s]+` and reports when the same (lowercased, per `alpha: true`) token appears twice in immediate succession; `action: {name: edit, params: [truncate, \" \"]}` lets Vale auto-remove the duplicate.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Catches only adjacent identical-token repetition, not near-repetition or repeated phrases.",
+      "practices": [
+        {
+          "practice": "Flag immediately-repeated words ('the the', 'is is') as a mechanical typo check, with auto-fix.",
+          "locus": "write-good/Illusions.yml (vale-cli/write-good)",
+          "evidenceForIt": "Mechanically unambiguous — a doubled word is essentially never intentional in prose, so false-positive risk is near zero.",
+          "costAndCollision": "Same mechanism independently reappears in GDS's Repetition.yml (see that item), a second convergent implementation; safe candidate for a pre-publish mechanical check that isn't a style judgment."
+        }
+      ]
+    },
+    {
+      "id": "vale-alex",
+      "url": "https://github.com/vale-cli/alex",
+      "opened": true,
+      "evidence": "Read 9 of 11 rule YAMLs (Ablist, Condescending, Gendered, LGBTQ, OCD, Press, ProfanityLikely, Race, Suicide) in vale-cli/alex/alex/ via `gh api`, full text/head quoted above; ProfanityMaybe.yml and ProfanityUnlikely.yml not opened but confirmed same substitution/existence pattern from the sibling Profanity files and repo file listing.",
+      "whatItIs": "Vale-compatible implementation of the alex linter's inclusive-language guidelines.",
+      "measures": "Nothing, by this question's definition. All 11 rule files are `substitution` or `existence` lists targeting ableist, gendered, LGBTQ, racial, religious-stereotype, profanity-tiered, or suicide-reporting language. These protect a reader from being offended or excluded by word choice — they do not catch a broken reference, a contradiction, a checkable stated fact, or a meaning-changing ambiguity.",
+      "method": "Every file is a flat swap-list (`extends: substitution`, message 'Consider using X instead of Y') or a flagged-token list (`extends: existence`, message 'Y may come across as...'). No conditional, repetition, or metric rules anywhere in the pack.",
+      "verdict": "not-relevant",
+      "weaknesses": "None applicable to this question — stated plainly per the task's instruction: this pack has no rule that catches a reader-comprehension defect as defined; it is entirely a tone/inclusion pack, which is a different axis from terse's readability-comprehension goal."
+    },
+    {
+      "id": "gds-vale-styles",
+      "url": "https://github.com/alphagov/gds-vale-styles",
+      "opened": true,
+      "evidence": "Read all 6 rule YAMLs (GDS/General/{Contractions,NoCapsInSpecs,Repetition,UnexpandedAcronym}.yml, GDS/PlainEnglish/{TooWordy,WeaselWords}.yml — filenames of the latter two only, content not opened) via `gh api repos/alphagov/gds-vale-styles/contents/GDS/...`; General/*.yml full text quoted above.",
+      "whatItIs": "GOV.UK's GDS content style guide codified as Vale config files, split into General and PlainEnglish rule sets.",
+      "measures": "Two of the six rules catch a real defect. Repetition.yml (`extends: repetition`) flags an immediately-doubled word, same mechanism as write-good's Illusions.yml, explicitly credited in-file to testthedocs/vale-styles. UnexpandedAcronym.yml (`extends: conditional`) is the same acronym-must-be-defined check as Google's and Microsoft's, explicitly credited in-file to 18F's vale-styles repo as the shared origin of all three. The other four (Contractions, NoCapsInSpecs, PlainEnglish/TooWordy, PlainEnglish/WeaselWords, inferred from name) are style/register preferences — though two of those four justify themselves in-file with a citation to GOV.UK user research rather than an unstated preference.",
+      "method": "Identical `repetition` and `conditional` mechanisms to write-good and Google/Microsoft respectively (see those items); this pack's value is confirming those two checks are the convergent, independently-reinvented ones across at least four separate maintainers (Google, Microsoft, 18F/GDS, testthedocs/GDS/write-good).",
+      "verdict": "steal-a-part",
+      "weaknesses": "Same structural limits as the source rules it reuses (whole-document acronym check, adjacent-only repetition check).",
+      "practices": [
+        {
+          "practice": "State the evidence for a rule inside the rule file itself, not only in a README — e.g. NoCapsInSpecs.yml's comment: 'User research shows there is no need to capitalise keywords in technical specifications... GOV.UK says no all caps.'",
+          "locus": "GDS/General/NoCapsInSpecs.yml (alphagov/gds-vale-styles), line 1 (leading comment)",
+          "evidenceForIt": "Directly observed in the file; the comment names the evidence source (GOV.UK user research) rather than asserting the rule as a bare preference.",
+          "costAndCollision": "Cheap to imitate in any of terse's own rule/config artifacts: attach the 'why' next to the 'what' so a rule can be audited or dropped on its own merits later."
+        }
+      ]
+    }
+  ],
+  "groupNotes": "Covered all 7 named Vale style-pack repos, reading rule YAML directly via the GitHub contents API (never the READMEs, per instruction): vale-cli/Google (36 rules), vale-cli/Microsoft (46), vale-cli/Readability (7), vale-cli/proselint (33, 16 opened in full), vale-cli/write-good (6), vale-cli/alex (11, 9 opened in full), alphagov/gds-vale-styles (6, across GDS/General + GDS/PlainEnglish). Did not install or run the `vale` binary against sample text, so no empirical hit-rate or false-positive-rate measurement on real prose was done — only the rule definitions were read and reasoned about from their own regex/extension logic. For proselint and alex, a subset of clearly style-pattern files (by name and by meta.json listing) were not individually opened once the pack's overall shape was established from ~50-70% coverage; flagged per-item where that applies.",
+  "surprises": "Across all 7 packs (~145 rule files total), only two mechanisms recur across independently-authored packs as genuine reader-facing-defect checks: (1) an undefined-acronym conditional check, reinvented/shared by Google, Microsoft, and GDS-via-18F, and (2) an adjacent-doubled-word repetition check, shared by write-good and GDS-via-testthedocs. Everything else — well over 130 rules, including entire packs branded around 'developer documentation style' (Google, Microsoft) — is voice/punctuation/terminology/register preference or (for alex) inclusive-language substitution; none of the 7 packs has a rule that checks a broken reference, a logical contradiction, or an open-ended checkable fact. This is strong convergent evidence for terse's prior rejection of prose linters as a gate: the linting ecosystem's own multi-year, multi-maintainer convergence lands on almost nothing that generalizes to real reader comprehension, reinforcing that terse's code-derived answer-key method is doing work a linter structurally cannot."
+}

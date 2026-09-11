@@ -1,0 +1,120 @@
+{
+  "items": [
+    {
+      "id": "markdownlint-md051",
+      "opened": true,
+      "evidence": "raw.githubusercontent.com DavidAnson/markdownlint (main) doc/md051.md, full file, 111 lines, fetched via gh api repos/DavidAnson/markdownlint/contents/doc/md051.md",
+      "whatItIs": "markdownlint rule MD051 / alias link-fragments, part of the Node.js markdownlint linter.",
+      "method": "For same-document links of the form [text](#fragment), MD051 regenerates the fragment GitHub would produce for every heading in the file (lowercase, strip punctuation, spaces to dashes, de-duplicate with an incrementing suffix, URI-encode — doc/md051.md lines 97-111) and flags any link fragment that doesn't match one of those generated names, a `{#custom-name}` heading anchor, an `<a id=...>`/`<a name=...>` tag, `#top`, or GitHub's `#L20` / `#L19C5-L21C11` line-range syntax. `ignored_pattern` (line 10) can exempt fragments produced by external generators.",
+      "measures": "Broken same-file jump links: `[Link](#fragment)` where no heading/anchor in that document produces `#fragment`. Purely a string-generation-and-match check on the file's own AST — no network, no other files.",
+      "verdict": "compose",
+      "weaknesses": "Scope is one document only — it cannot see headings in other files, so it is blind to the cross-file case (`other.md#some-heading`) that is common in multi-doc repos. The generated-slug algorithm is pinned to GitHub's specific rendering rules (doc/md051.md lines 97-104, explicitly 'Section links are not part of the CommonMark specification'); a docs site with a different slugifier (MkDocs, Sphinx, a custom static-site generator) will produce false positives or false negatives unless `ignore_case`/`ignored_pattern` is tuned. Deterministic and cheap otherwise — no probabilistic component.",
+      "practices": [
+        {
+          "practice": "Run MD051 as a zero-network, zero-flake pre-check for same-file anchor links before any reader is spent — a link whose fragment does not match any heading-generated slug in that file is a provable dead link, not a judgment call.",
+          "locus": "doc/md051.md lines 1-45 (rule description) and 97-104 (algorithm)",
+          "evidenceForIt": "Measured/mechanical: the rule is a deterministic re-derivation of the GitHub slug algorithm and an exact string match, not a heuristic — so it has no false-positive rate to speak of when the target renderer is GitHub itself."
+        },
+        {
+          "practice": "Do not rely on MD051 alone for cross-file anchors (`other.md#heading`) — it is explicitly single-document scope, so pair it with a repo-wide checker (remark-validate-links) for that case.",
+          "locus": "doc/md051.md lines 15-21 ('does not match any of the fragments that are automatically generated for headings in a document')",
+          "evidenceForIt": "Stated directly in the rule's own description; confirmed by contrast with remark-validate-links, which explicitly does cover the cross-file case (see that item)."
+        }
+      ]
+    },
+    {
+      "id": "markdownlint-md052",
+      "opened": true,
+      "evidence": "raw.githubusercontent.com DavidAnson/markdownlint (main) doc/md052.md, full file, 54 lines, fetched via gh api repos/DavidAnson/markdownlint/contents/doc/md052.md",
+      "whatItIs": "markdownlint rule MD052 / alias reference-links-images.",
+      "method": "Markdown reference syntax (`[text][label]`, `[label][]`, `[label]`, and image equivalents) resolves at render time against a `[label]: url` definition. MD052 walks the document's link/image reference nodes and definition nodes and flags any reference whose label has no matching definition. 'Shortcut' syntax (`[label]` with no explicit second bracket) is excluded by default because it's syntactically ambiguous with plain bracketed text (lines 33-40); `shortcut_syntax: true` turns that on at the cost of firing on any bracketed text that happens to look like a label. `ignored_labels` (default `[\"x\"]`) exempts GFM task-list checkboxes.",
+      "measures": "Reference-style links/images with an undefined label — a rendering defect, not just style: the doc states plainly that an undefined label 'displays as text with brackets' instead of a working link (lines 30-33), i.e. the reader sees literal `[text][label]` on the page.",
+      "verdict": "compose",
+      "weaknesses": "Purely syntactic — exact label string match, no ambiguity once shortcut syntax is excluded, so this is as close to zero-false-positive as a linter rule gets for full/collapsed syntax. The default-off shortcut-syntax handling is a real recall gap: any `[Term]`-style shortcut reference with a missing definition is invisible unless `shortcut_syntax` is explicitly enabled, and enabling it produces noise on ordinary bracketed prose.",
+      "practices": [
+        {
+          "practice": "Treat an MD052 hit as a rendering-visible findability defect worth auto-failing on, independent of reader judgment — 'no working link, visible brackets' is not a matter of style.",
+          "locus": "doc/md052.md lines 30-33",
+          "evidenceForIt": "Directly stated behavior of the reference-link fallback rendering; deterministic label-match check."
+        },
+        {
+          "practice": "If the corpus uses shortcut references (`[Term]`) as a citation style, enable `shortcut_syntax` deliberately and expect to spend time escaping intentional bracketed prose (`\\[example\\]`) rather than leaving the default off silently under-reporting.",
+          "locus": "doc/md052.md lines 33-41",
+          "evidenceForIt": "Stated tradeoff in the rule doc itself (ambiguity is the documented reason for the default)."
+        }
+      ]
+    },
+    {
+      "id": "remark-validate-links",
+      "opened": true,
+      "evidence": "raw.githubusercontent.com remarkjs/remark-validate-links (main) readme.md, first ~200 lines, fetched via gh api repos/remarkjs/remark-validate-links/contents/readme.md",
+      "whatItIs": "remark (unified) plugin, `remark-validate-links`, that checks markdown links/images against files and headings actually present in a Git repository; also ships as part of the remark CLI pipeline.",
+      "method": "Parses every markdown file's links, images, and definitions to an AST, resolves relative paths against the repo's file tree and Git remote, and for `#fragment` links regenerates heading slugs (the same class of algorithm as MD051) to check they exist — in the target file for local `#frag` links, and (CLI only) in other files for `other.md#frag` links. It explicitly does not fetch or check any external, non-repo URL — README states scope is 'local files and headings in a Git repo' and that it works fully offline.",
+      "measures": "Dead relative file links (`[x](missing-example.js)`), dead in-repo heading fragments both same-file and cross-file, and (repo-hosted case only) fully-qualified URLs that resolve back to files/headings in the same hosted repo (e.g. a github.com/owner/repo/... URL). Does not check reference-definition-less shortcuts (that's `remark-lint-no-undefined-references`) or external dead links (that's `remark-lint-no-dead-urls`, a different, network-based plugin the README explicitly points to as a non-goal).",
+      "verdict": "compose",
+      "weaknesses": "The README is explicit that the JS API and the CLI have different coverage: the API 'checks links to headings and files but does not check whether headings in other files exist,' only the CLI does full cross-file heading resolution (example: `readme.md#no-such-heading` is warned by CLI, not by the plain API call — readme.md 'Use' section, around the `console.log(reporter(file))` example and the note immediately below it). So picking the API integration path silently loses the cross-file case that is this tool's main advantage over MD051. Entirely offline/deterministic otherwise — no rate limits, no flakiness.",
+      "practices": [
+        {
+          "practice": "Use the remark-validate-links CLI, not just the programmatic API, when the goal is repo-wide cross-file heading/anchor resolution — the API alone reproduces roughly what MD051 already does per-file.",
+          "locus": "readme.md 'Use' example and the note beneath it ('the remark CLI is able to do that')",
+          "evidenceForIt": "Stated directly by the maintainers as an API/CLI capability gap, with a worked example distinguishing the two (missing-heading in another file only caught by CLI)."
+        },
+        {
+          "practice": "Layer remark-validate-links after MD051/MD052 for local (in-repo) link/anchor coverage before ever going to network-based checking — it is offline, so it can run on every commit without flakiness or rate limits.",
+          "locus": "readme.md 'When should I use this?' section",
+          "evidenceForIt": "Stated design goal ('can work offline... fast en prone to fewer false positives') contrasted explicitly against other link checkers in the same paragraph."
+        }
+      ]
+    },
+    {
+      "id": "lychee",
+      "opened": true,
+      "evidence": "raw.githubusercontent.com lycheeverse/lychee (master) README.md (967 lines, fetched in full) and docs/TROUBLESHOOTING.md, both via gh api contents endpoint",
+      "whatItIs": "lychee, a Rust CLI/library/GitHub Action that checks links (HTTP(S), mail, local files) inside Markdown, HTML, reStructuredText, and plain text, by issuing real network requests.",
+      "method": "Walks source files (or crawls a site) extracting links, then issues HTTP requests (default method GET, README line 796) per link, respecting concurrency limits, retries/backoff, and per-host throttling. Anchor/text-fragment checking is a separate opt-in mode (`--include-fragments`, README lines 612-624): when enabled, it fetches the response body (only available for a GET, not a HEAD — line 794) and looks for the fragment ('target content needs to be Markdown or HTML and follow common conventions'; JS-rendered anchors are explicitly out of scope, line 623-624) — so it can check local file anchors and remote page anchors with the same mechanism, unlike MD051/remark-validate-links which only handle local repo content.",
+      "measures": "Dead external URLs (network-unreachable, 4xx/5xx) and, when `--include-fragments` is set, dead anchor/text fragments on both local files and live remote pages. Also flags unreachable mail addresses via a third-party API when `--include-mail` is set (TROUBLESHOOTING.md 'Unreachable Mail Address').",
+      "verdict": "compose",
+      "weaknesses": "Reliability is network-dependent and self-documented as such: GitHub rate-limits aggressively enough that the tool prints a specific warning telling the operator to supply a `GITHUB_TOKEN` (TROUBLESHOOTING.md 'GitHub Rate Limiting'); some sites need custom `Accept`/other headers or they 404 (TROUBLESHOOTING.md 'Website Expects Custom Headers', citing a live crates.io issue); some sites return non-200 success codes needing an `--accept` allowlist. Fragment checking silently degrades to 'not checked' if the request method that succeeded was HEAD rather than GET (README line 794) — a config-dependent false negative that produces no warning. None of this makes it wrong when it reports a break, but it can under-report (missed fragment checks) or need iteration to stop over-reporting (rate limits, headers) before it's trustworthy as an unattended gate.",
+      "practices": [
+        {
+          "practice": "Use lychee only for the subset MD051/remark-validate-links cannot cover — external URLs and, optionally, fragments on remote pages — rather than as the primary local anchor checker; local anchors are cheaper and fully deterministic via the offline tools.",
+          "locus": "README.md lines 255-259 (feature comparison table: local link checkers to the left lack external URL + fragment support that lychee has)",
+          "evidenceForIt": "Direct feature-matrix comparison against markdown-link-check, linkchecker, etc., published by lychee's own maintainers."
+        },
+        {
+          "practice": "If wiring lychee into a CI/audit gate, budget for a `GITHUB_TOKEN`, explicit `--accept` codes, and retry/backoff — do not treat a lychee failure as ground truth without first checking it isn't rate-limiting or a missing-header false alarm.",
+          "locus": "docs/TROUBLESHOOTING.md 'GitHub Rate Limiting' and 'Unexpected Status Codes' and 'Website Expects Custom Headers' sections",
+          "evidenceForIt": "These are documented, named failure modes from the maintainers' own troubleshooting guide, with concrete error text and a linked live example (crates.io returning 404 without an Accept header)."
+        },
+        {
+          "practice": "If fragment-accuracy matters, force `--method get` (or `get,head` order reversed) rather than trusting the default fallback chain, since a successful HEAD silently skips fragment verification.",
+          "locus": "README.md line 794",
+          "evidenceForIt": "Explicit documented behavior, not inferred."
+        }
+      ]
+    },
+    {
+      "id": "languagetool-confusionset",
+      "opened": true,
+      "evidence": "github.com/languagetool-org/languagetool (master), files read in full or near-full via gh api: languagetool-core/.../rules/ngrams/ConfusionProbabilityRule.java (401 lines), languagetool-core/.../rules/ConfusionSet.java (97 lines), languagetool-language-modules/en/.../resource/en/confusion_sets.README, and confusion_sets.txt (sampled first ~40 of several thousand lines); cross-checked against dev.languagetool.org/finding-errors-using-n-gram-data via WebFetch (page summarized by a helper model, not read raw — treat that one source as secondary corroboration only, the Java source and .txt data file are the primary evidence)",
+      "whatItIs": "LanguageTool's `ConfusionProbabilityRule` (abstract base, subclassed per language), the engine behind its homophone/near-word 'statistics_suggest' matches — e.g. their/there, accept/except.",
+      "method": "Each language ships a `confusion_sets.txt` of word pairs/sets, each with a hand-tuned `factor` (ConfusionSet.java lines 34-64: 'the factor that one string must be more probable than the other to be considered a correction'). At match time, for every real word in the sentence that appears in some confusion pair, the rule looks up the 3-gram (or 4-gram) probability of the actual sentence context with the word as written, and with the alternative substituted, using a pre-built Google Books n-gram language model (ConfusionProbabilityRule.java lines 321-337). It flags the word only if `p(alternative) > p(actual) * factor` (line 336) — i.e. only when the alternative is not just more likely but more likely by the pair-specific safety margin baked into `factor`. Additional guards (anti-patterns, local exceptions, uppercase-only-at-sentence-start handling) suppress known false-alarm shapes (lines 154-193).",
+      "measures": "Confusable real-word-for-real-word substitutions (homophones like their/there/they're, near-misses like accept/except, adapting/adopting) that are invisible to spell-checkers because both words are correctly spelled. Not a link/anchor/structural check — this is a word-choice/factual-error class, closer to the audit's 'lie' failure category than to 'findability'.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Every pair in confusion_sets.txt carries its own measured precision/recall from evaluation on Wikipedia/Tatoeba/Enron samples (confusion_sets.README lines 12-15, e.g. sampled lines from confusion_sets.txt: 'accept -> except; ... p=0.998, r=0.659, ... fp=2, fn=646, tp=1248, tn=1987'). Precision is generally tuned very high (often ≥0.99) by design — the factor is deliberately set to trade recall for precision ('Use a higher value for better precision but lower recall,' confusion_sets.README) — but recall is frequently low-to-moderate (0.14-0.97 in the sampled lines), meaning it is a low-noise, high-miss-rate net: it rarely cries wolf but also misses many real swaps. Operationally heavy: requires ~8GB of pre-built n-gram data per language and 'a fast disk, i.e. an SSD' (dev.languagetool.org page, via WebFetch), and this n-gram mechanism is only available for English, German, French, and Spanish (same source) — not something to self-host casually for a lightweight repo-audit tool.",
+      "practices": [
+        {
+          "practice": "If a confusable-word check is wanted in the audit pipeline, don't rebuild the corpus — call LanguageTool's hosted API (which already carries the n-gram model) rather than shipping the 8GB local dataset, and only for English/German/French/Spanish docs.",
+          "locus": "confusion_sets.README lines 1-16; ConfusionProbabilityRule.java lines 62-73 (cache loads pre-built pairs, expects a resource-broker-provided n-gram LanguageModel already available)",
+          "evidenceForIt": "Data-size and disk-speed requirement stated directly on the mechanism's own docs page (via WebFetch); language limitation is stated on the same page."
+        },
+        {
+          "practice": "Treat any confusion-set-style pre-filter (LanguageTool's or a custom one) as safe to auto-flag without a reader because pairs are tuned for high precision — but do not treat a clean pass as proof the text has no homophone errors, since recall is often far below 1.0.",
+          "locus": "confusion_sets.txt sample lines (e.g. 'adapting;adopting;1000000 # p=0.991, r=0.156...') and ConfusionProbabilityRule.java line 336 (`p2 > p1 * factor`)",
+          "evidenceForIt": "Measured, per-pair, and published by the maintainers in-line with the data itself, not asserted from outside."
+        }
+      ]
+    }
+  ],
+  "groupNotes": "Assignment: open primary sources for markdownlint MD051/MD052, remark-validate-links, lychee, and languagetool's ConfusionSet n-gram mechanism, and answer specifically whether a link/anchor checker could pre-empt findability failures before spending a reader on them. All five sources were opened directly (raw file contents via gh api, decoded from base64; Java source read in full for the relevant classes) except one corroborating claim (dev.languagetool.org's n-gram page) which went through WebFetch's summarizing model rather than raw text — flagged as secondary in that item's evidence field, with the Java source and confusion_sets.txt/README treated as the primary record.\n\nAnswer to the pre-empt question: yes, in a tiered way, and the tiers matter. MD051 (same-file heading anchors) and MD052 (reference-link/image label definitions) are purely deterministic, offline, zero-flake checks — a hit is a provable structural defect (dead pointer or literal visible brackets), not a judgment call, so they can safely auto-fail before a reader is spent, with no false-positive budget to worry about on GitHub-rendered docs. remark-validate-links CLI extends that same offline determinism to cross-file links/anchors within the repo — the one gap MD051 leaves open (it is explicitly single-document scope) — and is the piece a checker pipeline would be missing without it. lychee is the only one of the four that reaches external URLs and (optionally) fragments on live remote pages, but it trades determinism for network reality: it is explicitly rate-limited (GitHub), header-sensitive, and its fragment check silently no-ops if the underlying request succeeded via HEAD rather than GET — so it is useful as a smoke test but not something to treat as ground truth without operational hardening (token, retries, accept-codes). None of the four link/anchor tools catch the 'placement' or 'lie' failure categories the audit also cares about — they only pre-empt the specific findability subtype where the reader's target is a provably broken pointer.\n\nLanguageTool's ConfusionSet/n-gram mechanism is a different animal entirely — not a link checker, and only tangential to the CONTEXT's 'findability' framing. It's included because the task named it explicitly; it's best understood as a possible low-noise pre-filter for the 'lie' category (a homophone/near-word typo produces a factually wrong sentence) rather than anything about links. It is real, measured (every word pair in its data file ships its own precision/recall from a held-out evaluation), and expensive to self-host (8GB corpus, SSD, 4 languages only) — so 'steal-a-part' (the idea of pair-specific, precision-tuned confusable-word lists with a measured factor) rather than 'compose' (running the actual LanguageTool n-gram engine) is the honest verdict for a small plugin.\n\nNot reached: I did not look at markdownlint's config-schema to confirm MD051/MD052 are on by default (the doc pages don't state a default-off flag the way other rules sometimes do, so I treat 'on by default' as a hypothesis, not proven); I did not run any of these tools, only read their rule/mechanism source, so all reliability claims are the maintainers' own stated/measured figures, not something I independently reproduced."
+}

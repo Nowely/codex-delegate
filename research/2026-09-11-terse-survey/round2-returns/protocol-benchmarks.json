@@ -1,0 +1,318 @@
+{
+  "items": [
+    {
+      "id": "qasper",
+      "url": "https://aclanthology.org/2021.naacl-main.365/",
+      "opened": true,
+      "evidence": "arXiv LaTeX source downloaded and read directly: /tmp/terse-research/qasper-src/sections/dataset.tex:1-33, analysis.tex:1-62, baselines.tex:9,15, experiments.tex:1-46. Official scorer read in full: /tmp/terse-research/qasper_evaluator.py:12-134 (raw from allenai/qasper-led-baseline scripts/evaluator.py). Data record shape inspected from fixtures/data/qasper_sample_small.json via python. PDF at aclanthology.org/2021.naacl-main.365.pdf downloaded but not text-extractable on this machine (no poppler/pypdf); the LaTeX source is the same paper and is what I quote.",
+      "whatItIs": "NAACL 2021 dataset: 5049 information-seeking questions over 1585 NLP papers. Two decoupled human roles. 25 workers wrote questions after seeing ONLY title+abstract, explicitly instructed to ask things not answerable from the title/abstract but expected to be answered somewhere in the paper (dataset.tex:18); they picked papers themselves through a search interface so they'd actually care (dataset.tex:13-17). A disjoint set of 51 workers answered, seeing title, abstract, question, full text, figures and tables, and producing three things: an answerable yes/no decision, a MINIMAL evidence set (possibly discontiguous paragraphs, figures, tables), and a concise answer tagged extractive / yes-no / abstractive (dataset.tex:23-31). Answerers passed a CrowdAQ qualification exam and tutorials; failures were excluded or retrained (dataset.tex:32-33). Workers were paid per hour, not per question, explicitly to prioritise quality over quantity (dataset.tex:10). Each question record carries the writer's profile: nlp_background, topic_background, paper_read, search_query, question_writer (fixture JSON).",
+      "measures": "Answer-F1 = SQuAD token-level F1 of predicted answer against each reference, max over references, multi-span answers joined with commas (baselines.tex:9; evaluator.py:34-47,114-121). Evidence-F1 = set F1 over the chosen paragraphs/figures/tables, max over references (baselines.tex:9; evaluator.py:50-60), with the special case that empty prediction + empty gold scores 1.0, i.e. correctly saying 'unanswerable' is credited (evaluator.py:51-53). A missing prediction scores 0 (evaluator.py:109-113). Human lower bound computed on the 40% of test questions with >=3 references by scoring each reference against the others: 60.9 Answer-F1, 71.6 Evidence-F1 (baselines.tex:15).",
+      "verdict": "compose",
+      "weaknesses": "Honest comparison with our design: QASPER's key is written by humans FROM the document under test, so it measures the reader model, not the paper — the paper cannot be wrong by construction. Ours derives the key from code, independent of the document, so a wrong document scores low; that is the one thing QASPER structurally cannot do, and it is the core of our audit. Second: their own key is imperfect — a manual audit of 100 multi-answer questions found only 75.8% of answers correct, 98% of questions had at least one correct answer (analysis.tex:61); answerability agreement 90%, evidence-type agreement 84% (analysis.tex:58-59). Third: token-F1 is a bad correctness proxy for free-form answers — the human lower bound on abstractive answers is only 39.71 F1 versus 58.92 extractive (experiments.tex:19), i.e. two correct human answers disagree at the string level; this is direct published evidence against string-overlap scoring and for a binary judge. Fourth: 10.2% of questions are unanswerable and 3.0% of answerable ones have NO evidence because the answer is 'No' justified by the absence of a mention (analysis.tex:52) — absence-as-evidence is a case our truth pass will hit constantly and has no rule for.",
+      "practices": [
+        {
+          "practice": "Split question-writing from answering across different people/agents, and show the question-writer only the surface a real reader enters through (title+abstract there; README first screen / skill frontmatter for us). Instruct them to ask only what that surface does NOT answer but the document ought to.",
+          "locus": "/tmp/terse-research/qasper-src/sections/dataset.tex:10,18",
+          "evidenceForIt": "Argued as a design principle and supported by measurement: 200 sampled questions were hand-classified general vs paper-specific by two experts (Cohen kappa 0.94) and 67% were specific to the paper, which they present as proof the setup produced genuinely anchored questions rather than template trivia (analysis.tex:44-45).",
+          "costAndCollision": "Cheap: one extra cheap-model role in the audit, no new pass. Collides with nothing in terse; it tightens the existing 'questions from the reader's decisions' step."
+        },
+        {
+          "practice": "Attach a reader profile to every question as data: prior expertise level, familiarity with the topic, whether they had read the document before, and what they searched for. Keep it in the record so failures can be sliced by reader type.",
+          "locus": "qasper fixture record fields nlp_background / topic_background / paper_read / search_query / question_writer (allenai/qasper-led-baseline fixtures/data/qasper_sample_small.json); paper reports 94% of abstracts were seen for the first time (dataset.tex:19)",
+          "evidenceForIt": "Asserted as method; the 94% figure is measured and used to argue the questions are genuinely information-seeking rather than recall.",
+          "costAndCollision": "Near-zero cost — five fields per question. Our revise pass already builds a reader profile; this makes the profile machine-checkable instead of prose, and lets the audit report 'which reader failed'."
+        },
+        {
+          "practice": "Make the answerer produce three separate artefacts per question, not one: (1) an explicit answerable / not-answerable verdict, (2) the MINIMAL evidence set — the smallest set of whole paragraphs (or figure/table) that contains the answer, (3) the concise answer, tagged by form (extracted span / yes-no / written-in-own-words).",
+          "locus": "/tmp/terse-research/qasper-src/sections/dataset.tex:25-31",
+          "evidenceForIt": "Method, but the evidence layer is what makes their placement/findability analysis possible at all; 55.5% of answerable questions need multi-paragraph evidence and evidence is spread roughly uniformly over sections with no single section holding a majority (analysis.tex:52,55).",
+          "costAndCollision": "One extra field per answer. Directly feeds our lie/placement/findability classification: with the evidence set recorded, 'placement' becomes measurable (answer exists but in the wrong section) instead of judged."
+        },
+        {
+          "practice": "Write explicit tie-break rules for choosing evidence, and check annotator agreement on them: prefer text over figures/tables unless the information exists only there; among candidate paragraphs prefer one that adequately answers, then the earlier one.",
+          "locus": "/tmp/terse-research/qasper-src/sections/dataset.tex:27-28",
+          "evidenceForIt": "Measured consequence: annotators agreed on evidence type in 84.0% of cases, which the authors attribute to these guidelines (analysis.tex:59).",
+          "costAndCollision": "Three lines in the audit prompt. No collision; replaces silent judgement in our findability classification with a stated rule."
+        },
+        {
+          "practice": "Score against MULTIPLE reference answers and take the max, and credit a correct 'the document does not say' as a hit (empty prediction against empty gold = 1.0) rather than scoring it zero.",
+          "locus": "/tmp/terse-research/qasper_evaluator.py:51-53,114-126",
+          "evidenceForIt": "Implemented in the official scorer; 44% of questions carry multiple answers, average 1.6 annotators per question, max 6 (analysis.tex:58).",
+          "costAndCollision": "Multiple references cost extra key-writing. Cheap variant for us: allow the key to list acceptable variants, and make 'not stated' a first-class correct answer so a doc is not punished for a question it was never meant to answer."
+        },
+        {
+          "practice": "Compute a human lower bound on your own instrument before reading model scores: hold out questions with >=3 references, score each reference against the rest, and report that as the ceiling the metric can actually reach.",
+          "locus": "/tmp/terse-research/qasper-src/sections/baselines.tex:15",
+          "evidenceForIt": "Measured: 60.9 Answer-F1 / 71.6 Evidence-F1, explicitly argued to be a lower bound for two named reasons.",
+          "costAndCollision": "For us: have a second competent reader answer the same questions from the same document and score them with the same key. Costs one extra seat per audit. Without it, '6 of 6 right' has no scale."
+        },
+        {
+          "practice": "Audit the answer key itself and publish its error rate: sample ~100 keyed items, have an expert re-derive them, report percent of individual answers correct and percent of questions with at least one correct answer.",
+          "locus": "/tmp/terse-research/qasper-src/sections/analysis.tex:61",
+          "evidenceForIt": "Measured: 207/273 (75.8%) answers correct; 98% of questions had at least one correct answer; 77% had most answers correct.",
+          "costAndCollision": "One extra pass over the key, human or second-model. Collides with terse's 'small steps' only mildly; strongly supports constitution rule 1 (prove, don't assert) — an unaudited key is an asserted key."
+        }
+      ]
+    },
+    {
+      "id": "docbench",
+      "url": "https://github.com/Anni-Zou/DocBench",
+      "opened": true,
+      "evidence": "arXiv LaTeX source downloaded and read: /tmp/terse-research/docbench-src/neurips_data_2024.tex:145-362 (construction, statistics, taxonomy, evaluation setup, judge-agreement table) and :436-497, :620-723 (appendix prompts). Repo files read in full: /tmp/terse-research/docbench_README.md, docbench_evaluate.py:79-121, docbench_prompt.txt:1-23. I did NOT open the dataset itself (hosted on Google Drive) and the exact percentage split figures live in a PDF figure I did not render — the percentages I quote are from the prose at :295-309.",
+      "whatItIs": "229 real PDFs (academia, finance, government, laws, news) with 1102 questions. Pipeline: crawl documents; generate QA with GPT-4 (text-only) and GPT-4V (tables/figures + their surrounding text); then have human annotators hand-write 350 QA pairs deliberately covering the types the generator rarely produces — metadata questions and unanswerable ones (:193-195). Quality check is three-stage: GPT-4 auto-filters questions that are excessively lengthy, unnatural or impractical; manual review of question quality and answer accuracy; then 7 domain practitioners review and refine their own domain (:204). Taxonomy is four independent axes, not one: QA-pair type (text-only 37.4% / multimodal 27.9% / meta-data 23.4% / unanswerable 11.3%, :295), question word (wh- 58.6% / yes-no 22.1% / how 18.8% / why 0.5%, :301), answer type (numerical 37.4% / textual 35.7% / boolean 17.3% / other 9.6%, :308), and domain.",
+      "measures": "Binary correctness by LLM judge, averaged into plain Accuracy (:319,:324). One judge call per item; the prompt carries type-conditional criteria (yes/no: does the polarity match; short answer: do numbers, nouns, dates match; abstractive: same meaning and same key information, wording may differ) and forces a bare 0/1 with no prose (docbench_prompt.txt:4-14,22-23). The judge receives question, system answer, reference answer AND the reference evidence text (docbench_evaluate.py:94-96) — it can consult the source, not just the key. Explicit guard: an empty or '0' system answer scores 0 (docbench_prompt.txt:15).",
+      "verdict": "steal-a-part",
+      "weaknesses": "Questions are generated by GPT-4 from the very text under test, so the benchmark is circular for anything except reader ability — mitigated only by the 350 hand-written pairs. The claim that adding Easy/Medium/Hard difficulty labels to the generation prompt raises quality is pure assertion ('we observe', :667), no measurement. The scoring is 0/1 with no partial credit and no evidence/locus output, so a failure tells you nothing about WHY — our lie/placement/findability split is strictly richer. Human accuracy is 81.2% overall (:382), so the key is not reachable even by people; scoring a six-question audit 6/6 is inside the noise of an instrument like this.",
+      "practices": [
+        {
+          "practice": "Deliberately plant unanswerable questions in the question set (~10%) — questions whose answer the document genuinely does not contain — and score any confident answer as a failure.",
+          "locus": "/tmp/terse-research/docbench-src/neurips_data_2024.tex:295-296, :487-489",
+          "evidenceForIt": "Measured and discriminative: unanswerable is the axis that separates systems most sharply — GPT-4 as a file-reading system scores 37.1% on unanswerable while the same base model in a parse-then-read pipeline scores 70.2% (:489); most systems 'falter when faced with unanswerable questions, exhibiting a lack of fidelity'.",
+          "costAndCollision": "Adds ~1 question per 8 to the audit; needs the key to record 'not in this document' as the right answer. Collides with nothing; it directly measures the failure mode our truth pass cares about (a document that invites a confident wrong answer)."
+        },
+        {
+          "practice": "Give the judge the reference EVIDENCE TEXT alongside the reference answer, not the reference answer alone, and tell it to consult the evidence only when the comparison is unclear.",
+          "locus": "/tmp/terse-research/docbench_evaluate.py:94-96; /tmp/terse-research/docbench_prompt.txt:13,20",
+          "evidenceForIt": "Measured indirectly: this judge configuration agrees with human annotators on 98.0% of 200 sampled answers, versus 67.0% for GPT-3.5 with the same prompt and 55.0% for string matching (:341-357 table).",
+          "costAndCollision": "Free — we already have the code spans behind each key item. Collides with nothing."
+        },
+        {
+          "practice": "Put type-conditional criteria in ONE judge prompt (yes/no: polarity; short answer: numbers, proper nouns, dates must match; long/abstractive: same meaning and same key information, wording free) and demand a bare 0/1 with no explanation.",
+          "locus": "/tmp/terse-research/docbench_prompt.txt:4-14,22-23",
+          "evidenceForIt": "Measured: 98% human agreement (:320). Note this is one judge model on one sample of 200, no inter-judge study.",
+          "costAndCollision": "One cheap call per question, which is what our audit already spends. Mild collision with our preference for reasons: a bare 0/1 gives no failure class, so we would need a second field — their own note is that score-only avoids verbosity bias."
+        },
+        {
+          "practice": "Classify every question on several independent axes at once (what it asks for, what modality the answer lives in, what form the answer takes) and report accuracy per axis rather than one number.",
+          "locus": "/tmp/terse-research/docbench-src/neurips_data_2024.tex:295-309",
+          "evidenceForIt": "Measured payoff: per-type breakdown is what exposed that metadata questions sit below 55% for all systems (:459) and that unanswerable is the discriminating axis — a single accuracy number hides both.",
+          "costAndCollision": "Two extra tags per question. Fits our failure taxonomy; the risk is over-slicing a six-question audit into cells of size one."
+        },
+        {
+          "practice": "After generating questions automatically, have a human (or a differently-briefed agent) hand-write the question types the generator systematically misses — here metadata and unanswerable — rather than trusting coverage to the generator.",
+          "locus": "/tmp/terse-research/docbench-src/neurips_data_2024.tex:195,:204",
+          "evidenceForIt": "Argued, with the gap it fixes made explicit: those two types are 34.7% of the final set and would not have existed otherwise (:296).",
+          "costAndCollision": "One review step per audit. Aligns with our 'breadth now' goal; the cost is the owner's time or one more seat."
+        }
+      ]
+    },
+    {
+      "id": "ragas-faithfulness",
+      "url": "https://github.com/explodinggradients/ragas/blob/main/src/ragas/metrics/_faithfulness.py",
+      "opened": true,
+      "evidence": "Read in full from raw.githubusercontent.com: /tmp/terse-research/faithfulness.py:1-277 (legacy, still the exported default at :276), /tmp/terse-research/coll_faith_metric.py:1-163 (v2 'collections' implementation), /tmp/terse-research/factual_correctness.py:31-96,180-308, /tmp/terse-research/quoted_spans.py:1-124. I did not open the RAGAS paper (arXiv 2309.15217); everything below is from the code.",
+      "whatItIs": "Two LLM calls. Call 1 (StatementGeneratorPrompt, _faithfulness.py:34-55): 'analyze the complexity of each sentence in the answer. Break down each sentence into one or more fully understandable statements. Ensure that no pronouns are used in any statement' — output is a flat list of atomic, self-contained statements. Call 2 (NLIStatementPrompt, :73-130): all retrieved contexts are joined with newlines into one premise and ALL statements are judged in a single call; for each statement the model returns an object whose field order is statement (word-by-word), reason, verdict 0/1 (:58-61) — the schema forces the reason to be emitted before the verdict. Verdict is 1 only if the statement 'can be directly inferred' from the context. Few-shot examples teach three distinct failure shapes: contradicted (major stated as CS, claim says Biology), absent-but-plausible (a course not in the list; a part-time job never mentioned), and unrelated-context (Einstein vs photosynthesis). FaithfulnesswithHHEM (:217-273) swaps call 2 for a local vectara/hallucination_evaluation_model NLI classifier in batches of 10 — same decomposition, no judge LLM.",
+      "measures": "score = (number of statements with verdict 1) / (total statements) (_faithfulness.py:182-194). If the decomposer returns no statements the score is NaN with a logged warning, never 0 (:188-192; same in v2 at coll_faith_metric.py:119-121,148-151) — an un-decomposable answer abstains instead of failing. Sibling metric FactualCorrectness (factual_correctness.py:256-296) runs the same decompose+NLI in BOTH directions: claims of the response verified against the reference give precision, claims of the reference verified against the response give recall, combined by F-beta; mode is selectable precision/recall/f1. Its decomposition is parameterised on two orthogonal knobs with worked examples for each of the four combinations: atomicity (how finely a sentence is split) and coverage (how much of the sentence survives) (:40-96,:194-218). quoted_spans.py is deterministic, no LLM: pull every quoted span of >=3 words out of the answer, normalise whitespace and case, substring-match against the joined sources, report matched/total (:32-56,:101-119).",
+      "verdict": "compose",
+      "weaknesses": "A verdict of 0 does not distinguish 'contradicted by the code' from 'not stated in the code I retrieved' — for our truth pass those are a lie and a possible retrieval miss, and they deserve different repairs. The verdict carries a reason but no LOCUS: nothing points at the context sentence that settled it, so a failure cannot be turned into a diff (QASPER's evidence set and Code-QA-Bench's key-file citations both do better). Joining all contexts into one premise (_faithfulness.py:157) means the metric silently blames the answer for retrieval failures. The decomposition itself is an unaudited LLM artefact — the atomicity/coverage knobs exist precisely because the split is arbitrary, and nothing checks that the union of claims equals the original text. Single call for all statements invites position effects. There is no validation study in the code; the choice of 'directly inferred' as the bar is asserted by prompt text alone.",
+      "practices": [
+        {
+          "practice": "Decompose the document into claims that stand alone: split each sentence into one or more fully understandable statements and forbid pronouns, so every claim can be checked without its neighbours.",
+          "locus": "/tmp/terse-research/faithfulness.py:37 (instruction) and :46-52 (worked example)",
+          "evidenceForIt": "Asserted in the prompt, but load-bearing and widely deployed; the no-pronoun rule is the operative trick — it is what makes a claim independently checkable against code.",
+          "costAndCollision": "One cheap call per document section. Our truth pass already extracts behaviour claims; this pins down HOW to cut them. Collides with terse only in that atomic claims are verbose — keep them internal, never emit them to the reader."
+        },
+        {
+          "practice": "Make the judge emit, per claim, a triple (claim quoted word-for-word, reason, verdict) in that field order, so the reason is generated before the verdict rather than rationalising it.",
+          "locus": "/tmp/terse-research/faithfulness.py:58-61",
+          "evidenceForIt": "Asserted by schema design (pydantic field order determines generation order for structured output); no measurement in the repo.",
+          "costAndCollision": "Free. Fits constitution rule 1 — the per-claim reason IS the evidence a finding needs."
+        },
+        {
+          "practice": "Teach the judge the three distinct ways a claim fails, with one example each: contradicted by the source, plausible but absent from the source, and unrelated to the source. Do not rely on a bare 'is it supported?' instruction.",
+          "locus": "/tmp/terse-research/faithfulness.py:77-130",
+          "evidenceForIt": "Asserted (few-shot design), but the three examples map almost exactly onto our lie / placement / findability split, which is independent corroboration that three is the natural number of failure kinds.",
+          "costAndCollision": "Prompt length only. Suggests our 'lie' class should itself split into contradicted-by-code versus not-in-code-at-all — these need different repairs."
+        },
+        {
+          "practice": "Score as supported/total, and return an explicit abstain (NaN) — never zero — when decomposition produces nothing to check.",
+          "locus": "/tmp/terse-research/faithfulness.py:182-194; /tmp/terse-research/coll_faith_metric.py:119-121,148-151",
+          "evidenceForIt": "Implemented in both generations of the code and guarded by a logged warning; asserted, not measured.",
+          "costAndCollision": "Free. Protects our audit from scoring an empty or unparseable section as a failure."
+        },
+        {
+          "practice": "Run the claim check in both directions: doc claims verified against the code give precision (lies); code behaviours verified against the doc give recall (omissions). Report both, combined by F-beta if one number is needed.",
+          "locus": "/tmp/terse-research/factual_correctness.py:256-296",
+          "evidenceForIt": "Implemented and parameterised; no validation study in the repo.",
+          "costAndCollision": "Doubles the truth-pass LLM cost and needs a code-side claim extractor we do not have. This is the single biggest missing half of our audit: today we can catch a doc that lies, not a doc that omits the flag every reader needs."
+        },
+        {
+          "practice": "Expose the decomposition granularity as two explicit knobs — atomicity (how finely you cut) and coverage (how much you keep) — with a worked example per setting, instead of leaving 'atomic claim' to taste.",
+          "locus": "/tmp/terse-research/factual_correctness.py:40-96,194-218",
+          "evidenceForIt": "Implemented with four named settings and per-setting examples; the existence of the knobs is itself the admission that a single 'atomic' split is ill-defined. Not measured.",
+          "costAndCollision": "Prompt examples only. For us, low atomicity + high coverage is the terse-compatible default: fewer, fuller claims, no exploded list to wade through."
+        },
+        {
+          "practice": "Before spending a judge call, run a deterministic verbatim check: extract every quoted span of >=3 words from the document, normalise whitespace and case, and require a substring match in the source.",
+          "locus": "/tmp/terse-research/quoted_spans.py:32-56,101-119",
+          "evidenceForIt": "Implemented, zero-LLM, deterministic; no study.",
+          "costAndCollision": "Milliseconds, no model. Directly applicable to our docs: every quoted CLI flag, command, path, env var or error string must appear verbatim in the code. Does not collide with the rejected 'prose linter as a gate' — it checks facts against code, not style against taste."
+        },
+        {
+          "practice": "Keep the decomposition but allow the verdict step to be a cheap local NLI classifier instead of a frontier judge, batched.",
+          "locus": "/tmp/terse-research/faithfulness.py:217-273",
+          "evidenceForIt": "Implemented (vectara/hallucination_evaluation_model); no accuracy comparison in the repo.",
+          "costAndCollision": "Would add a transformers dependency and a model download — collides hard with terse's 'no heavy deps, Node floor' posture. Record, do not adopt."
+        }
+      ]
+    },
+    {
+      "id": "code-qa-bench",
+      "url": "https://arxiv.org/abs/2605.29277",
+      "opened": true,
+      "evidence": "arXiv LaTeX source downloaded and read directly: /tmp/terse-research/src-2605.29277/paper_concise.tex:98-176 (design), :179-318 (five-stage pipeline), :321-399 (conditions, scoring, judge), :459-524 (results tables), :612-662 (ceiling, discussion, limitations). Found via WebSearch; the source, not the search summary, is what I quote. Code/data are said to be open-source (:675) but I did not locate or open the repository.",
+      "whatItIs": "528 code-derivable + 100 doc-dependent repository QA tasks over 10 pinned SWE-Bench Python repos. Two ideas matter for us. First, ANSWER-FIRST generation (:183-184): an agent with read_file / list_directory / search_code explores the real source and writes a gold answer with >=3 code-evidence citations and validated file paths (:281-291), and only THEN a second phase derives a short (~25 word) conversational question plus a rubric of key points from that verified answer (:310-318) — 'reducing the risk of ill-posed or unanswerable questions'. Second, DOC-LEAKAGE AUDIT (:293-301): because the reader is later tested on a repo with all documentation stripped, an LLM auditor takes the gold answer plus the code-only key files and classifies EACH CLAIM as Keep (verifiable from code), Remove (documentation-dependent) or Rewrite (partially verifiable); the revised answer replaces the original and the doc-leakage fraction is recorded per task. Documentation removal is deterministic: AST-identified docstrings deleted (with a pass inserted if the body empties), tokenize-identified comments stripped, docs//doc//README*/*.md/*.rst/CHANGELOG*/CONTRIBUTING* deleted (:141-154).",
+      "measures": "Every answer is judged 0-5 on three axes — accuracy (are the factual claims about the code correct), completeness (does it cover the rubric key points), specificity (does it name actual files/functions/classes) — summed and divided by 15 (:358-370). Clarity and reasoning are deliberately NOT scored: 'we care more about whether the agent found the right code and reported accurate facts than about the prose quality' (:378-379). Judge is GPT-5.4, chosen from a different provider and family than the generator (Claude Opus 4.6) to blunt self-evaluation bias; it receives question, gold answer, rubric and the candidate answer, and returns structured JSON (:389-394). Every task is run under three conditions: closed-book (question only), code-only (docs stripped, the primary metric), documented (:328-343). Deltas are the analysis: documented minus code-only = documentation utility; code-only minus closed-book = value of actually reading. Results: on doc-dependent tasks closed-book 0.629, code-only 0.860, documented 0.931, delta_doc +0.071 significant at p<0.003 by paired bootstrap with Bonferroni correction (:473-478); on code-derivable tasks delta_doc is ~0 as predicted (:512-517).",
+      "verdict": "compose",
+      "weaknesses": "Single judge, no inter-judge agreement and no human correlation study — they say so themselves (:656). No human validation of the generated tasks at all (:658). The fact-check gate passes 38.4% and 'warns' 61.6%, and warned tasks are kept — a high warn rate they admit should be tightened (:659). Generator and one evaluatee are the same model family (:438). Specificity saturates at >=4.78 whenever the agent has repo access, so it is effectively a dead axis except closed-book (:381-384). Ceiling effects: three of four models sit at 0.87-0.92 (:622). And the near-zero delta on code-derivable tasks is partly self-confirming, which they concede while arguing the positive delta on doc-dependent tasks is the non-circular half (:641-646).",
+      "practices": [
+        {
+          "practice": "Add a closed-book condition to the audit: ask the same reader model the same questions with NO document at all, and subtract. Only the lift over closed-book counts as something the document did.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:328-353, results at :473-478 and :512-517",
+          "evidenceForIt": "Measured, and large: frontier models score 0.56-0.68 on doc-dependent tasks and 0.44-0.56 on code-derivable tasks with no repository access whatsoever (:473-478,:512-515). Tasks with high closed-book scores are flagged as potentially contaminated (:352).",
+          "costAndCollision": "Doubles the audit's cheap-model calls (one closed-book seat per question). This is the biggest hole in our own 3-right -> 6-right measurement: we never checked how many of the 6 a model could have answered without reading anything. Cost is real; the alternative is a number we cannot defend under rule 1."
+        },
+        {
+          "practice": "Audit the answer key for source-leakage before using it: hand each key claim, together with the source of truth (for us, the code), to an auditor that must label it Keep (verifiable from the source), Remove (only knowable from the document under test), or Rewrite (partly verifiable) — then replace the key with the revised version and record the leakage fraction.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:293-301",
+          "evidenceForIt": "Method, but with a falsifiable consequence that was tested and held: after the audit, code-only and documented scores converge on code-derivable tasks (mean delta +0.006) while staying apart on the un-audited doc-dependent set (+0.071, p<0.003) (:512-517,:473-478,:641-646).",
+          "costAndCollision": "One extra pass over the key per audit. Fits our design exactly — our key is supposed to come from code, and this is the check that it actually did. No collision."
+        },
+        {
+          "practice": "Generate the ANSWER first from the source of truth, with cited evidence, and derive the question from the verified answer afterwards — not the reverse.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:183-184,:281-291,:310-318",
+          "evidenceForIt": "Argued ('ensures answer quality is established and verified before a question is derived from it, reducing the risk of ill-posed or unanswerable questions'); supported by the validated pipeline output but not isolated by ablation.",
+          "costAndCollision": "Reorders our audit's key-building; no extra cost. Tension with QASPER: answer-first questions are, by construction, questions someone could answer, while QASPER's question-first design is what produces the 10% genuinely unanswerable ones. Run both and label which questions came from which."
+        },
+        {
+          "practice": "Require the key to cite concrete loci — key file paths plus >=3 code-evidence items naming file and function — and validate the paths against the filesystem, re-prompting when a path does not exist.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:290-291",
+          "evidenceForIt": "Implemented as an automated gate; no isolated measurement.",
+          "costAndCollision": "Cheap and deterministic. Matches constitution rule 1 and gives our findings a diff-able anchor, which ragas' verdicts lack."
+        },
+        {
+          "practice": "Do not score prose quality in a correctness audit. Drop clarity and 'reasoning' as axes; keep only whether the claims are right and whether the key points are covered.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:378-379",
+          "evidenceForIt": "Argued explicitly, and contrasted with SWE-QA's five-dimension rubric. Supported by their own saturation finding: an axis that everyone maxes out (specificity, >=4.78) measures nothing (:381-384).",
+          "costAndCollision": "Free, and it protects our bake-off finding: rubric axes that everyone passes turn the audit into theatre. Collides with any temptation to re-import a published style rubric as scoring."
+        },
+        {
+          "practice": "Use a judge from a different provider/model family than whatever wrote the text or the key, and say so.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:389-397,:438-441",
+          "evidenceForIt": "Measured mitigation: on the primary code-only metric, the non-generator model matches the generator (DeepSeek 0.892 vs Claude 0.891), which they cite as evidence the residual bias is negligible (:440).",
+          "costAndCollision": "We already have a codex seat for exactly this. No new cost; makes the existing seat mandatory for judging rather than optional."
+        },
+        {
+          "practice": "State a falsifiable differential prediction for the benchmark itself (set A should show no gap, set B should show a gap) and report whether both held.",
+          "locus": "/tmp/terse-research/src-2605.29277/paper_concise.tex:303-308,:641-646",
+          "evidenceForIt": "Measured with paired bootstrap, 10k resamples, Bonferroni-corrected alpha=0.003 (:456).",
+          "costAndCollision": "Design discipline, no runtime cost. Directly answers 'how would we know the audit is measuring the document and not the model'."
+        }
+      ]
+    },
+    {
+      "id": "swd-bench",
+      "url": "https://arxiv.org/abs/2604.06793",
+      "opened": true,
+      "evidence": "arXiv LaTeX source downloaded and read directly: /tmp/terse-research/src-2604.06793/Sections/0_abstract.tex:1-5, 3_Method.tex:1-115, 4_Evaluation.tex:1-88, 5_Experimental_Result.tex:1-69. Figures (case study, issue-solving bar chart) not rendered; numbers quoted are from prose. This is the benchmark that scores DOCUMENTATION itself, which was the open part of the brief.",
+      "whatItIs": "4,170 entries over 12 pinned SWE-Bench repos that score a repository's DOCUMENTATION, not a reader. The premise, stated in the abstract, is that existing documentation benchmarks fail because LLM-as-a-judge criteria are vague and the judge has no repository knowledge. Instead: give a reader-LLM only the documentation (retrieved in chunks) and see whether it can do a developer's job. Three tasks, all keyed from mined pull requests, never from the documentation: (1) Functionality Detection — is this functionality present in this snapshot? key = compare PR merge time with snapshot time, True/False (Method:79-87); (2) Functionality Localization — which files implement it? key = the functional files with newly added lines in the PR, excluding /docs and /tests (Method:89-97); (3) Functionality Completion — the functionality description has its WHAT/WHY/HOW technical details replaced by [MASK], fill them in; key = the masked details (Method:99-108). Leakage control: the LLM writing the functionality description is forbidden to mention file paths or repository versions (Method:74). Human calibration: 100 sampled entries, two annotators with 3+ years Python, inter-annotator kappa >90% on every aspect (Method:113). Reader engagement is simulated by retrieval budget — Top-1024 / 2048 / 4096 tokens of documentation (Evaluation:76-84).",
+      "measures": "Task 1: Balanced Accuracy and Matthews Correlation Coefficient (Evaluation:29-39) — MCC because chance on a binary task is not zero. Task 2: macro-averaged F1 and IoU over the predicted vs reference FILE SETS (Evaluation:41-54). Task 3: thresholded Exact Match over the list of details, a detail counting as matched when edit similarity >= tau, reported at tau=1.0 (strict) and tau=0.8 (relaxed) (Evaluation:56-63). No judge model anywhere in the scoring. Key results: a No-Doc control scores 48.68 B-ACC and -3.43 MCC, i.e. chance (Result:5); every documentation method beats it by 5.39-16.22 points B-ACC and 13.03-32.77 MCC; reading more documentation monotonically improves scores across all three budget tiers (Result:32); the ranking of six documentation systems is identical under two different reader models, GPT-4.1 and Gemini-2.5-Pro, though absolute scores differ (Result:34); and the same ranking reappears downstream — SWE-Agent's issue-solving rate goes from 43.86% baseline to 47.37-52.63% depending on whose documentation it was given (Result:52-56).",
+      "verdict": "compose",
+      "weaknesses": "The RQ2 'our strategy beats LLM-as-a-judge' claim rests on ONE case study (pylint-dev/pylint/8824) in which a rubric judge gave two very different documents 5/5 on Completeness and Usefulness while the QA tasks separated them 4/4 vs 0/4 (Result:41-44). That is an anecdote, not a measurement — it agrees with our bake-off result but must not be cited as proof. Functionality descriptions are LLM-written by Claude-Sonnet-4 (Evaluation:68), so the questions inherit that model's framing. Only 480 of 4,170 entries were actually evaluated, for cost (Evaluation:68). The detection key is a proxy: merge-time-before-snapshot means 'present', which ignores later reverts beyond their persistence filter. Exact Match at tau=0.8 edit similarity is a string metric on technical details and will punish correct paraphrase — the same weakness QASPER's abstractive F1 shows.",
+      "practices": [
+        {
+          "practice": "Score a document by what a reader can DO with it, keyed to an external source of truth, rather than by rating the document against criteria. Concretely: can a reader-model, given only the docs, tell whether a capability exists, name the files that implement it, and fill in masked technical details?",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/0_abstract.tex:3-5; Method:60-64",
+          "evidenceForIt": "Measured on three fronts: the No-Doc control sits at chance (Result:5); the ranking is stable across two reader models (Result:34); and the same ranking predicts downstream SWE-Agent issue-solving rates, 43.86% -> 47.37-52.63% (Result:52-56). The head-to-head against a rubric judge is a single case study (Result:41-44).",
+          "costAndCollision": "This IS our audit's thesis, independently validated on 12 repos. Adopting the mask-and-fill task is cheap (deterministic key, no judge). Collides with nothing in terse; it is the strongest external support we have for refusing rubric passes."
+        },
+        {
+          "practice": "Always run a No-Doc control arm and report it next to the score.",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/5_Experimental_Result.tex:5",
+          "evidenceForIt": "Measured: 48.68 B-ACC, -3.43 MCC, 30.34 F1, 18.40 EM at tau=1.0 without documentation, which is what lets them claim the benchmark is not solvable from prior knowledge.",
+          "costAndCollision": "Same cost note as Code-QA-Bench's closed-book arm — and two independent benchmarks converging on this makes it hard to skip. One extra cheap seat per question."
+        },
+        {
+          "practice": "Prefer question forms whose key is mechanical: a boolean with a time-stamp key, a FILE SET scored by F1/IoU, and mask-and-fill of technical details scored by thresholded edit similarity. Score binary tasks with MCC as well as balanced accuracy so chance is visible.",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/3_Method.tex:79-108; 4_Evaluation.tex:29-63",
+          "evidenceForIt": "Measured and discriminative: MCC spreads the methods (best method only 29.35) where raw accuracy would look flat.",
+          "costAndCollision": "No judge calls at all for these forms — cheaper than our current per-question judge. Mask-and-fill needs the key to be written as a description with removable details; that is a change to how we phrase audit questions, not a new pass."
+        },
+        {
+          "practice": "Check that your document score is reader-independent: run the audit with two different reader models and require the RANKING to hold, not the absolute numbers.",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/5_Experimental_Result.tex:34",
+          "evidenceForIt": "Measured: Gemini-2.5-Pro beats GPT-4.1 by 5.04 B-ACC / 2.57 F1 / 2.95 EM on average, yet RepoAgent > DocAgent > AutoDoc > DeepWiki under both.",
+          "costAndCollision": "Doubles reader cost, or: use it once to validate the instrument, then run one reader. Collides with the 'no large fan-outs' rule — this is 2 seats, not 20."
+        },
+        {
+          "practice": "Validate the document metric against a downstream task the owner actually cares about (here: issue-solving rate), and check the ranking survives.",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/5_Experimental_Result.tex:50-56",
+          "evidenceForIt": "Measured on 57 SWE-Bench Verified instances: baseline 43.86%, with documentation 47.37-52.63%, ranking preserved.",
+          "costAndCollision": "Expensive — needs a real task harness. For terse the analogue is cheap: after revise, check that an agent given the revised README completes the repo's own quickstart without asking a question. Worth one experiment, not every run."
+        },
+        {
+          "practice": "Vary how much of the document the reader is allowed to read (fixed token budgets) to simulate a skimming reader versus a thorough one, and report the curve.",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/4_Evaluation.tex:76-84; 5_Experimental_Result.tex:32",
+          "evidenceForIt": "Measured: going 1024 -> 2048 -> 4096 tokens improves every metric monotonically (+2.71/+21.31/+4.31/+4.10/+2.22/+1.65 then +2.02/+11.24/+4.03/+3.71/+1.86/+1.81 relative).",
+          "costAndCollision": "Three runs instead of one. For us the interesting variant is the cheap one: give the reader only the first screen of the README. That measures placement directly — exactly the failure class we already claim to classify."
+        },
+        {
+          "practice": "Forbid the question text from naming file paths or versions, so the reader cannot shortcut the localization answer out of the question itself.",
+          "locus": "/tmp/terse-research/src-2604.06793/Sections/3_Method.tex:74",
+          "evidenceForIt": "Stated leakage control; not separately measured.",
+          "costAndCollision": "One prompt line. No collision."
+        }
+      ]
+    },
+    {
+      "id": "docagent-evaluator",
+      "url": "https://github.com/facebookresearch/DocAgent",
+      "opened": true,
+      "evidence": "Repo files read from raw.githubusercontent.com: /tmp/terse-research/docagent_eval_README.md:1-283 (completeness design and scoring), /tmp/terse-research/docagent_truthfulness.py:29-161 (component extraction + existence check), /tmp/terse-research/docagent_help_desc.py:9-60 (helpfulness aspects and 5-level criteria), plus structure of docagent_helpfulness.py:20-150. I did NOT open the DocAgent paper (arXiv 2504.08725); all statements here come from the code and its README. Found because SWD-Bench evaluates DocAgent as a system (4_Evaluation.tex:22).",
+      "whatItIs": "A three-part documentation quality evaluator shipped with Meta's DocAgent. (1) Completeness: an AST-driven checklist where WHICH sections are required is decided by the code itself — Attributes required iff the class has class/instance variables or enum values, Parameters iff __init__ takes arguments beyond self, Returns iff the function has a return statement, Raises iff a raise can escape uncaught, Examples iff the name is public (no leading underscore) (README:33-62,84-118). (2) Truthfulness: an LLM pulls out every 'non-common (very likely newly-defined in the repository)' class/method/function named in a docstring, explicitly ignoring the example block, and returns a bare list (truthfulness.py:40-59); each name is then checked for existence against the repository's dependency graph, which also flags whether the reference crosses a file boundary (truthfulness.py:121-161). (3) Helpfulness: a conventional 1-5 rubric over four aspects — motivation, usage scenarios, integration, functionality — with per-level criteria and good/poor examples (help_desc.py:9-58), sampled over 50 components and scored by GPT-4o.",
+      "measures": "Completeness = mean over the REQUIRED elements only, each 0 or 1, normalised to [0,1] — a class with summary, description and attributes but no example scores 0.75 (README:120-138). Truthfulness = per-mentioned-identifier existence (plus a cross-file flag), no LLM judgement in the verdict itself. Helpfulness = mean of four 1-5 aspect scores from an LLM judge over a random sample of components where all compared systems produced a docstring (docagent_helpfulness.py:68-105).",
+      "verdict": "steal-a-part",
+      "weaknesses": "Completeness is section-label matching: an element is only detected if the docstring literally starts the section with 'Args:' / 'Returns:' / 'Raises:', and the README names this as a limitation (README:280-282) — that is a docstring-convention gate, close cousin of the prose linters we rejected, and it would score a perfectly clear paragraph zero. The exception analysis is deliberately over-approximate ('assumes any uncaught function call could potentially raise', README:227-231), so 'Raises required' fires too often. Nested functions and __init__ are skipped (README:237,242). The helpfulness rubric is exactly the kind of 1-5 multi-aspect LLM rating our bake-off and SWD-Bench's case study both found undiscriminating. Truthfulness matching is sloppy: `component_name in comp_id.split('.')[-1]` is a substring test, so 'Cache' matches 'InMemoryCache' and any first hit ends the loop (truthfulness.py:148-159) — false negatives on lies.",
+      "practices": [
+        {
+          "practice": "Derive the required-content checklist from the CODE's own shape rather than from a documentation standard: if the function takes parameters, parameters must be documented; if it can raise uncaught, the raise must be documented; if it returns, the return must be; if it is public, an example is required. Score only the elements the code makes required.",
+          "locus": "/tmp/terse-research/docagent_eval_README.md:45-62,84-118,120-138",
+          "evidenceForIt": "Implemented as deterministic AST analysis; asserted, no validation study in the repo. Its conditional nature is the point — a fixed template would demand Raises from a function that cannot raise.",
+          "costAndCollision": "Zero model cost, fully deterministic. Sits in the gap between the rejected 'Diataxis as a required pass' (a doc-shaped template imposed from outside) and nothing at all: the checklist here is generated by the code, so it cannot demand sections the project does not need. That distinction is worth making explicit if we adopt it."
+        },
+        {
+          "practice": "Run a cheap deterministic lie detector before any judge: extract every repository-specific identifier the document names (class, function, method, flag, path), excluding anything inside example blocks, and assert each one exists in the code. Report non-existent ones as lies and cross-file ones as context the reader will have to chase.",
+          "locus": "/tmp/terse-research/docagent_truthfulness.py:40-59,121-161",
+          "evidenceForIt": "Implemented; the extraction is one cheap LLM call with a regex fallback on backticked spans (truthfulness.py:94-101,:100). No accuracy study.",
+          "costAndCollision": "One cheap call plus grep. Complements ragas' quoted-span check (verbatim strings) with identifier existence. If we implement it, use exact-match resolution, not their substring test, which under-reports."
+        },
+        {
+          "practice": "When comparing document variants, sample only the components where EVERY variant produced content, so the comparison is not contaminated by one system's omissions.",
+          "locus": "/tmp/terse-research/docagent_helpfulness.py:68-105",
+          "evidenceForIt": "Implemented as the sampling rule; asserted.",
+          "costAndCollision": "Free, and directly applicable to our 3-writer bake-off: judge the writers on the sections all three actually wrote, and report omissions separately."
+        }
+      ]
+    },
+    {
+      "id": "comment-code-inconsistency",
+      "url": "https://github.com/panthap2/deep-jit-inconsistency-detection",
+      "opened": true,
+      "evidence": "Repo README opened directly via raw.githubusercontent.com (title, AAAI-2021 citation, task modes, data location). The PAPER (arXiv 2010.01625) I did not read in the original: I fetched ar5iv and the content was summarised for me by the fetch tool's small model, so the dataset-construction details below are second-hand and should be re-verified before use.",
+      "whatItIs": "AAAI 2021 task and artifact: given a code change and the existing comment, decide just-in-time whether the comment has become inconsistent with the code. The design lesson is the LABEL SOURCE — per the ar5iv summary of Section 4, positives are cases where a developer updated the comment in the same commit as the code change (so it would otherwise have gone stale), negatives are cases where the comment survived a code change unchanged; 40,688 examples over 1,518 projects (@return 19,580, @param 10,610, summary 10,498), balanced by downsampling, with a hand-cleaned 300-example test sample. Metrics: precision/recall/F1 on the positive class plus accuracy, with bootstrap significance.",
+      "measures": "Nothing we can use as a metric — it scores a classifier, not a document. What it offers is a free, deterministic labelling trick: version history tells you which documentation went stale, with no LLM and no human.",
+      "verdict": "reference-only",
+      "weaknesses": "Second-hand evidence (see evidence field): I did not open the paper itself. The label assumption is strong and the authors state it as an assumption — that a developer WOULD have updated a comment had it become inconsistent — so negatives are noisy. Java-only, @param/@return/summary comments only, pre-LLM models.",
+      "practices": [
+        {
+          "practice": "Mine the repository's own history for stale-documentation candidates before running any model: for each documented behaviour, find the commits that changed the implementing code and check whether the documenting file changed in the same commit. Code changed, doc untouched = a candidate lie, ranked by recency.",
+          "locus": "panthap2/deep-jit-inconsistency-detection README (task framing); label construction per ar5iv rendering of arXiv 2010.01625 Section 4 — NOT verified against the PDF",
+          "evidenceForIt": "Argued by the authors as their labelling assumption and used to build 40,688 labelled examples; the assumption's noise is acknowledged in the paper. For us it is a prioritisation heuristic, not a verdict.",
+          "costAndCollision": "Pure git plumbing, no model, seconds. Would let our audit point the expensive truth pass at the paragraphs most likely to be stale instead of the whole document. No collision with terse; it is the cheapest thing in this report."
+        }
+      ]
+    }
+  ],
+  "groupNotes": "Covered: all three named targets opened at the primary source (QASPER as arXiv LaTeX plus the official scorer plus a real data record; DocBench as arXiv LaTeX plus the repo's evaluate.py and the literal judge prompt; ragas Faithfulness read line-by-line in both the legacy and the v2 implementation, plus its siblings FactualCorrectness and quoted_spans). The \"also look for\" question — a benchmark that scores DOCUMENTATION rather than answers about text — has two strong hits, both opened as LaTeX source: SWD-Bench (arXiv 2604.06793), which scores a repository's docs by what a reader-LLM can do with them against PR-mined keys, and Code-QA-Bench (arXiv 2605.29277), which strips docs from the repo and measures the delta. A third, DocAgent's evaluator (Meta), scores docstrings with a code-derived checklist plus an identifier-existence truthfulness check.\n\nNot reached, and why. (1) The DocBench dataset itself lives on Google Drive; I read its shape from evaluate.py's field access (question / answer / evidence / sys_ans) and the paper's tables, not from the data. (2) QASPER's released JSON: I inspected the repo fixture sample, not the full release. (3) Percentages that live only inside figures (DocBench Figure 3 distribution panels, SWD-Bench Figure 5 issue-solving chart) were taken from the surrounding prose, since I did not render figures. (4) No PDF text extraction is possible on this machine — pdftotext, poppler, pypdf, pymupdf and pdfminer are all absent — so the aclanthology PDF was replaced by the arXiv LaTeX source of the same paper. (5) The comment/code inconsistency paper (arXiv 2010.01625) was read only through a tool-summarised ar5iv fetch; its item says so and should be re-verified before anything is built on it. (6) I did not open the DocAgent paper, the RAGAS paper, SWE-QA or SWE-QA-Pro (cited by Code-QA-Bench as the taxonomy and difficulty-calibration sources — an obvious next target if breadth is still wanted). (7) Nothing was executed; no repositories were cloned into the working tree; scratch files live under /tmp/terse-research.\n\nNothing in the already-rejected list showed up as a recommendation. Two adjacent things did and are recorded as rejected-on-arrival: DocAgent's four-aspect 1-5 helpfulness rubric (/tmp/terse-research/docagent_help_desc.py:9-58), which is exactly the shape our bake-off found loses; and its section-label completeness check (docagent_eval_README.md:280-282), which fires on literal \"Args:\" headers and is a docstring-convention gate, i.e. a prose linter in disguise. The one piece of DocAgent worth taking is the code-derived conditional checklist, which is a different animal from a doc template.",
+  "surprises": "Four things cut against what we believe about our own method.\n\n1. Our 3-right-to-6-right measurement has no control for prior knowledge, and two independent benchmarks say that control is large. Code-QA-Bench's closed-book arm — question only, no repository at all — scores 0.56-0.68 on tasks designed to REQUIRE documentation and 0.44-0.56 on code-derivable ones (paper_concise.tex:473-478,:512-515); they flag high closed-book scores as contamination. SWD-Bench's No-Doc arm, by contrast, is at chance (48.68 B-ACC, -3.43 MCC, Result:5). Both ran the control; we did not. On six questions over one repository, an unknown share of the \"6 right\" may be the model's priors about ordinary software, not our document. This is the one finding that could partly invalidate the headline number, and it is cheap to fix: one no-document seat per question.\n\n2. The size of \"documentation helps\" depends on how the questions were built, not just on the document. Code-QA-Bench measures documentation utility at only +0.071 against code access at +0.231 — reading the code contributes three times more than reading the docs (paper_concise.tex:490-492) — while SWD-Bench finds that without documentation the reader is at chance. The difference is entirely in key construction: keys derived from code make documentation nearly redundant; keys derived from pull-request history and merge timing make it decisive. Our audit derives its key from CODE. That is the Code-QA-Bench configuration, the one where documentation looks least valuable. If our audit systematically produces questions a model can answer by reasoning about the code it cannot see but can guess at, we will understate what good documentation buys.\n\n3. An answer key is an artefact with an error rate, and the best-known one in this space is 75.8%. QASPER's manual audit of 100 multi-answer questions found 207 of 273 answers correct, with 98% of questions having at least one correct answer (analysis.tex:61); answerability agreement between annotators was 90%, evidence-type agreement 84% (:58-59). We treat our code-derived key as ground truth by construction. Code-QA-Bench's own quality gate suggests the same caution from the other side: their fact-check passes only 38.4% outright and warns on 61.6%, and warned tasks are kept (:659).\n\n4. The only published head-to-head between rubric-judging and task-based judging agrees with us — and it is an anecdote. SWD-Bench's RQ2 shows an LLM judge awarding 5/5 on \"Completeness\" and \"Usefulness\" to two documents of visibly different quality while the QA tasks separated them 4/4 versus 0/4 (5_Experimental_Result.tex:41-44). That is a single case study on one pylint entry. It corroborates our ten-seat bake-off finding that standards produce audits rather than rewriting, but it is not independent measurement and must not be cited as such. The real external support for our thesis is duller and stronger: SWD-Bench's documentation ranking is stable across two reader models and reappears downstream in SWE-Agent issue-solving rates (43.86% -> 47.37-52.63%, Result:52-56).\n\nA fifth, smaller: QASPER's human lower bound on free-form answers is 39.71 token-F1 versus 58.92 on extractive (experiments.tex:19) — two humans who both answer correctly disagree that much at the string level. Anyone tempted to score our audit by string overlap should read that number first; DocBench's measured 55% string-match-versus-human agreement against 98% for a binary LLM judge (neurips_data_2024.tex:341-357) says the same thing from the other direction."
+}
