@@ -3,6 +3,23 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+### Changed
+
+- The repository is now a marketplace holding plugins, and this plugin lives under
+  `plugins/codex-delegate/`. History was rewritten so every commit shows it there; commit hashes
+  therefore changed, and the upgrade recipe's schema-baseline commit is now `6914532`.
+- Release tags name the plugin they release: `codex-delegate@0.13.0`, not `v0.13.0`. One tag namespace
+  serves every plugin in the marketplace, so a sibling's release cannot answer for this tree's version.
+  Every published tag was renamed to the new form.
+- The marketplace address is `Nowely/agent-skills`. Remove the old marketplace and add the new one;
+  the marketplace still registers as `nowely`, so the plugin is still `codex-delegate@nowely` and its
+  data directory does not move.
+- The catalogue moved to the repository root, out of this plugin's payload. The case that compares it
+  against the manifest announces itself as skipped when run from an installed plugin, where no
+  marketplace sits above the tree.
+
 ## 0.13.0 — 2026-09-10
 
 ### Fixed
@@ -140,7 +157,7 @@ so remove the old marketplace and add it again (below).
   `CODEX_DELEGATE_CLEANUP_PS` and `CODEX_DELEGATE_CLEANUP_COLUMNS`. The plugin's own name, the repository,
   `CODEX_DELEGATE_STATE_DIR` and the sandbox profile are unchanged.
 - **Upgrade path.** `claude plugin marketplace remove codex-delegate`, then
-  `claude plugin marketplace add Nowely/codex-delegate` (it registers as `nowely`), then
+  `claude plugin marketplace add Nowely/agent-skills` (it registers as `nowely`), then
   `claude plugin install codex-delegate@nowely`. The data directory moves with the marketplace name, so
   move `codex-delegate-codex-delegate/` to `codex-delegate-nowely/` first, with no seat running; a stale
   copy left behind is listed by `/codex-delegate:cleanup` as another copy's data.
@@ -329,7 +346,7 @@ Codex seat is now a direct background call of the driver, and the flags no live 
 - A header that declares no `SEAT` — with or without other fields — is a read seat in the current
   directory, which is the default `--relay` used to supply; `SEAT`, where it appears, must be first.
 - `schema-0.153.4/` tracks only the 12 files `evals/conformance.test.mjs` loads, down from 304. The full
-  generated tree stays in history at commit 7364f7b, and README › After a codex upgrade diffs the next
+  generated tree stays in history at commit 6914532, and README › After a codex upgrade diffs the next
   regeneration against it.
 - The driver exports `EXIT`, `FIELDS`, `LADDER`, `PINNED_CODEX`, `SEAT_FIELDS`, `VERSION` and `lockKey`.
   `ATTACH_KINDS`, `EFFORTS`, `LEVELS`, `STATE_SUBDIRS`, `WEB_SEARCH` and `helpText` had no reader

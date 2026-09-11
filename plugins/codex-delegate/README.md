@@ -60,7 +60,7 @@ holding one of these open with none of that behind it is not something it can se
 As a plugin — the full set: all three skills, the driver and the suites (the repo is its own marketplace):
 
 ```
-/plugin marketplace add Nowely/codex-delegate
+/plugin marketplace add Nowely/agent-skills
 /plugin install codex-delegate@nowely
 ```
 
@@ -68,7 +68,7 @@ This route exposes the skill as `codex-delegate:seat`, the orchestrator mode as
 `codex-delegate:orchestrate` and the cleanup as `codex-delegate:cleanup`; the last two only the user can
 turn on.
 
-The same two steps from a shell: `claude plugin marketplace add Nowely/codex-delegate`, then
+The same two steps from a shell: `claude plugin marketplace add Nowely/agent-skills`, then
 `claude plugin install codex-delegate@nowely`. To update, refresh the marketplace clone and
 then the plugin, and restart Claude Code:
 
@@ -81,7 +81,7 @@ Or from source — clone and symlink, so the checkout stays the single source of
 symlink is only needed for the orchestrator mode):
 
 ```bash
-git clone https://github.com/Nowely/codex-delegate.git
+git clone https://github.com/Nowely/agent-skills.git
 cd codex-delegate
 mkdir -p ~/.claude/skills                           # absent on a machine that has never run Claude Code
 ln -s "$PWD/skills/seat" ~/.claude/skills/seat
@@ -229,12 +229,12 @@ carries no stability promise — hence the pinned schema and the fidelity suite.
 
 ```bash
 codex app-server generate-json-schema --out <tmp-new>/
-git archive 7364f7b schema-<old-version> | tar -x -C <tmp-old>/
+git archive 6914532 schema-<old-version> | tar -x -C <tmp-old>/
 diff -r <tmp-old>/schema-<old-version>/ <tmp-new>/
 ```
 
 Read the diff for anything structural. Commit `<tmp-new>/` as `schema-<new-version>/` in a commit of its
-own: that commit holds the full tree the next upgrade diffs against, so replace `7364f7b` above with its hash.
+own: that commit holds the full tree the next upgrade diffs against, so replace `6914532` above with its hash.
 `CODEX_DELEGATE_SCHEMA_DIR=schema-<new-version> node evals/conformance.test.mjs` validates it while
 `schema-<old-version>/` is still the pinned one; once that is green, move `PINNED_CODEX`, prune the new
 directory to the files [conformance](evals/conformance.test.mjs) loads in a second commit, and delete the old one. Then
@@ -259,7 +259,7 @@ schema-<version>/                the files evals/conformance.test.mjs loads out 
                                  schema; kept in the repo (and therefore in plugin installs) because
                                  those are what the suites this README tells you to run validate
                                  against. The full generated tree is not kept here: the commit named in
-                                 the upgrade recipe holds the last one (7364f7b for 0.153.4), and the
+                                 the upgrade recipe holds the last one (6914532 for 0.153.4), and the
                                  recipe diffs the next regeneration against it.
 ```
 
@@ -285,6 +285,6 @@ cannot introduce a verifier; `$TMPDIR` is guarded like every other writable root
 mutation-checked, with the surviving mutants and what was done about them listed in
 [`evals/README.md`](evals/README.md). Changes are available offline in
 [`CHANGELOG.md`](CHANGELOG.md); release notes and known issues also live on the
-[releases page](https://github.com/Nowely/codex-delegate/releases). The Codex build each release was
+[releases page](https://github.com/Nowely/agent-skills/releases). The Codex build each release was
 measured against is stated there because that axis — not the skill's own code — is what usually breaks.
 MIT — see [LICENSE](LICENSE).
