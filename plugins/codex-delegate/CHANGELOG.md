@@ -5,8 +5,45 @@ forensics remain in the repository references and release notes.
 
 ## Unreleased
 
+### Fixed
+
+- The standalone recipe no longer puts a seat's report inside `$TMPDIR`, the one root a read seat may
+  write. A file left at that name blocked publication, the driver refused to overwrite it, and the page
+  still told the coordinator that a present report was the driver's own.
+- A relaunched or `RESUME:`d seat is told it needs a report path of its own. The driver refuses a path
+  already taken and exits before it announces its pid, so the documented recovery could not run, and its
+  next step, reading that pid, had nothing to read.
+- The worktree is described as it is built. A stash was named as an input and reaches no worktree, so a
+  seat launched after one tested untouched code and reported success. A resumed tree starts at its
+  recorded base, not today's `HEAD`. The tree is made inside the repository, which the orchestrator had
+  the coordinator promise the user it was not. A preserved tree, whose harvest pointers can all be null,
+  now has a recovery procedure instead of a landing recipe with nothing to apply.
+- Exit 2 is no longer described as always pre-turn: the ladder has a post-turn rung with the same code
+  whose report carries commands, an answer and a receipt, and the absolute wording had readers discard
+  paid turns. `EXPECT:` says that it counts only commands that succeeded, so a verifier whose suite
+  fails is not reported as a run where nothing happened. Parity names exits 9 and 12 for a verifier that
+  cannot run, not exit 1, which belongs to the turn.
+- A declined approval stops reading as a lost turn. Exit 6 kept its number and its symbol, while the
+  help text, the ladder comment and a new closing line say what actually happened; the line is guarded
+  by every condition it asserts, so it cannot promise a retained answer on a cut or answerless turn.
+- Lock recovery no longer advises deleting the lock in the two cases where that is unsafe: after the
+  holder was just proven alive, and for a file that cannot be read and so cannot be shown to be stale.
+  The acquisition algorithm, which already checks holder and process group and reclaims by itself, is
+  unchanged.
+
 ### Changed
 
+- Several writers at once is stated as the normal way to go faster, with the procedure that was missing
+  for when their work collides: stop, restate the contract, each owner repairs its own files, and a seat
+  that wrote neither judges the combined tree. While another writer holds part of a checkout, nobody
+  stashes, switches branch, resets, cleans or rebases.
+- A user-facing agent name carries the vendor and the task: `Codex Astra A6: <task>`, on both pages,
+  with the short-name mapping on the seat page as well as the tier table. Composition rules precede the
+  launch recipe they gate. Scouting is scoped to repository exploration, with bounded inline checks
+  still allowed. A step that cannot run is recorded rather than collapsed into one token, which erased
+  the difference between refused and failed. `VERIFY` is explained in a sentence rather than named
+  without explanation in a column heading. `modelMs` is documented as the remainder it is; no report
+  field was renamed.
 - The repository is now a marketplace holding plugins, and this plugin lives under
   `plugins/codex-delegate/`. History was rewritten so every commit shows it there; commit hashes
   therefore changed, and the upgrade recipe's schema-baseline commit is now `6bf21e6`.
