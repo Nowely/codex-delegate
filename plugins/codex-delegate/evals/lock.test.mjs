@@ -144,7 +144,7 @@ test("a second run in the same directory is refused",
     const { code, err } = await run(d);
     fs.rmSync(lockFor(d), { force: true });
     if (code !== EXIT.BUSY) return `expected 10, got ${code} (${err.trim().slice(0, 120)})`;
-    if (!err.includes(lockFor(d))) return `the BUSY message must name the lock file to delete; got: ${err.trim()}`;
+    if (!err.includes(lockFor(d))) return `the BUSY message must name the lock file; got: ${err.trim()}`;
     return true;
   });
 

@@ -24,7 +24,7 @@ orchestrator; the work-list, the plan, the composition and the synthesis are you
 | plan | design: the Fable seat, whatever your own model |
 | synthesise, attributing every finding to the seat that produced it | verify: you never grade your own work, a fresh seat does |
 
-Scouting is the only exploration you do; report a failed seat and never backfill it. The run directory is
+Scouting is the only repository exploration you do, and targeted bounded checks stay allowed inline after it; report a failed seat and never backfill it. The run directory is
 `<state>/orchestrate/<project-slug>/<run>/`, `<state>` the driver's state directory (`${CLAUDE_PLUGIN_DATA}` on a plugin install, the exported `CODEX_DELEGATE_STATE_DIR` on the clone route), `<run>` unique and `<project-slug>` the working directory's absolute path with every character that is not a letter or
 a digit replaced by `-`, the name Claude Code gives it under `~/.claude/projects/`. It is outside every repository, so no `.gitignore`; not the repository root, not the project's
 `.claude/`, whose writes prompt whatever the allow rules say. The driver creates it, through `--report-file`, and it is what those report files make of it: nothing else is written there. Never run `mkdir`, Write or a shell redirect under that data directory yourself, because a headless session refuses each of them as a sensitive file with no prompt anyone can answer, while a subprocess handed the same path as an argument writes it unopposed (measured 2026-09-08).
@@ -36,31 +36,31 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 
 1. Load the sibling skill with the Skill tool if it is not loaded yet, scout, then decide the composition and the seats.
 2. Show the plan and stop, in the user's own language and in ordinary words: what will be done, who does each part by model name, what each may write, that the seats reach the network and any you are keeping off it, and that
-   artifacts land outside the repository. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with the grants parity.md's
+   reports and artifacts land outside the repository, except a worktree seat's own tree, which the driver makes and removes inside the repository under its `.claude` directory. Name no path and no header field. A worktree seat is named as such, because a worktree will be made. Browser and end-to-end runs go to a Claude seat, or to a write seat with the grants parity.md's
    [Browser-mode sandbox](../seat/references/parity.md#browser-mode-sandbox) section names; a read seat cannot, because that section's Chromium override is a file in the tree it may not write.
    Announce the composition here, and the caps beside it in a sentence: your own model, one Fable and one `gpt-6-astra` at a time, six alive. A cap the user overrides in words ("two Fable")
    replaces the default for this run; composition words ("only codex", "no codex") follow the sibling's table. One plan when there is one; when several approaches are viable, show them all with a
    recommendation and let the user pick.
 3. The user's "go" covers only what the plan listed. After it, live-tree implementers write in the live working directory and a
    seat the plan put in a worktree stays there; no commit to the live tree without a separate word from the user.
-4. A worktree is cut at `HEAD`, so a worktree seat suits only work that starts there: competing implementations, a suite on
+4. A new thread's worktree is cut at `HEAD`, so a worktree seat suits only work that starts there: competing implementations, a suite on
    committed code, atomically parallel work that must run its own tests. Never use one to test uncommitted live edits: it sees
-   none of them and passes untouched code. When a plan needs both, the commit or stash that feeds the worktree is a live-tree
-   commit and goes into the plan. Use one only where a fresh tree can run: dependencies installable inside it under the planned
+   none of them and passes untouched code. When a plan needs both, the commit that feeds the worktree is a live-tree
+   commit and goes into the plan; a stash feeds it nothing. Use one only where a fresh tree can run: dependencies installable inside it under the planned
    rights (the live checkout's are absent), no daemon or socket. You decide; ask when unsure. A Codex worktree seat cannot
    commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
    restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait,
-   unless the plan said "land the winner".
+   unless the plan said "land the winner". A preserved tree is not a harvest: check each of the three pointers first, and when they are null, propose from `worktreePath` instead.
 5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped. After any seat returns, Claude or Codex, write one short paragraph of your own, in the user's language and naming the agent by its model, in the same shape for both sides; the five fields are your own input, so never paste a five-field block, a header field name or a path into user-facing text.
 
 ## Model tiers
 
-| Tier | Claude | Codex `MODEL:` | Work |
-| --- | --- | --- | --- |
-| top | Fable | `gpt-6-astra` | design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts. Never implementation |
-| strong | Opus | `gpt-5.6-sol` | write seats, non-trivial analysis |
-| cheap | Sonnet | `gpt-5.6-terra` | mechanical, hard-to-get-wrong work |
-| unused | Haiku | `gpt-5.6-luna` | not used |
+| Tier | Claude | Codex `MODEL:` | Codex short name | Work |
+| --- | --- | --- | --- | --- |
+| top | Fable | `gpt-6-astra` | Astra | design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts. Never implementation |
+| strong | Opus | `gpt-5.6-sol` | Sol | write seats, non-trivial analysis |
+| cheap | Sonnet | `gpt-5.6-terra` | Terra | mechanical, hard-to-get-wrong work |
+| unused | Haiku | `gpt-5.6-luna` | Luna | not used |
 
 Your own model is in your system prompt ("You are powered by the model named ..."); nothing else carries it. You are outside the
 pool, and the pool is the same whatever you are: at most one Fable seat and one `gpt-6-astra` seat alive at a time, each taking
@@ -94,14 +94,11 @@ cross-review seat is a prompt seat with the diff's path in `TASK:` and the templ
 | Fable seats, `gpt-6-astra` seats | 1 each, alive at a time |
 | Codex write seats per directory | 1: a second on the same directory exits 10 at once, before its turn runs |
 
-Allocate inside those bounds by judgement, not to fill a band. Usually one autonomous implementer per task; several writers only
-on disjoint files that cannot interfere, and then as Claude seats or in separate worktrees, never two Codex write seats on one
-directory. A writer may run the suite while it iterates, but the evidence that decides comes from a seat that did not write the
-code, or from you under the redirect rule.
+Allocate inside those bounds by judgement, not to fill a band. Several writers at once is how a task goes faster: split by file ownership, as Claude seats on one live tree or as Codex seats in separate worktrees, never two Codex write seats on one directory. Disjoint filenames do not make work independent, so settle the contract between the owners before they start; when their work collides anyway, stop the writers, restate the contract, let each owner repair only its own files, then have a seat that wrote neither verify the combined tree. While another writer holds part of a checkout, nobody changes what they share: no stash, branch switch, reset, clean or rebase, and that binds you too when you run a check of your own. A writer may run the suite while it iterates, but the evidence that decides comes from a seat that did not write the code, or from you under the redirect rule.
 
 ## Mechanism
 
-A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex <model> <id>: <task in a few words>", so the row the user sees names the agent by its model, not the command line.
+A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex <short name> <id>: <task in a few words>", so the row the user sees names the agent, its vendor and its task, not the command line.
 Wait on every seat you launch in the background, Claude or Codex, with `TaskOutput(<task_id>, block: true, timeout: 600000)`, again while the task still runs, and never end your turn with a seat alive: a headless session ends with the turn and the task is killed with it (measured 2026-09-08).
 Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated
@@ -123,11 +120,11 @@ that round fails too.
 
 | Result | What to do |
 | --- | --- |
-| no report file at all | the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights, only when none is live |
+| no report file at all | the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights and a report path of its own, only when none is live. A relaunch at the previous path exits 2 before it prints that pid line |
 | a stderr file naming no driver | report it; no relaunch fixes an install |
-| `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:` |
+| `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:`, under a report path of its own |
 | `exitCode: 10` | a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry |
-| `ok: false` with `turnStatus: null`, exit 2 or 4 | no turn ran, or it was aborted: read `error` and the stderr file |
+| exit 2 or 4 | with `turnStatus: null` no turn ran, or it was aborted: read `error` and the stderr file. Exit 2 WITH a `turnStatus` is a turn the server rejected: read `turnError`, the commands and any answer before relaunching, or a paid turn is thrown away |
 | exit 4 with a `turnStatus` | the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict |
 | any other non-zero `exitCode` with an answer | a gate verdict: do not retry, read the answer |
 | a Claude seat that returns `blocked` | do not retry, report it |

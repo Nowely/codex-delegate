@@ -70,10 +70,10 @@ test("the page stays inside its budget: 150 lines, one heading level, no fence",
 test("the tier table pairs all eight model names, one tier per row",
   "the pairing IS the table: a coordinator reads across a row to turn its own tier into a Codex `MODEL:` line, and a half-updated rename leaves it sending a name the driver rejects",
   () => shows(
-    /^\| top \| Fable \| `gpt-6-astra` \| design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts\. Never implementation \|$/m,
-    /^\| strong \| Opus \| `gpt-5\.6-sol` \| write seats, non-trivial analysis \|$/m,
-    /^\| cheap \| Sonnet \| `gpt-5\.6-terra` \| mechanical, hard-to-get-wrong work \|$/m,
-    /^\| unused \| Haiku \| `gpt-5\.6-luna` \| not used \|$/m,
+    /^\| top \| Fable \| `gpt-6-astra` \| Astra \| design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts\. Never implementation \|$/m,
+    /^\| strong \| Opus \| `gpt-5\.6-sol` \| Sol \| write seats, non-trivial analysis \|$/m,
+    /^\| cheap \| Sonnet \| `gpt-5\.6-terra` \| Terra \| mechanical, hard-to-get-wrong work \|$/m,
+    /^\| unused \| Haiku \| `gpt-5\.6-luna` \| Luna \| not used \|$/m,
   ));
 
 // ------------------------------------------------------------------ A: what the mode is
@@ -103,7 +103,7 @@ test("B1 scouting is the only exploration the orchestrator does",
   "the mode's one economy is that the big reads happen in a seat's context; an orchestrator that keeps exploring after the scout has spent the context the fan-out was meant to save",
   () => says(
     "scout the work-list with cheap commands (`ls`, `git status`, targeted `grep`) before any fan-out",
-    "Scouting is the only exploration you do",
+    "Scouting is the only repository exploration you do, and targeted bounded checks stay allowed inline after it",
   ));
 
 test("B2 the verbose work is a seat's",
@@ -139,7 +139,8 @@ test("C2 the plan is shown and the run stops, with every right a seat needs, in 
   "rights declared per call are the sibling's guarantee, and they are worth nothing if the user first sees them in the transcript of a seat that already wrote; but a plan that recites `SEAT: write` and a run directory path at a person is machinery pointed at the one reader who cannot act on it (the owner read one and called it uninformative, 2026-09-09), so the rights have to survive in ordinary words and the field names have to go",
   () => says(
     "Show the plan and stop",
-    "what each may write, that the seats reach the network and any you are keeping off it, and that artifacts land outside the repository",
+    "what each may write, that the seats reach the network and any you are keeping off it",
+    "reports and artifacts land outside the repository, except a worktree seat's own tree",
     "Name no path and no header field",
   ));
 
@@ -153,7 +154,7 @@ test("C3 \"go\" covers the plan and nothing else, and never a live-tree commit",
 test("C4 a worktree is cut at HEAD and never used to test uncommitted live edits",
   "this is the trap that passes: the seat runs the suite against untouched code, reports green, and the coordinator reads it as evidence about edits the worktree never saw",
   () => says(
-    "A worktree is cut at `HEAD`",
+    "A new thread's worktree is cut at `HEAD`",
     "Never use one to test uncommitted live edits",
     "dependencies installable inside it under the planned rights (the live checkout's are absent), no daemon or socket",
     "A Codex worktree seat cannot commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff",
@@ -274,7 +275,9 @@ test("E5 the three scaling rows: simple, comparison, complex",
 test("E6 the writer may run the suite, but the deciding evidence comes from elsewhere",
   "a writer iterating against its own suite is how a green run gets produced by the same context that produced the bug; the rule keeps the iteration and moves only the verdict",
   () => says(
-    "several writers only on disjoint files that cannot interfere, and then as Claude seats or in separate worktrees, never two Codex write seats on one directory",
+    "split by file ownership, as Claude seats on one live tree or as Codex seats in separate worktrees, never two Codex write seats on one directory",
+    "stop the writers, restate the contract, let each owner repair only its own files, then have a seat that wrote neither verify the combined tree",
+    "nobody changes what they share: no stash, branch switch, reset, clean or rebase",
     "A writer may run the suite while it iterates, but the evidence that decides comes from a seat that did not write the code, or from you under the redirect rule.",
   ));
 
@@ -318,11 +321,11 @@ test("F3 two rounds of fix and cross-review, then escalate",
 test("F4 every row of the Result table",
   "this table is read at the one moment judgement is worst, when a seat has just failed; a missing row is a relaunch that duplicates a live run, or a gate verdict retried until it costs real money",
   () => shows(
-    /^\| no report file at all \| the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights, only when none is live \|$/m,
+    /^\| no report file at all \| the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights and a report path of its own, only when none is live\. A relaunch at the previous path exits 2 before it prints that pid line \|$/m,
     /^\| a stderr file naming no driver \| report it; no relaunch fixes an install \|$/m,
-    /^\| `exitCode: 3`, a cut \| read the partial; if the work is unfinished, continue that thread once with `RESUME:` \|$/m,
+    /^\| `exitCode: 3`, a cut \| read the partial; if the work is unfinished, continue that thread once with `RESUME:`, under a report path of its own \|$/m,
     /^\| `exitCode: 10` \| a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry \|$/m,
-    /^\| `ok: false` with `turnStatus: null`, exit 2 or 4 \| no turn ran, or it was aborted: read `error` and the stderr file \|$/m,
+    /^\| exit 2 or 4 \| with `turnStatus: null` no turn ran, or it was aborted: read `error` and the stderr file\. Exit 2 WITH a `turnStatus` is a turn the server rejected: read `turnError`, the commands and any answer before relaunching, or a paid turn is thrown away \|$/m,
     /^\| exit 4 with a `turnStatus` \| the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict \|$/m,
     /^\| any other non-zero `exitCode` with an answer \| a gate verdict: do not retry, read the answer \|$/m,
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,
@@ -330,7 +333,7 @@ test("F4 every row of the Result table",
 
 test("F5 the Bash call's description names the agent by its model",
   "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming it there, and the model is the name a person can use, where the word this page calls it by is one they cannot",
-  () => says("The Bash call carries a `description` of the form \"Codex <model> <id>: <task in a few words>\", so the row the user sees names the agent by its model, not the command line."));
+  () => says("The Bash call carries a `description` of the form \"Codex <short name> <id>: <task in a few words>\", so the row the user sees names the agent, its vendor and its task, not the command line."));
 
 test("F6 a background seat is waited on with TaskOutput, and no turn ends with one alive",
   "a background task does not keep a headless session alive: when the coordinator ends its turn Claude Code exits and kills the task, which is how the live gate lost a seat mid-turn (measured 2026-09-08); TaskOutput blocking is the native wait, and without the timeout named the coordinator cannot know one call covers ten minutes and no more",

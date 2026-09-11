@@ -244,7 +244,7 @@ const LADDER = [
   { code: EXIT.INTERACTION, help: "the turn wanted input no sandbox change can supply",
     when: (c) => c.interactions.length > 0 },
   // Above NO_COMMANDS: a refused approval explains the missing command, and "nothing ran" would hide why.
-  { code: EXIT.ESCALATED, help: "an approval was refused: the sandbox was sized too small",
+  { code: EXIT.ESCALATED, help: "an approval request was declined; inspect the report, if delivered, before judging task completeness",
     when: (c) => c.escalations.length > 0 },
   // Above every proxy below it, and distinct from "the check said no". Two shapes of the same finding,
   // so one rung: a check the budget left no room for never ran, and a check that ran without an
@@ -305,11 +305,12 @@ const HELP = [
   --worktree REPO    create a detached worktree under REPO/.claude/worktrees, run
                      there at write level, harvest the work to
                      <state>/answers/ (paths in the report) and remove
-                     the tree. It is cut at HEAD — the LAST COMMIT — so
-                     uncommitted changes, untracked and ignored files and
+                     the tree. A new thread's is cut at HEAD — the LAST COMMIT —
+                     and a resumed one at its recorded base, so uncommitted
+                     changes, untracked and ignored files and
                      installed dependencies are NOT in it: a seat asked about work
-                     in progress finds an empty diff and reports success. Commit or
-                     stash first, or run on the live tree with
+                     in progress finds an empty diff and reports success. A stash
+                     reaches neither. Commit first, or run on the live tree with
                      --level write --cwd REPO
   --writable DIR     grant one more root (write level only, repeatable)
   --no-network       deny egress. BOTH levels have it by default, as Claude's own
@@ -472,7 +473,8 @@ const HELP = [
   tokenUsage is the server's own accounting for the root thread,
   cumulative across --resume; cut is {kind, limit, observed, completedInGrace};
   timing is {wallMs, setupMs, commandMs, modelMs}, commandMs being the server's
-  own per-command durations, so modelMs is what is left for the model itself;
+  own per-command durations and modelMs the ARITHMETIC REMAINDER, wallMs minus
+  setup minus commands: residual time, never a measurement of thinking;
   answerPartial is what the model had written
   when the turn was cut, reassembled from the answer stream because the server
   discards the in-flight message — UNFINISHED text the model never delivered,
@@ -1294,7 +1296,7 @@ function inspectLock(p, dir) {
   catch (e) {
     if (e.code === "ENOENT") return { gone: true };
     if (e.code === "ELOOP") fail(EXIT.USAGE, `cannot lock ${dir}: ${p} is a symbolic link, not a lock file; remove it and retry`);
-    fail(EXIT.USAGE, `cannot lock ${dir}: ${p} exists but cannot be read (${e.code}); remove it or fix its permissions`);
+    fail(EXIT.USAGE, `cannot lock ${dir}: ${p} exists but cannot be read (${e.code}); fix its permissions and retry. Do not remove it: a lock that cannot be read cannot be shown to be stale`);
   }
   try {
     const st = fs.fstatSync(fd);
@@ -1442,12 +1444,12 @@ function acquireLock(dir) {
       const holder = Number(held?.pid);
       if (holderAlive(held)) fail(EXIT.BUSY,
         `${dir} is in use by codex-delegate pid ${holder} (started ${held?.started ?? "unknown"}); ` +
-        `give each concurrent run its own cwd. If that process is gone, delete ${p}`);
+        `give each concurrent run its own cwd, or wait for that run to finish. Its lock is ${p}; leave it there, a lock whose holder is gone is reclaimed on the next attempt without your help`);
       // The driver is gone but its codex group is not: the tree is still being written, so this is a
       // busy directory rather than a stale lock, and it is named as the orphan it is.
       if (holderGroupAlive(held)) fail(EXIT.BUSY,
         `${dir} is still being written by the codex process group ${held?.appServerPgid} of codex-delegate pid ${holder}, ` +
-        `which is itself gone; wait for it, or kill -TERM -${held?.appServerPgid} and delete ${p}`);
+        `which is itself gone; wait for it, or stop it with kill -TERM -${held?.appServerPgid}; the lock is then reclaimed on the next attempt without your help`);
       // Reclaiming a stale lock is where mutual exclusion actually breaks, and neither an unlink nor a
       // rename closes it: both act on the PATH, not on the file that was inspected, so a peer that judged
       // the STALE lock dead removes the FRESH one that has since replaced it and takes the directory.
@@ -2346,6 +2348,19 @@ function shutdown() {
 // Not funnelled, deliberately: abort(), which prints the child's stderr tail and must let the loop drain
 // it (a process.exit behind an asynchronous pipe write truncates that tail), and the --help exit, which
 // has no child, no lock and no record and leaves through Bail.
+// Exit 6 is the one post-turn verdict whose NUMBER reads as total loss while the turn completed and its
+// answer is on disk: four signals say failure at once and none of them says the answer survived. Said
+// once, last, and only when every part of it holds — a looser condition would promise a retained answer
+// on a cut turn, on one that answered nothing, or on a report that never reached the caller.
+function announceDeclinedApproval(reportCode, finalCode) {
+  if (reportCode !== EXIT.ESCALATED || finalCode !== EXIT.ESCALATED) return;
+  if (!reportFileWritten || closingFields === null) return;
+  if (closingFields.turnStatus !== "completed" || !closingFields.answerPath) return;
+  if (escalations.length === 0) return;
+  process.stderr.write(`codex-delegate: turn completed; final answer saved at ${closingFields.answerPath}; `
+    + `approval requests declined: ${escalations.length}; read the answer before judging task completeness.\n`);
+}
+
 function exitWith(code, { stdout = null, durable = false } = {}) {
   settled = true;
   process.exitCode = code;
@@ -2355,6 +2370,7 @@ function exitWith(code, { stdout = null, durable = false } = {}) {
   const leave = (finalCode) => {
     if (left) return;
     left = true;
+    announceDeclinedApproval(code, finalCode);
     closeJobRecord(finalCode);
     shutdown().then(() => process.exit(finalCode));
   };
@@ -3292,8 +3308,8 @@ function subagentCause() {
     + `(${shown ? `${shown}, ` : ""}${cmds} commands): liveness, not evidence`;
 }
 
-// The ordered exit ladder, first match wins. A refused escalation means the task hit the edge of the
-// sandbox it was given, so the work is very likely incomplete — detectable without reading the prose.
+// The ordered exit ladder, first match wins. A declined approval records an unmet permission request;
+// it does not establish task incompleteness or answer loss, and the report is what settles either.
 function decideExitCode(ev, verifySkipped) {
   // Everything any rung reads, in one object: the turn's outcome (ev), the verifier's, and the module
   // state the rungs used to reach around their argument for.
@@ -3362,8 +3378,9 @@ function writeReport(ev, verifySkipped, codeOverride) {
   const { ran, blocked, probeNegatives, failedCmds, failedPatches, expected, pipedToPager, final,
           fullAnswer, schemaErrs, answerPath, answer, commentaryOnly, commentaryPath,
           answerPartial, answerPartialPath } = ev;
-  // Where the wall clock went. commandMs is the server's own per-command measurement, so modelMs is what
-  // is left after the driver's own setup and the work the model ordered — the part a budget must size.
+  // Where the wall clock went. commandMs is the server's own per-command measurement, so modelMs is the
+  // remainder after setup and the work the model ordered — the part a budget must size. A remainder, not a
+  // measurement: anything the server spent outside a command lands in it.
   const wallMs = Date.now() - startedAtMs;
   const setupMs = setupDoneMs === null ? null : setupDoneMs - startedAtMs;
   const commandMs = commands.reduce((n, c) => n + (c.durationMs ?? 0), 0);
@@ -3567,7 +3584,7 @@ function developerInstructions() {
     opts.network
       ? "You have network access: use it for what is not in this checkout, keep to the hosts this task names, and cite what you fetched."
       : "You have no network access; cite files you actually read.",
-    "If a command cannot run, reply with the single token COMMAND_BLOCKED for that step and continue.",
+    "If a command cannot run, record it in one line — the command, whether it started, its exit status if there was one, and the exact diagnostic — then continue. Write \"unknown\" for what you could not observe rather than inferring it.",
     "Never report a test as passing unless you ran it and saw the count in this turn.",
     "State uncertainty plainly rather than guessing; an honest 'I could not determine this' is useful.",
     // The coordinator machine-reads this answer. Saying so is what makes the JSON arrive bare; without it

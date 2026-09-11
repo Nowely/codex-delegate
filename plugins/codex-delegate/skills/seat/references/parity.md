@@ -12,7 +12,7 @@ and one qualification.
 | Native capability | Codex equivalent | Parity |
 | --- | --- | --- |
 | `Explore` (read-only) | `--cwd <repo>` | reads and runs node tests with constraints; see `--help` |
-| agent with `isolation: "worktree"` | `--worktree <repo>` | writes from HEAD rather than from the live tree; see `--help` |
+| agent with `isolation: "worktree"` | `--worktree <repo>` | writes in a tree of its own, not the live one; see [Worktree lifecycle](../SKILL.md#worktree-lifecycle) |
 | the same, committing | none | a seat's sandbox ends at its own tree; the work returns as a diff ([Git-directory grant](environment-and-internals.md#git-directory-grant)) |
 | one-call wrapped subagent | one background Bash call, `--seat-file` in and `--report-file` out | the call is the seat's lifetime and the file is the delivery; see `--help` |
 | fan-out of many agents | concurrent driver invocations | memory-bound rather than throttled; see [Fan-out and reporting](#fan-out-and-reporting) |
@@ -38,9 +38,11 @@ A read seat matches native reading, grep, git, node, lint, and node-environment 
 [Browser-mode sandbox](#browser-mode-sandbox) puts at the tree root, and a composite-project
 `tsc --noEmit` fails when it writes `tsbuildinfo`: both are writes outside `$TMPDIR`.
 
-`--worktree` starts from repository HEAD, not the live tree: commit or stash relevant WIP first, or use
+`--worktree` starts a new thread's tree at repository HEAD, not the live tree, and a resumed one at its
+recorded base: commit relevant WIP first, since a stash does not reach either, or use
 `--level write --cwd <repo>` after settling that blast radius with the user. Dependencies and ignored
-files are absent; a verifier that needs them exits 1 unless they are installed in the seat's tree.
+files are absent; a verifier that needs them fails (exit 9) or measures nothing (exit 12) unless they are
+installed in the seat's tree.
 Browser tests need the serial Chromium override in
 [Browser-mode sandbox](#browser-mode-sandbox) and no file parallelism. Egress is not what makes an install
 work: the caches live under `$HOME`, which no level grants, so `npm install --cache "$PWD/.npm-cache"`
