@@ -19,6 +19,9 @@ forensics remain in the repository references and release notes.
 - The catalogue moved to the repository root, out of this plugin's payload. The case that compares it
   against the manifest announces itself as skipped when run from an installed plugin, where no
   marketplace sits above the tree.
+- The manifest's homepage names the plugin's own directory in the marketplace rather than the
+  repository it used to be. The published release notes that linked files and comparisons by the old
+  `v*` tags were repointed at the renamed ones; those links had gone dead when the old tags did.
 
 ## 0.13.0 — 2026-09-10
 
