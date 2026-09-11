@@ -127,6 +127,11 @@ at the first line that is not one; a non-field upper-case `NAME:` above it is ex
 | `BRIEF:` | `yes` | a short answer is enough; omit it beside an output schema — it clips only the inline `answer` (`answerJson` is parsed from the whole one) yet still asks the model for 20 lines |
 | `ALLOW_NO_COMMANDS:` | `yes` | the seat is recall-only and will run nothing |
 
+One field is missing from that table on purpose. `VERIFY` is refused in a seat file without `--allow-seat-verify`,
+a flag the one call above does not pass: it runs a caller-declared command after the turn, so a seat that could
+write its own would be grading itself. Declare gates on the command line instead
+([result-gates.md](references/result-gates.md)).
+
 ## Worktree lifecycle
 
 - A new thread's worktree starts at current `HEAD`; a resumed worktree starts at its recorded base and

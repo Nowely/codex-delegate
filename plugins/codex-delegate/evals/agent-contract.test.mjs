@@ -203,7 +203,7 @@ test("the report file is what the coordinator reads, and a missing one is unknow
     const problems = [];
     for (const phrase of [
       "The task's exit notification is the seat's completion",
-      "`<REPORT>` is an absolute path of this seat's own, `<DIR>/report.json` where nothing else chooses it; the driver makes every directory that path needs, at 0700",
+      "`<REPORT>` is an absolute path of this seat's own and never under `<DIR>`",
       "`<REPORT>` is the report, the same JSON the run also wrote to `<DIR>/out.json`",
       "it is written whole or not at all, and a missing one means unknown, never success",
       "with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed",

@@ -139,7 +139,8 @@ test("C2 the plan is shown and the run stops, with every right a seat needs, in 
   "rights declared per call are the sibling's guarantee, and they are worth nothing if the user first sees them in the transcript of a seat that already wrote; but a plan that recites `SEAT: write` and a run directory path at a person is machinery pointed at the one reader who cannot act on it (the owner read one and called it uninformative, 2026-09-09), so the rights have to survive in ordinary words and the field names have to go",
   () => says(
     "Show the plan and stop",
-    "what each may write, that the seats reach the network and any you are keeping off it, and that artifacts land outside the repository",
+    "what each may write, that the seats reach the network and any you are keeping off it",
+    "reports and artifacts land outside the repository, except a worktree seat's own tree",
     "Name no path and no header field",
   ));
 
@@ -153,7 +154,7 @@ test("C3 \"go\" covers the plan and nothing else, and never a live-tree commit",
 test("C4 a worktree is cut at HEAD and never used to test uncommitted live edits",
   "this is the trap that passes: the seat runs the suite against untouched code, reports green, and the coordinator reads it as evidence about edits the worktree never saw",
   () => says(
-    "A worktree is cut at `HEAD`",
+    "A new thread's worktree is cut at `HEAD`",
     "Never use one to test uncommitted live edits",
     "dependencies installable inside it under the planned rights (the live checkout's are absent), no daemon or socket",
     "A Codex worktree seat cannot commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff",
@@ -318,11 +319,11 @@ test("F3 two rounds of fix and cross-review, then escalate",
 test("F4 every row of the Result table",
   "this table is read at the one moment judgement is worst, when a seat has just failed; a missing row is a relaunch that duplicates a live run, or a gate verdict retried until it costs real money",
   () => shows(
-    /^\| no report file at all \| the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights, only when none is live \|$/m,
+    /^\| no report file at all \| the seat may still be running, whatever its task says: `kill -0 <pid>` with the pid on the first line of its stderr file; relaunch once, same rights and a report path of its own, only when none is live\. A relaunch at the previous path exits 2 before it prints that pid line \|$/m,
     /^\| a stderr file naming no driver \| report it; no relaunch fixes an install \|$/m,
-    /^\| `exitCode: 3`, a cut \| read the partial; if the work is unfinished, continue that thread once with `RESUME:` \|$/m,
+    /^\| `exitCode: 3`, a cut \| read the partial; if the work is unfinished, continue that thread once with `RESUME:`, under a report path of its own \|$/m,
     /^\| `exitCode: 10` \| a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry \|$/m,
-    /^\| `ok: false` with `turnStatus: null`, exit 2 or 4 \| no turn ran, or it was aborted: read `error` and the stderr file \|$/m,
+    /^\| exit 2 or 4 \| with `turnStatus: null` no turn ran, or it was aborted: read `error` and the stderr file\. Exit 2 WITH a `turnStatus` is a turn the server rejected: read `turnError`, the commands and any answer before relaunching, or a paid turn is thrown away \|$/m,
     /^\| exit 4 with a `turnStatus` \| the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict \|$/m,
     /^\| any other non-zero `exitCode` with an answer \| a gate verdict: do not retry, read the answer \|$/m,
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,

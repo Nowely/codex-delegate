@@ -50,8 +50,7 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
    rights (the live checkout's are absent), no daemon or socket. You decide; ask when unsure. A Codex worktree seat cannot
    commit under the rights a `SEAT:` line makes: its sandbox ends at the tree, so its work comes back as a diff. Land the harvest by proposal: apply `worktreeDiffPath` and
    restore `worktreeUntrackedPath`, or merge or cherry-pick `worktreeCommitsRef` when the seat committed; show it, then wait,
-   unless the plan said "land the winner". A preserved tree is not a harvest: check each of the three pointers before proposing
-   anything, and when they are null, propose from `worktreePath` instead.
+   unless the plan said "land the winner". A preserved tree is not a harvest: check each of the three pointers first, and when they are null, propose from `worktreePath` instead.
 5. Fan out, verify, cross-review, then synthesise; name the composition that actually ran and what you dropped. After any seat returns, Claude or Codex, write one short paragraph of your own, in the user's language and naming the agent by its model, in the same shape for both sides; the five fields are your own input, so never paste a five-field block, a header field name or a path into user-facing text.
 
 ## Model tiers
@@ -128,8 +127,7 @@ that round fails too.
 | a stderr file naming no driver | report it; no relaunch fixes an install |
 | `exitCode: 3`, a cut | read the partial; if the work is unfinished, continue that thread once with `RESUME:`, under a report path of its own |
 | `exitCode: 10` | a held lock or a busy thread: read `error` and the stderr file, wait for the holder, then run again; not a retry |
-| `ok: false` with `turnStatus: null`, exit 2 or 4 | no turn ran, or it was aborted: read `error` and the stderr file |
-| exit 2 with a `turnStatus` | the turn ran and the server rejected the request: read `turnError`, the commands and any answer before relaunching |
+| exit 2 or 4 | with `turnStatus: null` no turn ran, or it was aborted: read `error` and the stderr file. Exit 2 WITH a `turnStatus` is a turn the server rejected: read `turnError`, the commands and any answer before relaunching, or a paid turn is thrown away |
 | exit 4 with a `turnStatus` | the server died mid-turn or the report was not delivered: the report is complete, read it as a gate verdict |
 | any other non-zero `exitCode` with an answer | a gate verdict: do not retry, read the answer |
 | a Claude seat that returns `blocked` | do not retry, report it |
