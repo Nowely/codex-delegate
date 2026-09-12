@@ -106,6 +106,11 @@ readers briefed "do not run commands" returned "I could not read the document": 
 through the shell. Told "read it with `cat` and run nothing else", the same five answered thirteen of
 fifteen questions with a quote.
 
+<a id="m22"></a>**M22. Budgets are a report.** The owner asked what a budget does for the text; the answer is nothing
+directly. Rounds 04 to 07 grew from 1383 to 1611 words, every added word in four sections and every one
+of them making a claim truer; a per-section count per round shows that as it happens, which is the
+whole use. So `sections.mjs` reports and never blocks.
+
 <a id="m21"></a>**M21. What one wave costs.** On 2026-09-12, on a 1600-word README: Opus with execution
 rights ~180k tokens and 17 minutes; Opus on rules and water ~70k and 7 minutes; the Fable dedup ~160k
 and 15 minutes; the Astra adversarial seat about forty commands in five minutes; each Sol task seat about

@@ -79,9 +79,10 @@ your shell rules forbid `cd`.
 
 1. **Once per document**, write four files and copy in `skeleton.md`:
    - `concepts.json` — one regex per idea the document carries, for the duplication count;
-   - `budgets.json` — every `##` heading of the document mapped to a budget: the skeleton's number where
-     the section is the skeleton's, a number you set and write back into `skeleton.md` where a section was
-     added later; a heading with no budget cannot be over it;
+   - `budgets.json` — every `##` heading of the document mapped to the skeleton's number, or one you set
+     and write back into `skeleton.md` where a section was added later. The comparison is a report the
+     owner reads, not a gate: growth per section per round is the number that showed four sections
+     swelling while every fix made them truer;
    - `tasks.json` — two starting states and goals for lens 4, from the workflow the document most wants
      a reader to perform; `questions.json` — the questions a reader arrives with, from the audit's key
      when there is one, otherwise from the skeleton's purpose per section, one line each.
@@ -95,7 +96,7 @@ your shell rules forbid `cd`.
 4. **Run the checks**, before any critic, with `R=<NN>-<pass>.md`:
    - `node "$S/rule1.mjs" "$R" --cut "<technical section heading>" --except "<section that may carry paths>"` — the rule that keeps mechanism out of the sections a reader meets first, with the document's own headings;
    - `node "$S/dup.mjs" "$R" concepts.json` — one idea, one home;
-   - `node "$S/sections.mjs" "$R" budgets.json` — words per section against the budget;
+   - `node "$S/sections.mjs" "$R" budgets.json` — words per section against the budget, reported, never blocking;
    - `node "$S/ledger.mjs" ledger.json $(ls [0-9][0-9]-*.md | sort)` — the ratchet over every round in order; exit 1 when the new round loses a verified claim or revives a retired phrase.
    A failure the round introduced is fixed before the critics see it: remove the round file, fix
    `edits/NN.json`, regenerate. A failure the previous round already had is a finding for this round's

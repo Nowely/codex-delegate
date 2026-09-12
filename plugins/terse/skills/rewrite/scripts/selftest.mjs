@@ -53,7 +53,7 @@ const s = run("sections.mjs", [d]);
 check("sections counts per heading", /^\s*2 B$/m.test(s.out) && /TOTAL/.test(s.out));
 const bj = path.join(tmp, "b.json"); fs.writeFileSync(bj, JSON.stringify({ A: 10, B: 1, C: 5, D: 5 }));
 const sb = run("sections.mjs", [d, bj]);
-check("sections reports a section over its budget and exits 1", /\+1\s+B/.test(sb.out) && sb.code === 1);
+check("sections reports a section over its budget and still exits 0", /\+1\s+B/.test(sb.out) && sb.code === 0);
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(failed ? `\n${failed} check(s) MISSED` : "\nall checks caught their planted violation");
 process.exit(failed ? 1 : 0);

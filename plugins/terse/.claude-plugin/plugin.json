@@ -1,7 +1,7 @@
 {
   "name": "terse",
   "version": "0.1.0",
-  "description": "Four user-invoked skills for documentation. `audit` measures it: fresh readers answer the questions your readers arrive with, and every claim about behaviour is checked against the code that backs it. `rethink` decides what a document should be \u2014 what the genre already solved, what things are called, what is said in what order \u2014 and stops at a skeleton for your word. `rewrite` writes it, in a loop of critics that do not overlap rather than one pass. `calibrate` measures which forms of writing one person actually prefers. Nothing is written into your tree without you.",
+  "description": "Three user-invoked skills for documentation. `audit` measures it: fresh readers answer the questions your readers arrive with, and every claim about behaviour is checked against the code that backs it. `rethink` decides what a document should be \u2014 what the genre already solved, what things are called, what is said in what order \u2014 and stops at a skeleton for your word. `rewrite` writes it in rounds, each reviewed by critics with lenses that differ, until you read a round and say whether you would send it as it is. Nothing is written into your tree without you.",
   "author": {
     "name": "Nowely"
   },

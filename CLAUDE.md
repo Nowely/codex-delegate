@@ -19,5 +19,6 @@ CHANGELOG, tests and evals; release tags are `<name>@X.Y.Z`.
   records the findings and the regression count of each round.
 - **Frozen blocks**: `plugins/terse/skills/rewrite/references/writing-rules.md` and
   `curse-of-knowledge.md` carry the SHA-256 of their own text. Check it after any edit or move nearby; a
-  change to the text changes the measurement it was made under, and the changelog has to say so.
+  change to the text changes the measurement it was made under, so the SHA line and the note beside it
+  are updated together, never the text alone.
 - **Fan-outs**: state the agent count and the models before spawning, and wait for the word.
