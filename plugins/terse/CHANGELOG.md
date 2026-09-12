@@ -133,7 +133,7 @@ forensics remain in the repository references and release notes.
   was. A bake-off that scores whole candidates on phrasing returns the best-phrased document in the
   wrong order, so the structure is decided first, by about ten proposals from deliberately different
   readings of what the document is for, compared together rather than one at a time, with the reader's
-  word on the skeleton before a sentence is written. Seven content rules came out of the same reading,
+  word on the skeleton before a sentence is written. Ten content rules came out of the same reading,
   and they outrank the sentence rules, which are a different layer.
 - `calibrate` has been run once and the result is against it, which its own page now says. One person,
   42 answers: one factor separated, one was undetermined, and one was unjudgeable — eight of fourteen
@@ -185,3 +185,18 @@ forensics remain in the repository references and release notes.
   lifecycle claim provisional. `bake-off.md` gained the brief for the skeleton route and a check per
   changed claim in both briefs. `audit` gained the task readers as its level-3 step and "harmful" as a
   fifth cause. The skeleton must carry a budget for every section, the added ones included.
+- **The skill was measured as a skill, and restructured on the result.** A fresh Opus agent invoked as
+  `/terse:rewrite` from the text alone needed 9650 words before its first action and hit nineteen gaps —
+  no critic brief existed anywhere, two files disagreed on the gate, and one instruction could not be
+  executed because `round.mjs` refuses to overwrite a round. A second Opus found twenty-five
+  contradictions, thirteen duplicated instructions and fourteen stale references across the files; a
+  Codex astra seat attacked the method against its own record and found the rules that were one anecdote
+  generalised into a law. So: `SKILL.md` is the only file needed to act, with the commands, the paths,
+  the resume branch, the gate stated once and the sizes and costs of every lens; `critic-briefs.md`
+  ships one brief per lens and the seat header; `loop.md` says why and where findings go, in less than
+  half its words; every dated measurement moved to `measurements.md`, indexed by the rule it supports,
+  and nothing was dropped. `sections.mjs` takes a budgets file; `round.mjs` refuses claims without a
+  check. The content rules in `stages.md` now say whose they are — one owner's, from one document, the
+  calibration target rather than laws of the genre — and the two that had survived their own reversal are
+  qualified. The audit's "a zero cannot register a repair" was arithmetically wrong and is fixed; its
+  causes are five everywhere; its score is the difference from the no-document arm everywhere.

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Rule 1: no flag name, header field, exit code, protocol name, environment variable or absolute path
-// before the technical section. Usage:
+// The technical-section rule (stages.md content rules 2 and 3, and a skeleton's "no mechanism before the
+// decision it would inform"): no flag name, header field, exit code, protocol name, environment variable
+// or absolute path before the technical section. The defaults below are one document's headings; pass
+// the document's own. Usage:
 //   node rule1.mjs FILE [--cut "How it works"] [--except "What it stores"]
 // --cut     heading (## level) at which the rule stops applying; absent heading = whole document
 // --except  heading whose section may carry literal paths (the stated exception); may repeat

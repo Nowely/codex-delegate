@@ -84,7 +84,7 @@ repeated two guarantees from README.md:5-9 that the code does not make (C02, C14
 Repair must: correct the scope sentence and remove both guarantees at their source.
 ```
 
-Name the cause with one of the four words — refuted, missing, placement, findability — because
+Name the cause with one of the five words — refuted, missing, placement, findability, harmful — because
 `rewrite` treats them differently. Name the ledger entries involved. State what a repair must achieve, not how to word it.
 
 ## The two ledgers `rewrite` returns

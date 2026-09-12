@@ -133,6 +133,7 @@ matter; it can equally mean a weak manipulation, two poor alternatives, or fatig
 
 ## Step 4. Calibrating a judge
 
+Announce how many judge seats, on which models, and roughly what they cost; wait for the user's word.
 Give each candidate judge the same items, both orders. The two orders are **one** observation, not two.
 
 **Compute agreement over the whole preregistered sample**, with every tie and every order flip still in

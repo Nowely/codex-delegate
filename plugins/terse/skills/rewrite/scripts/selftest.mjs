@@ -37,6 +37,8 @@ const e = path.join(tmp, "e.json"), from = path.join(tmp, "from.md"), to = path.
 fs.writeFileSync(from, "alpha beta alpha\n");
 fs.writeFileSync(e, JSON.stringify([{ name: "x", old: "alpha", new: "gamma" }]));
 check("round refuses an anchor that occurs twice", run("round.mjs", [from, to, e]).code === 1 && !fs.existsSync(to));
+fs.writeFileSync(e, JSON.stringify([{ name: "x", old: "beta", new: "gamma", claims: [{ name: "g stays", pattern: "gamma" }] }]));
+check("round refuses claims without a check", run("round.mjs", [from, to, e]).code === 1 && !fs.existsSync(to));
 fs.writeFileSync(e, JSON.stringify([{ name: "x", old: "beta", new: "gamma", check: { level: 2, how: "read" }, claims: [{ name: "g stays", pattern: "gamma" }], retire: [{ name: "b", pattern: "beta" }] }]));
 const h = run("round.mjs", [from, to, e, "--ledger", lg]);
 check("round writes the new file", h.code === 0 && fs.readFileSync(to, "utf8") === "alpha gamma alpha\n");
@@ -49,6 +51,9 @@ check("round refuses to overwrite a round", run("round.mjs", [from, to, e]).code
 // sections
 const s = run("sections.mjs", [d]);
 check("sections counts per heading", /^\s*2 B$/m.test(s.out) && /TOTAL/.test(s.out));
+const bj = path.join(tmp, "b.json"); fs.writeFileSync(bj, JSON.stringify({ A: 10, B: 1, C: 5, D: 5 }));
+const sb = run("sections.mjs", [d, bj]);
+check("sections reports a section over its budget and exits 1", /\+1\s+B/.test(sb.out) && sb.code === 1);
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(failed ? `\n${failed} check(s) MISSED` : "\nall checks caught their planted violation");
 process.exit(failed ? 1 : 0);

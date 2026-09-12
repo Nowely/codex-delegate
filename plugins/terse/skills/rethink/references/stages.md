@@ -31,7 +31,7 @@ words beside good ones; it is words whose score does not pay for their space. A 
 because it was in the outline, a sentence that repeats its neighbour, an assertion with nothing behind
 it — each is a low-scoring item taking room a higher one wanted.
 
-It is also why a word budget is a design tool rather than a limit. At 2726 words nothing has to argue
+It is also why a word budget is a design tool rather than a limit. At 2700 words nothing has to argue
 its way in. At 1000, every block must say what it displaces.
 
 ## The measurement that forced this file
@@ -67,7 +67,7 @@ document has never been audited, that objection is the one to expect first.
 
 **Before designing anything, read how others in the same position did it, weighting by how much use a
 document has had.** A README for a plugin is a solved genre: people have converged on a shape, and the
-convergence is evidence. Inventing a structure from nothing throws that away and reliably loses a
+convergence is evidence of what readers are used to — not that the shape made them succeed. Inventing a structure from nothing throws that away and reliably loses a
 section everybody else has.
 
 Measured on 2026-09-12: a fourteen-agent structure exercise, one of whose ten angles was explicitly "look
@@ -238,8 +238,8 @@ order, and those decisions have to be legible on their own.
 
 Then compare them **together, not one at a time.** Critics see all ten at once, because ranking is the
 judgement being asked for and it cannot be made from isolated reviews. Give each critic a different
-lens, and require a fatal flaw for every structure including the one it ranks first — a critic that
-cannot fault its own winner has not looked.
+lens, and ask for the worst flaw of every structure including the one it ranks first; a critic
+that finds none in its winner says so, and that is an answer, not a failure to look.
 
 Ask each critic one more thing: what all ten got wrong. That answer is usually worth more than the
 ranking, because a failure every angle shares is a failure of the brief.
@@ -262,8 +262,10 @@ run where three were added without budgets ended 600 words over a total nobody h
 
 ## The rules this produced
 
-Derived from what the owner changed, not from a standard. They are about content and order; the rules
-about sentences are in [writing-rules.md](../../rewrite/references/writing-rules.md) and are a different layer.
+Derived from what one owner changed on one document, on 2026-09-11 and 12, not from a standard. They are
+that owner's rules and the calibration target for their next document; another owner's are learned the
+same way, and none of them is a law of the genre. They are about content and order; the rules about
+sentences are in [writing-rules.md](../../rewrite/references/writing-rules.md) and are a different layer.
 
 1. **Open with the problem and the goal.** What is this for, what is it trying to achieve. The project's
    own purpose — parity between a delegated seat and a native one — was absent from a ten-section draft
@@ -272,8 +274,9 @@ about sentences are in [writing-rules.md](../../rewrite/references/writing-rules
    failure modes in the sections a reader meets first.
 3. **Technical detail lives in one section of its own, below the middle.** Whoever reaches it came for
    it. Spread through the early sections it reads as a warning notice.
-4. **A prerequisite that is satisfied on nearly every machine is noise.** Runtime versions, `PATH`,
-   credential files. Nobody documents that a program needs a shell.
+4. **A prerequisite that is satisfied on nearly every machine is noise — unless the document depends on
+   it elsewhere.** `PATH` and credential files went; the runtime version and the wrapped tool's version
+   came back when the survey showed the upgrade warning is unactionable without them.
 5. **Install is a block to copy, immediately.** This is the one thing in the rejected draft the owner
    said he liked.
 6. **Update gets the same block, in the same form.** A document that says how to start and not how to
@@ -284,9 +287,10 @@ about sentences are in [writing-rules.md](../../rewrite/references/writing-rules
    equal of a native one, while calling it by a different word throughout, denies its own thesis in
    every sentence. Internal jargon — a skill's name, a term the reference files use — is for readers who
    are agents. Where the reader is a person, the word that names the claim is the word to use.
-9. **Where a section states a comparison, a table beats prose.** The claim is either visible in the rows
-   or it is not true, and a reader checks a table in seconds and an argument in paragraphs. This is the
-   knapsack principle at the scale of a block.
+9. **Where a section states a comparison whose rows differ, a table beats prose.** The claim is either
+   visible in the rows or it is not true, and a reader checks a table in seconds and an argument in
+   paragraphs. A table whose rows all say the same thing proves sameness by looking identical, and the
+   one built for this document was cut for exactly that.
 10. **A command goes in a fenced block, with a language, in the form that runs.** Not prose around it,
     not the in-application shorthand. `/plugin install …` works only for a reader already inside Claude
     Code; `claude plugin install …` works for the reader arriving at the page. The language tag is not

@@ -11,8 +11,8 @@ bake-off beats a single careful pass at repairing a document. The single chained
 insurance against a bad draft, not as a proven improvement.
 
 One more thing this sheet does not yet control. Model judges are measured to prefer longer answers and to
-prefer their own writing, and this bake-off makes word count the tiebreak and defaults to a panel drawn
-from one model family. Until that is corrected, read a narrow win on length as a tie.
+prefer their own writing, and this bake-off defaults to a panel drawn from one model family; word count is reported and never
+selects. Read a narrow win on length as a tie.
 
 ## The pool
 
@@ -41,16 +41,16 @@ across runs, because nothing here has been measured yet.
 
 ## The writer brief
 
-Send the four parts assembled in Step 2 of the skill, then this:
+Send the parts assembled in Step 2 of the skill, then this:
 
 ```
-Rewrite the whole of <FILE> by running the four parts above as four passes, in order. Keep each
+Rewrite the whole of <FILE> by running the parts above as passes, in order. Keep each
 intermediate draft as a separate file; name them 01-reader-pass, 02-writing-pass,
 03-prerequisite-pass, and the final result last.
 
 Your angle is <ANGLE>.
 
-Six fresh readers have been measured against the current file and their failures are in part four.
+Fresh readers have been measured against the current file and their failures are in part five.
 They are the point of this exercise. A rewrite that improves prose without repairing those failures
 has done nothing.
 
@@ -115,13 +115,21 @@ else it does well.
 | failures repaired | how many of the measured failures are repaired, at their source, with the line shown? | primary |
 | prerequisites | does the text answer the inventory's items where the reader meets them? | secondary |
 | cuts justified | does every cut of twenty words or more carry a reason? | secondary |
-| length | word count before and after | tiebreak only |
+| length | word count before and after | reported, never selects |
 
 Judges state a line number for every claim they make about a candidate. A judgement without a line is an
 opinion, and this sheet does not collect opinions.
 
 Give the judges the audit's *What broke* section and the candidate. Do not give them the other judges'
 sheets.
+
+## The judging sheet, skeleton route
+
+When there is no audit, the first two rows stay vetoes and the primary row changes: **purpose met** — does
+the section do what the skeleton says it buys the reader, judged against that sentence and nothing else;
+then **exclusions respected** — nothing the skeleton excluded was restored; then **budget** — words
+against the skeleton's number, reported and never selecting. Give the judges the skeleton and the
+candidate; the winner is the surviving candidate with the most sections meeting their purpose.
 
 ## Choosing and grafting
 

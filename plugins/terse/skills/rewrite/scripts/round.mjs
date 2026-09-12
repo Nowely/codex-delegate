@@ -7,6 +7,9 @@
 //                "retire": [{"name","pattern"}]}]  // phrasings this edit removes as false   (want: false)
 // Every `old` must occur exactly once in FROM, or nothing is written. TO must not exist: a round is a
 // new file, never an overwrite. With --ledger, claims and retirements are appended (deduplicated by name).
+// An edit that declares claims must carry a check. A level-2 claim whose name or pattern mentions a
+// lifecycle — stays, removed, continued, resumed, reclaimed, kept, pruned — is marked provisional in the
+// ledger, because such claims have fallen to runs; ledger.mjs prints it as L2~.
 import fs from "node:fs";
 const args = process.argv.slice(2);
 const li = args.indexOf("--ledger"); const ledgerFile = li === -1 ? null : args[li + 1];
@@ -16,6 +19,8 @@ if (fs.existsSync(to)) { console.error(`${to} exists; a round is a new file, nev
 let t = fs.readFileSync(from, "utf8");
 const edits = JSON.parse(fs.readFileSync(editsFile, "utf8"));
 for (const e of edits) {
+  if ((e.claims ?? []).length && !(e.check && [1, 2, 3].includes(e.check.level)))
+    { console.error(`${e.name}: an edit that declares claims needs a check {level: 1|2|3, how}; nothing written`); process.exit(1); }
   const n = t.split(e.old).length - 1;
   if (n !== 1) { console.error(`${e.name}: found ${n} time(s) in ${from}, expected exactly 1; nothing written`); process.exit(1); }
   t = t.replace(e.old, e.new); console.log("ok ", e.name);

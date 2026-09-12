@@ -19,7 +19,8 @@ Four skills. You invoke all four; none starts on its own.
 **`/terse:audit`** builds a profile of who reads this project, derives the correct answers from the
 code, then sends one fresh reader per question through the documentation — `.md` only, starting where a
 real reader starts. It returns a score, the questions that failed, and why each failed: the text lied,
-the true sentence sat where it misleads, or the answer was there and unfindable. It never suggests
+the answer was nowhere, the true sentence sat where it misleads, it was there and unfindable, or every
+sentence was true and the sequence left the reader worse off. It never suggests
 wording.
 
 **`/terse:rethink`** decides what a document should be before a sentence of it is written: what
@@ -33,11 +34,10 @@ where it sat and how much of it there was. None was about phrasing.
 candidates and two judges score them on the failures rather than on taste; the winner then goes through
 a loop of critics whose lenses do not overlap — the code, the rules, an adversarial reader, a task, a
 reader's questions — until a round finds nothing new and nothing got worse. Every round is kept as its
-own file. You get the winner, the diff, a list of every cut of twenty words or more with its reason, and
-the file and line behind every behavioural claim. It writes into its own run directory. Applying
+own file. You get the winner, the diff, a list of every cut of twenty words or more with its reason, and the file, line and evidence level behind every behavioural claim. It writes into its own run directory. Applying
 anything to your files needs your word.
 
-**`/terse:calibrate`** measures something the other two cannot see. A right answer is not the same as a
+**`/terse:calibrate`** measures something the other three cannot see. A right answer is not the same as a
 text you would rather read, and in the field studies that report both, the two sometimes move in
 opposite directions. It shows you pairs of passages — same content, one thing different, sides shuffled,
 nothing labelled — and asks which you prefer. Repeated items measure you against yourself, so a real

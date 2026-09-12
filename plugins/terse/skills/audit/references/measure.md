@@ -86,14 +86,14 @@ Right answers over questions, and then the delta against the no-document arm. Be
 are not the score but predict it: steps taken, and how many readers departed from the documentation. A
 right answer found by reading the source is a documentation failure with a correct answer attached.
 
-Then give every wrong answer a cause — refuted, missing, placement or findability. The four are defined
+Then give every wrong answer a cause — refuted, missing, placement, findability or harmful. The five are defined
 in Step 6 of [SKILL.md](../SKILL.md), the evidence rules behind `refuted` are in
 [truth-pass.md](truth-pass.md), and the ledger entry in [ledgers.md](ledgers.md) records which one.
 `missing` is the one most easily mistaken for `findability`: if the answer is nowhere in the `.md` files,
 no path leads to it and no rewrite of the path will help.
 
-**Say when the instrument has no room.** A baseline of every question right, or every question wrong,
-cannot register a repair. Report that and stop rather than producing a number that cannot move.
+**Say when the instrument has no room.** A baseline of every question right cannot register an
+improvement; report that and stop rather than producing a number that cannot move. A zero can rise.
 
 ## Establishing this instrument's own noise floor
 

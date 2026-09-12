@@ -10,7 +10,7 @@ metadata:
 license: MIT
 ---
 
-An audit here is a measurement, not an opinion. You run six steps in order, and the order carries the
+An audit here is a measurement, not an opinion. You run seven steps in order, and the order carries the
 method: the profile decides which questions are worth asking, the code decides what the right answers
 are, and both exist before the first reader is spawned. A reader sent out before the answer key is
 written measures the text against your memory of it, and your memory has already read the code.
@@ -113,7 +113,7 @@ invent something, and treat a guess that turned out right exactly like one that 
 
 ## Step 6. The score and what broke
 
-The score is right answers over questions. Report steps taken and departures from the documentation
+The score is right answers over questions, reported as the difference from the no-document arm. Report steps taken and departures from the documentation
 beside it; a right answer found in the source code is a documentation failure.
 
 Give every wrong answer a cause, because the cause decides what a rewrite must do:
@@ -142,9 +142,9 @@ A local warning belongs immediately before its action; a global one is stated on
 Do not move a fact away from where it is currently read correctly in order to put it where it is also
 needed — put it in both places.
 
-Report the score with its own limits beside it. If the baseline is a perfect score or a zero, say so and
-stop: an instrument with no room left cannot register a repair, and a later "the score did not fall" will
-mean nothing.
+Report the score with its own limits beside it. If the baseline is a perfect score, say so and stop: an
+instrument with no room above cannot register an improvement, and a later "the score did not fall" will
+mean nothing. A zero can rise; report it and go on.
 
 Write the run file to `$RUN/audit.md` using the section contract in
 [ledgers.md](references/ledgers.md), then report to the user: the score, the failures with their
