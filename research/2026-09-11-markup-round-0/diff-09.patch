@@ -1,0 +1,375 @@
+--- /Users/ruliny/Git/agent-skills/research/2026-09-11-markup-round-0/00-draft.md	2026-09-11 22:54:19
++++ /Users/ruliny/Git/agent-skills/research/2026-09-11-markup-round-0/09-reduction.md	2026-09-12 20:44:14
+@@ -1,236 +1,193 @@
+ # codex-delegate
+ 
+-## What this is
++A Claude Code plugin that runs OpenAI Codex agents the way Claude Code runs its own subagents.
+ 
+-One Codex turn, started from Claude Code, with the rights for that turn named on the call that makes it.
++A review, a refutation or a competing implementation from the same model is one model's opinion twice. So
++one task can go to a panel of Claude and Codex agents, each answer attributed to the model that gave it.
+ 
+-It is a single Node script — the driver — that speaks JSON-RPC to `codex app-server` over stdio, plus
+-three skills that tell Claude how to call it. The driver returns one JSON report: what the turn was
+-allowed to do, which commands ran and what they returned, whether the answer arrived, and an exit code
+-derived from those events rather than from the model's own account of itself.
++You say what an agent may touch before it starts, and the rights Codex reports are checked against that.
++Its verdict comes from the record of the turn, not from what it reports: by default, an agent that ran
++nothing comes back failed, not finished.
+ 
+-The design holds one position. **Rights are a grant, and a grant is made per call.** A seat that only
+-needs to read gets a read-only sandbox. A seat that must write gets a named writable root and a lock on
+-it. Neither inherits anything from the call before it, and there is no config file that quietly widens
+-the next one.
++## Quick start
+ 
+-That position is what the exit code is for. `0` does not mean the model said it was finished; it means
+-the turn completed, the commands the caller required actually ran, and the check the caller declared
+-passed. Where the caller declared none of those, `0` means less, and the report says which parts were
+-measured.
+-
+-What it is not: a job queue, a background service, or a way to keep a Codex session alive across tasks.
+-The caller that starts a seat owns its lifetime and stops it. A thread can be resumed by name, and
+-nothing else survives the call.
+-
+-## Install and first run
+-
++```bash
++claude plugin marketplace add Nowely/agent-skills
++claude plugin install codex-delegate@nowely
+ ```
+-/plugin marketplace add Nowely/agent-skills
+-/plugin install codex-delegate@nowely
+-```
+ 
+-You need Node 22 or newer, `codex` on `PATH`, and an account it can use — the driver does not
+-authenticate, it borrows the `auth.json` your own Codex already has.
++An install from the shell does not reach a session that is already open: run `/reload-plugins` there, or
++start a new one.
+ 
+-Then ask Claude for the work, naming Codex:
++You need:
+ 
+-> Ask a Codex seat to read `src/parser.ts` and list the cases it does not handle.
++- `codex` installed and signed in — check with `codex login status`. Agents run under that sign-in and
++  spend its quota
++- Node 22 or newer
++- codex-cli **0.153.4**, the build this was measured on; a different one is warned about, not refused
+ 
+-The skill turns that into one driver call, shows you the rights it is asking for, and reports what came
+-back. Nothing is written anywhere outside a temporary directory unless you asked for a write seat.
++```text
++you     Have Codex review the last commit and run the tests.
+ 
+-The turn runs against a Codex home the driver keeps for itself, not against yours, so nothing you have
+-configured steers it. Filling it costs one short probe of your own `codex` before the turn — normally
+-about 120 milliseconds, and never more than five seconds.
++Claude  One Codex agent, gpt-5.6-sol. It reads your files, runs commands and
++        reaches the network; it writes nothing of yours.
+ 
+-If the call ends at exit 2 saying it has no state directory, the plugin's data directory was not passed
+-through. That is the one piece of setup with no default: state under your home would outlive an
+-uninstall, so the driver refuses to invent a location.
++        Codex gpt-5.6-sol A1 — reviewed the commit and ran the suite green.
++        Two findings, both in error handling. …
++```
+ 
+-## Rights, per call
++Claude writes each agent's prompt outside your project, so the first run asks permission to write there.
+ 
+-Three levels, and the difference between them is what the sandbox will let the turn write.
++## Commands
+ 
+-| Level | Reads | Writes | Lock |
+-| --- | --- | --- | --- |
+-| `--level read`, the default | anything you can read | `$TMPDIR` only | none |
+-| `--level write --cwd DIR` | anything | inside `DIR` | one per directory |
+-| `--worktree REPO` | anything | a fresh worktree | one per repository |
++You name Codex, or ask for a second opinion, and the plugin takes it from there. Say which model and what
++it may touch when you care; say nothing and the agent reads and runs commands but writes nothing, on the
++model Claude picks for it:
+ 
+-Read seats take no lock, so several of them run over one directory at once. A write seat takes a lock
+-on its `--cwd` and a second one waits at exit 10 rather than editing the same tree underneath it.
++```text
++Have Codex check whether this lock is actually held.
++Put this on a panel — two of you and one Codex.
++Get Codex to refute the second finding.
++Let Codex try the fix in a throwaway copy.
++Use Astra for this one, read-only.
++No codex on this one, just you.
++```
+ 
+-`--cwd` has no default at write level. A writable root is a grant, and a defaulted grant is one nobody
+-made.
++| Command | What it does |
++|---|---|
++| `/codex-delegate:orchestrate` | Agrees a plan with you, then pushes every verbose step — tests, tree-wide greps, source reading, diffs, logs — onto Claude and Codex agents, so the main conversation stays small. |
++| `/codex-delegate:cleanup` | Lists the agents' scratch, orchestration runs, throwaway copies and locks it left, and deletes only what you pick. |
+ 
+-`--worktree` cuts a detached tree at `HEAD` under `REPO/.claude/worktrees`, runs there, copies the work
+-out to the driver's answers directory and removes the tree. Note what `HEAD` means: the last commit.
+-Uncommitted changes, untracked files and installed dependencies are not in it, so a seat asked about work
+-in progress finds an empty tree and reports success. Commit or stash first, or run on the live tree with
+-`--level write`.
++## Update and uninstall
+ 
+-The network is open at both levels. `--no-network` closes it, and there is no host allowlist — name the
+-hosts in the prompt.
++```bash
++claude plugin marketplace update nowely
++claude plugin update codex-delegate@nowely
+ 
+-## Proof that the work happened
++claude plugin uninstall codex-delegate@nowely --keep-data   # keeps your answers and run records; drop the flag to delete them
++```
+ 
+-A turn that read the code, formed an opinion and ran nothing will still produce a confident answer. The
+-driver's job is to make that visible rather than to trust it, and the caller has three instruments.
++Restart Claude Code to apply an update. Removing the
++*marketplace* instead uninstalls every plugin that came from it and deletes their stored data, without
++asking:
+ 
+-**`--expect-command RE`** requires that a command matching `RE` actually ran. The pattern is matched
+-against what the server parsed as well as the wrapper string it reports, so `^pnpm` works. Nothing
+-matched is exit 5.
++```bash
++claude plugin marketplace remove nowely   # copy this plugin's data directory first, if it exists and matters
++```
+ 
+-**`--verify CMD`** runs `CMD` after the turn, in the seat's tree, and its exit code decides: a failure is
+-exit 9, and a verifier that could not be measured at all is exit 12. `CMD` runs with your rights, your
+-environment and your network, so prefer one that executes only what the seat just wrote — `npm test`
+-runs the seat's own script.
++That directory is named under [What it stores](#what-it-stores-and-what-leaves-your-machine).
+ 
+-**`--verify-sandboxed`** runs that check under the same read-only profile a read seat gets. It keeps the
+-check as honest as the seat, and most build and test runners write, so most fail under it.
++## What a Codex agent can do, and what it may touch
+ 
+-Beyond the ladder, the report carries counts the exit code does not read: `commandsFailed`,
+-`commandsBlocked` — a command that reached the client with no verdict at all — `fileChangesFailed` and
+-`commandsProbeNegative`. Read them before acting on the answer. A failed command is not a rung: it does
+-not make the turn a failure by itself, and it is not evidence that anything ran either.
++Three kinds of access, one per call:
+ 
+-## When a turn is cut
++- **Reads and runs commands, writes nothing of yours.** It reads anything you can read, and one temp
++  directory is the only thing it may write — yours, or the plugin's own when your shell names none.
++  Enough for most test suites, not for browser tests.
++- **Writes in a throwaway copy of the repository.** Its edits and new files come back to you; the copy
++  goes, and with it anything git ignores. A copy whose run was cut short is kept for you to look at.
++- **Writes in a directory you name.** Your live files: you choose the blast radius.
+ 
+-Three bounds, each with its own default and its own reason.
++> [!WARNING]
++> A throwaway copy starts at your **last commit**. Uncommitted edits, untracked files and installed
++> dependencies are not in it, so an agent asked about work in progress finds nothing and reports success
++> on an empty diff. Commit first. A continued agent rebuilds its copy from its last saved work, not from your new
++> commits: for those, start a fresh one.
+ 
+-`--idle-timeout`, 900 seconds, is the one that catches a hang. It measures how long the thread may say
+-nothing at all; every notification from the server resets it, including item starts, answer deltas and
+-token accounting, so a long inference step does not trip it.
++An agent keeps what a native subagent can do: stop one and keep what it earned, continue one with rights
++set again, hand it an image, demand JSON against your schema, reach the network, or not — you say which; the model's own web search is a separate switch, off unless
++you ask. Several run at once, and read-only ones can share one directory, unless your tooling keeps a
++daemon, a socket or a pid file there. What it adds is proof —
++[How it works](#how-it-works); what it lacks is in [Where parity stops](#where-parity-stops).
+ 
+-`--max-commands`, 1000, is the one that catches a loop.
++## What it stores, and what leaves your machine
+ 
+-`--timeout` is unset by default, and the turn runs as long as the work takes. Declare one and it is
+-anchored at process start: near the end the turn is steered to answer now, and at the last moment it is
+-cut. The maximum is 7200 seconds.
++The plugin sends nothing anywhere itself. What reaches OpenAI is the turn — your prompt, what the
++agent read on the way to its answer, and the plugin's standing instructions to it.
+ 
+-Any of the three ends the turn at exit 3, and the report still holds what the turn had reached — the
+-answer if it delivered one, and otherwise `answerPartial`, the text the model had written when it was
+-cut, reassembled from the answer stream because the server discards the message in flight. `cut` names
+-which bound ended it and what it observed, and the report carries the thread id to resume from.
++On disk it uses four places:
+ 
+-The reason a partial is written beside the answer rather than as one: it is text the model never
+-finished and never delivered. It is worth reading and it is not the turn's result.
++- **your system temp directory** — each agent's prompt and output files, and a read-only agent's scratch.
++- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, locks, and a Codex
++  home of the plugin's own: your sign-in and four settings come in, your Codex plugins, skills and
++  memories do not.
++- **`.claude/worktrees` inside your repository** — the throwaway copies; a failed turn's copy stays until
++  you remove it, or until a later throwaway-copy run finds it clean and removes it.
++- **`~/.codex/sessions`**, your own Codex home — each turn's transcript.
+ 
+-## The private Codex home
++Answers and run records age out after 14 days or 400 entries; reports and the private home stay until
++you remove them.
+ 
+-By default a turn runs against a Codex home that belongs to the driver, not to you. Your own plugins,
+-skills and memories cannot steer it, and it writes no trust records back into your configuration.
++## Where parity stops
+ 
+-It is one directory shared by every run, not a fresh one per turn. That is deliberate: the caches and
+-databases Codex keeps there persist, which is what makes an isolated run faster than a host-home one.
+-Two things stay linked to your real home rather than copied — `auth.json`, because the driver does not
+-hold credentials of its own, and the sessions directory, because that is where the receipt for a
+-completed turn is written.
++By default a Codex agent cannot commit: its rights stop short of your repository's git directory. Grant
++that directory only deliberately.
+ 
+-Filling it costs one short process before the turn: the driver asks your own `codex` what its settings
+-resolve to, bounded at five seconds and normally about 120 milliseconds. The report's `configInherited`
+-says whether the model and effort for this turn came from a fresh probe, from the last known good
+-answer, or from nothing at all.
++It cannot widen its rights mid-run: the request is refused and recorded, and the run ends on a declined
++approval — nothing in the run pauses to ask you.
+ 
+-`--host-home` uses your `~/.codex` instead, plugins and all. It is the right choice when a seat needs an
+-MCP server you have configured there, and the wrong one when you want the turn's behaviour to depend on
+-nothing but the call.
++Browser tests need a writing agent: the override Chromium needs is a file in the tree.
+ 
+-## What it leaves on disk, and how to remove it
++A fan-out is bounded by your machine's memory: overshooting gets runs killed, not queued.
+ 
+-Everything the driver owns lives in one state directory, named by `CODEX_DELEGATE_STATE_DIR` or, where
+-that is unset, by the plugin's own data directory. There is no built-in default.
++What was measured, and when: [parity.md](skills/seat/references/parity.md).
+ 
+-```
+-locks/      one per directory a write seat holds
+-answers/    answers, partials, turn diffs
+-home/       the private Codex home
+-jobs/       what --resume last and a worktree rebuild need
+-tmp/        the temporary directory of a run whose caller exported none
+-worktrees/  the managed-worktree ledger
+-pasted/     images staged for attachment
+-```
++## Against the official `openai-codex` plugin
+ 
+-Nothing prunes any of it. Answers accumulate, and so do the worktree entries for trees that were
+-removed.
++The same idea, richer in places, but not a substitute where rights matter. On a managed machine the
++approval policy it hardcodes is overridden and its writes come back declined. On every machine its
++read-only agents cannot run a test suite, a build, or anything that stages a file — so a review agent
++launched through it reviews by reading and reports a confident verdict having run nothing. Both
++come back looking successful ([the forensics](skills/seat/references/why-not-the-plugin.md)).
+ 
+-The `cleanup` skill lists what is there with sizes and dates, says which items it suggests removing and
+-why the rest are being kept, and deletes only what you name. Three things it lists and never removes:
+-managed worktrees and their ledger, write locks, and the shared Codex home. The driver reconciles the
+-first two itself, and the last is shared by every seat, including ones running now.
++## How it works
+ 
+-A `--report-file` is yours, not the driver's: it is written where you named it and nothing cleans it up.
++One Codex agent is one dependency-free Node script driving `codex app-server`, the only Codex interface with
++both per-call rights — sandbox and approval policy — and a machine-checkable record of what ran.
+ 
+-## Stopping and continuing a run
++The rights the server reports are checked against the ones asked for. The exit code comes from the
++record of the turn: by default a turn passes if it ran at least one command; a command it must have
++run, or a check of your own that must pass, are gates you ask for. The report says whether Codex's own
++session file for the thread was found and read.
+ 
+-A seat is stopped by sending `SIGTERM` to the driver process. Its pid is on stderr before anything else,
+-so it can be stopped by a caller that has not yet seen a thread id.
++Flags, gates, report fields and exit codes are the driver's own help, `--help` and `--help-all`:
+ 
+-The handler asks the server to end the turn and then writes the report the turn had earned, at exit 1.
+-Stopping a seat does not discard its work: the commands that ran are in the report, the files it wrote
+-are where it wrote them, and the answer or the partial is on disk.
++```bash
++node ~/.claude/plugins/marketplaces/nowely/plugins/codex-delegate/skills/seat/scripts/driver.mjs --help
++```
+ 
+-`--resume THREAD` continues a thread by id. `--resume last` continues the run most recently *started*
+-for this `--cwd`, or for this repository under `--worktree`. Started, not most recently active: a long
+-seat still running does not lose its place to a shorter one begun after it and already finished. Check
+-`resumedFrom` in the report after using `last`, which is the whole reason the field exists.
++<details>
++<summary>Installing from a clone instead</summary>
+ 
+-A thread whose turn is still open refuses a resume at exit 10. So does a directory another write seat
+-holds. Both are the same rule — one turn at a time over one tree — arriving from two directions.
++```bash
++git clone https://github.com/Nowely/agent-skills.git
++mkdir -p ~/.claude/skills
++for s in seat orchestrate; do ln -s "$PWD/agent-skills/plugins/codex-delegate/skills/$s" ~/.claude/skills/$s; done
++export CODEX_DELEGATE_STATE_DIR="$HOME/.local/state/codex-delegate"
++```
+ 
+-`tokenUsage` is cumulative across a resumed thread, so the number after three resumes is the cost of all
+-three, not of the last one.
++That last line belongs in your shell profile — Claude Code must inherit it; without it the driver refuses
++to start. The modes lose the plugin's prefix here: `/orchestrate`, not `/codex-delegate:orchestrate`;
++`/cleanup` runs only from the plugin install. Update the clone with `git pull`.
+ 
+-## Why this driver, and not the official plugin
++</details>
+ 
+-The official Codex plugin for Claude Code and this driver are the same skeleton: both spawn
+-`codex app-server` and speak thread and turn JSON-RPC over stdio. They differ in one layer, and it is
+-the layer that decides whether a result can be trusted.
++## Troubleshooting
+ 
+-Two defects, both measured against the cached plugin source and reproduced live, as of 2026-08-31.
++| What you see | What it means | What to do |
++|---|---|---|
++| an agent working in a throwaway copy reports success and changed nothing | it ran against your last commit, not your working tree | commit, then ask again. Stashing does not help — the copy is still cut at your last commit, and your own edits are gone until `git stash pop` |
++| the run is refused before it starts | the refusal says why: a full Codex quota window, a held write lock, no state directory | do what the refusal says; for quota, wait or use a Claude subagent |
++| a run dies mid-way in a large fan-out | most likely memory — runs are killed, not queued; a missing report means unknown, never success | ask for fewer at once |
++| a run fails after a `codex` upgrade | the interface underneath is experimental | report it, with versions |
+ 
+-**It hardcodes an approval policy of `never`.** On a machine with a managed Codex profile that does not
+-allow `never`, Codex clamps it to `untrusted`, under which every command and every write raises an
+-approval request. The plugin answers every such request with JSON-RPC `-32601`, which Codex reads as a
+-refusal. The log says `File changes declined.` and the run exits 0.
++Report a problem at [issues](https://github.com/Nowely/agent-skills/issues) with `codex --version`, the
++plugin version, and the failing run's report.
+ 
+-**It sends an explicit sandbox on every start**, and sending that parameter at all suppresses any
+-configured permission profile — the only mechanism that can add `$TMPDIR` to a read-only sandbox. A
+-review seat launched through it cannot create a temporary directory, so it cannot run a test suite or a
+-build, on any machine. It reviews by reading and reports a confident verdict having run nothing.
++## Further reading
+ 
+-Scope this honestly: on an unmanaged machine the plugin's `--write` path is serviceable, because
+-`workspace-write` opens `$TMPDIR` as a side effect. It is read and review seats that are structurally
+-unable to run anything.
++- The manual the agent reads: [SKILL.md](skills/seat/SKILL.md)
++- What parity was measured, and when: [parity.md](skills/seat/references/parity.md)
++- Environment, receipts, locks, worktrees: [environment-and-internals.md](skills/seat/references/environment-and-internals.md)
+ 
+-Both were reported upstream. Neither was fixed. Read the issues yourself before assuming that still
+-holds.
+-
+-## After a codex upgrade
+-
+-The driver speaks a protocol that a new Codex can change without saying so, and the suites will not
+-notice: they drive the driver against a fixture, and when the fixture is wrong the driver and the
+-fixture are wrong in the same way while every case stays green.
+-
+-So the first thing to run after an upgrade is the one suite that asks a different question:
+-
+-```bash
+-node evals/fidelity.test.mjs
+-```
+-
+-It sends the real server the same handshake the fixture answers and compares the replies. No turn is
+-started and no model is called, which makes it cheap enough to run on every change to either side. It
+-skips only when `codex` is absent, loudly, because a missing binary is not a protocol defect; every other
+-spawn or handshake failure is drift.
+-
+-Then run the rest, and the live gate separately:
+-
+-```bash
+-npm test
+-CODEX_DELEGATE_LIVE_TURN=1 node evals/fidelity.test.mjs --require-live
+-```
+-
+-Afterwards, check `codexVersion` in a report. It carries what the server said about itself beside the
+-version this plugin was last measured against, so a mismatch is visible in the output of ordinary work
+-rather than only in a test run.
++Young code; the test suite and what it cannot see are in [evals](evals/README.md). Changes in [CHANGELOG.md](CHANGELOG.md). MIT — see [LICENSE](LICENSE).

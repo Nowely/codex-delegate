@@ -4,7 +4,8 @@
 // EDITS.json = [{"name": "...", "old": "...", "new": "...",
 //                "check":  {"level": 1|2|3, "how": "command or file:line"},   // how the edit's claims were verified
 //                "claims": [{"name","pattern"}],   // verified claims this edit introduces  (want: true, level from check)
-//                "retire": [{"name","pattern"}]}]  // phrasings this edit removes as false   (want: false)
+//                "retire": [{"name","pattern"}],  // phrasings this edit removes as false   (want: false)
+//                "drop":   ["name", ...]}]         // ledger entries for claims the edit removes on purpose, recorded in rounds.md
 // Every `old` must occur exactly once in FROM, or nothing is written. TO must not exist: a round is a
 // new file, never an overwrite. With --ledger, claims and retirements are appended (deduplicated by name).
 // An edit that declares claims must carry a check. A level-2 claim whose name or pattern mentions a
@@ -34,6 +35,7 @@ if (ledgerFile) {
       level: e.check?.level ?? null, ...(e.check?.how ? { how: e.check.how } : {}),
       ...(e.check?.level === 2 && /lifecycle|stays|removed|continu|resum|reclaim|kept|prun/i.test(c.name + " " + c.pattern) ? { provisional: true } : {}) });
     for (const c of e.retire ?? []) byName.set(c.name, { name: c.name, pattern: c.pattern, want: false });
+    for (const n of e.drop ?? []) { if (!byName.delete(n)) console.error(`${e.name}: drop names a ledger entry that does not exist: ${n}`); }
   }
   fs.writeFileSync(ledgerFile, JSON.stringify([...byName.values()], null, 1) + "\n");
   console.log(`ledger: ${byName.size} claim(s)`);

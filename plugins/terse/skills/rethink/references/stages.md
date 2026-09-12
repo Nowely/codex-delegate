@@ -296,6 +296,10 @@ sentences are in [writing-rules.md](../../rewrite/references/writing-rules.md) a
     Code; `claude plugin install …` works for the reader arriving at the page. The language tag is not
     decoration: an untagged block is unhighlighted, and highlighting is what makes a command legible as
     a command rather than as a quotation.
+11. **A qualification is not a fix.** A sentence that needs a caveat to be true says too much: say less, or
+    link the source that carries the detail. Five rounds of one document added caveats to make sentences
+    truer and each caveat was contradicted by a finer detail of the code — regressions rose from one to
+    ten. The owner named it: an *оговорка* is an anti-pattern.
 
 ## One rule about the artifact you show for review
 

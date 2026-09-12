@@ -1,0 +1,275 @@
+[
+ {
+  "name": "opening: rights are checked, no claim of completeness",
+  "old": "You say what an agent may touch before it starts, and the run stops if Codex grants a different sandbox\nor network than that.\nIts verdict",
+  "new": "You say what an agent may touch before it starts, and the rights Codex reports are checked against that.\nIts verdict",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:1948-2020 assertSandbox on the thread-start response; ISSUES C5 for the two fields it does not read"
+  },
+  "claims": [
+   {
+    "name": "rights mismatch stops the run",
+    "pattern": "the rights Codex reports are checked against that"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'grants a different sandbox'",
+    "pattern": "grants a different sandbox"
+   }
+  ]
+ },
+ {
+  "name": "quick start: version measured, not pinned",
+  "old": "- codex-cli **0.153.4**, the build this is pinned to and was last measured on. A newer codex is untested,\n  and an upgrade of it is the likeliest thing to break a run",
+  "new": "- codex-cli **0.153.4**, the build this was measured on; a different one is warned about, not refused",
+  "check": {
+   "level": 3,
+   "how": "astra A8: a server reporting 9.9.9 → stderr warning, turn ran, exit 0; driver.mjs:3763-3765"
+  },
+  "retire": [
+   {
+    "name": "NEG 'pinned to'",
+    "pattern": "pinned to"
+   }
+  ]
+ },
+ {
+  "name": "commands: how to choose model and rights; Russian line out",
+  "old": "You name Codex, or ask for a second opinion, and the plugin takes it from there:\n\n```text\nHave Codex check whether this lock is actually held.\nPut this on a panel — two of you and one Codex.\nGet Codex to refute the second finding.\nLet Codex try the fix in a throwaway copy.\nПроверь через gpt, вторая имплементация.\nNo codex on this one, just you.\n```",
+  "new": "You name Codex, or ask for a second opinion, and the plugin takes it from there. Say which model and what\nit may touch when you care; say nothing and the agent reads and runs commands but writes nothing, on the\nmodel Claude picks for it:\n\n```text\nHave Codex check whether this lock is actually held.\nPut this on a panel — two of you and one Codex.\nGet Codex to refute the second finding.\nLet Codex try the fix in a throwaway copy.\nUse Astra for this one, read-only.\nNo codex on this one, just you.\n```",
+  "check": {
+   "level": 2,
+   "how": "seat/SKILL.md:86 and :126 no header = a read seat; :132 MODEL: set when a seat needs a model other than the default; :57-58 the short names"
+  },
+  "claims": [
+   {
+    "name": "choose model and rights",
+    "pattern": "Say which model and what\\s+it may touch"
+   }
+  ]
+ },
+ {
+  "name": "commands: table rows true to the skills; 'Both are yours' out",
+  "old": "| `/codex-delegate:orchestrate` | Agrees a plan with you, then pushes the verbose steps — tests, greps, diffs, logs — onto Claude and Codex agents, so the main conversation stays small. |\n| `/codex-delegate:cleanup` | Lists the scratch and run directories the plugin left on this machine — not your answers, run records or reports — suggests what to remove, deletes only what you pick. |\n\nBoth are yours to start; nothing invokes them on your behalf.",
+  "new": "| `/codex-delegate:orchestrate` | Agrees a plan with you, then pushes every verbose step — tests, tree-wide greps, source reading, diffs, logs — onto Claude and Codex agents, so the main conversation stays small. |\n| `/codex-delegate:cleanup` | Lists the agents' scratch, orchestration runs, throwaway copies and locks it left, and deletes only what you pick. |",
+  "check": {
+   "level": 3,
+   "how": "orchestrate/SKILL.md:23-27 tree-wide greps and source reading go to seats; cleanup.mjs rows: runs, seats, worktrees, locks — opus F-b listing and deletion measured"
+  },
+  "claims": [
+   {
+    "name": "cleanup row lists what it covers",
+    "pattern": "Lists the agents' scratch, orchestration runs, throwaway copies and locks"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'not your answers, run records or reports'",
+    "pattern": "not your answers, run records or reports"
+   }
+  ],
+  "drop": [
+   "cleanup row honest"
+  ]
+ },
+ {
+  "name": "update: data survival across an update is unmeasured; drop the clause",
+  "old": "Restart Claude Code to apply an update; it keeps your stored answers and run records. Removing the",
+  "new": "Restart Claude Code to apply an update. Removing the",
+  "check": {
+   "level": 2,
+   "how": "claude plugin update --help: restart required; survival across a real version change measured by nobody (opus level 1)"
+  }
+ },
+ {
+  "name": "rights: the throwaway copy in two sentences",
+  "old": "- **Writes in a throwaway copy of the repository.** Made for it, removed once what it did has been\n  saved — its edits and new files, not anything your `.gitignore` covers — and kept for you to look at\n  when the turn, the saving, or the run itself is cut short.",
+  "new": "- **Writes in a throwaway copy of the repository.** Its edits and new files come back to you; the copy\n  goes, and with it anything git ignores. A copy whose run was cut short is kept for you to look at.",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:1854-1872 harvest excludes ignored, names them, removes the tree; opus: SIGTERM after threadId → worktreePreserved, exit 1"
+  },
+  "claims": [
+   {
+    "name": "failed copy kept",
+    "pattern": "A copy whose run was cut short is kept"
+   },
+   {
+    "name": "saved excludes ignored files",
+    "pattern": "with it anything git ignores"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG '.gitignore covers'",
+    "pattern": "\\.gitignore` covers"
+   }
+  ]
+ },
+ {
+  "name": "rights: what it adds is proof",
+  "old": "The one thing it has that a native subagent does not is proof —\n[How it works](#how-it-works); what it lacks is in [Where parity stops](#where-parity-stops).",
+  "new": "What it adds is proof —\n[How it works](#how-it-works); what it lacks is in [Where parity stops](#where-parity-stops).",
+  "check": {
+   "level": 2,
+   "how": "the opening's second paragraph names the other thing it adds, a second model; parity.md:15-28 the lacks"
+  },
+  "claims": [
+   {
+    "name": "parity: proof is what it adds",
+    "pattern": "What it adds is proof"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'The one thing it has'",
+    "pattern": "The one thing it has that a native subagent does not"
+   }
+  ]
+ },
+ {
+  "name": "stores: what leaves, without 'as if'",
+  "old": "What reaches OpenAI is the turn — your prompt, whatever the\nagent read on the way to its answer, and the plugin's standing instructions to it — as if you had run\n`codex` yourself.",
+  "new": "What reaches OpenAI is the turn — your prompt, what the\nagent read on the way to its answer, and the plugin's standing instructions to it.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:3558 developerInstructions, :3794"
+  }
+ },
+ {
+  "name": "stores: four places, each in one line",
+  "old": "- **your system temp directory** — each agent's prompt and output files, and whatever a read-only agent\n  writes while it works.\n- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, write locks, the\n  ledger of throwaway copies, and a Codex home of the plugin's own, sharing only your sign-in and your\n  session files, so your own Codex plugins, skills and memories cannot steer a turn.\n- **`.claude/worktrees` inside your repository** — the throwaway copies while a turn runs, and a failed\n  turn's copy until you remove it or a later throwaway-copy run finds it clean and removes it, keeping any\n  commits under `refs/codex-delegate/`; a copy with unsaved files is left as it is, commits and all.\n- **`~/.codex/sessions`**, your own Codex home — each turn's full transcript lands there.",
+  "new": "- **your system temp directory** — each agent's prompt and output files, and a read-only agent's scratch.\n- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, locks, and a Codex\n  home of the plugin's own: your sign-in and four settings come in, your Codex plugins, skills and\n  memories do not.\n- **`.claude/worktrees` inside your repository** — the throwaway copies; a failed turn's copy stays until\n  you remove it, or until a later throwaway-copy run finds it clean and removes it.\n- **`~/.codex/sessions`**, your own Codex home — each turn's transcript.",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:1218-1228 auth.json and sessions linked; INHERITED :1049 four keys written :1279-1281 (opus F-c measured); reconcile :1650-1678 clean tree removed, dirty left (opus F-a measured); environment-and-internals.md:74-78"
+  },
+  "claims": [
+   {
+    "name": "private home shares sign-in and sessions",
+    "pattern": "your sign-in and four settings come in"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'sharing only'",
+    "pattern": "sharing only"
+   },
+   {
+    "name": "NEG 'a copy with unsaved files is left as it is'",
+    "pattern": "unsaved files is left as it is"
+   }
+  ],
+  "drop": [
+   "crash refs only for a clean tree",
+   "crash commits kept under refs"
+  ]
+ },
+ {
+  "name": "stores: retention without a trigger",
+  "old": "Answers, run records and a read-only agent's scratch age out — 14 days or 400 entries, trimmed when a\nlater run starts; reports and the private home stay until you remove them.",
+  "new": "Answers and run records age out after 14 days or 400 entries; reports and the private home stay until\nyou remove them.",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:80-81; pruneDir on answers and jobs when written (opus: 405 → 400 after a completed run); reports never pruned (environment-and-internals.md:132-135)"
+  },
+  "retire": [
+   {
+    "name": "NEG 'trimmed when a later run starts'",
+    "pattern": "trimmed when a\\s+later run starts"
+   }
+  ]
+ },
+ {
+  "name": "parity: cannot commit, no 'comes back as a diff'",
+  "old": "By default a Codex agent cannot commit to your repository: its rights stop short of its git directory, so\nthe work comes back as a diff. Grant that directory only deliberately.",
+  "new": "By default a Codex agent cannot commit: its rights stop short of your repository's git directory. Grant\nthat directory only deliberately.",
+  "check": {
+   "level": 3,
+   "how": "opus F-l: touch <root>/.git/a under a write profile → Operation not permitted; the diff harvest exists only for --worktree, so the clause went"
+  }
+ },
+ {
+  "name": "against: the forensics as a link in the sentence",
+  "old": "Both\ncome back looking successful.\n\n[The forensics](skills/seat/references/why-not-the-plugin.md), with line numbers and upstream issue\nstate.",
+  "new": "Both\ncome back looking successful ([the forensics](skills/seat/references/why-not-the-plugin.md)).",
+  "check": {
+   "level": 2,
+   "how": "why-not-the-plugin.md:10-42"
+  }
+ },
+ {
+  "name": "how it works: what the verdict is, in three sentences",
+  "old": "The rights the server says it applied are checked against the ones asked for; a difference stops the run.\nThe exit code comes from what the turn actually did, not from what it says it did — by default, that it\nran something under those rights; a command that failed does not fail the run unless you asked for that\ncommand by name, and a turn meant to run nothing can say so. That the thread existed is backed by Codex's\nown session file, opened and read, not matched by name.\n\nFlags, report fields and exit codes live in the driver's own help, `--help` and `--help-all`:",
+  "new": "The rights the server reports are checked against the ones asked for. The exit code comes from the\nrecord of the turn: by default a turn passes if it ran at least one command; a command it must have\nrun, or a check of your own that must pass, are gates you ask for. The report says whether Codex's own\nsession file for the thread was found and read.\n\nFlags, gates, report fields and exit codes are the driver's own help, `--help` and `--help-all`:",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:232-274 ladder, :266 no-commands floor, :3110 commandsRan; --expect-command exit 5 and --verify exit 9 (opus F-m); :2956-2963 and :3455 receiptOk reported, not a gate (opus F-7 measured receiptOk=false with exit 0)"
+  },
+  "claims": [
+   {
+    "name": "failed command does not fail the run by default",
+    "pattern": "a command it must have\\s+run, or a check of your own that must pass, are gates you ask for"
+   },
+   {
+    "name": "receipt proves the thread existed",
+    "pattern": "says whether Codex's own\\s+session file for the thread was found and read"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'a difference stops the run'",
+    "pattern": "a difference stops the run"
+   },
+   {
+    "name": "NEG 'asked for that command by name'",
+    "pattern": "asked for that\\s+command by name"
+   },
+   {
+    "name": "NEG 'That the thread existed is backed'",
+    "pattern": "That the thread existed is backed"
+   }
+  ]
+ },
+ {
+  "name": "troubleshooting row 2: the refusal says what to do",
+  "old": "| the run is refused before it starts | the report says why — a full Codex quota window, a held write lock, no state directory; a refusal about the report path itself is on stderr only and leaves whatever was at that path untouched | for quota, wait or use a Claude subagent; for a lock, wait for the run that holds it — or, when that run is dead, stop the Codex processes the refusal names — or give each run its own directory |",
+  "new": "| the run is refused before it starts | the refusal says why: a full Codex quota window, a held write lock, no state directory | do what the refusal says; for quota, wait or use a Claude subagent |",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:1444-1456 three lock cases, each refusal carries its own instruction (opus F-e measured); :999-1007; quota :3776"
+  },
+  "claims": [
+   {
+    "name": "refusal says why",
+    "pattern": "the refusal says why"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'stop the Codex processes'",
+    "pattern": "stop the Codex processes"
+   }
+  ],
+  "drop": [
+   "lock cure names the process group"
+  ]
+ },
+ {
+  "name": "further reading: evals as a pointer, no mutation claim",
+  "old": "Young code, but the test cases were mutation-checked on 2026-08-31 and the survivors listed\n([evals](evals/README.md)). Changes in",
+  "new": "Young code; the test suite and what it cannot see are in [evals](evals/README.md). Changes in",
+  "check": {
+   "level": 2,
+   "how": "evals/README.md:14-16, 61-63, 167-177"
+  },
+  "retire": [
+   {
+    "name": "NEG 'mutation-checked'",
+    "pattern": "mutation-checked"
+   }
+  ]
+ }
+]

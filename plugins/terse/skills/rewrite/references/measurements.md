@@ -106,6 +106,13 @@ readers briefed "do not run commands" returned "I could not read the document": 
 through the shell. Told "read it with `cat` and run nothing else", the same five answered thirteen of
 fifteen questions with a quote.
 
+<a id="m23"></a>**M23. A qualification is not a fix.** Rounds 04 to 08 of one README repaired findings by
+qualifying sentences — "not your reports", "sharing only your sign-in", "a copy with unsaved files is
+left as it is", "trimmed when a later run starts" — and two critics with a stub server showed each
+qualification wrong at the next level of detail; the regression count went 1, 0, 6, 5, 10. The sections
+that regressed were the three that transcribe mechanism, against the skeleton's own rule that generated
+reference is linked, never transcribed. Round 09 removed the sentences instead.
+
 <a id="m22"></a>**M22. Budgets are a report.** The owner asked what a budget does for the text; the answer is nothing
 directly. Rounds 04 to 07 grew from 1383 to 1611 words, every added word in four sections and every one
 of them making a claim truer; a per-section count per round shows that as it happens, which is the

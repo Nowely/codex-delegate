@@ -48,6 +48,9 @@ check("a claim inherits its edit's level", grown.find((c) => c.name === "g stays
 check("a level-2 lifecycle claim is marked provisional", grown.find((c) => c.name === "g stays")?.provisional === true);
 check("the ledger prints the level and the provisional mark", /g stays\s+L2~/.test(run("ledger.mjs", [lg, to]).out));
 check("round refuses to overwrite a round", run("round.mjs", [from, to, e]).code === 1);
+const to2 = path.join(tmp, "to2.md");
+fs.writeFileSync(e, JSON.stringify([{ name: "y", old: "gamma", new: "delta", drop: ["g stays"] }]));
+check("round drops a ledger entry on purpose", run("round.mjs", [to, to2, e, "--ledger", lg]).code === 0 && !JSON.parse(fs.readFileSync(lg, "utf8")).some((c) => c.name === "g stays"));
 // sections
 const s = run("sections.mjs", [d]);
 check("sections counts per heading", /^\s*2 B$/m.test(s.out) && /TOTAL/.test(s.out));

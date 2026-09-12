@@ -15,6 +15,7 @@ ratchet is a diff. A round is frozen the moment its critics are launched.
 | [06-preexisting.md](06-preexisting.md) | 1578 | the coordinator, 9 edits against the 8 confirmed pre-existing defects; then 1 Opus critic against the code, who measured 4 of the claims by running the driver, the CLI and `codex exec` | 9 verdicts, 10 regressions listed, 4 unsettled | **4**, plus 2 overstatements |
 | [07-lifecycle.md](07-lifecycle.md) | 1611 | the coordinator, 8 edits against 06's review, each re-verified from the code; then a wave of eleven — 2 Opus, 1 Astra, 2 Sol, 5 Luna, 1 Fable to dedup — see [reviews/07/](reviews/07/) | 87 deduplicated: 41 sentence, 12 unsettled, 9 scope, 7 structure, 7 superseded, 6 code, 5 method | **5** of its own: 2 false, 3 overstated |
 | [08-review.md](08-review.md) | 1711 | the coordinator, 27 edits against the wave's list and the owner's five decisions, each with a check; `budgets.json`, `tasks.json`, `questions.json` written; then 3 critics — Opus with a stub codex, Astra, a Sol reader who had never seen the plugin — see [reviews/08/](reviews/08/) | Opus 14, Astra 9 (7 shared), the reader: "not yet" | **10** of its own: 4 false, 5 overstated, 1 vaguer; 4 of the writer's 27 stated checks did not hold |
+| [09-reduction.md](09-reduction.md) | 1531 | the coordinator, 15 edits under the owner's rule that a qualification is not a fix: the three mechanism sections say less and link the references; the reader's cuts; one content addition — how to choose model and rights; 4 ledger entries dropped on purpose, one retired pattern narrowed; checks and ledger pass | not critic-read: the owner reads this one | — |
 
 Beside them: [skeleton.md](skeleton.md), the structure all of these were written against, and
 [structure-map.md](structure-map.md), the first block audit.
@@ -159,6 +160,17 @@ The reader who had never seen the plugin said **not yet**: nothing tells them ho
 the rights for an ordinary request, and the pinned version reads as fragility. Their cuts: the Russian
 trigger line, "Both are yours to start", the forensics fragment; the official-plugin argument and the
 session-file detail read as written for the author. None of that is a lifecycle sentence.
+
+### 09 — the reduction round, for the owner to read
+
+The owner named the pattern behind 06, 07 and 08: an оговорка is an anti-pattern. So 09 removes what the
+critics kept showing over-qualified instead of qualifying it further — the storage section is 148 words
+against 215, *How it works* says what the verdict is in three sentences and points at the driver's help
+for the rest, the lock cure is "do what the refusal says". The sections that grew for four rounds are
+back under or near their budgets; the whole is 1531 words, 180 fewer than 08 and 80 more than the
+candidate the ten-section map recorded. It adds the one thing the naive reader could not find — say
+which model and what it may touch, or say nothing and get a read-only agent — and takes their three
+cuts. The diff against the original is `diff-09.patch`. No critic read it: the owner's read is the stop.
 
 ### Still open after 07, the reader's call
 
