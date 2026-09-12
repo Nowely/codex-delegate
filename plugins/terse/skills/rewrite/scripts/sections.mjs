@@ -5,6 +5,7 @@
 import fs from "node:fs";
 const [file, budgetsFile] = process.argv.slice(2);
 if (!file) { console.error("usage: node sections.mjs FILE [BUDGETS.json]"); process.exit(2); }
+if (budgetsFile && !fs.existsSync(budgetsFile)) { console.error(`sections.mjs: ${budgetsFile} does not exist; write it once per document (every ## heading mapped to a budget)`); process.exit(2); }
 const budgets = budgetsFile ? JSON.parse(fs.readFileSync(budgetsFile, "utf8")) : null;
 const lines = fs.readFileSync(file, "utf8").split("\n");
 let cur = "(opening)", buf = [], total = 0, over = 0;

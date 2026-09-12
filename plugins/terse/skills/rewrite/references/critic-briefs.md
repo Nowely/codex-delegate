@@ -5,7 +5,8 @@ or a file and line — and a finding without one is discarded.** No praise, no s
 no rewrites unless the lens is the water lens. Fill `<DOC>`, `<CODE>` and the paths; send nothing else.
 
 A Codex seat is one background Bash call with a prompt file whose header names the seat, as the
-`codex-delegate` plugin's `seat` skill describes under *One call*:
+`codex-delegate` plugin's `seat` skill describes under *One call* (`plugins/codex-delegate/skills/seat/SKILL.md`
+in the marketplace checkout, or the installed plugin's `skills/seat/SKILL.md`):
 
 ```
 SEAT: read <repository>
@@ -15,6 +16,14 @@ EFFORT: high | medium
 
 A Claude agent gets the same body through the Agent tool. Neither sees `rounds.md`, the ledger, or
 another critic's report.
+
+An isolated configuration for the host application's own commands, so that nothing touches the real
+one — for Claude Code:
+
+```bash
+export CLAUDE_CONFIG_DIR="$TMPDIR/critic-config"; mkdir -p "$CLAUDE_CONFIG_DIR"
+claude plugin marketplace add <owner>/<repo>      # every `claude plugin …` now reads and writes only there
+```
 
 ## 1. The code, with the right to run it
 

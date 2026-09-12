@@ -75,14 +75,14 @@ e) For every claim about behaviour you changed or added: the level of evidence r
 
 ## The writer brief, skeleton route
 
-When there is no audit and the writing starts from a skeleton `rethink` agreed, send the skeleton's entry
-for the section — its purpose, what it excludes, its word budget — with the writing rules and the curse
-of knowledge, then this:
+When there is no audit and the writing starts from a skeleton `rethink` agreed, send the whole skeleton
+— every section's purpose, what it excludes, its word budget — with the writing rules and the curse of
+knowledge, then this:
 
 ```
-Write <SECTION> of <FILE> against the skeleton entry above: its purpose is what the section buys the
-reader, its exclusions are not yours to restore, and its budget is a design decision, not a limit to
-fill. Your angle is <ANGLE>.
+Write the whole of <FILE> against the skeleton above, section by section: each section's purpose is
+what it buys the reader, its exclusions are not yours to restore, and its budget is a design decision,
+not a limit to fill. Your angle is <ANGLE>.
 
 Do not modify the repository. Write your draft into your own temporary directory and name the path.
 
