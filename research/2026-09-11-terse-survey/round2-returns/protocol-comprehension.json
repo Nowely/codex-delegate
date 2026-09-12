@@ -1,0 +1,361 @@
+{
+  "items": [
+    {
+      "id": "cloze-taylor-1953",
+      "url": "https://gwern.net/doc/psychology/writing/1953-taylor.pdf",
+      "opened": true,
+      "evidence": "Full scan downloaded to /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/terse-research/1953-taylor.pdf (19 CCITT page images, no text layer; extracted to .../pages/p01..p19.png and read as images). Pages read in full: 415 (p19.png), 416 (p01), 417 (p02), 418 (p03), 419 (p04), 420 (p05), 421 (p06), 422 (p07), 423 incl. Table 1 (p08), 424 incl. Table 2 (p09), 425 (p10), 426 (p11), 427 (p12), 433 (p18). Not read: 428-432.",
+      "whatItIs": "Wilson L. Taylor, \"'Cloze Procedure': A New Tool for Measuring Readability\", Journalism Quarterly 30(4):415-433, Fall 1953. First full statement of the method: three pilot studies and two experiments at the University of Illinois, pitting cloze scores against the Flesch and Dale-Chall formulas.",
+      "measures": "Relative readability of two or more passages FOR A NAMED POPULATION: the count of deleted words that readers restore exactly. Taylor is explicit that this is a ranking instrument (p.416 step 6 - highest score = \"most readable\", pending significance tests) and never states an absolute comprehension threshold. It measures the overlap between the writer's language patterns and the patterns the reader is anticipating (p.417).",
+      "method": "The operational recipe (p.416, six numbered steps; mechanics on p.421): delete an equal number of words from each passage by a purely mechanical counting-out system - a random-number table or every nth word (\"every fifth one, for example\") - with no regard for the function or meaning of specific words; replace each deleted word with an underlined blank of standard length (10 spaces) so length cannot cue the guess; give all mutilated passages to all subjects, or to equal numbers of randomly selected subjects from a sample representative of the population in question; instruct subjects to fill every blank by guessing from the remaining context; total the exact replacements per passage; contrast the totals and test the differences by analysis of variance. Definitions: a \"word\" is whatever white space separates (contractions, abbreviations, figures, hyphenated compounds count as one); passages were 175+ words with the sentence containing the 175th word completed; assemblies of sheets were stapled with an explanatory foreword read aloud by the administrator; 10-15 minutes per passage; presentation orders counterbalanced (all six orders of three passages). Experimental contrasts: every-fifth vs every-tenth vs random-10% deletion; 16 vs 35 blanks per passage; exact-match scoring vs judging synonyms with half credit. Conditions table (Table 1, p.423): subjects per passage 6/12/12/12/24/18, blanks per passage 35/16/16/16/32/25, deletion frequency 20%/10%/10%/10%/10%/14.3%; between-passage F significant at p<.001 in every condition.",
+      "verdict": "steal-a-part",
+      "weaknesses": "1) No absolute criterion. Taylor gives no \"score X = comprehension\"; the 44%/57% bands everyone quotes come from Bormuth a decade later and are contested (see bormuth item). 2) Subjects were University of Illinois journalism juniors and seniors, or 6-12 \"handy and willing\" volunteers - convenience samples. 3) 16 blanks was too few: the every-tenth condition failed to reach the 5% level for between-subject F, and Taylor concludes random and every-nth converge only above 16 blanks per passage (p.425). 4) The 1982 intersentential critique (Shanahan, Kamil & Tobin - see separate item, not opened) argues cloze scores barely move when you scramble sentence order, i.e. it may measure within-sentence prediction, not discourse comprehension - exactly the level at which our documents fail readers.\n\nCHEAP-MODEL STAND-IN: mechanically trivial to run, semantically broken. Two independent reasons. (a) Jacobs, Grobol & Tsang (see next item) measured it directly: LM next-token distributions reliably under-rank the top human response and over-rank rare ones; \"LM generations cannot be used as replacements of or models of the cloze task\". (b) Our failure mode is worse than theirs: a model restores a deleted word from parametric knowledge of the domain, not from the document's context, so the very gaps we want to catch (the doc never says it) get filled in silently. A model cloze score measures the text's predictability to that model - a style/redundancy metric close to the linters we already rejected - not a reader's comprehension. If used at all: same model, same seed, same deletion pattern, two drafts, read only the delta.",
+      "practices": [
+        {
+          "practice": "Pick deleted items by a mechanical rule (every nth, or a seeded random draw), never by judging which words matter. Taylor's argument: word classes are not equally frequent across passages, and that inequality is itself a readability factor that only an independent, blind system can measure.",
+          "locus": "p.418 (\"an essentially random deletion of words seems required... purely clerical\"), p.420 (Question 2, \"The answer seems to be 'No'\"), p.421 (\"Only 'mechanical' deletion systems, random or every-nth, were employed\")",
+          "evidenceForIt": "argued from the design, plus measured: Table 1 (p.423) shows the same passage ranking under 10%, 14.3% and 20% deletion, random and every-nth, with almost non-overlapping deleted-word sets",
+          "costAndCollision": "cheap to implement; collides with terse's instinct to test the sentences we think are load-bearing - the rule forbids exactly that choice"
+        },
+        {
+          "practice": "Score only exact matches. Do not spend effort judging \"good enough\" synonyms.",
+          "locus": "Table 2A, p.424",
+          "evidenceForIt": "measured: half-credit for each of 133 synonyms raised the totals (287 -> 353.5) but left the per-passage proportions almost unchanged (.41/.34/.25 -> .39/.35/.26); Taylor's text on p.425 calls the differentiation \"virtually identical\"",
+          "costAndCollision": "saves grader work and removes a judgement call; supports our code-derived answer key being strict rather than generous"
+        },
+        {
+          "practice": "Use enough blanks: at least 25-35 per passage. Below ~16 the test stops discriminating.",
+          "locus": "p.425 (\"random and every-nth systems will give more nearly equivalent results if more than 16 blanks are deleted per passage\"); Table 1 conditions, p.423; p.426 (every seventh word until 25 blanks)",
+          "evidenceForIt": "measured: the every-tenth/16-blank condition's between-subject F of 1.872 failed the 5% level (Table 1 footnote ***)",
+          "costAndCollision": "directly analogous to our six-question audit: six items is a small instrument; this is an argument for more questions per document, which costs seats"
+        },
+        {
+          "practice": "Never read a single score as an absolute. Compare two or more texts for one stated population and test the difference statistically.",
+          "locus": "p.416 step 6; p.433 (\"a readability gauge might well be flexible enough to apply... to particular populations too\")",
+          "evidenceForIt": "argued, and enforced throughout the paper's own reporting (every claim is a rank or an F)",
+          "costAndCollision": "matches our before/after design (3 right -> 6 right); forbids publishing a standalone \"readability score\" for one document"
+        },
+        {
+          "practice": "Treat formula scores as suspects, not verdicts: check them against live readers on the specific material.",
+          "locus": "p.433 (\"'Reliability' isn't everything; a formula can be reliably wrong\") and p.427 (both formulas rank the Gertrude Stein passage easiest - Dale-Chall at 4th-5th grade - while cloze readers found it hardest)",
+          "evidenceForIt": "measured on 8 passages in Experiment 2 (18 subjects per passage, 72 total)",
+          "costAndCollision": "free; independent 1953 support for our already-taken decision to reject prose linters as a gate"
+        }
+      ]
+    },
+    {
+      "id": "cloze-critique-llm-jacobs-2024",
+      "url": "https://arxiv.org/abs/2410.12057",
+      "opened": true,
+      "evidence": "PDF fetched via export.arxiv.org to /var/folders/.../terse-research/arxiv_cloze.pdf and text-extracted (.../arxiv_cloze.txt). Read: title block, abstract, Section 1 intro, Section 3 Data, results passage around Figure 4, conclusion paragraph.",
+      "whatItIs": "Cassandra L. Jacobs (Buffalo), Loic Grobol (Paris Nanterre), Alvin Tsang (Buffalo), \"Large-scale cloze evaluation reveals that token prediction tasks are neither lexically nor semantically aligned\" (arXiv 2410.12057). The modern critique that matters for us: can a model replace the human cloze pool?",
+      "measures": "Alignment between human cloze probabilities and LM next-token probabilities, on Peelle et al. (2020) completion norms: 3,085 English sentence contexts, each with at least 100 manually validated human responses. Models compared: GPT-2, RoBERTa-base, and the Pythia suite (70M to 2.8B).",
+      "method": "Human cloze probability = relative frequency of a completion among all subjects' completions for that context. LM probability = softmax over the ~50k-token vocabulary for the same context. The paper compares distributions, ranks, recovery rates and the semantic spaces of the responses (clustering/mixture models over human-only, LM-only and mixed response sets).",
+      "verdict": "steal-a-part",
+      "weaknesses": "Scope: single-word, sentence-final completions in psycholinguistic stimuli (8-10 words), not paragraph-level documentation prose; models tested top out at 2.8B plus GPT-2/RoBERTa, so a 2026 frontier model is not directly covered. The direction of the finding (models miscalibrate against human response distributions) is consistent with the wider synthetic-participant literature, but the exact numbers should not be quoted for larger models.",
+      "practices": [
+        {
+          "practice": "Do not use a model's token probabilities (or its fill-in guesses) as a stand-in for human cloze responses; if a cloze-like check is run with a model, treat it as a relative comparison of two drafts under one fixed model, never as a reader-comprehension measure.",
+          "locus": "abstract; results near Figure 4; closing paragraph (\"at present, LLMs cannot function as a drop-in replacement for cloze estimates\")",
+          "evidenceForIt": "measured: models retrieve the top human response in first place only 28% of the time, and responses ranked in the human top 10 are placed at that rank or higher only 9% of the time; models reliably under-estimate the probability of human responses, over-rank rare responses and produce distinct semantic spaces",
+          "costAndCollision": "free - it is a guardrail; it removes cloze from the list of protocols we could cheaply automate with seats"
+        }
+      ]
+    },
+    {
+      "id": "cloze-criterion-bormuth",
+      "url": "https://files.eric.ed.gov/fulltext/ED028901.pdf",
+      "opened": true,
+      "evidence": "ERIC ED028901 downloaded to /var/folders/.../terse-research/bormuth_eric.pdf (16 pp.) and text-extracted; read the document resume and the method section of Study 1. The JEM 1968 paper that carries the famous 44%/57% bands was NOT opened (paywalled at JSTOR 1433978) - that part is search-summary only.",
+      "whatItIs": "John R. Bormuth, \"The Effectiveness of Current Procedures for Teaching Reading Comprehension\", paper at the NCTE convention, Milwaukee, 30 Nov 1968 (ERIC ED028901). Three studies that try to answer the question Taylor left open: what cloze score means \"the reader got it\".",
+      "measures": "An empirical criterion score: the cloze percentage above which a reader actually gains information from the text. Study 1 matched 130 pairs of students (grade 3 to college) - one member took a cloze readability test on the passage, the other supplied the information-gain measure.",
+      "method": "Cloze tests were built by deleting every fifth word and replacing it with an underlined blank of standard length; a response counts correct only when it exactly matches the deleted word. Readers were paired by a separate cloze screening test; information gain was measured on the matched partner. Study 2 located the grade level at which students reach the criterion on materials used at each school level; Study 3 tested 240 students on specific syntactic structures.",
+      "verdict": "reference-only",
+      "weaknesses": "The thresholds are unstable across the literature: this paper reports little or no information gain below 25% and full gain at about 35%, while the widely cited Bormuth (1968, Journal of Educational Measurement 5(3):189-196) gives 44% and 57% as the cloze equivalents of 75% and 90% on multiple choice, and later replications report 41% and 61%. Anyone quoting a band must name which study it came from. Population is schoolchildren reading instructional prose, not professionals reading API docs.",
+      "practices": [
+        {
+          "practice": "If you ever state a pass threshold for a reader test, cite the study that derived it and the population it was derived on; otherwise state the result as a comparison between drafts.",
+          "locus": "ED028901 document resume (\"little or no information when they could not answer more than 25 percent... as many as 35 percent\"); contrast with the 44/57 bands attributed to Bormuth 1968 JEM",
+          "evidenceForIt": "measured (130 matched pairs) but contradicted by the same author's other paper and by later replications - the contradiction is the lesson",
+          "costAndCollision": "free; reinforces terse's habit of reporting measured deltas rather than absolute grades"
+        }
+      ]
+    },
+    {
+      "id": "cloze-critique-intersentential-shanahan-1982",
+      "url": "https://psycnet.apa.org/record/1982-11051-001",
+      "opened": false,
+      "evidence": "search summary only - no full text opened. PsycNet and Semantic Scholar records exist; the paper is paywalled and I found no legitimate free copy.",
+      "whatItIs": "Shanahan, Kamil & Tobin (1982), \"Cloze as a measure of intersentential comprehension\", Reading Research Quarterly 17(2):229-255. The standard citation for the claim that cloze does not reach across sentence boundaries; it drew immediate rebuttals (Oller's \"The case is not yet clozed\", RRQ 17(4); Leys/Fielding/Herman/Pearson's modified replication).",
+      "measures": "(reported, not verified) Whether cloze scores change when passages are scrambled so that sentences lose their coherent order - if scores are equivalent, readers were not using information beyond the sentence.",
+      "method": "(reported, not verified) Eight cloze tests built from both intact and sentence-scrambled versions of the same passages; comparison of scores across versions.",
+      "verdict": "reference-only",
+      "weaknesses": "I could not open it, so treat the finding as unverified here. The dispute is genuinely unsettled in the literature (rebuttal plus replication plus Jonz's later TESOL Quarterly review), so the honest position is \"contested\", not \"cloze is refuted\".",
+      "practices": [
+        {
+          "practice": "Before adopting cloze as a documentation measure, run the scrambling control ourselves: shuffle the paragraphs of a doc and see whether the measure moves. Any measure that is blind to order cannot detect the placement failures our audit classifies.",
+          "locus": "Shanahan, Kamil & Tobin 1982, RRQ 17(2):229-255 (design as reported in secondary sources)",
+          "evidenceForIt": "asserted here from secondary sources; the underlying study is measured but I did not open it",
+          "costAndCollision": "one extra experimental arm; directly tests whether a candidate metric can see 'placement', which is one of our three failure classes"
+        }
+      ]
+    },
+    {
+      "id": "treetest-origin-spencer-2003",
+      "url": "https://boxesandarrows.com/card-based-classification-evaluation/",
+      "opened": true,
+      "evidence": "page fetched and read via WebFetch (full article converted); quotes below are from that fetch. Boxes and Arrows, 7 April 2003.",
+      "whatItIs": "Donna Spencer (then Maurer), \"Card-Based Classification Evaluation\" - the paper-based ancestor of tree testing / reverse card sorting, predating Optimal Workshop's Treejack by roughly seven years.",
+      "measures": "Findability of content in a proposed classification, independent of visual design: for each scenario, where the reader looks FIRST at each level of the hierarchy.",
+      "method": "Number the classification hierarchically (1, 1.1, 1.1.1) and write each level on index cards, large enough to read across a desk. Write scenarios on separate cards (A, B, C...). Show the top level only; ask the participant where they would look first for scenario A; then reveal the next level down and ask again; continue until a leaf. Spencer deliberately limits the choices offered at each level: \"I only offer two choices at any level because I want to see where the person would look first, not get him to hunt through the classification endlessly.\" A colleague records the scenario ID and the classification number chosen. About 20 participants, roughly 10 minutes each, 10-15 scenarios per session. Analysis: a spreadsheet with classification items as rows and scenario IDs as columns; mark each response at the intersection; capitals for first choices, lowercase for second. Clustered marks = the grouping works; scattered marks = a labelling or grouping problem.",
+      "verdict": "compose",
+      "weaknesses": "No success/failure scoring, no timing, no statistics - it is a defect finder, not a benchmark; that is also why it is cheap. Sample size (~20) is folklore, not derived. Moderated and manual, so it does not scale by itself.",
+      "practices": [
+        {
+          "practice": "Test the heading tree alone, with no body text and no design: reveal one level at a time and record only where the reader looks first.",
+          "locus": "Boxes and Arrows, 7 Apr 2003, procedure section",
+          "evidenceForIt": "argued from practice (practitioner method paper), not measured",
+          "costAndCollision": "directly runnable on a docs repo: the heading/file tree is the tree, a doc section is a leaf; cheap, and adds a findability measure terse currently lacks"
+        },
+        {
+          "practice": "Analyse as a scenario x node matrix and look at spread, not just correctness: clustered choices mean the label works, scattered choices mean it does not.",
+          "locus": "same article, analysis section (\"Mark each response from the participants at the intersection\"; capitals = first choice, lowercase = second)",
+          "evidenceForIt": "argued",
+          "costAndCollision": "a small table in the audit report; gives us a per-label diagnosis instead of a per-question pass/fail"
+        }
+      ]
+    },
+    {
+      "id": "treetest-nng-laubheimer",
+      "url": "https://www.nngroup.com/articles/interpreting-tree-test-results/",
+      "opened": true,
+      "evidence": "two NN/g articles fetched and read via WebFetch: \"Tree Testing: Evaluate Menu Labels and Categories\" (Page Laubheimer, 6 Aug 2023, https://www.nngroup.com/articles/tree-testing/) and \"Tree Testing Part 2: Interpreting the Results\" (Page Laubheimer, 19 Jan 2024, URL above). Both returned definitions and numbers quoted below.",
+      "whatItIs": "Nielsen Norman Group's two-part protocol and interpretation guide for tree testing - the closest thing the UX field has to a canonical write-up of the modern (tool-based) version of Spencer's method.",
+      "measures": "Three things per task: success rate (percentage of users who found the right category), directness (percentage who went to the right category immediately, without backtracking or trying other categories), and time; plus first click (always a top-level category).",
+      "method": "The tree is shown as text-only accordions - navigation categories with no visual design and no content. Each task names something contained in a category and asks the participant to find it, worded to avoid giving away the answer; the participant clicks down the tree until they believe they have reached the location. Usually unmoderated and purely quantitative, but NN/g advises a few moderated pilot sessions first. Interpretation: success rubric <40% poor, 41-60% fair, 61-80% good, 80-90% very good, >90% excellent; mission-critical or revenue tasks should be above 90%. External benchmark: Albert & Tullis's review of 98 tree-testing studies found a median task success rate of 62% with an interquartile range of 37-83%. Sample: \"typically, 50+ participants per tree are needed for a quantitative study to achieve reasonably narrow confidence intervals\".",
+      "verdict": "compose",
+      "weaknesses": "The 50+ figure and the rubric are practitioner guidance, not derived in the article; the Albert & Tullis benchmark is a book citation I did not open. Tree testing deliberately strips search and page content, so its absolute numbers do not transfer to live reading. Directness has no published pass threshold (Optimal Workshop says outright there is no universal benchmark).\n\nCHEAP-MODEL STAND-IN: the best fit of the three protocols - stimulus is tiny (labels only), the answer key is objective (a leaf node), scoring is mechanical. Two things break. (1) Directness and first click only exist if you feed the tree one level at a time; a model shown the whole tree has no path and no backtracking, so you lose the metric that distinguishes 'ambiguous label' from 'missing content'. (2) Sample-size logic does not transfer: 50 model runs are not 50 people; the spread is temperature, not population variance, so confidence intervals computed from reruns are fiction. Report defects found, not a rate - and use models with no prior exposure to the repo, since a model that knows the jargon is exactly the cursed reader the test exists to catch.",
+      "practices": [
+        {
+          "practice": "Report success and directness as two separate numbers, and read the combination: high success with low directness means the labels are ambiguous, not that content is missing.",
+          "locus": "NN/g Part 2 (19 Jan 2024), definitions section",
+          "evidenceForIt": "argued by NN/g; the underlying benchmark (median 62% success, IQR 37-83% across 98 studies) is measured but sits in Albert & Tullis, which I did not open",
+          "costAndCollision": "one extra column in the audit table; gives terse a findability axis it currently does not measure - our audit scores right/wrong only"
+        },
+        {
+          "practice": "Calibrate expectations before declaring a document broken: a 62% median success rate across 98 real studies means our 3-of-6 baseline is ordinary and 6-of-6 is above the >90% 'excellent' band.",
+          "locus": "NN/g Part 2, benchmark and rubric sections",
+          "evidenceForIt": "measured (98 studies, via Albert & Tullis 2023 as cited by NN/g)",
+          "costAndCollision": "free; tempers over-claiming in our reports"
+        },
+        {
+          "practice": "Run a couple of moderated pilots before collecting the bulk of the data, to catch tasks that are worded wrong.",
+          "locus": "NN/g Part 1 (6 Aug 2023)",
+          "evidenceForIt": "argued",
+          "costAndCollision": "cheap in our setting: one manual dry-run of the question set before fanning out seats"
+        }
+      ]
+    },
+    {
+      "id": "treetest-tooling-optimalworkshop",
+      "url": "https://www.optimalworkshop.com/101-guides/tree-testing-101/write-your-tasks",
+      "opened": true,
+      "evidence": "two vendor pages fetched and read via WebFetch: the 101-guide task-writing page (URL above) and the support article \"How many participants you need for reliable results\" (https://support.optimalworkshop.com/en/articles/9679633-how-many-participants-you-need-for-reliable-results). Metric definitions additionally summarised from Optimal's help-centre pages via search.",
+      "whatItIs": "Optimal Workshop (Treejack) - the tool that made tree testing standard practice - stating its own rules for task writing, sample size and score definitions.",
+      "measures": "Success score (percentage selecting a correct destination regardless of wandering), directness score (percentage who reached their chosen destination without moving back up the tree), and speed; successes, failures and skips are each split into direct and indirect.",
+      "method": "Configuration rules: at most 10 tasks per tree test (completion rates fall and later tasks are contaminated by familiarity with the tree); write the task in natural plain English as a hypothetical scenario rather than an instruction; never reuse the tree's own label wording in the task (otherwise you measure pattern-matching); every task needs at least one correct destination, and only leaf nodes may be marked correct - category labels cannot be answers. Sample: \"50 - 100 participants per task will give you trustworthy data\", with trends emerging around 50; for comparison they recommend 30-50 for card sorting and 15-30 for qualitative work. Reading the scores: roughly 80%+ success is a good task score; a high success with low directness points at ambiguous labels.",
+      "verdict": "compose",
+      "weaknesses": "Vendor documentation: the thresholds are house rules, not derived, and they sell the tool that produces the numbers. Optimal itself says there is no universal benchmark for directness. The 50-100 per task figure is the single biggest obstacle to running this with humans on a docs project - and does not transfer to model runs at all.",
+      "practices": [
+        {
+          "practice": "Cap the instrument at ~10 tasks per run, and never let a task reuse the wording of the heading that contains the answer.",
+          "locus": "Tree Testing 101, \"Write your tasks\" (task count; \"avoid using the same wording as your tree\" example: a tree node \"Application form for credit card\" must not appear verbatim in its task)",
+          "evidenceForIt": "asserted by the vendor, with the mechanism argued (pattern matching, and later tasks biased by learned tree)",
+          "costAndCollision": "free and directly portable to our answer-key question wording; it is a stronger version of a rule terse already half-follows"
+        },
+        {
+          "practice": "Define correct answers as leaf nodes only - a container heading is never a right answer.",
+          "locus": "same page, \"Every task needs at least one correct destination\"",
+          "evidenceForIt": "asserted",
+          "costAndCollision": "free; forces the code-derived answer key to name the exact section that must carry the fact"
+        }
+      ]
+    },
+    {
+      "id": "treetest-validity-kuric-2025",
+      "url": "https://www.sciencedirect.com/science/article/pii/S0950584925000795",
+      "opened": false,
+      "evidence": "search summary only - ScienceDirect returned HTTP 403 to WebFetch and I found no preprint or repository copy. Metadata and findings below come from search results, not from the paper.",
+      "whatItIs": "Kuric, Demcak & Krajcovic (2025), \"Validation of information architecture: Cross-methodological comparison of tree testing variants and prototype user testing\", Information and Software Technology 183:107740. The only peer-reviewed study I found that asks whether tree-test results predict behaviour in a real interface.",
+      "measures": "(reported, not verified) How closely three common tree-testing variants approximate navigation of the same IA in high-fidelity prototypes; backclicks and backtracking behaviour.",
+      "method": "(reported, not verified) Two between-subject studies, 180 participants, 1,800 task completions, 6 conditions (3 tree-testing variants, 3 prototype variants), groups of 30 per variant, general-population sample stratified by gender and internet-user age distribution.",
+      "verdict": "reference-only",
+      "weaknesses": "Not opened - treat every number above as unverified. Reported claims worth chasing later: the variant that shows previous navigation choices and gives direct controls to reverse them matched prototype behaviour best; showing one level at a time (Spencer's paper protocol) induced more careful exploration; participants adapted their navigation strategy across tasks, which is an artifact of the method itself.",
+      "practices": [
+        {
+          "practice": "When choosing how to present a tree to a reader-under-test, decide deliberately between 'show all previous choices' (closest to real interface behaviour) and 'one level at a time' (induces more careful exploration) - the choice changes the result.",
+          "locus": "Information and Software Technology 183 (2025), art. 107740, findings as reported in search results",
+          "evidenceForIt": "measured in the paper (180 participants, 1,800 task completions) but reported here second-hand",
+          "costAndCollision": "free at design time; matters if we build the tree-test pass, because our seats would see whatever we print in the prompt"
+        }
+      ]
+    },
+    {
+      "id": "usability-cif-nistir7742",
+      "url": "https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=907312",
+      "opened": true,
+      "evidence": "PDF downloaded to /var/folders/.../terse-research/nistir7742.pdf (37 pp.) and text-extracted to nistir7742.txt; read sections 3.3 Tasks, 3.4 Procedure, 3.8 Participant Instructions, 3.9 Usability Metrics / Data Scoring (report pp. 12-19) plus the executive-summary results table (p. 8).",
+      "whatItIs": "Schumacher & Lowry, NISTIR 7742, \"Customized Common Industry Format Template for Electronic Health Record Usability Testing\" (NIST, Nov 2010). A fill-in template implementing ISO/IEC 25062:2006 (the Common Industry Format for usability test reports) - the standard-body version of task-based usability testing, written so that another lab could replicate the test.",
+      "measures": "The ISO triad, per task: effectiveness (task success rate and errors), efficiency (mean task time, and path deviation as observed steps / optimal steps), satisfaction (post-task ease rating and the System Usability Scale). Reported as a table of Task | N | Task Success | Path Deviation | Task Time | Errors | Task Ratings, each with mean and SD.",
+      "method": "One-on-one sessions. Administrator plus a separate data logger (logger in another room, watching screen and face feed). Participant signs consent, is told they may withdraw, is given the same instructions as everyone else, and is offered the same training a real end user would get. Tasks are given one at a time, each on a written copy, and read aloud by the administrator; timing starts the moment the administrator finishes reading and stops when the participant says they are done (or stops working). No assistance is given; \"immaterial guidance and clarification on tasks\" is allowed, instructions on use are not. Explicitly no think-aloud: \"Participants should not use a think-aloud protocol during the testing. Excessive verbalization or attempts to converse with the moderator during task performance should be strongly discouraged\" - comments belong between tasks or in the debrief. Scoring rules, fixed before the test: success = the correct outcome, without assistance, within the time allotted for that task (successes / attempts, as a percentage); only successful tasks count toward mean task time; optimal task time is benchmarked from expert performance and multiplied by a buffer factor (e.g. 1.25) to set the allotted time; the optimal path (procedural steps) is recorded when the task is constructed, and the observed steps are divided by it; errors must be operationally defined by the test team before testing. Post-test: SUS questionnaire, then debrief.",
+      "verdict": "compose",
+      "weaknesses": "It is a reporting template for summative tests on software UIs, not for documents: nothing in it is doc-specific, and it assumes a lab, cameras, a recruiter and incentives. It also leaves the participant count as [XX] (see NISTIR 7804 for the number). The no-think-aloud rule is right for measurement and wrong for diagnosis - it buys clean times at the cost of knowing why people failed.\n\nCHEAP-MODEL STAND-IN: effectiveness transfers, efficiency and satisfaction do not. Success-against-a-pre-declared-correct-outcome is exactly what our audit already computes; wall-clock time, path deviation and SUS are meaningless for a seat. And simulated 'users' miscalibrate success rates in a measurable way (see lost-in-simulation item): up to 9 points of swing depending on which model plays the user. So: use seats to find failures, never to publish a completion rate as if it were a human rate.",
+      "practices": [
+        {
+          "practice": "Declare, before the test, three things per task: the correct outcome, the optimal path (the exact steps/sections that should produce it), and the time budget derived from expert performance times a buffer (e.g. 1.25).",
+          "locus": "NISTIR 7742, Data Scoring table, report pp. 18-19",
+          "evidenceForIt": "standardised practice mandated by ISO/IEC 25062 and specified operationally here; argued rather than measured in this document",
+          "costAndCollision": "medium cost: our audit derives the answer from code, but does not yet declare the optimal path (which file and section should have answered). Adding it gives us the placement diagnosis mechanically"
+        },
+        {
+          "practice": "Score a task as a success only if the reader reached the correct outcome without assistance and within the budget; compute success as successes / attempts; average time only over successes.",
+          "locus": "same table, \"Effectiveness: Task Success\" and \"Efficiency: Task Time\"",
+          "evidenceForIt": "standard-mandated; argued",
+          "costAndCollision": "free; sharper than our current binary right/wrong because it names 'without assistance' explicitly - relevant when a seat is allowed to search the repo"
+        },
+        {
+          "practice": "Separate the person who runs the session from the person who logs the data, and define error categories before the run rather than inventing them from the transcripts.",
+          "locus": "NISTIR 7742, Procedure (report p.13) and footnote 11 (\"Errors have to be operationally defined by the test team prior to testing\")",
+          "evidenceForIt": "argued",
+          "costAndCollision": "maps onto splitting the seat that answers from the seat that classifies the failure (lie / placement / findability) - which we already do; the new rule is to fix the taxonomy before looking at results"
+        },
+        {
+          "practice": "Do not ask for narration while the reader is working; collect explanations after the task, in a debrief.",
+          "locus": "NISTIR 7742, footnote 9 and Procedure (\"Without using a think aloud technique\", report p.14)",
+          "evidenceForIt": "asserted as a standard requirement (the rationale - verbalising perturbs performance and timing - is well established but not measured in this document)",
+          "costAndCollision": "collides with terse's habit of asking a seat to reason aloud while answering: rationale should be requested after the answer is committed, not during"
+        }
+      ]
+    },
+    {
+      "id": "usability-samplesize-nistir7804",
+      "url": "https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=909701",
+      "opened": true,
+      "evidence": "PDF downloaded to /var/folders/.../terse-research/nistir7804.pdf and text-extracted to nistir7804.txt; read the EUP overview (Steps I-III) and the sample-size passage plus its footnote 49, and the test-session checklists.",
+      "whatItIs": "Lowry, Quinn, Ramaiah, Schumacher, Patterson, North, Zhang, Gibbons & Abbott, NISTIR 7804, \"Technical Evaluation, Testing and Validation of the Usability of Electronic Health Records\" (NIST, Feb 2012). Defines the EHR Usability Protocol: application analysis, expert review, then a validation (summative) test whose results are reported on the NISTIR 7742 template.",
+      "measures": "The same effectiveness/efficiency/satisfaction set; outcomes per task are categorised as successful, successful with issues or problems, or unsuccessful, against criteria that define success in advance.",
+      "method": "Three steps: (I) application analysis naming user groups, environments and critical tasks; (II) expert review of the interface against human-factors guidelines with severity-rated issues; (III) validation test with representative users performing realistic tasks in a simulated environment, observed, recorded and scored. Sample size is argued from three sources and then fixed: \"with ten participants, 80 percent of the problems are found whereas 95 percent of the problems are found with twenty participants\"; the FDA's recommendation for summative validation of medical devices is a minimum of fifteen users per distinct user group; Sauro (2009) settles on about twenty per group - \"therefore, the EUP recommends that fifteen to twenty participants per distinct user group... be tested\", and the team must document the rationale for the number of groups and the sample size. Over-recruit and keep stand-by floaters.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Regulated-domain guidance (patient safety), so the numbers are conservative and the cost is irrelevant to them. The 10-participants-finds-80% claim descends from the Nielsen/Landauer model, which has been contested (notably Spool & Schroeder) - NISTIR repeats it without re-deriving it. None of it is about documents.",
+      "practices": [
+        {
+          "practice": "Fix the number of readers per distinct audience segment before the run (the standard-body answer is 15-20 per group), and write down the rationale for that number and for how the segments were split.",
+          "locus": "NISTIR 7804, sample-size passage and footnote 49 (\"at least fifteen participants per user group, and should not be interpreted as a 'per product' or 'per study' guideline\")",
+          "evidenceForIt": "argued from three cited sources (Nielsen-style problem-discovery curve, FDA minimum, Sauro 2009); not re-measured here",
+          "costAndCollision": "expensive with humans, meaningless with seats (see stand-in note above). What transfers is the discipline: terse's reader profile should name the segments, and the audit should state how many readers per segment it ran and why"
+        },
+        {
+          "practice": "Score each task into three buckets - success, success with issues, failure - not two.",
+          "locus": "NISTIR 7804, Step III description",
+          "evidenceForIt": "asserted as protocol",
+          "costAndCollision": "cheap; 'success with issues' is where our lie/placement/findability classification actually lives, and our current right/wrong scoring throws it away"
+        }
+      ]
+    },
+    {
+      "id": "docs-taskbased-meng-2019",
+      "url": "https://sigdoc.acm.org/cdq/how-developers-use-api-documentation-an-observation-study/",
+      "opened": true,
+      "evidence": "open-access PDF downloaded to /var/folders/.../terse-research/meng2019.pdf and text-extracted (extractor dropped some spans); the HTML version was additionally fetched via WebFetch to confirm participant count, task count and recording details. Read: Method (participants, tasks, procedure, data analysis), Results (success on tasks, time split), Guidelines section.",
+      "whatItIs": "Michael Meng, Stephanie Steinhardt & Andreas Schubert, \"How Developers Use API Documentation: An Observation Study\", Communication Design Quarterly 7(2):40-49 (ACM SIGDOC, 2019). A concrete published task-based protocol applied to documentation itself rather than to a UI.",
+      "measures": "Task success (how many of the five tasks each developer solved), time per task, and - the distinctive part - where the reading time went: proportion of session time spent outside the documentation (editor, command-line client) versus inside each documentation content category (concepts, samples, recipes, API reference).",
+      "method": "11 developers (10 male, 1 female) from three organisations, experience from under a year to 25 years (mean 9). Five tasks with an unfamiliar REST API: determine request type (POST/GET), the endpoints, and the parameters - creating shipping labels, requesting pickups, using special delivery addresses; solving them required configuring HTTP requests, not writing a program; for every task the documentation contained a correct solution. Tasks were handed over on paper, in the participants' own language. Participants were free to consult the documentation whenever they wanted. Sessions ran on-site with two researchers - one handling setup and recordings, one instructing and taking notes - and lasted 40-70 minutes, hard-stopped at 70 minutes whether or not all tasks were done. Screencast with audio was recorded plus head-free eye tracking (used only as a qualitative aid). Analysis coded the screencasts in INTERACT with two schemas: \"task\" (start/end of tasks 1-5, giving success and time) and \"active element\" (which part of the documentation was on screen, plus an \"Editor & Client\" code for time outside the docs). Post-test: 5-point ratings plus free comments on likes, weaknesses and suggestions, then debrief. Results included: 8 of 11 solved all five tasks; the other three solved only tasks 1-3; time split roughly 49% reading documentation / 51% coding.",
+      "verdict": "compose",
+      "weaknesses": "Exploratory, n=11, one API, one language, no control document and no comparison between doc versions - it characterises behaviour rather than grading a document. The eye-tracking data was not analysed in detail. Session cap means some task times are censored. Because there is no think-aloud, the 'why' comes from post-hoc comments and researcher notes.\n\nCHEAP-MODEL STAND-IN: the task shape transfers well (a task with one correct configuration, an answer key that exists in the docs), and 'which section was open' has a clean model analogue - which file the seat actually read. What breaks: time-on-task, the reading/coding split, eye movements, and the individual-difference finding (systematic vs opportunistic developers), which is the paper's main result and is precisely the diversity that synthetic participants are measured to lack.",
+      "practices": [
+        {
+          "practice": "Build tasks whose correct answer exists in the documentation and is checkable mechanically (an exact endpoint, method and parameter set), and state that the documentation contains a correct solution for every task.",
+          "locus": "Meng et al. 2019, Method / task design (five tasks; \"For all tasks, the API documentation provided a correct solution\")",
+          "evidenceForIt": "measured study design; the tasks discriminated (8 of 11 finished all five, 3 stalled after task 3)",
+          "costAndCollision": "low cost and very close to terse's code-derived answer key; the addition is that the task should be a job to do, not a question to answer"
+        },
+        {
+          "practice": "Instrument which parts of the documentation the reader actually opens, and report the time (or attention) split between sections - not just whether they got the answer.",
+          "locus": "Meng et al. 2019, Data analysis (\"active element\" coding schema) and Results (49% reading / 51% coding; per-category breakdown in Figure 1)",
+          "evidenceForIt": "measured across 11 sessions with video coding in INTERACT",
+          "costAndCollision": "for us this is cheap: log which files a seat read before answering. It would let the audit distinguish 'never opened the right file' (findability) from 'opened it and still got it wrong' (lie or placement) mechanically, instead of asking the model to self-classify"
+        },
+        {
+          "practice": "Cap the session and record what was unfinished, rather than letting readers run until they succeed.",
+          "locus": "Meng et al. 2019, Procedure (\"test sessions had to be terminated after 70 minutes regardless of whether participants had already completed all tasks\")",
+          "evidenceForIt": "measured practice in the study; censoring is acknowledged",
+          "costAndCollision": "trivial for seats (token/step budget); makes 'gave up' a reportable outcome instead of an invisible one"
+        }
+      ]
+    },
+    {
+      "id": "synthetic-participants-cardsort-kuric-2025",
+      "url": "https://arxiv.org/abs/2505.09478",
+      "opened": true,
+      "evidence": "PDF fetched via export.arxiv.org to /var/folders/.../terse-research/cardsort_llm.pdf (8 pp.) and text-extracted; read abstract, related work, prompt-variant definitions (P1-P4), Tables 2 and 3, results for RQ1-RQ5, Figures 6-8 captions, Discussion and Limitations.",
+      "whatItIs": "Eduard Kuric, Peter Demcak, Matus Krajcovic (Slovak University of Technology / UXtweak), \"Card Sorting Simulator: Augmenting Design of Logical Information Architectures with Large Language Models\" (arXiv 2505.09478, preprint). The single most relevant measurement of 'can a model stand in for the reader' in the IA domain.",
+      "measures": "Agreement between LLM-generated card groupings and the groupings produced by real participants, on 28 pre-existing real practitioner studies comprising 1,399 participants. Metrics: Normalised Mutual Information, Adjusted Rand Index, edit distance, similarity-matrix (Mantel) correlation, and number of clusters.",
+      "method": "Four prompt designs were compared: P1 raw-data simulation (the model adopts individual user personas and emits per-participant sorts), P2 similarity-matrix generation, P3 clustering generation (one aggregate answer), P4 as P3 without study context. Four models at default parameters: GPT-4o, Gemini 2.0 Pro, Claude 3.5 Sonnet, DeepSeek V3 (versions of Feb 2025). Outputs were compared against the real clusterings with sklearn; Kruskal-Wallis/Friedman plus post-hoc tests; plus qualitative review of failures.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Preprint (not peer reviewed at the time of fetch); card sorting, not tree testing or document comprehension; vendor-affiliated authors using their own tool and their own platform's study archive; the 'ground truth' is itself an aggregation of human sorts. Failures observed include hallucinated or missing cards, requiring output post-processing and repeated prompting.",
+      "practices": [
+        {
+          "practice": "If you use a model in place of readers, ask it once for the aggregate judgement; do not have it role-play N individual participants. Persona simulation was barely better than chance at the item level.",
+          "locus": "arXiv 2505.09478, Table 2 (P1 raw-data simulation NMI M=0.50 / ARI M=0.10 / matrix correlation 0.10; P2 similarity matrix NMI 0.68 / ARI 0.39; P3 clustering NMI 0.68 / ARI 0.42) and the H1a conclusion",
+          "evidenceForIt": "measured across 28 studies / 1,399 participants",
+          "costAndCollision": "cheap, and it is in tension with terse's design of one fresh seat per question posing as a reader. The tension is not fatal - our seats answer factual questions against a code-derived key rather than simulating mental models - but it says persona framing buys nothing and may cost accuracy"
+        },
+        {
+          "practice": "Expect model-reader fidelity to fall as the material gets bigger and the labels get more complex; keep the unit under test small.",
+          "locus": "same paper, RQ4 results and Figure 8 (low card count M=0.77 SD .14, medium M=0.70, high M=0.65, Kruskal-Wallis H(112)=19.1 p<.001; worst case NMI 0.42 at 55 cards with complex labels, NMI 1.0 for small simple studies)",
+          "evidenceForIt": "measured",
+          "costAndCollision": "free; argues for auditing a document (or a section) at a time rather than a whole repo in one prompt"
+        },
+        {
+          "practice": "Do not pick the model for fidelity - pick it for cost. Differences between frontier models were negligible next to the effect of prompt design and task complexity.",
+          "locus": "same paper, Table 3 (Claude 3.5 Sonnet NMI 0.73 / ARI 0.48; Gemini 0.72 / 0.46; GPT-4o 0.68 / 0.42; DeepSeek 0.68 / 0.41; Friedman chi2(3,112)=10.6 p=.014, W=.13, small effect; only Claude-DeepSeek differed post-hoc)",
+          "evidenceForIt": "measured",
+          "costAndCollision": "free; supports terse's use of cheap fresh models as readers"
+        },
+        {
+          "practice": "Treat synthetic results as preliminary feedback that a human still validates - the paper's own conclusion is a warning sign against full automation.",
+          "locus": "same paper, Discussion 6.1 (\"a warning sign against potential attempts at leveraging AI as a fully automated replacement for real human feedback\")",
+          "evidenceForIt": "argued from their measured disagreements (lack of realistic diversity; outputs that are either noise or monoliths)",
+          "costAndCollision": "affects how terse phrases its claims: our measured 3->6 improvement is a model-reader result, and should be labelled as such"
+        }
+      ]
+    },
+    {
+      "id": "synthetic-participants-lost-in-simulation",
+      "url": "https://arxiv.org/abs/2601.17087",
+      "opened": true,
+      "evidence": "abstract page fetched via export.arxiv.org to /var/folders/.../terse-research/lost.html; title, author list and full abstract read. Body NOT opened - all numbers below are from the abstract.",
+      "whatItIs": "Preethi Seshadri, Samuel Cahyawijaya, Ayomide Odumakinde, Sameer Singh, Seraphina Goldfarb-Tarrant, \"Lost in Simulation: LLM-Simulated Users are Unreliable Proxies for Human Users in Agentic Evaluations\" (arXiv 2601.17087; ACL 2026). Direct measurement of the bias introduced when a model plays the human in a task-based evaluation.",
+      "measures": "Robustness, calibration and fairness of LLM-simulated users as proxies for real humans evaluating agents on tau-Bench retail tasks, against a user study with participants in the United States, India, Kenya and Nigeria.",
+      "method": "Run the same agent-evaluation tasks with real human users and with simulated users driven by several different LLMs; compare agent success rates, calibration against human-measured difficulty, and outcomes by speaker population (AAVE vs Standard American English, by age).",
+      "verdict": "steal-a-part",
+      "weaknesses": "Domain is conversational agent evaluation, not document reading, and I read only the abstract. But the failure shape - a simulated user is more cooperative and differently distributed than a real one - is the same shape that would bite a model-run documentation test.",
+      "practices": [
+        {
+          "practice": "Never report a success rate obtained from model readers as if it were a human rate, and never compare two documents measured with different reader models.",
+          "locus": "arXiv 2601.17087, abstract (agent success rates vary up to 9 percentage points across different user LLMs; systematic miscalibration - under-estimating performance on challenging tasks and over-estimating on moderately difficult ones)",
+          "evidenceForIt": "measured in the paper (abstract read; body not opened)",
+          "costAndCollision": "free, and it constrains terse's headline claim: pin the reader model and the seed, and report the delta between drafts, not an absolute score"
+        },
+        {
+          "practice": "Do not claim accessibility or audience-segment findings from model readers: simulated users erase and distort subgroup differences.",
+          "locus": "same abstract (AAVE speakers consistently worse success and calibration than SAE speakers, disparities compounding with age; simulation is a differentially effective proxy across populations)",
+          "evidenceForIt": "measured",
+          "costAndCollision": "free; it marks a boundary for the reader-profile pass - profiles can shape questions, but the audit cannot claim a segment was served"
+        }
+      ]
+    }
+  ],
+  "groupNotes": "Covered: all three protocols, each from primary sources I opened, plus the modern evidence that decides the \"cheap model as reader\" question for each.\n\n(1) Cloze. Taylor 1953 obtained as a scanned PDF with no text layer; no poppler on this machine, so I extracted the 19 CCITT page images from the PDF with a Python script, wrapped them as TIFFs, converted with sips and read 14 of 19 pages as images. That gives the procedure verbatim: mechanical every-nth or random deletion, standard 10-space blank, exact-match scoring, comparison between passages for a stated population, analysis of variance on the totals, 175+ word passages, 10-15 minutes. Answers to the brief's questions: n was tested, not fixed (every 5th, every 7th, every 10th, random 10%; 10%-20% deletion rates); \"correct\" means an exact match to the deleted word, and Taylor measured that judging synonyms is not worth the effort; and no score means comprehension - Taylor never sets a criterion, which is why Bormuth's later and mutually inconsistent thresholds (25%/35% in the paper I opened, 44%/57% in the JEM paper I could not open) exist at all.\n\n(2) Tree testing. Opened the 2003 paper-based original (Spencer, Boxes and Arrows), both NN/g articles (definitions, rubric, the Albert & Tullis benchmark of 98 studies, 50+ participants), and Optimal Workshop's own task-writing and sample-size pages (max 10 tasks, scenario wording, never reuse tree labels, leaf nodes only, 50-100 participants per task). Could not reach the one peer-reviewed validity study (Kuric et al. 2025, ScienceDirect 403) - recorded as search-summary only.\n\n(3) Task-based usability testing. Opened NISTIR 7742 (the ISO/IEC 25062 Common Industry Format template: exact scoring rules, optimal path and optimal time, no think-aloud, separate data logger) and NISTIR 7804 (15-20 participants per user group, with its rationale). ISO/IEC 25062 itself is paywalled and not opened; NISTIR 7742 is its operational restatement. For documentation specifically, opened Meng, Steinhardt & Schubert 2019 (11 developers, 5 tasks, 40-70 minutes, screencast + eye tracking, two coding schemas, 49/51 reading-vs-coding split).\n\nCould not reach: ISO/IEC 25062:2006 itself, Shanahan/Kamil/Tobin 1982, Bormuth 1968 JEM, Albert & Tullis's book (the source of the 62% median), Kuric et al. 2025 IST. Each is flagged in its item.\n\nAnswer to the question that matters, in one line per protocol. Cloze: runnable by a model, but the number stops meaning readership - measured evidence says LM distributions are neither lexically nor semantically aligned with human cloze, and in our case a model fills gaps from domain memory, which hides exactly the omissions we hunt. Tree testing: the best fit - tiny stimulus, objective leaf-node key, mechanical scoring - but directness and first click only exist if the tree is revealed level by level, and sample-size statistics do not transfer because model reruns are not people. Task-based usability testing: effectiveness transfers (it is what our audit already does), efficiency and satisfaction do not, and simulated users are measured to miscalibrate success rates by up to 9 points depending on which model plays the reader, so we may report defects and deltas, never a completion rate.",
+  "surprises": "Four things cut against what we believe about our own method.\n\n1. Directness is a measure we do not have. Tree testing scores success AND path quality; NN/g's worked case is a document that scores high success with low directness, which means ambiguous labels rather than missing content. Our audit scores right/wrong only, so a doc where every reader eventually finds the answer after wandering through three wrong files looks identical to a doc where they go straight there. That is a real gap, and Meng et al. show the cheap fix: log which files the reader opened before answering.\n\n2. Taylor already ran our bake-off, in 1953, and reached our conclusion. He pitted cloze against Flesch and Dale-Chall on eight passages and found the formulas ranked Gertrude Stein's prose as the easiest text in the set (Dale-Chall: fourth-to-fifth grade), while readers found it the hardest - \"a formula can be reliably wrong\" (p.433). Our rejection of prose linters as a gate has a seventy-year-old measured precedent.\n\n3. Taylor's own data argue against generous grading. Judging synonyms with half credit - the more semantic, more \"fair\" grader - raised the totals but left the discrimination between passages virtually unchanged (Table 2A). That supports our strict code-derived answer key over any softer rubric, and it argues against paying a judge model to decide whether a wrong-but-close answer counts.\n\n4. Persona-simulated participants were measured to be near-random at the item level. In the card-sorting study, asking the model to role-play individual users scored ARI 0.10 (chance is 0) while asking once for the aggregate scored 0.42, and model choice barely mattered. We fan out one fresh seat per question, which is not the same thing as simulating mental models, but it does say that dressing seats up as personas buys nothing - and it raises a question we have not tested: whether our six independent seats are measuring six independent readers or six samples of one model's prior.\n\nOne smaller calibration surprise: across 98 real tree-testing studies the median task success rate is 62% (IQR 37-83%). Our before-state of 3 right out of 6 is unremarkable, and the after-state of 6 out of 6 sits above the \">90% excellent\" band - which is worth saying out loud before someone reads our 3->6 result as a miracle."
+}

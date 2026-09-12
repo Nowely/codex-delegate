@@ -1,0 +1,70 @@
+{
+  "candidates": [
+    {
+      "id": "conorbronsdon/avoid-ai-writing",
+      "url": "https://github.com/conorbronsdon/avoid-ai-writing",
+      "kind": "skill-collection",
+      "oneLine": "MIT skill (4301 stars, pushed 2026-09-10) that audits/rewrites AI-sounding prose using a 74-category pattern catalog, a 112-word tiered vocabulary table, and a bundled offline mechanical detector separate from the LLM pass.",
+      "whyRelevant": "Closest thing found to a 'measured' style tool: it ships a deterministic detector (`detector/`) that scores text (README demo: 'scoring the clean rewrite 0/100') independent of the LLM audit, and it explicitly weights its own rules by false-positive risk -- Tier 1A ('delve', 'tapestry') is treated as real evidence of machine origin, Tier 1B ('utilize', 'in order to') is weighted lower specifically so a wordiness fix can't tip a false AI-classification. It opens by citing the Stanford audit that found commercial AI-detectors flagged 61% of TOEFL essays by non-native writers, and states outright that its flags are writing-quality signals, not an authorship verdict -- a rigor about false positives that the terse project's own bake-off (measured vs. opinion) would recognize. Re-packaged verbatim inside wshobson/agents as `plugins/avoid-ai-writing` (disclosed upstream credit in that plugin's README), which is independent evidence of adoption.",
+      "evidence": "Read conorbronsdon/avoid-ai-writing/README.md directly (raw.githubusercontent.com): stars=4301, pushed=2026-09-10 via `gh api repos/conorbronsdon/avoid-ai-writing`. Also read wshobson/agents/plugins/avoid-ai-writing/README.md, which states 'submitted by the maintainer of the upstream conorbronsdon/avoid-ai-writing skill (MIT), from which its catalog and vocabulary tables are derived.'"
+    },
+    {
+      "id": "doc-detective/agent-tools",
+      "url": "https://github.com/doc-detective/agent-tools",
+      "kind": "skill-collection",
+      "oneLine": "Claude Code plugin marketplace (13 stars, pushed 2026-09-04) wrapping Doc Detective, an execution-based documentation-testing framework (131 stars) that runs the literal steps a doc describes -- clicks, CLI commands -- against the real product and reports PASS/FAIL.",
+      "whyRelevant": "A structurally different kind of measurement than terse's reader-comprehension test: instead of asking whether a reader can answer a question from the docs, it asks whether the docs' own instructions still execute correctly against the live app. Ships as real Claude Code skills (`doc-detective-test`, `doc-detective-validate`, `doc-detective-generate`, `doc-detective-init`, etc., confirmed via `contents/skills` listing) installable exactly like terse (`/plugin marketplace add doc-detective/agent-tools`). Composable as a second, independent measurement axis (procedural accuracy) alongside terse's reader-comprehension axis.",
+      "evidence": "Listed repo contents (`.claude-plugin`, `skills/doc-detective-*`) via `gh api repos/doc-detective/agent-tools/contents` and `contents/skills`; read agent-tools/README.md and doc-detective/doc-detective/README.md directly. Stars/dates from `gh api repos/doc-detective/agent-tools` (13, 2026-09-04) and `repos/doc-detective/doc-detective` (131, 2026-09-09)."
+    },
+    {
+      "id": "specialone0007/review-skills",
+      "url": "https://github.com/specialone0007/review-skills",
+      "kind": "skill-collection",
+      "oneLine": "Small Claude Code plugin (1 star, pushed 2026-09-09) whose `docs-sync-audit` skill runs a bundled stdlib-only Python script (`scripts/docs_drift.py`) that checks only machine-verifiable doc claims -- npm/make commands, relative Markdown links, and env-var names in both directions -- before layering LLM judgment on top for prose/semantic drift.",
+      "whyRelevant": "This is the same shape as terse's audit: derive a ground truth from code, then check documentation against it, with an explicit written boundary between what the deterministic checker settles ('It does not judge prose... this exists so the agent does not spend forty tool calls confirming whether a path exists') and what needs a reader/judge. The skill also enforces an evidence standard almost identical in spirit to terse's lie/placement/findability classification: it requires every citation to be a literal line match, forbids inferring a linter's line numbers, and requires any stated count to have a shown command behind it.",
+      "evidence": "Read the full SKILL.md at raw.githubusercontent.com/specialone0007/review-skills/main/skills/docs-sync-audit/SKILL.md and the header/regex block of scripts/docs_drift.py directly. Stars/date from `gh api repos/specialone0007/review-skills`."
+    },
+    {
+      "id": "github/awesome-copilot",
+      "url": "https://github.com/github/awesome-copilot/tree/main/skills/docs-sync-audit",
+      "kind": "skill-collection",
+      "oneLine": "GitHub's own curated Copilot skills/instructions/prompts monorepo (38891 stars, pushed 2026-09-10) contains the same `docs-sync-audit` skill (own SKILL.md + scripts/) inside its `skills/` directory of ~370 entries.",
+      "whyRelevant": "Confirms the code-vs-docs drift-audit pattern (candidate #3) has reach into the largest and most actively maintained multi-agent rule-pack collection, not just a one-author repo. The same directory also holds `oo-component-documentation` (treats existing source code as source of truth when updating docs, citing C4/Arc42/IEEE-1016) and `readme-blueprint-generator` / `em-dash` (pure generation and pure style opinion, not measurement -- noted for contrast).",
+      "evidence": "Listed `skills/` (370 entries) via `gh api repos/github/awesome-copilot/contents/skills`; confirmed `docs-sync-audit` has its own SKILL.md+scripts via `contents/skills/docs-sync-audit`; read oo-component-documentation and em-dash SKILL.md files directly. Stars/date via `gh api repos/github/awesome-copilot`."
+    },
+    {
+      "id": "gurevich89/ai-docs-reviewer",
+      "url": "https://github.com/gurevich89/ai-docs-reviewer",
+      "kind": "other",
+      "oneLine": "A CI tool (0 stars, pushed 2026-09-05) that declares required doc topics in a TOML spec, then deterministically scores Markdown coverage (missing/thin/stale per topic, word counts, staleness via git-log mtime, broken relative links) and only calls an LLM to judge completeness on topics that already exist; ships its own `.claude/skills/docs-gap-fill` companion skill.",
+      "whyRelevant": "A third distinct measurement axis: completeness against a declared spec of required topics, rather than correctness against code (candidate #3) or executability against the app (candidate #2). The design principle stated in its README -- 'is the documentation done? becomes a CI check that fails... instead of a question nobody answers before release' -- is exactly the kind of hard gate terse's audit tries to produce evidence for, and its LLM-judges-only-covered-topics split mirrors the deterministic/semantic split in candidate #3.",
+      "evidence": "Read README.md directly via raw.githubusercontent.com; confirmed 0 stars, pushed 2026-09-05, default branch main via `gh api repos/gurevich89/ai-docs-reviewer`."
+    },
+    {
+      "id": "wshobson/agents (plugins/documentation-standards/skills/grounded-vault)",
+      "url": "https://github.com/wshobson/agents/tree/main/plugins/documentation-standards/skills/grounded-vault",
+      "kind": "skill-collection",
+      "oneLine": "Inside the 39565-star wshobson/agents marketplace (pushed 2026-09-07), a `grounded-vault` skill defines a three-layer Markdown store (raw/wiki/archive) where every compiled page carries a `Fingerprint: git:<hash>` and a `Monitored:` file list, so staleness is checked with one `git diff` -- zero LLM calls needed to know a page might be wrong.",
+      "whyRelevant": "The cheapest possible 'measure, don't opine' technique found: a page is flagged stale purely by comparing its recorded git fingerprint against the current hash of the code paths it claims to describe, no reading or reasoning required. Complements the heavier LLM-based drift tools (candidates #3, #5, #7) as a near-free pre-filter for which pages are even worth auditing.",
+      "evidence": "Read the SKILL.md directly via raw.githubusercontent.com/wshobson/agents/main/plugins/documentation-standards/skills/grounded-vault/SKILL.md, including the page-header-contract example. Stars/date for the parent repo via `gh api repos/wshobson/agents`."
+    },
+    {
+      "id": "deichrenner/driftcheck",
+      "url": "https://github.com/deichrenner/driftcheck",
+      "kind": "other",
+      "oneLine": "A pre-push git hook (6 stars, pushed 2026-02-04) that uses an LLM to find documentation related to a diff and flag only 'clear, factual errors,' with a git-aware pass that suppresses issues already fixed in recent commits.",
+      "whyRelevant": "Not an agent skill (it's a standalone Go-style binary/hook, OpenAI-compatible backend), but the same drift-detection genre as terse's derive-then-check idea, framed as a CI/pre-push gate rather than an interactive audit -- worth composing as an always-on cheap first pass ahead of a heavier skill-based audit.",
+      "evidence": "Read README.md directly via raw.githubusercontent.com/deichrenner/driftcheck/main/README.md. Stars/date via `gh api repos/deichrenner/driftcheck`. Did not open its source, only the README."
+    },
+    {
+      "id": "anivar/developer-docs-framework",
+      "url": "https://github.com/anivar/developer-docs-framework",
+      "kind": "style-guide",
+      "oneLine": "'diataxis-docs-framework' (11 stars, pushed 2026-08-08): 27 rules + 6 pluggable style guides (Diataxis, Google, Microsoft, Stripe, Canonical, Minimal) synthesized into one Diataxis-centric documentation framework, including 3 'documentation audit' rules.",
+      "whyRelevant": "Flagged per instructions as already-rejected-adjacent, recorded rather than recommended: its audit rules (`audit-classify-and-gap.md`, read in full) are pure checklist classification -- sort each page into a Diataxis quadrant, mark content-type coverage Yes/No, no reader or code check involved -- the same opinion-not-measurement shape the terse bake-off found losing to unguided controls. Useful as a concrete example of what 'Diataxis-style audit' looks like in the wild, for contrast with the measurement-based candidates above.",
+      "evidence": "Read README.md and rules/audit-classify-and-gap.md directly via raw.githubusercontent.com. Stars/date/topics via `gh api repos/anivar/developer-docs-framework`."
+    }
+  ],
+  "coverageNotes": "Covered via: (1) gh search repos with many term combinations (technical writing agent skill, documentation review agent, style guide agent claude, AGENTS.md writing rules, documentation drift, doc coverage checker, readme score, doc-detective, RAG evaluation); (2) topic search (claude-code-skills, claude-skills); (3) directly browsed the four named collections -- anthropics/skills (no writing/docs skill, only doc-coauthoring for artifact generation, not reviewed/measurement), github/awesome-copilot (skills/ dir of ~370 entries, fully listed and several opened), wshobson/agents (plugins/ dir of ~90 entries, fully listed, three opened), davila7/claude-code-templates (no top-level skills/ dir; used GitHub code search for SKILL.md+documentation inside it, opened one hit -- a medical-device regulatory doc-control skill, irrelevant, not returned). Every returned candidate had its README or SKILL.md actually fetched and read (raw.githubusercontent.com), not inferred from search snippets alone; deichrenner/driftcheck is the one exception where only the README was opened, noted explicitly in its evidence field. Star/push-date figures came from `gh api repos/OWNER/REPO`, not from search-result JSON (which is sometimes stale).\n\nNot reached: VoltAgent/awesome-agent-skills' README/CONTRIBUTING only (no skills subfolder in the repo itself, it's a link index -- did not follow its outbound links, which is a real gap given its self-description as 1000+ curated skills). Also did not search Cursor-specific `.cursor/rules` or Copilot `instructions/` packs beyond the awesome-copilot `instructions/` directory listing (scanned names only, did not open any individual `.instructions.md` writing-related file such as markdown-content-creation or markdown-accessibility).",
+  "dropped": "Vuk97/unslop and fayerman-source/deslop (Google-style-guide digests, pure opinion/rules, same rejected-category shape as Diataxis/Vale) -- lower priority than conorbronsdon/avoid-ai-writing which does the same job with a bundled mechanical detector. Battle-Creek-LLC/tamos (\"Agent Manual of Style,\" 1 star) -- different axis (prose written to/from agents, not docs for human readers); its one measurement-adjacent idea, an `agents/` folder of adversarial validators that attack the guide itself, judges the guide, not arbitrary target documents. clayallsopp/readme-score (39 stars, last pushed 2019) -- a README \"complexity score,\" too old/shallow to be sure what it actually measures beyond length heuristics; did not find comprehension-based scoring. github/awesome-copilot's `em-dash` and `readme-blueprint-generator` skills -- opened and read, pure style-opinion and pure generation respectively, no measurement. ifiokjr/mdt (\"write it once, sync it everywhere\") -- single-source-of-truth doc templating, prevents drift by construction rather than measuring it; only saw the one-line description, not opened. wshobson/agents' `hads` skill (Human-AI Document Standard tagging convention) -- a markdown block-tagging format, not a measurement method."
+}

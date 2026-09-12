@@ -1,0 +1,166 @@
+{
+  "items": [
+    {
+      "id": "slopless-hidden-unicode-controls",
+      "opened": true,
+      "evidence": "src/rules/orthography/hidden-unicode-controls.ts (full file, 61 lines) and src/registries/orthography.ts (full file), fetched via gh api repos/berelevant-ai/slopless/contents/... and base64-decoded",
+      "url": "https://github.com/berelevant-ai/slopless/blob/main/src/rules/orthography/hidden-unicode-controls.ts",
+      "whatItIs": "One rule (of 8) in slopless's 'orthography' rule family, part of an AI-slop-detecting textlint-style linter.",
+      "measures": "Presence of any of 17 invisible/formatting Unicode code points (zero-width space/joiner/non-joiner, 6 bidi-control characters, 4 directional isolates, soft hyphen, word joiner, BOM) anywhere in a text unit, via a per-character codepoint lookup against a fixed Map.",
+      "verdict": "steal-a-part",
+      "weaknesses": "None in the rule's own logic — it's a closed, enumerable character class, so it cannot false-positive. The only issue is placement: it sits in the same undifferentiated 'orthography' family/registry as 7 pure taste/AI-tell heuristics (em-dashes, smart-quotes, sentence-case, exclamation-density), so adopting the family wholesale imports those too.",
+      "practices": [
+        {
+          "practice": "For invisible/formatting characters, use a hardcoded finite codepoint blocklist and flag every occurrence unconditionally — no NLP, no threshold, no context check needed.",
+          "locus": "src/rules/orthography/hidden-unicode-controls.ts:5-21",
+          "evidenceForIt": "argued: the character class is closed (17 codepoints) and has no legitimate use in visible body prose; invisible chars there are always accidental copy-paste residue or adversarial (steganography/prompt-injection), never intentional",
+          "costAndCollision": "near-zero to write (one Map literal + one loop) and to run; touches nothing about wording or length, so it cannot collide with a terseness goal at all"
+        }
+      ]
+    },
+    {
+      "id": "slopless-em-dashes-orthography-family",
+      "opened": true,
+      "evidence": "src/rules/orthography/em-dashes.ts (full file, 35 lines) and src/registries/orthography.ts",
+      "url": "https://github.com/berelevant-ai/slopless/blob/main/src/rules/orthography/em-dashes.ts",
+      "whatItIs": "Sibling rule to hidden-unicode-controls in the same family: flags every closed (unspaced) em dash in a paragraph.",
+      "measures": "Nothing a reader would independently flag as wrong — a closed em dash is standard, correct punctuation. The rule exists because AI-generated text statistically overuses it; it's a statistical AI-tell, not a correctness check.",
+      "verdict": "not-relevant",
+      "weaknesses": "Registered with the identical builder, family, and severity shape as hidden-unicode-controls (src/registries/orthography.ts:1-17), so the API gives a consumer no way to tell 'real defect' from 'style opinion' apart from reading source.",
+      "practices": [
+        {
+          "practice": "Don't bucket a zero-false-positive defect detector and pattern-matched taste/AI-tell heuristics under one family or severity — cherry-pick the individual rule file instead of adopting the preset.",
+          "locus": "src/registries/orthography.ts:1-17",
+          "evidenceForIt": "proven by reading the registry: both rules are plain siblings in one object literal with no tiering field",
+          "costAndCollision": "no cost to us to avoid; the collision would be inherited false-positive taste-policing if we imported the family instead of the one file"
+        }
+      ]
+    },
+    {
+      "id": "textlint-rule-terminology",
+      "opened": true,
+      "evidence": "src/index.ts (full file, ~180 lines) and terms.jsonc (full file, 368 lines), fetched via gh api repos/sapegin/textlint-rule-terminology/contents/...",
+      "url": "https://github.com/sapegin/textlint-rule-terminology",
+      "whatItIs": "A textlint rule enforcing 'canonical' terminology: ~150 exact brand-name strings plus ~150 [regex, replacement] tuples, matched with a generated word-boundary regex and auto-fixable via textlint's fixer API.",
+      "measures": "Three different things through one identical mechanism. (a) Real typos: 'environemnt'→'environment', 'pacakge'→'package', 'flackyness'→'flakiness', 'tilda'→'tilde'. (b) Grammar agreement: 'a npm'→'an npm', 'an URL'→'a URL', \"id's\"→'IDs'. (c) Pure house-style normalization with no correctness content: 'front end'→'frontend', 'website'→'site', 'CLI tool'→'command-line tool', 'repo'→'repository', 'he or she'→'they'. (a) and (b) are defects a reader would hit; (c) is the author's taste applied by the identical mechanism.",
+      "verdict": "steal-a-part",
+      "weaknesses": "No distinction in code or data between the three tiers — same Tuple type, same regex-replace, same auto-fix, same 'Incorrect term' message template. Turning the rule on inherits the ~2/3 of entries that are house-style opinion, labeled with the same authority as the typo fixes.",
+      "practices": [
+        {
+          "practice": "Split any term-list rule into an objective tier (typos, article/plural agreement — safe to auto-fix and gate on) and a style tier (compounding, hyphenation, preferred synonyms — opt-in only), because the authoring mechanism (one line per entry) is exactly as cheap for either kind, so lists drift toward the style tier by default without a deliberate split.",
+          "locus": "terms.jsonc — contrast e.g. the 'environemnt'/'authentificat(ion|e|ed)' lines against the 'web[- ]?site(s)?'→'site$1' line",
+          "evidenceForIt": "argued from direct inspection of the list; no upstream measurement of which entries readers actually notice or care about"
+        },
+        {
+          "practice": "Catch article-agreement errors as literal string pairs keyed to the specific noun ('a npm'→'an npm', 'an URL'→'a URL') rather than a general phonetic a/an rule — cheap, zero false positives, and catches something a reader audibly stumbles on.",
+          "locus": "terms.jsonc, 'a npm' and 'an URL' entries",
+          "evidenceForIt": "argued: a/an-before-the-wrong-sound is a genuine stumble for a reader, unlike the compounding-style entries in the same file"
+        }
+      ]
+    },
+    {
+      "id": "proselint-consistency-mechanism",
+      "opened": true,
+      "evidence": "proselint/checks/typography/punctuation.py, full file (42 lines)",
+      "url": "https://github.com/amperser/proselint/blob/main/proselint/checks/typography/punctuation.py",
+      "whatItIs": "One of four checks in punctuation.py; uses proselint's types.Consistency mechanism instead of the more common types.Existence.",
+      "measures": "Whether the SAME document mixes one-space and two-space-after-period conventions — not which convention is correct.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Only this one example of the Consistency mechanism was found among the files inspected; most proselint checks (malapropisms.py, illogic.py, false_plurals.py, currency.py) use the weaker Existence-list mechanism instead.",
+      "practices": [
+        {
+          "practice": "Where a construct has no single correct form (spacing, quote style, list punctuation), flag internal inconsistency within one document rather than asserting a universal rule — the reader-facing defect is the mix itself, not either choice alone.",
+          "locus": "proselint/checks/typography/punctuation.py, check_spacing (lines ~35-39)",
+          "evidenceForIt": "argued: readers are demonstrably jarred by inconsistent formatting regardless of which convention wins; this sidesteps the taste-vs-defect argument entirely",
+          "costAndCollision": "costs a pairwise comparison across occurrences in the document instead of a single regex scan; no collision with a terseness goal since it never touches wording"
+        }
+      ]
+    },
+    {
+      "id": "proselint-existence-list-checks",
+      "opened": true,
+      "evidence": "proselint/checks/misc/malapropisms.py, false_plurals.py, currency.py, illogic.py — full files",
+      "url": "https://github.com/amperser/proselint/tree/main/proselint/checks/misc",
+      "whatItIs": "proselint's dominant mechanism: Check(check_type=types.Existence(items=(...))), a hardcoded tuple of exact phrases or short regexes sourced from Garner's Modern American Usage, each firing a canned message on exact match.",
+      "measures": "A grab-bag under one mechanism. currency.py's '$5 dollars' redundant-unit pattern and false_plurals.py's 'talismen'/'phenomenons' are genuine errors a reader would flag. illogic.py's 'could care less' and malapropisms.py's 3-phrase list are usage-guide pedantry (idioms readers understand fine) or so narrow (3-9 hardcoded phrases per file) they will almost never fire on real prose.",
+      "verdict": "reference-only",
+      "weaknesses": "Low recall by construction — each check is a closed list of exact phrases transcribed from one book rather than a generative pattern, so it only catches prose that happens to reuse the book's own examples verbatim.",
+      "practices": [
+        {
+          "practice": "A redundant-notation rule shape (symbol and spelled-out unit co-occurring for the same value, e.g. '$5 dollars') generalizes beyond currency and is worth stealing as a pattern.",
+          "locus": "proselint/checks/misc/currency.py",
+          "evidenceForIt": "argued: '$5 dollars' is unambiguously self-contradictory notation, not a style choice"
+        }
+      ]
+    },
+    {
+      "id": "alex-retext-equality-condition-not-enforced",
+      "opened": true,
+      "evidence": "get-alex/alex index.js (full file); retextjs/retext-equality data/en/gender.yml (first ~60 lines), rules.md (rule-type documentation), and lib/create-plugin.js lines 270-315 (message-construction code)",
+      "url": "https://github.com/retextjs/retext-equality/blob/main/lib/create-plugin.js#L294",
+      "whatItIs": "alex is a thin unified/retext pipeline composer with no rule logic of its own; all judgment lives in retext-equality's YAML word lists (data/en/gender.yml, ablist.yml, lgbtq.yml, race.yml, condescending.yml, misc.yml, press.yml, slogans.yml, suicide.yml) plus retext-profanities.",
+      "measures": "Word-level presence of roughly 600 gendered/ableist/condescending/etc. terms against a documented 'considerate' alternative — inclusive-language/tone policy, not factual correctness. Many entries carry a human-readable 'condition' field, e.g. 'when referring to a person' attached to he/she/him/her.",
+      "verdict": "reference-only",
+      "weaknesses": "Proven by reading lib/create-plugin.js:294: `pattern.condition` is spliced only into the warning MESSAGE TEXT ('...he`, when referring to a person, try not to use it') — it is never evaluated as a boolean guard. A pattern documented as scoped therefore fires on every occurrence of 'he'/'she'/'him'/'her' unconditionally, including non-person referents. This is a general mechanism trap, not specific to alex.",
+      "practices": [
+        {
+          "practice": "If a rule's data declares a context precondition in prose (e.g. 'when referring to a person'), verify in the engine code that it is actually evaluated before trusting the documentation's implied scope — otherwise budget for the rule firing unconditionally.",
+          "locus": "retextjs/retext-equality lib/create-plugin.js:294, vs. the condition fields in data/en/gender.yml",
+          "evidenceForIt": "proven — read the exact line where pattern.condition is used only for string concatenation into the message, never as a filter",
+          "costAndCollision": "costs nothing to check before adopting a rule; the collision is credibility — shipping a rule that claims scope it doesn't enforce erodes trust in the whole lint pass"
+        }
+      ]
+    },
+    {
+      "id": "write-good-composer-and-duplicate-word",
+      "opened": true,
+      "evidence": "write-good.js (full file), lib/lexical-illusions.js (full file), lib/there-is.js (full file), all via raw.githubusercontent.com",
+      "url": "https://github.com/btford/write-good/blob/master/lib/lexical-illusions.js",
+      "whatItIs": "write-good.js is a thin orchestrator concatenating suggestions from 6 independently-published single-purpose npm packages (weasel-words, passive-voice, adverb-where, too-wordy, no-cliches, e-prime) plus 3 local checks (lexical-illusions, starts-with-so, there-is), then filters/dedups/sorts the results.",
+      "measures": "Overwhelmingly style preference — passive voice, adverbs, 'weasel words', wordiness, and sentences starting with 'there is/are' are not reader-facing errors; the source comment on there-is.js literally reads '// Opinion: I think it's gross to start written English sentences with \"there (is|are)\"'. The one exception, lexical-illusions.js, catches an accidental immediately-repeated word ('the the') — a genuine typo/editing-artifact class.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Every check besides lexical-illusions is taste with no reader-facing-error claim even from its own author (there-is.js self-labels as opinion in-source). Matches the already-measured finding that published writing standards produce audits rather than rewrites.",
+      "practices": [
+        {
+          "practice": "Detect accidental immediate word repetition (a classic edit/copy-paste artifact, e.g. 'the the') by tokenizing on whitespace and comparing each lowercased token to the previous one — O(n), essentially zero false positives.",
+          "locus": "lib/lexical-illusions.js:8-22",
+          "evidenceForIt": "argued: an exact repeated word reads as an obvious slip to any reader, unlike passive voice or adverb use which are legitimate choices"
+        },
+        {
+          "practice": "Compose a lint tool from small, independently testable single-purpose packages (one regex/wordlist function each, uniform {index, offset} return shape) glued by a tiny orchestrator that also owns filter/dedup/whitelist logic — a reusable architecture worth copying even where we reject the rules' content.",
+          "locus": "write-good.js lines 1-22 (requires) and ~60-100 (filter/dedup)",
+          "evidenceForIt": "argued from reading the composer; a structural observation, not a content one"
+        }
+      ]
+    },
+    {
+      "id": "textlint-rule-no-todo",
+      "opened": true,
+      "evidence": "src/no-todo.js, full file (39 lines), via gh api repos/textlint-rule/textlint-rule-no-todo/contents/src/no-todo.js",
+      "url": "https://github.com/textlint-rule/textlint-rule-no-todo/blob/master/src/no-todo.js",
+      "whatItIs": "An official textlint-rule-org AST-visitor rule: flags 'TODO:' text and unchecked Markdown checklist items ('- [ ]').",
+      "measures": "Leftover placeholder/incomplete-task markers accidentally shipped in published prose — something a reader genuinely hits and is confused or put off by, unlike a style preference.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Regex is simple ('/todo:/i', '/\\\\[\\\\s+\\\\]\\\\s/i') — would miss bare 'TODO' with no trailing colon, or a checklist item using a non-breaking space; narrow but low-false-positive by design.",
+      "practices": [
+        {
+          "practice": "Run text-pattern checks against parsed AST text nodes, not raw source, and explicitly skip Link/Image/BlockQuote children so the rule doesn't fire inside a quoted example, an image alt-text, or someone else's quoted TODO.",
+          "locus": "src/no-todo.js:16-18, `helper.isChildNode(node, [Syntax.Link, Syntax.Image, Syntax.BlockQuote])`",
+          "evidenceForIt": "proven by reading the guard clause directly",
+          "costAndCollision": "one extra AST-membership check per node; prevents a real false-positive class (quoted/embedded content) at negligible cost — worth copying into any rule terse writes over parsed Markdown"
+        }
+      ]
+    },
+    {
+      "id": "azu-technical-word-rules-prh",
+      "opened": false,
+      "evidence": "search summary only — gh api repo metadata and root directory listing for azu/technical-word-rules; did not open the prh dictionary file contents (data lives in a git submodule). Its consumer package azu/textlint-rule-spellcheck-tech-word is marked '[Deprecated]' in its own repo description.",
+      "whatItIs": "An auto-maintained 'prh' (Proofreading Helper) YAML term dictionary of JavaScript/IT technical-word spellings, historically consumed by the now-deprecated textlint-rule-spellcheck-tech-word.",
+      "measures": "Not verified in detail — not opened.",
+      "verdict": "reference-only",
+      "weaknesses": "Not confirmed firsthand and flagged deprecated by its own author, so not a candidate to depend on; noted only as evidence that 'canonical tech-term spelling via a replacement-rule format' (prh) is an independently-invented pattern parallel to sapegin/textlint-rule-terminology's bespoke regex-tuple format.",
+      "practices": []
+    }
+  ],
+  "groupNotes": "Covered all six requested linter ecosystems (textlint's own ecosystem via textlint-rule-no-todo and azu/technical-word-rules; proselint; alex/retext-equality; write-good; berelevant-ai/slopless; sapegin/textlint-rule-terminology) by opening primary rule source files directly (gh api .../contents/..., base64-decoded), never a README summary. Sampled representative files per project rather than exhaustively cataloging every rule — proselint alone has ~200 checks across ~40 files (only 4 misc + 1 typography file opened), retext-equality has 9 word-list files (only gender.yml opened in full), slopless has 8 rule families beyond orthography/term-policy that were not opened (academic-slop, narrative-slop, semantic-thinness, syntactic-patterns, phrases, words). Both explicitly-requested close inspections were done with exact line citations: slopless's hidden-unicode-controls (proven zero-false-positive mechanism) and terminology's terms.jsonc (proven mixed defect/style content). Not opened at all: textlint's JTF/ja-technical-writing presets (Japanese-specific, judged not relevant to an English-reader audience), alex's retext-profanities word list, proselint's cliches/social_awareness/restricted directories.\",\n\"surprises\">Within every project inspected, the same mechanical rule shape (regex/wordlist → canned message) is used indiscriminately for genuine defects and pure taste — no project structurally tiers its rules by defect-vs-style, so trustworthiness has to be judged entry-by-entry, not by rule shape. Two concrete surprises worth flagging to the owner: (1) retext-equality's 'condition' annotations, which alex inherits, are documented as scoping a pattern ('when referring to a person') but proven unenforced in code (create-plugin.js:294 only appends the text to the message) — a real trap for anyone building similar rule data. (2) write-good's own author labels a rule as pure opinion directly in the source comment (there-is.js), a rare case of a primary source confirming our thesis in its own words rather than us inferring it. Also notable: even slopless, a 2026-built, purpose-designed 'AI slop' linter, puts its one airtight defect (hidden-unicode-controls) in the same undifferentiated family/registry as several heuristic taste rules (em-dashes, sentence-case) — reinforcing the standing finding that published standards/tools tend to produce audits rather than disciplined rewriting."
+}

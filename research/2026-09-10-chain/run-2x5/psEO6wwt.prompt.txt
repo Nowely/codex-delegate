@@ -1,0 +1,60 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.psEO6wwt/schema.json
+
+TASK:
+Judge the three SKILL.md pages as INSTRUCTIONS that a coordinator has to follow correctly under load,
+not as documentation to be admired. One long session just followed them for hours. Find the places where
+following the page produced a worse outcome than ignoring it would have, and the places where a
+coordinator had to invent something the page should have supplied.
+
+The pages are skills/seat/SKILL.md, skills/orchestrate/SKILL.md, skills/cleanup/SKILL.md and the
+references under skills/seat/references/. The driver they describe is skills/seat/scripts/driver.mjs.
+
+WHAT THE SESSION DID, so you can check the pages against real use. Verify each against the pages and the
+code rather than taking my word:
+
+1. The orchestrate page instructs the coordinator to wait on every backgrounded seat with a blocking
+   call, "again while the task still runs, and never end your turn with a seat alive", justified by a
+   measurement that a headless session ends with the turn and kills the task. The session was
+   interactive, not headless. Following that instruction on a Claude subagent dumped the subagent's raw
+   conversation transcript into the coordinator's own context, because for that task type the blocking
+   call returns the transcript file. The coordinator stopped obeying the instruction after one attempt
+   and simply waited for completion notifications, which worked for a dozen seats across many turns.
+   Decide what the page should say instead, and whether its justification is scoped correctly.
+2. The seat page's own composition rules — announce before starting, treat refusal as composition,
+   attribute every finding, never backfill a failed seat, never add allow-rules — were followed and
+   worked. Say which of them carried weight and which were inert, on the evidence.
+3. The page tells the coordinator that what the user reads is the coordinator's own prose, that agents
+   are named by model and id, and that header field names and absolute paths are machinery that must not
+   reach a person. The coordinator obeyed this throughout. Judge whether the rule is stated where a
+   coordinator will actually meet it in time, and whether anything in the pages contradicts it.
+4. The session's most decisive technique was measuring the sandbox with `codex sandbox -c ... -- curl`,
+   with no model turn spent. The coordinator invented it. Establish whether the pages could have taught
+   it, and where such a thing would belong.
+5. The coordinator ran seats in parallel, resumed two finished Claude subagents by message with their
+   context intact, split file ownership between two writers on one live tree, and arbitrated a collision
+   when one writer's prose broke the other's test pins. Say which of those the pages support, which they
+   are silent on, and which they implicitly forbid.
+6. One writer ran `git stash` on the shared live tree while another was writing to it. Nothing was lost.
+   Check whether any page warns against this.
+
+CHECK:
+a) Quote every instruction you judge, verbatim with file:line, and give the replacement text. A
+   criticism without replacement wording is half an answer.
+b) Separate three failure kinds and label each finding with one: an instruction that is WRONG, an
+   instruction that is RIGHT BUT MISPLACED so a reader meets it too late, and a MISSING instruction the
+   coordinator had to invent.
+c) Judge length and order as part of correctness. If a rule that matters is buried under one that does
+   not, say so with both line numbers.
+d) The pages are read by a model with limited attention, mid-task. Name the single instruction most
+   likely to be skipped under load, and say what makes it skippable.
+e) Say what the pages get RIGHT and must not lose.
+
+RETURN:
+Answer as one JSON object matching the supplied schema.
+`result`: first line is one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A11), your status and what you did. Then the findings, costliest first, at most 30 lines,
+each labelled WRONG, MISPLACED or MISSING.
+`evidence`: file:line and verbatim text for every claim, plus what you ran.
+`open`: what you could not settle.

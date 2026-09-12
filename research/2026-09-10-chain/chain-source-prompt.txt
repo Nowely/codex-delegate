@@ -1,0 +1,157 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+NETWORK: no
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Rewrite a README by running a four-part chain over it, in order, and account for what each part changed.
+
+The file is /Users/ruliny/Git/codex-delegate/README.md in the checkout you are sitting in, 290 lines and
+2,725 words. Rewrite the whole of it. Do not modify the repository: write your result to a file in your
+own temporary directory and name that path in your return.
+
+Six fresh readers have already been measured against the current file, and their failures are given
+below. They are the point of this exercise. A rewrite that improves prose without repairing those
+failures has done nothing.
+
+=== PART 1. WHO READS THIS ===
+
+    # Who reads this project's documentation
+
+    ## What it is, in one sentence, without jargon
+    A Claude Code plugin that lets Claude hand a piece of work to OpenAI Codex running
+    beside it, decides per call what Codex may touch, and returns a record of what
+    actually happened.
+
+    ## The reader
+    Works inside Claude Code already. Solo, or leading a small team; nobody procures
+    this, they install it themselves and decide alone in about a minute.
+    Mid to senior, and has already formed opinions about where an AI agent is
+    unreliable.
+    NOT NECESSARILY AN ENGINEER. Nothing may assume a language, a framework or a stack.
+
+    ## What brings them here
+    - Claude is confidently wrong in ways Claude cannot see from the inside.
+    - Getting a second model's opinion means leaving the session, re-pasting context,
+      losing the thread.
+    - Giving an agent write access is frightening; they want to know what it may touch
+      before it runs, not after.
+    - They cannot tell whether an agent did the work or only reported that it did.
+
+    ## What they would otherwise use
+    OpenAI's own codex plugin, whose hardcoded approval policy fails on managed
+    machines; exec-based skills; or a second terminal and copy-paste.
+
+    ## Why this instead
+    Rights declared per call. The exit code comes from the stream of events, not from
+    a process that always exits 0. Claude's own agents and Codex agents in one job.
+
+    ## Their words, not ours
+    "have codex review this", "get a second opinion", "second implementation",
+    "через codex", "вторая имплементация", "панель ревьюеров".
+
+    ## What earns their trust
+    Seeing which commands actually ran. A default that writes nothing of theirs.
+    No dependencies to install.
+
+    ## Voice
+    Short sentences, one decision each. No manifesto and no aphorisms. No capitals for
+    emphasis. A term appears only after the reader has a reason to care about it. Never
+    narrow the subject to sound concrete: this takes any work, not only code.
+
+=== PART 2. THE WRITING RULES ===
+
+    Default: no sentence that carries nothing. One earns its place by carrying a
+    contract, a constraint, or a reason the code cannot state.
+
+    Cut first: the argument for an instruction, restated wherever the instruction
+    appears. Give the instruction; the case for it lives in one place.
+
+    Also cut: editing history ("previously", "used to", "moved out of", "per PR #123",
+    "on this machine"); capitals used for emphasis; a true claim on the wrong line.
+
+    Define a term where the reader first needs it, not before. A page does not open
+    with a glossary.
+
+    A document states its purpose once, at the top, in the reader's words. That is not
+    the argument for an instruction, and it is not cut.
+
+    Never cut a condition, a limit or a warning where a reader decides. Repetition at
+    an independently read decision point is not redundancy. A dated measurement keeps
+    its date and its numbers, including ones the code has since changed.
+
+    Counts - sentence length, repeated phrases - prompt a review. They are not gates.
+
+=== PART 3. THE CURSE OF KNOWLEDGE ===
+
+Camerer, Loewenstein & Weber (1989) and Newton (1990): once you know something you cannot accurately
+simulate the mind of someone who does not. Tappers tapping a song predicted listeners would name it half
+the time; the real rate was 2.5%. Your documentation is the tapping. You hear the melody and can no
+longer hear the knocking. The procedure:
+
+  1. Inventory the invisible prerequisites: what must a reader already know for this to make sense -
+     vocabulary, mental model, context, prior steps. The items you almost did not list are the curse.
+  2. Rebuild from the reader's actual state, not yours minus a bit: what do they see first, what will
+     they try first.
+  3. Write to the failure point: wherever a non-knower stalled, that is where the melody was playing
+     silently in your head.
+
+Its own warnings: do not fix by adding more text, because the curse hides missing framing rather than
+missing detail, and one sentence of "what this is and when you need it" beats three paragraphs of how.
+Every "obviously", "simply" or "just" hides a prerequisite.
+
+=== PART 4. WHERE THE SIX READERS ACTUALLY FAILED ===
+
+Each read only the .md files, starting at README.md, and answered one question. Three of six answered
+correctly. Repair each failure below at its source.
+
+  1. "What is this?" - ANSWERED WRONG. The reader said the plugin delegates "coding work", taking it
+     from README.md:3. The plugin takes any work: read-only analysis, review, competing designs. The
+     reader also repeated two guarantees the code does not make, from README.md:5-9: that every completed
+     turn leaves a receipt the driver checks, and that a seat that did nothing cannot report as though it
+     had. The receipt check reads the session record's opening metadata for a thread id; it does not
+     establish that the task succeeded, and receiptOk false does not change the exit verdict.
+  2. "What must I install?" - ANSWERED PARTIALLY, and this is the only case where a reader had to leave
+     the documentation. README.md:46 says "Node at or above the floor package.json declares (engines)".
+     It tells the reader where to look instead of telling them. State the number.
+     The same reader turned README.md:53, "Your ~/.codex/config.toml is the default policy", into a
+     requirement to create that file, because it sits in a list headed Prerequisites. The sentence is
+     true and its position is wrong.
+  3. "How do I run it the first time?" - ANSWERED CORRECTLY but reported the section as scattered and
+     confusing, naming three sentences: README.md:139 "with the state directory exported as Install
+     says", which assumes the Install section was read and does not signal how critical it is;
+     README.md:62-90, two installation routes with no word on which one a new reader should take; and
+     README.md:155 "Inside Claude Code you rarely type this yourself", immediately after the command the
+     reader was just told to type.
+  4. "What may it touch?" - ANSWERED CORRECTLY, from the rights table, in zero extra steps. Do not
+     damage this passage. Whatever it is doing, it is the one part of this file that works.
+  5. "How do I know the work happened?" - ANSWERED WRONG. The reader quoted README.md:5-9 as the core
+     guarantee and never learned that exit 0 does not require a command to have run: --allow-no-commands
+     and ALLOW_NO_COMMANDS: yes waive that floor. It read the accurate sentence in skills/seat/SKILL.md
+     and still preferred the README's stronger claim.
+  6. "How do I remove what it left?" - ANSWERED CORRECTLY in one step. It noted only that the state
+     directory has two names depending on install route and the skill has three invocation routes.
+
+THE ACCURACY FLOOR: every statement about behaviour must be true of the code in this checkout, and you
+must know the file and line that backs it. Correct what the current file gets wrong rather than carrying
+it forward. Two rewrites of this file have already failed by writing a cleaner sentence that states
+something the code does not do.
+
+CHECK:
+a) For each of the six failures, name what you changed and where.
+b) Back every behavioural claim with a file and line.
+c) List what you were tempted to cut and kept, because it is a condition, a limit or a warning at a
+   point where a reader decides.
+d) Report the word count before and after.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra X1), your status and what you did. Then the word count, the
+             list of headings your new file has, the repair you made for each of the six failures, one
+             line each, and anything you kept that looks cuttable.
+  evidence:  the invisible-prerequisite inventory from Part 3; the file and line behind each behavioural
+             claim; the cut ledger for removed passages of 20 words or more.
+  artifacts: the absolute path of your rewritten README, and anything else in your temporary directory.
+  open:      anything you could not settle, and any place the chain's parts contradicted each other.

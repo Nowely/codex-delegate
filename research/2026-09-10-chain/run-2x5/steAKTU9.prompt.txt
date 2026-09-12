@@ -1,0 +1,83 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Second-opinion a plan to turn one plugin's repository into a two-plugin marketplace monorepo. Three
+decisions are open. Answer them from evidence, and disagree where the evidence says to.
+
+THE SITUATION. The checkout you are sitting in is `Nowely/codex-delegate`, a published Claude Code
+plugin at version 0.13.0 with twelve test suites, CI, release tags and an install base. Its
+`.claude-plugin/marketplace.json` declares a marketplace named `nowely` holding exactly one plugin with
+`"source": "./"`. A second plugin, `terse`, is about to be written: skills that make prose shorter and
+plainer. The owner has decided to convert THIS repository into the marketplace, with both plugins under
+`plugins/`, rather than create a new repository. Breaking changes are acceptable to him; he wants the
+best long-term result.
+
+EVIDENCE ALREADY GATHERED, so you do not spend the budget re-deriving it. Verify anything you doubt.
+  - Anthropic's official marketplace, on this machine at
+    ~/.claude/plugins/marketplaces/claude-plugins-official/.claude-plugin/marketplace.json, holds 284
+    plugins. 53 use a relative path; 231 use an external source. ALL 231 external ones carry a pinned
+    `sha` or `commit`; NONE of the 53 relative ones do. That asymmetry is why a monorepo was chosen: a
+    split would make every release need a second commit to bump a pin, and a forgotten bump ships the
+    old version silently.
+  - Of 146 unique external repositories in that file, 60 are named after a product, 45 match `*-plugins`
+    (including `claude-plugins`, `ai-plugins`, `agent-plugins`), 31 match `*-skills` (including a bare
+    `skills` and `agent-skills`), 7 are `*-toolkit`.
+  - The plugin docs at https://code.claude.com/docs/en/plugin-marketplaces state no required layout: a
+    marketplace may be its own repository, may live inside a plugin repository, or may be a monorepo.
+    For several plugins they recommend one `marketplace.json` listing all of them, illustrated with a
+    repository holding `plugins/<name>/` subdirectories.
+  - The repository's own test harness resolves its root from the test file's location
+    (evals/lib/harness.mjs:21, `ROOT = path.dirname(EVALS)`), not from the working directory, so moving
+    the tree into a subdirectory is transparent to the suites. Only two lines of
+    .github/workflows/ci.yml name paths.
+  - evals/package.test.mjs checks tags with `git tag --list "v*" --points-at HEAD`, filtered by
+    `^v\d+\.\d+\.\d+$`, and compares the match to the driver's VERSION constant.
+  - README.md:279-280 and CHANGELOG.md:332 reference commit `7364f7b` by hash, so rewriting history
+    would break the documented schema-upgrade recipe. The plan therefore uses `git mv`, not filter-repo.
+
+QUESTION 1 - THE REPOSITORY NAME.
+The current favourite is `agent-plugins`. `agent-marketplace` has been raised as an alternative. Judge
+both, and propose better if the evidence supports one. Consider at least: what the unit actually is
+(a marketplace catalogues plugins, and a plugin contains skills, so which word names the repository
+truthfully); how each reads in the command a stranger is handed, `/plugin marketplace add Nowely/<name>`;
+what the ecosystem has converged on, from the counts above and from any third-party marketplace
+repositories you can find; and whether naming it for the mechanism (marketplace) or the contents
+(plugins) ages better as this format spreads beyond Claude Code.
+
+QUESTION 2 - THE TAG SCHEME.
+One tag namespace must now serve two version streams. The proposal is `codex-delegate-v0.13.0` and
+`terse-v0.1.0`. Settle whether the `v` belongs there at all, and what separator to use. Find what real
+multi-package repositories do - the JavaScript monorepo tools are the largest source of convention here,
+so look at what Changesets and Lerna actually generate, and at a few large monorepos' real tag lists via
+the GitHub API. Then say which scheme this repository should adopt and exactly how
+evals/package.test.mjs must change to enforce it, including the regular expression.
+
+QUESTION 3 - RENAMING THE REPOSITORY, WHICH IS THE RISKIEST PART.
+The plan converts `Nowely/codex-delegate` into the marketplace, so the repository name will no longer
+describe its contents. Renaming it on GitHub would fix that, and GitHub serves redirects from old
+repository URLs. Establish whether that redirect is safe HERE specifically:
+  - does an existing user's installed marketplace keep updating after the upstream repository is
+    renamed, or does the stored remote break;
+  - does `/plugin marketplace add Nowely/codex-delegate` still resolve through the redirect;
+  - is there any local evidence on this machine, in the plugin cache or the marketplace clones under
+    ~/.claude/plugins/, showing how a marketplace's origin is stored and whether it would follow a
+    rename.
+If you cannot establish it, say so plainly and say what would have to be tested. Do not guess.
+
+CHECK:
+a) Give a URL or a local file and line for every factual claim.
+b) Where you report what a project does, name it and quote or cite the artifact you read.
+c) Separate what you verified from what you inferred. On question 3 especially, an honest "unverified"
+   beats a confident guess.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra N1), your status and what you did. Then one short section per
+             question: your answer, the one reason it wins, and the strongest argument against it.
+  evidence:  URLs, files and lines, real tag examples with the repositories they came from.
+  artifacts: anything you left in your own temporary directory.
+  open:      what you could not verify, and what you would have to run to settle it.

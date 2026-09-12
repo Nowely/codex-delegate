@@ -1,0 +1,51 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+NETWORK: no
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Derive the questions a first-time visitor asks, in the order they ask them, then write an opening that
+answers them in that order.
+
+The file is /Users/ruliny/Git/codex-delegate/README.md in the checkout you are sitting in. Rewrite lines
+1 to 21, its title, its opening paragraph and the section headed "Goal". Nothing below line 21 is yours
+to change. Read whatever you need of the repository to get the facts right.
+
+THE METHOD, and you follow it in this order and not another:
+
+  1. Before you write a line of the new opening, write down the five questions a person asks when they
+     land on this page for the first time, in the order the questions actually occur to them. Not the
+     questions this repository is good at answering; the questions a stranger has. A question they ask
+     second must not depend on knowing the answer to a question they ask fourth.
+  2. Check the ordering against the page as it stands. For each of your five, say where the current
+     opening answers it, or that it does not.
+  3. Only then write the opening, answering your questions in your order, and answer the first one in
+     the first sentence.
+
+If your rewrite ends up answering a question the reader has not asked yet, you have gone back to writing
+for yourself, and you fix the ordering rather than the sentence.
+
+THE ACCURACY FLOOR, which is not negotiable and is the same for every writer doing this task: every
+statement you make about what this plugin is or does must be true of the code in this checkout. Do not
+narrow the subject to make a sentence concrete, and do not widen it to make a sentence impressive. For
+each claim about behaviour, know the file and line that backs it.
+
+Do not preserve the "Goal" section as a section merely because it exists. If one of your five questions
+is what it answers, its content belongs where that question falls; if none is, it does not belong here.
+
+CHECK:
+a) Your five questions, in order, appear in your evidence, with the position at which the current
+   opening answers each or the note that it does not.
+b) Back every behavioural claim in your new text with a file and line.
+c) Count the words before and after.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra V3), your status and what you did. Then your new opening,
+             verbatim and complete, ready to paste, as Markdown. Nothing else in this field.
+  evidence:  the five questions in order, where the current opening answers each; word count before and
+             after; the file and line behind each behavioural claim you made.
+  artifacts: anything you left in your own temporary directory.
+  open:      which of your five questions you are least confident a real stranger would ask.

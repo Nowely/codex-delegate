@@ -1,0 +1,66 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+NETWORK: no
+MODEL: gpt-5.6-sol
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/schema.json
+EXPECT: driver\.mjs
+TASK:
+You are seat S1. Fact-check a retrospective document against the code it describes.
+
+The document is at
+/var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/retrospective.md
+
+The tree it describes is your current directory, /Users/ruliny/Git/codex-delegate, checked out at
+tag v0.13.0 with a clean working tree. The document claims its line numbers were verified against
+that release. Test that claim and every other factual claim in it.
+
+For each claim, answer two separate questions and keep them separate:
+  (a) Citation: does the cited file and line exist, and does it contain what the document quotes?
+      A paraphrase that shifts the meaning counts as a miss. Note off-by-N line numbers as minor
+      rather than as refutations if the quoted text is present within a line or two.
+  (b) Substance: is the behaviour the document describes what the code actually does?
+      A correct quotation attached to a wrong description of behaviour is a refutation.
+
+Cover, without skipping any: Tier 1 findings 1.1, 1.2, 1.3 and 1.4; all six Tier 2 bullets; all four
+Tier 3 bullets; both entries under "Rejected"; and the three bullets under "Also worth keeping".
+
+Then adjudicate four specific challenges that the coordinating agent raised against the document.
+For each, state plainly whether it holds, and show the code that decides it:
+
+  C1. The document's Tier 2 lock finding says lock recovery "advises deleting an unread lock file
+      without establishing the holder or waiting for its process group", citing driver.mjs:1297 and
+      :1444-1450. The challenge: the second citation does not support the finding, because that code
+      does establish the holder and does check the process group, and conditions its delete advice on
+      the holder being gone. Only the first citation fits, and there the lock file cannot be read at
+      all, so identifying the holder is impossible by construction rather than by oversight.
+
+  C2. The document's finding 1.2 lists three required edits. The challenge: a fourth is required,
+      because skills/seat/SKILL.md contains no model table at all, so putting the short-name mapping
+      only in the orchestrate tier table leaves the naming rule unusable whenever the seat page is
+      read on its own.
+
+  C3. The document calls the stderr observation in 1.1 the highest-leverage part. The challenge: this
+      is not merely plausible but provable from two facts, namely how the report's ok field is
+      computed, and the fact that exactly one stderr line is written unconditionally.
+
+  C4. The document's finding 1.3 rests on a measurement of 32,174 bytes of transcript returned by a
+      blocking wait. The challenge: that measurement is about the Claude harness and cannot be
+      reproduced or refuted from this repository, so it stands on a single unrepeated observation
+      even though the conclusion may still follow from the scoping argument alone.
+
+Finally, report anything the document asserts that you found to be false, overstated, or unsupported
+and that is not already covered above.
+
+CHECK:
+Read every line you rule on. Quote the exact text of at least these, as ground truth that cannot be
+guessed: driver.mjs line 3378; driver.mjs line 247; skills/seat/SKILL.md line 121; skills/seat/SKILL.md
+line 130; skills/orchestrate/SKILL.md line 105; skills/seat/references/parity.md line 120. Report the
+total line count of each of the four documents the retrospective cites. A ruling on a line you did not
+read is not evidence and must be reported as unverified instead.
+
+RETURN:
+The five fields of the output schema. The first line of result is one sentence a reader can take on
+its own, beginning "gpt-5.6-sol S1:" followed by your status and what you did. In result, give a
+verdict list: for every claim, one line of the form CONFIRMED, MINOR (citation drift, substance
+intact), REFUTED, or UNVERIFIABLE, then the claim in a few words, then the deciding fact. Put the four
+challenges C1 to C4 in their own block with the same verdicts. In evidence, list the commands you ran
+and the exact quoted lines the checks above demanded. In open, list what you could not decide and why.

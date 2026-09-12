@@ -1,0 +1,86 @@
+{
+  "candidates": [
+    {
+      "id": "languagetool-org/languagetool",
+      "url": "https://github.com/languagetool-org/languagetool/blob/master/languagetool-language-modules/en/src/main/resources/org/languagetool/resource/en/confusion_sets.txt",
+      "kind": "linter",
+      "oneLine": "ConfusionSet rule: n-gram-scored homophone/near-word swaps (accept/except, adapting/adopting, addition/edition…), each pair shipped with measured precision/recall.",
+      "whyRelevant": "This is the one rule in the whole search that is itself an instance of 'measure, don't opine': every line in confusion_sets.txt carries its own p=/r=/FA-per-10k numbers from a ConfusionRuleEvaluator run against Wikipedia/Tatoeba/Enron corpora, and pairs that don't clear a precision bar are commented out. Swapping 'accept' for 'except' silently changes the sentence's meaning — a real defect a reader hits, not a taste call. The transferable idea for terse: score candidate 'confusable' pairs against your own corpus before shipping a rule, the way this file's comments do, instead of asserting a rule is good.",
+      "evidence": "Opened confusion_sets.txt directly: header defines the format '<word1>; <word2>; <factor>  # optional comment' and states precision/recall come from ConfusionRuleEvaluator on Wikipedia/Tatoeba/Enron data; sample lines include 'accept -> except; 10000000; # p=0.998, r=0.659, f0.5=0.905, s=0.999, 1989+1894, 3grams, 2022-06-23, fp=2, fn=646, tp=1248, tn=1987' and 'adapting;adopting;1000000 # p=0.991, r=0.156'. Repo: 15,004 stars, pushed 2026-09-11 (today)."
+    },
+    {
+      "id": "berelevant-ai/slopless",
+      "url": "https://github.com/berelevant-ai/slopless/blob/main/src/rules/orthography/hidden-unicode-controls.ts",
+      "kind": "linter",
+      "oneLine": "Rule orthography:hidden-unicode-controls flags invisible Unicode control/formatting characters (zero-width space, BOM, bidi overrides, soft hyphen) left in prose.",
+      "whyRelevant": "Zero-width and bidi-control characters are not a style choice — they break Ctrl-F/search, corrupt copy-paste, and can hide or reorder visible text (a real technical defect a reader or a downstream tool hits, e.g. one of the audit skill's own per-question LLM readers silently misreading a heading). It is a pure character-class scan, no NLP or taste involved, and trivially portable into any doc-CI step.",
+      "evidence": "Read src/rules/orthography/hidden-unicode-controls.ts in full: builds a Map of 17 code points (U+00AD SOFT HYPHEN, U+200B ZERO WIDTH SPACE, U+200C/D joiners, U+200E/F direction marks, U+202A-E embeddings/overrides, U+2060 WORD JOINER, U+2066-9 isolates, U+FEFF BOM) and emits 'Hidden Unicode control found: <codepoint> <name>. Remove the invisible character.' for each hit. Repo created 2026-05-16, pushed 2026-09-06, 324 stars, described as 'Deterministic textlint rules... for catching prose slop'."
+    },
+    {
+      "id": "berelevant-ai/slopless",
+      "url": "https://github.com/berelevant-ai/slopless/blob/main/src/rules/orthography/artifact-placeholders.ts",
+      "kind": "linter",
+      "oneLine": "Rule catching literal leftover generation artifacts: oai_citation markers, 'sandbox:/mnt/data/' paths, 'utm_source=chatgpt.com', '[CITATION NEEDED]', '[INSERT TEXT]', 'Lorem ipsum'.",
+      "whyRelevant": "Exact string/pattern match for things an LLM or template leaves behind that a human reader would find alarming or confusing if shipped — this is the deterministic, free-to-run counterpart to terse's audit 'lie' category (an unfinished placeholder is a lie by omission) and is specifically tuned for AI-authored docs, which is exactly what revise's 3-writer bake-off produces. Cheap enough to run before the expensive per-question LLM pass.",
+      "evidence": "Read src/rules/orthography/artifact-placeholders.ts: EXACT_ARTIFACTS array literal contains {label:'OpenAI citation object', pattern:'oai_citation'}, {label:'OpenAI sandbox path', pattern:'sandbox:/mnt/data/'}, {label:'ChatGPT tracking marker', pattern:'utm_source=chatgpt.com'}, {label:'unfinished citation placeholder', pattern:'[CITATION NEEDED]'}, {label:'placeholder text', pattern:'Lorem ipsum'}, plus quote-span logic to avoid flagging matches inside quoted examples. Same repo as above."
+    },
+    {
+      "id": "DavidAnson/markdownlint",
+      "url": "https://github.com/DavidAnson/markdownlint/blob/main/doc/md051.md",
+      "kind": "linter",
+      "oneLine": "MD051 'link-fragments': flags an internal '#anchor' link that doesn't match any heading actually generated in the document (sibling rules MD052 undefined reference-link labels, MD042 empty links).",
+      "whyRelevant": "This is a deterministic version of terse's own 'placement' failure mode — a link that pointed at a section which was since renamed or moved. It costs nothing (no model call) and catches the subset of placement failures that are purely structural, so it's a cheap pre-filter before spending a reader-question budget on the rest.",
+      "evidence": "Read doc/md051.md in full: 'This rule is triggered when a link fragment does not match any of the fragments that are automatically generated for headings... Rationale: ...section links change if headings are renamed or removed. This rule helps identify broken section links within a document.' Also read doc/md052.md (reference-link labels must be defined, else the link renders as literal bracketed text) and doc/md042.md ('Empty links do not lead anywhere and therefore don't function as links.')."
+    },
+    {
+      "id": "remarkjs/remark-validate-links",
+      "url": "https://github.com/remarkjs/remark-validate-links",
+      "kind": "linter",
+      "oneLine": "unified/remark plugin that validates markdown links and headings across an entire Git repo offline — not just within one file.",
+      "whyRelevant": "Extends MD051's single-file anchor check to the whole tree: exactly the shape of a skills plugin where SKILL.md files cross-reference each other's paths and headings. Catches the case a single-file linter can't: a link in file A pointing at a heading in file B that got renamed.",
+      "evidence": "Read readme.md: '**remark** plugin to check that markdown links and images point to existing local files and headings in a Git repo... Links to headings in other markdown documents (examples/foo.md#hello) and links to files... are also checked... This project can work offline.' 126 stars, last pushed 2025-02-21 (maintenance-mode but functioning)."
+    },
+    {
+      "id": "lycheeverse/lychee",
+      "url": "https://github.com/lycheeverse/lychee",
+      "kind": "linter",
+      "oneLine": "Fast async link checker that verifies external URLs (and mail: addresses) in Markdown/HTML actually resolve.",
+      "whyRelevant": "Complements MD051/remark-validate-links: those two catch broken internal structure, lychee catches link rot to the outside world — a real defect (dead reference) with zero subjectivity, cheap to run as a scheduled/CI check rather than per-revision.",
+      "evidence": "Repo description: 'Fast, async, stream-based link checker written in Rust. Finds broken URLs and mail addresses inside Markdown, HTML, reStructuredText, websites and more!' 3,903 stars, pushed 2026-09-08 (3 days before this search). Did not open its rule internals beyond the description/README summary; equivalent narrower tool seen: tcort/markdown-link-check (714 stars, pushed 2026-07-28)."
+    },
+    {
+      "id": "vale-cli/Google",
+      "url": "https://github.com/vale-cli/Google/blob/master/Google/Acronyms.yml",
+      "kind": "linter",
+      "oneLine": "Google style's Acronyms.yml uses Vale's 'conditional' check type: flags a 3-5 letter acronym unless the document also contains its spelled-out form 'Full Name (ACRONYM)' somewhere, exempting ~60 common terms (API, URL, JSON, …).",
+      "whyRelevant": "This is a deterministic proxy for exactly the kind of comprehension failure terse's audit spends an LLM reader on: an undefined term the reader can't decode. It's not a style preference (there's no 'better' acronym), it's an existence check — does the definition appear at all — so it's cheap and near-zero false-positive once you seed the exceptions list with your own project's common terms.",
+      "evidence": "Read Google/Acronyms.yml in full: 'extends: conditional', message \"Spell out '%s', if it's unfamiliar to the audience\", first: '\\\\b([A-Z]{3,5})\\\\b', second: '(?:\\\\b[A-Z][a-z]+ )+\\\\(([A-Z]{3,5})\\\\)', with an exceptions list of ~60 tokens (API, CLI, GUI, JSON, SDK, URL, YAML, etc.). Vale's own doc comment: 'Ensures that the existence of first implies the existence of second.'"
+    },
+    {
+      "id": "vale-cli/proselint",
+      "url": "https://github.com/vale-cli/proselint/blob/master/proselint/Annotations.yml",
+      "kind": "linter",
+      "oneLine": "Annotations.yml: flags literal 'TODO', 'FIXME', 'XXX', 'NOTE' left in shipped prose.",
+      "whyRelevant": "A reader hitting a raw TODO marker is a real, unambiguous defect (unfinished doc shipped by accident), and it's a trivial existence/token check — no judgment call, no NLP.",
+      "evidence": "Read proselint/Annotations.yml in full: 'extends: existence', message \"'%s' left in text.\", level: error, tokens: [XXX, FIXME, TODO, NOTE]."
+    },
+    {
+      "id": "vale-cli/write-good",
+      "url": "https://github.com/vale-cli/write-good/blob/master/write-good/Illusions.yml",
+      "kind": "linter",
+      "oneLine": "Illusions.yml extends Vale's built-in 'repetition' check type to flag an immediately doubled word ('the the', 'is is').",
+      "whyRelevant": "Doubled words are a typo, not a style opinion, and they visibly confuse a reader mid-sentence. It's Vale's generic repetition mechanism (any adjacent-token match), applicable to any doc without a style guide's other opinionated baggage.",
+      "evidence": "Read write-good/Illusions.yml in full: 'extends: repetition', message \"'%s' is repeated!\", tokens: ['[^\\\\s]+'], action truncates the second occurrence."
+    },
+    {
+      "id": "vale-cli/proselint",
+      "url": "https://github.com/vale-cli/proselint/blob/master/proselint/DateMidnight.yml",
+      "kind": "linter",
+      "oneLine": "DateMidnight.yml/DateRedundancy.yml flag '12 a.m.'/'12 p.m.' and phrases like '9 a.m. in the morning' as genuinely ambiguous or redundant, not just informal.",
+      "whyRelevant": "Narrow (dates only) but a clean example of the rule class worth stealing: flag constructs that are inherently ambiguous to a reader (does 12 a.m. mean midnight or noon? people get this wrong constantly), as opposed to constructs that are merely non-preferred wording. Worth generalizing the pattern — 'this phrasing has two readings' — rather than adopting the date-specific rule itself.",
+      "evidence": "Read both files: DateMidnight.yml 'extends: existence', tokens: ['12 ?[ap]\\\\.?m\\\\.?'], message \"Use 'midnight' or 'noon'.\"; DateRedundancy.yml flags '\\\\d{1,2} ?a\\\\.?m\\\\.? in the morning' etc. with message \"'a.m.' is always morning; 'p.m.' is always night.\""
+    }
+  ],
+  "coverageNotes": "Opened actual rule source for every candidate above (not just READMEs) except lychee, where I only read the repo description/README summary and did not inspect its check internals — noted inline. Covered, per the requested list: Vale core mechanism + 5 of its style packs (Google, Microsoft, Readability, alex, proselint, write-good — all fetched via the vale-cli org, which is the registry's current name; errata-ai/vale-styles 404s, so the org appears to have moved/renamed), textlint's rule ecosystem (via `gh search repos`, then opened sapegin/textlint-rule-terminology and berelevant-ai/slopless source directly), proselint (via its Vale port, file-by-file), markdownlint (doc/md051.md, md052.md, md042.md read in full), and two link checkers (lychee, markdown-link-check) plus remark-validate-links for cross-file link/heading validation. Did not find or open: alex's own (non-Vale) rule engine internals, Grammarly's rule definitions (closed-source — could not locate any inspectable rule file, only marketing copy, so I'm not citing it), LanguageTool's XML grammar rules beyond confusion_sets.txt (its much larger grammar.xml rule set was not opened), retext-repeated-words (not found under that name in a stars-sorted search; retext-equality/retext-readability/retext-simplify READMEs were seen only via search-result descriptions, not opened). No web search was used — gh api/gh search and raw file reads via the GitHub Contents API covered everything found.",
+  "dropped": "alex (Ablist.yml, Gendered.yml, LGBTQ.yml, Race.yml, Suicide.yml) — real content, but every rule there is a values/inclusivity judgment about word choice, not a comprehension defect a reader \"hits\"; out of scope for this ask, not because it's weak. Vale Microsoft/Terms.yml — a vendor-preferred-term substitution list (\"prefer 'bot(s)' over 'internet bot'\"); that's brand style, not a defect. sapegin/textlint-rule-terminology — checks brand/product-name casing (GitHub vs Github) against a fixed dictionary; real but closer to correctness-polish than reader confusion, and duplicates ground already covered by the Acronyms/consistency entries. Vale's internal `Consistency` check-type (internal/check/consistency.go, seen in vale-cli/vale source) — a genuinely on-target mechanism (flags a document using two spellings of the same term, e.g. \"log in\"/\"login\", against itself rather than an external taste) that maps closely to terse's own \"measure the document\" philosophy, but I could not find a shipped style pack that actually instantiates it (checked Google/Spelling.yml, Google/WordList.yml, Microsoft/Plurals.yml — all use `existence`/`substitution` instead), so I'm flagging it as an unverified mechanism rather than a proven rule. vale-cli/AiTells package (library.json entry, homepage github.com/krishnasunkam/vale-ai-tells) — flags \"em-dash habits, epigrams, abstract-noun triads, clichés\" as AI-writing tells; interesting and on-theme for an AI-authored-docs plugin, but it's a taste/register judgment, not a defect, and I did not open its rule files to check for exceptions. vale-cli/Readability and retext-readability — both compute Flesche/Dale-Chall-style scores; same rejected category as hard per-sentence word limits, so not re-offered even as a partial steal. Grammarly — no public rule file exists to cite; I did not open anything beyond knowing of its published style handbook, so I'm naming the gap rather than guessing at a rule."
+}

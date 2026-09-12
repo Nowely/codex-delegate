@@ -1,0 +1,102 @@
+{
+  "candidates": [
+    {
+      "id": "doc-detective/doc-detective",
+      "url": "https://github.com/doc-detective/doc-detective",
+      "kind": "linter",
+      "oneLine": "Open-source doc-testing framework: parses testable actions out of your doc text/specs and executes them against the real product (browser/API), emitting PASS/FAIL JSON.",
+      "whyRelevant": "This is the closest analog to terse:audit's core move — it doesn't opine on prose, it MEASURES documentation against ground truth (actual product behavior) the same way audit measures docs against the code. Could compose as a second, execution-based failure class alongside audit's LLM-reader-comprehension failures (lie/placement/findability) — a 'stale-instruction' class caught by running the steps, not asking a model to answer questions.",
+      "evidence": "repo pushed_at 2026-08-26 (via gh api), 131 stars, README.md read directly: 'You write tests, and Doc Detective runs them directly against your product to make sure your docs match your user experience... results (PASS/FAIL and context) are output as a JSON object.' Companion npm package doc-detective-core and doc-detective/agent-tools repo (13 stars) ship agent/skill wrappers."
+    },
+    {
+      "id": "trogera/diataxisSkills",
+      "url": "https://github.com/trogera/diataxisSkills",
+      "kind": "skill-collection",
+      "oneLine": "A Claude Code skill (.skills/docs-reorg/SKILL.md) that scores a doc page against the four Diataxis types plus a wayfinding/landing type, flags mixed-content pages, and emits a machine-readable split plan.",
+      "whyRelevant": "The strongest 'Diataxis in rule-shaped, agent-followable form' I found — it turns the (originally prose-only) Diataxis framework into a scoring rubric with a confidence table and diagnostic signals (verb-mood shifts, one-job-vs-many, step teaching-vs-instructing), rather than just describing the taxonomy. Could feed terse:audit as a pre-pass that classifies which Diataxis bucket a doc claims to be, before scoring reader questions against it.",
+      "evidence": "Read repo file tree (contents API): .skills/docs-reorg/{README.md,SKILL.md,references}. Read SKILL.md in full via gh api + base64 decode — it defines a 4-step workflow (Read / Classify into a confidence table / Split plan / Nav-shape for MkDocs) and cites references/page-types.md and references/reasoning.md for diagnostic signals. 6 stars, pushed 2026-05-27. Not a measurement of reader success, only a structural classifier — still opinion-shaped, but the opinion is externalized as a followable rubric, not prose to intuit."
+    },
+    {
+      "id": "vale-cli/Google",
+      "url": "https://github.com/vale-cli/Google",
+      "kind": "linter",
+      "oneLine": "Vale-compatible YAML rule implementation of the Google Developer Documentation Style Guide (mirrored at errata-ai/Google).",
+      "whyRelevant": "Direct machine-readable transcription of the Google dev-doc style guide (word choice, passive voice, headings, etc.) as a folder of YAML rules Vale can execute. Falls in your already-rejected 'prose linter' bucket as a mandatory pass, but it's the artifact that answers 'where does the Google style guide actually live in rule form' — worth recording per your instruction even though it's an opinion-checker, not a comprehension-measurer.",
+      "evidence": "gh api repos/vale-cli/Google and repos/errata-ai/Google both return pushed_at 2026-08-26T21:32:39Z, stargazers_count 90 — same repo, errata-ai org renamed to vale-cli. WebSearch result confirms: 'a set of YAML-based rules that let the Vale linter check prose against Google's documentation standards,' CC BY 4.0 licensed, requires Vale >=1.0.0."
+    },
+    {
+      "id": "vale-cli/Microsoft",
+      "url": "https://github.com/vale-cli/Microsoft",
+      "kind": "linter",
+      "oneLine": "Vale-compatible YAML implementation of the Microsoft Writing Style Guide, with its own coverage/ directory tracking how much of the MSTG is encoded as rules.",
+      "whyRelevant": "Same category as vale-cli/Google but for Microsoft's guide; the presence of a coverage/ dir is notable — it's an explicit, checkable claim of how complete the rule-encoding is against the source guide, which is closer to 'measuring the linter's own fidelity' than most style packages bother to do.",
+      "evidence": "gh api repos/vale-cli/Microsoft: pushed_at 2026-08-26T21:32:51Z, stargazers_count 111, archived:false. Directory listing via contents API shows Microsoft/, coverage/, coverage_test.go, fixtures/, testdata/ alongside main.go/go.mod (it ships a Go test harness, not just YAML)."
+    },
+    {
+      "id": "alphagov/gds-vale-styles",
+      "url": "https://github.com/alphagov/gds-vale-styles",
+      "kind": "linter",
+      "oneLine": "The GOV.UK/GDS content style guide codified as two Vale rule sets, General and PlainEnglish.",
+      "whyRelevant": "The only artifact I found that turns GOV.UK content design guidance into an executable rule set rather than a prose style guide on gov.uk. Answers the 'GOV.UK content design' machine-readable ask directly, though it is unmaintained.",
+      "evidence": "Read README.md via gh api (content decoded): 'The GDS content style guide codified as Vale config files,' MIT-licensed. Contents listing shows GDS/{General,PlainEnglish,vale.ini} plus source markdown gds-style-guide-govuk.md and gds-style-guide-technical.md. gh api repos/alphagov/gds-vale-styles: pushed_at 2019-10-08 (stale, 7 years), stargazers_count 6, archived:false."
+    },
+    {
+      "id": "thegooddocsproject/templates",
+      "url": "https://github.com/thegooddocsproject/templates",
+      "kind": "style-guide",
+      "oneLine": "Fill-in-the-blank Markdown/Asciidoc templates (tutorial/, how-to/, reference/, api-reference/, quickstarts/, ia-guide/, style-guide/) organized by Diataxis-derived content type, each with embedded instructional comments.",
+      "whyRelevant": "A different kind of machine-readable encoding than a linter: instead of scoring existing prose, it constrains what gets written in the first place by structural scaffolding. Composable with terse:revise's repair pass as a target-shape library per Diataxis bucket, once trogera's classifier says which bucket a doc belongs in.",
+      "evidence": "Read README.md via gh api (content decoded) — it defines three core types (Concept/Task/Reference) explicitly and describes templates as 'ingredients' per type. Directory listing confirms per-type folders. 703 stars. gh api repos/thegooddocsproject/templates pushed_at: 2022-09-18 — stale, over 3 years old at time of writing; noting this plainly since it undercuts currency though not the design."
+    },
+    {
+      "id": "anivar/developer-docs-framework",
+      "url": "https://github.com/anivar/developer-docs-framework",
+      "kind": "skill-collection",
+      "oneLine": "Claude/Cursor/Codex/Windsurf agent skill: 27 individual rule files (arch-*, audit-*, style-*, write-*) each with a Priority, Category, 'Why it matters,' worked-correct-vs-incorrect example, blending Diataxis content types with Google and Good-Docs-Project style guidance.",
+      "whyRelevant": "A worked example of exactly the composite you're evaluating — someone already fused Diataxis + two style guides into one rule-shaped, per-rule-file agent skill. Useful as a comparison point for terse's own rule-shaped pass, and each rule file is small enough to lift individually (e.g. arch-adoption-funnel.md's adoption-funnel-by-doc-type heuristic).",
+      "evidence": "gh api repos/anivar/developer-docs-framework: pushed_at 2026-08-08, stargazers_count 11. Directory listing of rules/ shows 27 named .md files. Read rules/arch-adoption-funnel.md in full (base64-decoded) — confirmed structure: Priority/Category header, 'Why It Matters,' a funnel-stage table, then 'Incorrect Prioritization' vs 'Correct Prioritization' worked examples."
+    },
+    {
+      "id": "textlint-rule/textlint-rule-preset-google",
+      "url": "https://github.com/textlint-rule/textlint-rule-preset-google",
+      "kind": "linter",
+      "oneLine": "A second, independent attempt at encoding the Google Developer Documentation Style Guide as machine rules, this time as a textlint preset rather than Vale YAML.",
+      "whyRelevant": "Secondary/alternate artifact for the same 'Google style guide as rules' ask — worth recording since it shows two different toolchains (Vale vs textlint) converged on the same source guide, but it's explicitly marked '[WIP]' and looks abandoned.",
+      "evidence": "gh search repos hit: description '[WIP] Google Developer Documentation Style Guide for textlint.' gh api repos/textlint-rule/textlint-rule-preset-google: pushed_at 2022-07-05 (4+ years stale), stargazers_count 15, archived:false."
+    },
+    {
+      "id": "GSA/plainlanguage.gov",
+      "url": "https://github.com/GSA/plainlanguage.gov",
+      "kind": "style-guide",
+      "oneLine": "Source repo for the US federal plainlanguage.gov site (a Jekyll site) — the canonical Plain Writing Act guidance, including the Federal Plain Language Guidelines.",
+      "whyRelevant": "The plainlanguage.gov content itself is the standard the prompt names, and this is where its source actually lives (not just the rendered site) — but I could not find a structured checklist file (JSON/YAML) inside it; the guidance is prose pages (_pages/) plus small YAML data files (_data/*.yml) that are site metadata (nav, contacts, events), not content rules. Marking this clearly: the artifact is the guide's source text, not a rule-shaped/agent-followable form of it.",
+      "evidence": "gh api repos/GSA/plainlanguage.gov: pushed_at 2025-09-23, stargazers_count 226 (from gh search result), description confirms Plain Writing Act purpose. Directory listing shows Jekyll structure (_pages, _data, _includes, _layouts) — I checked _data/*.yml (contacts.yml, events.yml, favicons.yml, header.yml, navigation.yml, resources.yml) and none encode the writing checklist itself; a code search for 'checklist' inside the repo (search/code API) returned zero hits, meaning I did not find the guidelines' famous checklist as a discrete machine-readable file, only as prose I did not open page-by-page."
+    },
+    {
+      "id": "iso-24495-1-plain-language",
+      "url": "https://www.iso.org/standard/78907.html",
+      "kind": "other",
+      "oneLine": "ISO 24495-1:2023, the international plain-language standard (four principles: relevant, findable, understandable, usable).",
+      "whyRelevant": "Named in your brief as a plain-language standard to cover. I found no open, machine-readable rule file, checklist repo, or linter config that operationalizes ISO 24495-1 itself (as opposed to national plain-language guides like plainlanguage.gov or GOV.UK's, which are separately listed above). Marking this clearly as an idea with no artifact: the standard is paywalled text, and derivative open checklists calling themselves 'ISO 24495-1 compliant' did not turn up in gh search or web search.",
+      "evidence": "gh search repos for 'plain language' + checklist and for '18F plain writing' returned no ISO-24495-linked results (only unrelated plain-language projects like ops-readiness-checklist, plaindoc, clearcare). I did not fetch the ISO page itself to confirm current wording — only naming it because the brief explicitly asked for ISO 24495-1 coverage; I have no GitHub evidence for a machine-readable derivative."
+    },
+    {
+      "id": "writethedocs/www",
+      "url": "https://github.com/writethedocs/www",
+      "kind": "research",
+      "oneLine": "Source of the Write the Docs community site (writethedocs.org), including its 'Documentation Guide.'",
+      "whyRelevant": "Named in your brief. I found the repo (1366 stars) that holds the community's guide content, but on inspection it is essay/reference prose (conference talks, a documentation-guide index) rather than a rule file, checklist, or linter config — there is no evidence here of a machine-followable ruleset distinct from 'read this page.' Recording it because you asked me to cover Write the Docs, but marking it clearly as prose-only, no rule-shaped artifact found.",
+      "evidence": "gh search repos hit only; I did not open the guide's internal pages/ directory to check for a structured checklist beyond the top-level listing, so I cannot rule one out with certainty — I'm flagging this as unverified-negative rather than a confirmed absence."
+    },
+    {
+      "id": "no-artifact-minimalism-and-information-mapping",
+      "url": "https://en.wikipedia.org/wiki/Minimalism_(technical_communication)",
+      "kind": "methodology",
+      "oneLine": "Carroll's minimalist instruction (task orientation, error recognition/recovery, exploratory learning, chunking) and Information Mapping (Horn's proprietary structured-writing method) — both named in your brief.",
+      "whyRelevant": "Neither turned up as an open, machine-readable rule file or repo in targeted gh searches ('minimalism technical writing checklist', 'carroll minimalist instruction', 'information mapping method technical writing' all returned zero GitHub repos). Information Mapping in particular is a commercial, trademarked methodology (Information Mapping Inc./Learning Bridge) with no open ruleset I could find; Carroll's principles exist only as book/paper content. Recording per your instruction to note strong ideas even with no artifact — but neither is composable into terse today without someone first writing the rule file, which is exactly the gap terse's own audit/revise chain fills.",
+      "evidence": "Three separate gh search repos queries (quoted above) each returned an empty JSON array — I did not find any repo. I did not attempt a broader web search beyond that, since the brief's own framing already treats this as the expected outcome for a proprietary/book-only methodology."
+    }
+  ],
+  "coverageNotes": "Covered via gh api/gh search (all evidence is either a file I opened with contents API + base64 decode, or repo metadata via gh api): Diataxis (trogera/diataxisSkills classifier, thegooddocsproject/templates, anivar's 27-rule blend), Google dev-doc style guide (vale-cli/Google confirmed live + fresh, textlint-rule-preset-google as a stale second attempt), Microsoft Writing Style Guide (vale-cli/Microsoft), GOV.UK content design (alphagov/gds-vale-styles, stale), plain-language standards (GSA/plainlanguage.gov source found but not rule-shaped; ISO 24495-1 no artifact found), Write the Docs (repo found, prose-only), docs-as-code toolchains (folded into the Vale-based entries plus doc-detective, which is the standout because it tests against real product behavior rather than opining on prose), minimalism/Carroll and Information Mapping (no artifacts found, recorded as ideas per instruction).\n\nWhat this angle could not reach: I did not open thegooddocsproject/templates' individual per-type folders beyond the top-level README, did not check writethedocs/www's internal guide/ pages for a hidden checklist, and did not verify the current text of ISO 24495-1 itself (paywalled). WebFetch to vale.sh/hub timed out once; I recovered the same fact (vale-cli/Google, formerly errata-ai/Google) via WebSearch instead and cross-checked it with gh api, so that claim is doubly sourced. I did not search non-GitHub artifact hosts (npm-only packages, Hugging Face, GitLab) beyond one WebSearch pass, so a Diataxis-as-JSON-schema or ISO-24495-as-checklist artifact could exist there and be missed.",
+  "dropped": "Dropped without a slot: testthedocs/vale-styles (48 stars) and vale-cli/packages — general Vale-style aggregators/hubs, redundant once the specific Google/Microsoft/GDS packages were confirmed individually, and squarely in the already-rejected 'prose linter' bucket with no measurement angle. Dropped keithpatton/diataxis-agent-skill (17 stars) and PeterKnego/diataxis-docs-skill (11 stars) — same category as trogera/diataxisSkills (Diataxis-as-Claude-skill) but I only opened trogera's SKILL.md in full; the other two are likely near-duplicates and including all three would crowd out distinct methodologies. Dropped google/styleguide's docguide/ (best_practices.md, philosophy.md, style.md) — read style.md directly and it turned out to be a Markdown-syntax style guide (headings, code fences, links), not the prose/word-choice 'developer documentation style guide' the brief means; vale-cli/Google is the correct artifact for that. Did not pursue readability-formula tools (Flesch-Kincaid calculators, Hemingway-style scorers) — these measure surface sentence complexity, not reader comprehension or code-truth, and felt like a weaker fit than doc-detective for the 'measures a document' criterion; flagging here in case that class is still of interest on a follow-up pass."
+}

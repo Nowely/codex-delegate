@@ -1,0 +1,54 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Apply one named standard to a repository's writing, report what that standard catches, and propose the
+fix. The standard is named below and is the only lens you use.
+
+The repository is /Users/ruliny/Git/codex-delegate, a Claude Code plugin. Its owner's verdict on the
+writing in it: "the documentation and the commenting is trash, it needs fixing." Both halves are in
+scope, the prose and the code comments.
+
+The corpus is the whole of it: README.md, CHANGELOG.md, RELEASING.md, evals/README.md, every SKILL.md
+under skills/ together with the reference pages beside them, and the comments in the .mjs sources under
+evals/ and skills/.
+
+You are read-only. Change nothing anywhere, inside the repository or outside it. Other agents are
+reading the same repository under different standards; yours is judged on what YOUR standard catches, so
+work the standard rather than your own taste.
+
+YOUR STANDARD: verification against the implementation, in the form Vercel's own documentation skill
+gives it.
+Read that skill before you start. Your shell reaches the network, so fetch
+https://raw.githubusercontent.com/vercel/eve/main/.agents/skills/technical-writing/SKILL.md and the
+reference pages beside it, which include review-framework.md, style-rules.md, prose-quality.md,
+content-types.md, writing-workflow.md and editing-workflow.md under
+https://raw.githubusercontent.com/vercel/eve/main/.agents/skills/technical-writing/references/ . Go to
+no other standard: this seat is that skill and nothing else.
+
+The core of it is that a wrong command, a nonexistent API and a false guarantee are blockers, and that
+documented behaviour is checked against the implementation rather than believed. This repository gives
+that lens plenty to work on: its prose states exit codes, flags, header field names, file paths,
+defaults and sequences of events, and the driver and the test suite are right there to be checked
+against. Run the checks you can run.
+
+CHECK:
+a) Quote every finding with its file and its line number, and enough text that the defect is visible. A
+   finding without a location is not a finding.
+b) Give counts: how many units you examined and how many failed. A unit is whatever your standard
+   judges, a document, a section or a claim. Say which you used.
+c) Every finding that says the text contradicts the code must name the code that disproves it, by file
+   and line, or the command you ran and what it printed.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra T1), your status and what you did. Then (a) the most serious
+             defects your standard catches, worst first, each with its location and quote; (b) your
+             proposal, as the concrete text or the concrete change you would make, not a description of
+             one; (c) one sentence naming what your standard does NOT catch in this repository.
+  evidence:  what you ran and read, with counts.
+  artifacts: files you left in your own temporary directory, absolute paths. Write nothing outside it.
+  open:      what you could not settle, and where the standard fought the material.

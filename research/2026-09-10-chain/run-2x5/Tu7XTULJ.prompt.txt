@@ -1,0 +1,7 @@
+MODEL: gpt-5.6-terra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.Tu7XTULJ/schema.json
+EXPECT: node --test
+
+TASK: You are Codex gpt-5.6-terra V1. In the current directory, run `node --test` to execute the whole test suite. Do not modify, create, or delete any file — you did not write this code; only run it and read the output.
+CHECK: the test runner's own printed summary — its tests / pass / fail counts. The suite must show zero failures.
+RETURN: the five fields. The first line of result is one sentence a reader can take alone: your model and id (Codex gpt-5.6-terra V1), your status, and what you ran. Put the runner's exact totals (tests, pass, fail) in evidence, and separately how many of those tests come from test/slug.test.mjs. List the files under test in artifacts. Note anything unresolved in open.

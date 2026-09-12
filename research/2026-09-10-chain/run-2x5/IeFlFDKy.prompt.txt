@@ -1,0 +1,72 @@
+SEAT: read /Users/ruliny/arcadia/data-ui/cloud-components
+MODEL: gpt-5.6-sol
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/br-review.XDDuwFFp/schema.json
+TASK:
+Ты — место S4 в панели из пяти ревьюеров. Ревьюится ветка CLOUDFRONT-62071.adaptive-baremetal-config-cards
+в /Users/ruliny/arcadia/data-ui/cloud-components. VCS здесь arc, не git: команды git работать не будут.
+Merge-base с trunk = ca9489edac04d749ad408d2e56b2fbe2eb4ddfcd, полный диф ветки уже выгружен в файл
+/var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/br-review.XDDuwFFp/branch.diff (1828 строк, 37 файлов).
+
+ЖЁСТКОЕ ОГРАНИЧЕНИЕ ПО ФАЙЛОВОЙ СИСТЕМЕ. /Users/ruliny/arcadia — сетевой FUSE-mount. Рекурсивные обходы
+(grep -r, rg, ag, find, ls -R) по путям выше третьего уровня от /Users/ruliny/arcadia ЗАПРЕЩЕНЫ: они тянут
+файлы по сети и приводят к бану аккаунта. Разрешено: адресное чтение файлов по полному пути и bounded-grep
+внутри /Users/ruliny/arcadia/data-ui/cloud-components/src,
+/Users/ruliny/arcadia/data-ui/cloud-components/node_modules/@gravity-ui (это локальный каталог, не mount),
+/Users/ruliny/arcadia/data-ui/cloud-console/src/ui/shared и /Users/ruliny/arcadia/data-ui/cloud-console/.memory-bank.
+Больше никуда не ходи.
+
+Твоя тема единственная и не пересекается с другими местами: КОРРЕКТНОСТЬ REACT И КАЧЕСТВО API.
+Не разбирай SCSS, визуальные тесты и i18n — это чужие темы.
+
+Файлы по твоей теме:
+  src/hooks/useSegmentedTabs.tsx
+  src/components/baremetal/shared/contexts/ConfigurationLayoutContext.tsx
+  src/components/baremetal/shared/lib/layout.ts
+  src/components/baremetal/ConfigurationTabs/ConfigurationTabs.tsx
+  src/components/baremetal/shared/components/ConfigurationPageLayout/ConfigurationPageLayout.tsx
+  ConfigurationCardLayout.tsx, ConfigurationHeader.tsx, ConfigurationDisclosure.tsx, ConfigurationPricing.tsx
+  (все в src/components/baremetal/PresetConfiguration/components/PresetConfigurationList/components/ConfigurationCard/)
+  src/components/baremetal/shared/components/ResponsivePopover/ResponsivePopover.tsx
+
+Разбери четыре узла.
+
+1. useSegmentedTabs. Строка tabsRef.current = tabs — присваивание рефа во время рендера. TabsControl и
+   TabPane создаются через React.useCallback с зависимостью [activeTab], то есть идентичность типа компонента
+   меняется при каждом переключении таба. Комментарий в файле утверждает, что чтение вкладок через ref спасает
+   поддерево панели от размонтирования. Проверь, правда ли утверждение при текущих зависимостях [activeTab],
+   и не проще ли вообще не возвращать компоненты из хука: отдавать activeTab и рендерить панель на месте.
+   Оцени, что это даст и что сломает.
+
+2. Одноразовая синхронизация defaultValue в SegmentedTabsControl через useRef initialized + useEffect.
+   Есть ли способ без эффекта (ленивая инициализация useState, key, производное состояние) и что мешает.
+
+3. useConfigurationLayoutValue в ConfigurationLayoutContext.tsx: React.useLayoutEffect(measure) плюс
+   useResizeObserver из uikit; возврат null до первого замера; параметр enabled, который используется ровно в
+   одном месте (ConfigurationPageLayout.tsx, значение !outerLayout). Проверь: нет ли лишнего рендера или
+   гонки между layout-эффектом и обсервером; корректно ли отдавать null и перекладывать решение на вызывающего;
+   правильно ли выбран дефолт контекста (вне провайдера отдаётся 'wide'), с учётом действующего в этом проекте
+   правила: хук над контекстом, который бросает при отсутствии провайдера, должен быть заперт в потомке,
+   который рендерится только когда провайдер есть — ослаблять хук дефолтом обычно неверно. Скажи, оправдан ли
+   дефолт здесь (компонент — часть публикуемой библиотеки, его рендерят в сторибуке) или это ослабление.
+   В репозитории есть src/hooks/useAssertedContext.ts — посмотри его и скажи, применим ли он тут.
+
+4. Цена абстракции: контекст + хук-измеритель + модуль lib/layout.ts заведены ради трёх потребителей.
+   Не проще ли прокидывать contentSize пропом. Ответь по существу, а не «зависит».
+
+CHECK:
+- Каждое утверждение о поведении React подкрепляй цитатой строк файла с номерами и, где уместно, ссылкой на
+  документированную семантику. Догадки помечай явно.
+- Прежде чем предложить убрать возврат компонентов из useSegmentedTabs, проверь, экспортируется ли хук из
+  публичного API библиотеки (src/hooks/index.ts, точки экспорта в package.json) — приведи команду.
+- Проверь, есть ли на затронутое юнит-тесты: bounded-grep по src/**/__tests__. Назови числом, сколько нашёл.
+- Для каждого предложения назови цену: сколько файлов трогается, ломается ли публичный API, ломаются ли
+  визуальные базлайны. Предложение без цены не засчитывается.
+
+RETURN:
+Пять полей по схеме из OUTPUT_SCHEMA.
+Поле result: не больше 30 строк. Первая строка — одно самостоятельное предложение вида
+«Место S4, gpt-5.6-sol: <статус>, <что сделал>». Дальше по одной находке на строку в формате
+<файл:строка> — <что не так> — <предложение> — <цена>, отсортированные по убыванию выигрыша.
+Пиши по-русски.
+Поле evidence: команды, которые ты выполнял, с числами.
+Поле open: вопросы и риски, включая то, что проверить не смог.

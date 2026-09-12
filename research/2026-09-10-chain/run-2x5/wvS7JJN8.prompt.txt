@@ -1,0 +1,70 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+NETWORK: no
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/schema.json
+EXPECT: driver\.mjs|SKILL\.md
+TASK:
+You are seat A1, the judge. Three agents have examined a proposal document and disagree in places.
+Decide what the owner of this plugin should actually do.
+
+The document under judgement:
+  /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/retrospective.md
+
+The three returns, verbatim, plus what the coordinator verified itself:
+  /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/returns.md
+
+Your current directory is the tree in question, at tag v0.13.0, clean. Nothing has been applied.
+
+You are not summarising. You are deciding. Three things are asked of you and nothing else.
+
+FIRST, rule on the disagreements. Where the returns conflict, or where one of them overreaches, say
+who is right and why, grounded in the code. At minimum settle these:
+
+  D1. Seat S2 refutes almost every proposed cure while seat S1 confirms almost every underlying
+      diagnosis. Decide whether the document is a sound diagnosis with weak prescriptions, a document
+      whose prescriptions merely need drafting, or something worse. Say which, and do not split the
+      difference to be safe.
+
+  D2. Finding 1.2, the agent naming. S2 says dropping the word "Codex" destroys the only vendor signal
+      a reader gets, and that the compensating mapping would live on pages the end user never reads.
+      The document says the vendor is recoverable because the two name sets do not overlap. Rule on
+      it, and state the naming format you would actually ship, in full, for both the task row and the
+      prose.
+
+  D3. Finding 1.4. Both the current text and the document's proposed replacement are now said to be
+      wrong, because a resumed worktree starts from a recorded base commit rather than HEAD. Write the
+      replacement sentence you would actually ship, correct for both the fresh and the resumed case,
+      short enough for four separate sites.
+
+  D4. Finding 1.1. The document calls the new stderr line the highest-leverage part; S1 refuted the
+      supporting claim and S2 refuted the line's wording as able to lie on several code paths. Decide
+      whether the stderr line should be built at all, and if so state its exact condition and exact
+      text.
+
+  D5. Seat W1 read the three pages cold and found ten defects the document does not contain, several
+      of which it argues would mislead a reader into discarding a paid turn or into an impossible
+      retry. Rule on whether W1's list outranks the document's own Tier 1, in whole or in part.
+      Verify at least three of W1's ten yourself before ruling; name which you verified and what you
+      found. W1 could not check its own item about the wait tool: treat that one as open.
+
+SECOND, produce the ordered work list. Every item the owner should act on, from all four sources,
+ranked by the harm of leaving it alone, not by how ready its wording is. For each: one line saying
+what to change, and one line saying why it ranks there. Mark anything whose wording is not yet settled
+as needing drafting, and say who should draft it. Name explicitly everything you are dropping and why,
+including items the document itself proposed. Do not pad the list to look thorough.
+
+THIRD, state the strongest argument against your own verdict, in three sentences or fewer, and say
+why you still hold it.
+
+CHECK:
+Ground every ruling in the tree. Quote the code you rely on. For D5 you must run your own checks on at
+least three of W1's items and report the commands. Where a claim rests on the behaviour of the Claude
+harness rather than this repository, say so and rule it open rather than deciding it. A verdict you
+did not ground must be reported as ungrounded rather than asserted.
+
+RETURN:
+The five fields of the output schema. The first line of result is one sentence a reader can take on
+its own, beginning "gpt-6-astra A1:" followed by your status and your central verdict. Then the five
+disagreements D1 to D5 with your ruling on each; then the ordered work list; then the argument against
+yourself. In evidence, the commands you ran, the checks you reproduced, and the code you quoted. In
+open, what genuinely cannot be decided from this repository.

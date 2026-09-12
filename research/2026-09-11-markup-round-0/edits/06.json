@@ -1,0 +1,47 @@
+[
+ {
+  "name": "Quick start: install summary → instruction",
+  "old": "The install summary says whether the plugin is active or whether to run `/reload-plugins`: an install\nfrom the shell does not reach a session that is already open.",
+  "new": "An install from the shell does not reach a session that is already open: run `/reload-plugins` there, or\nstart a new one."
+ },
+ {
+  "name": "§5 read grant: TMPDIR fallback",
+  "old": "It reads anything you can read, and your system\n  temp directory is the only thing it may write — enough for most test suites, not for browser tests.",
+  "new": "It reads anything you can read, and one temp\n  directory is the only thing it may write — yours, or the plugin's own when your shell names none.\n  Enough for most test suites, not for browser tests."
+ },
+ {
+  "name": "§5 worktree kept on failure",
+  "old": "- **Writes in a throwaway copy of the repository.** Made for it, and removed once what it did has been\n  saved.",
+  "new": "- **Writes in a throwaway copy of the repository.** Made for it, removed once what it did has been\n  saved, and kept for you to look at when the turn fails."
+ },
+ {
+  "name": "§5 warning: continuation",
+  "old": "> on an empty diff. Commit first.",
+  "new": "> on an empty diff. Commit first. A continued agent keeps the copy it had: to show it new commits, start a\n> fresh one."
+ },
+ {
+  "name": "§6 four places, locks, pruning",
+  "old": "On disk it uses three places:\n\n- **your system temp directory** — each agent's prompt and output files, and whatever a read-only agent\n  writes while it works.\n- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, write locks, and a Codex home\n  of the plugin's own, so your own Codex plugins, skills and memories cannot steer a turn.\n- **`~/.codex/sessions`**, your own Codex home — each turn's full transcript lands there, so a check on\n  what really ran has something to read.\n\nAnswers and run records age out by count and by age; the private home and the write locks stay.",
+  "new": "On disk it uses four places:\n\n- **your system temp directory** — each agent's prompt and output files, and whatever a read-only agent\n  writes while it works.\n- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, write locks, a Codex\n  home of the plugin's own, so your own Codex plugins, skills and memories cannot steer a turn, and the\n  scratch of agents started from a shell that names no temp directory.\n- **`.claude/worktrees` inside your repository** — the throwaway copies, while a turn runs and after one\n  fails.\n- **`~/.codex/sessions`**, your own Codex home — each turn's full transcript lands there, so a check on\n  what really ran has something to read.\n\nAnswers, run records and that scratch age out by count and by age. Reports, the private home and a failed\nturn's copy stay until you remove them; `/codex-delegate:cleanup` lists what the plugin left. A write lock\nlasts as long as its run."
+ },
+ {
+  "name": "§9 no superlative",
+  "old": "driving `codex app-server`, the only Codex interface\nthat takes rights per call and reports what ran.",
+  "new": "driving `codex app-server`, the Codex interface that\nreports back both the rights it applied and what each command did."
+ },
+ {
+  "name": "clone route: drop cleanup from the loop",
+  "old": "for s in seat orchestrate cleanup; do",
+  "new": "for s in seat orchestrate; do"
+ },
+ {
+  "name": "clone route: say cleanup needs the install",
+  "old": "modes lose the plugin's prefix here: `/seat`, not `/codex-delegate:seat`. Update the clone with\n`git pull`.",
+  "new": "modes lose the plugin's prefix here: `/seat`, not `/codex-delegate:seat`; `/cleanup` runs only from the\nplugin install. Update the clone with `git pull`."
+ },
+ {
+  "name": "troubleshooting rows 2 and 3",
+  "old": "| the run is refused before it starts | your Codex quota window is full | wait, or use a Claude subagent |\n| a run dies mid-way in a large fan-out | out of memory — runs are killed, not queued | ask for fewer at once |",
+  "new": "| the run is refused before it starts | the report's `error` says why: a full Codex quota window, a held write lock, a report path already used, no state directory | read it; for quota, wait or use a Claude subagent |\n| a run dies mid-way in a large fan-out | out of memory — runs are killed, not queued — or the idle cut, which the report names and offers to resume | ask for fewer at once; a cut run continues from where it stopped |"
+ }
+]

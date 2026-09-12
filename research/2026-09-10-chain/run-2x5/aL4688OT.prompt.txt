@@ -1,0 +1,53 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+NETWORK: no
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Rewrite the opening of a README under a hard prohibition, and let the prohibition do the thinking.
+
+The file is /Users/ruliny/Git/codex-delegate/README.md in the checkout you are sitting in. Rewrite lines
+1 to 21, its title, its opening paragraph and the section headed "Goal". Nothing below line 21 is yours
+to change. Read whatever you need of the repository to get the facts right.
+
+THE PROHIBITION. It is absolute, and you do not trade against it:
+
+  No term may appear before the reader has been given a reason to care about it. A word this project
+  uses in its own particular way - and you must work out which words those are, by reading - is a term.
+  A reader has a reason to care once they know what problem the word helps them with, not once they
+  have been handed a definition.
+
+  Nothing in the first paragraph that only exists inside a machine: no file path, no environment
+  variable, no flag, no command, no exit code, no directory, no API name.
+
+  No promise the reader cannot yet evaluate. A guarantee about correctness, safety or verification
+  means nothing to somebody who does not yet know what the thing is, and spending their attention on it
+  is a cost with no return.
+
+When a sentence violates one of these, you do not soften it and you do not add a gloss. You find what
+the reader can be told instead, at that point, and you tell them that.
+
+THE ACCURACY FLOOR, which is not negotiable and is the same for every writer doing this task: every
+statement you make about what this plugin is or does must be true of the code in this checkout. Do not
+narrow the subject to make a sentence concrete, and do not widen it to make a sentence impressive. For
+each claim about behaviour, know the file and line that backs it.
+
+Do not preserve the "Goal" section as a section merely because it exists.
+
+CHECK:
+a) List every term this project uses in its own particular way, and say where in your new text each one
+   first appears and what reason to care precedes it.
+b) Confirm your first paragraph carries no path, variable, flag, command, exit code, directory or API
+   name, and no promise about correctness or verification.
+c) Back every behavioural claim in your new text with a file and line. Count the words before and after.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra V4), your status and what you did. Then your new opening,
+             verbatim and complete, ready to paste, as Markdown. Nothing else in this field.
+  evidence:  your term list with the reason-to-care preceding each; the machine-word check; word count
+             before and after; the file and line behind each behavioural claim you made.
+  artifacts: anything you left in your own temporary directory.
+  open:      any place the prohibition cost the reader something you would rather have kept.

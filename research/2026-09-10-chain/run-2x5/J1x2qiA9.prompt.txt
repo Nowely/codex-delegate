@@ -1,0 +1,79 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+EFFORT: high
+WEB_SEARCH: cached
+
+TASK:
+Answer the user's original question by searching the web, and be sceptical about what you find.
+
+The question, in the user's words: "I want to improve my coding agent's documentation and commenting.
+What exists today is trash. Are there specialised skills for that, good ones, accepted by the
+community?"
+
+"Skills" means agent skills: a SKILL.md with YAML front matter, loaded by Claude Code, Codex, Cursor,
+Copilot and similar tools, distributed through registries such as skills.sh and GitHub marketplaces.
+
+The thing to establish, and it is the whole point of this seat: is there anything that deserves the
+phrase "accepted by the community", or is that a category error? Install counts on a registry are a
+weak proxy, because a bundled repository of hundreds of prompts drags every one of its entries up. Say
+so if that is what you find. A clean negative answer, proven, is a good outcome here.
+
+Your search tier is cached, because this device's managed policy refuses a live one. That is a real
+limit on what you can claim. Two consequences you must honour:
+  - Never present a cached result as a live verification. Where a fact could have changed since the
+    snapshot, say which fact and mark it as unverified rather than dropping it.
+  - Where you cannot open a file at all, say "could not open" and judge nothing. A registry blurb is not
+    a substitute for the text. An entry you could not read stays off the shortlist, or goes on it
+    explicitly labelled as unread.
+Your local shell is available and unrestricted for reading; if a fetch tool is reachable from it, using
+it is legitimate. If it is not, that is the answer, and the gap goes in the report.
+
+Ground already covered by another agent, so do not spend your budget re-deriving it. Verify the third
+item, since it is the one claim most likely to be wrong:
+  - posthog/posthog@writing-code-comments: read, substantial, an enforceable delete-list, in production
+    use inside PostHog's own monorepo at .agents/skills/. About 60 registry installs.
+  - riekelt/technical-writer@technical-writing plus siblings: read, a house style for documents with
+    references/style.md and references/truth.md. About 6000 installs.
+  - github/awesome-copilot@skills/documentation-writer: judged thin, 45 lines, a persona prompt whose
+    only substance is a pointer to the Diataxis framework, roughly 26000 installs attributed to the
+    popularity of the containing repository rather than the file. CONFIRM OR REFUTE THIS.
+
+Where to look, at least:
+  - the registries and their aggregate signals: skills.sh, awesome-claude-skills style lists, the
+    Anthropic skills repository, the OpenAI skills repository, vendor plugin marketplaces
+  - what large engineering organisations publish in their own repositories as agent instructions for
+    documentation and comments, since that is production evidence rather than a marketing artifact
+  - the human-facing standards these skills tend to wrap: Diataxis, the Google developer documentation
+    style guide, the Microsoft Writing Style Guide, ASD-STE100, Write the Docs, and the software
+    literature on comments such as Ousterhout's A Philosophy of Software Design
+  - any published evaluation, benchmark, or measured comparison of documentation skills, as opposed to
+    a README asserting quality. If none exists, state that plainly.
+
+CHECK:
+Assertion by description is not evidence here.
+a) For every skill you shortlist, open its actual SKILL.md and judge the text, not the registry blurb.
+   Give the URL you read and its approximate length in lines. If you could not open it, label the entry
+   unread and say what you tried.
+b) Give the URL for every factual claim. Where you cite an install count or a star count, name where the
+   number came from and the date the snapshot appears to carry.
+c) Confirm or refute the awesome-copilot judgement above by reading the file yourself.
+d) Separate three things and never let them blur: an established standard written for humans; an agent
+   skill that merely names such a standard; an agent skill that encodes checkable rules. Most candidates
+   are the middle kind. Say which kind each one is.
+e) If your searches return nothing that meets the bar, report that. Do not pad the shortlist to look
+   productive.
+
+RETURN:
+Line 1, on its own: one sentence a reader can take alone, naming your model and seat id (Codex
+gpt-6-astra A3), your status, and what you did.
+Then, in this order, English or Russian, your choice:
+1. The direct answer to "is there a community-accepted skill for this": yes and which, or no and why the
+   question has no such answer.
+2. A shortlist, at most five entries, ranked. Per entry: URL, what kind of artifact it is under CHECK
+   (d), what it actually contains in one or two sentences, and who it would suit.
+3. Your verdict on the awesome-copilot claim: confirmed, refuted, or could not read, with the evidence.
+4. Anything worth adopting that is not a skill at all, for instance a standard or a checklist that a
+   rule block could encode directly.
+5. What you searched for and found nothing on, and what the cached tier stopped you from confirming, so
+   both gaps are on the record.
+At most 80 lines. No preamble.

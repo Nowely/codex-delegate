@@ -1,0 +1,4 @@
+[
+  {"id": "install-update-uninstall", "state": "a shell with claude and codex installed; nothing of this plugin installed in an isolated CLAUDE_CONFIG_DIR under $TMPDIR", "goal": "install the plugin the README's way, update it, uninstall it keeping stored data, reinstall, then remove the marketplace doing first whatever the README says; report whether the data directory survived", "show": "claude plugin list; test -d $CLAUDE_CONFIG_DIR/plugins/data/codex-delegate-nowely"},
+  {"id": "work-in-progress", "state": "a git repository under $TMPDIR with one committed file, one uncommitted edit and one untracked file", "goal": "make a throwaway-copy agent see your work in progress, doing only what the README says; then answer from the README alone what to tell a teammate whose agent reported success and changed nothing, whether git stash helps, and whether a continued agent sees a new commit", "show": "git status --short; git log --oneline -3"}
+]

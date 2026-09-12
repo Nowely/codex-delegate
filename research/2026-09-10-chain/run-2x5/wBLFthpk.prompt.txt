@@ -1,0 +1,89 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.wBLFthpk/schema.json
+
+TASK:
+Survey what the agent-skills ecosystem actually offers for code comments and technical documentation, and
+be sceptical about it. An earlier attempt at this task was cut off before it could read anything; you are
+the retry, and your shell now reaches the network.
+
+The user's question, in their words: "I want to improve my coding agent's documentation and commenting.
+What exists today is trash. Are there specialised skills for that, good ones, accepted by the community?"
+
+"Skills" means agent skills: a SKILL.md with YAML front matter, loaded by Claude Code, Codex, Cursor,
+Copilot and similar tools, distributed through registries such as skills.sh and GitHub marketplaces.
+
+The central question, and the reason this seat exists: does anything here deserve the phrase "accepted by
+the community", or is that a category error? An install count is a weak proxy, because a bundled
+repository of hundreds of prompts drags every one of its entries up with it. If that is what the evidence
+shows, say so. A clean negative answer, proven, is a good outcome.
+
+YOUR ROUTE TO THE NETWORK. Do not use a provider web-search tool: this device's policy refuses the live
+tier and the cached tier answered every request with HTTP 429. Use your shell. These four routes were
+verified working from this machine today, 2026-09-10, so start from them instead of rediscovering them:
+  - `npx -y skills find "<query>"` prints registry matches with install counts.
+  - `curl -sL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>` returns file contents.
+  - `curl -sL "https://api.github.com/repos/<owner>/<repo>/git/trees/<branch>?recursive=1"` lists paths
+    unauthenticated; the code-SEARCH endpoint instead returns 401 and is not worth trying.
+  - `curl -sL https://skills.sh/<owner>/<repo>/<skill>` reaches a registry page.
+Unauthenticated GitHub API calls are rate-limited to roughly 60 per hour, so spend them on trees, not on
+guesses. Anything else you can reach is fair game.
+
+GROUND ALREADY COVERED, so you do not spend the budget re-deriving it. The first three were read by the
+coordinator directly; treat them as reported, not as proven, and re-verify only the third:
+  - posthog/posthog@writing-code-comments, at .agents/skills/writing-code-comments/SKILL.md on master:
+    substantial, an enforceable delete-list, in use inside PostHog's own monorepo. Around 60 installs.
+  - riekelt/technical-writer@technical-writing, at plugins/technical-writer/skills/technical-writing/ on
+    main: a house style for documents, with style and truth reference files beside it. Around 6000
+    installs.
+  - github/awesome-copilot, skills/documentation-writer/SKILL.md on main: judged thin by the coordinator,
+    45 lines, a persona prompt whose only substance is a pointer to the Diataxis framework, with roughly
+    26000 installs attributed to the popularity of the containing repository rather than to the file.
+    READ IT YOURSELF AND CONFIRM OR REFUTE THAT JUDGEMENT.
+  - Also already found, locally and not on the web: the comment-analyzer agent definition in Anthropic's
+    official marketplace, plugin pr-review-toolkit, 79 lines. It cross-checks a comment's claims against
+    the code: signature against documented parameters, described behaviour against the logic, mentioned
+    edge cases against the ones actually handled, complexity claims against the implementation. Check
+    whether anything published as a SKILL.md matches or beats that, since accuracy-checking is the one
+    capability the other candidates lack.
+
+WHAT TO ESTABLISH, beyond the shortlist:
+  - Real numbers, not the coordinator's handoff: current install counts and, where a page carries one,
+    the date of the snapshot. Say where each number came from.
+  - What large engineering organisations put in their own repositories as agent instructions about
+    comments and documentation. That is production evidence rather than a marketing artifact. PostHog is
+    one example already known; look for others.
+  - Whether any published evaluation, benchmark or measured comparison of documentation skills exists, as
+    opposed to a README asserting quality. If none exists, say that plainly.
+  - The human-facing standards these skills tend to wrap, and whether wrapping is all they do: Diataxis,
+    the Google developer documentation style guide, the Microsoft Writing Style Guide, ASD-STE100, Write
+    the Docs, and Ousterhout's A Philosophy of Software Design.
+
+CHECK:
+Assertion by description is not evidence here.
+a) For every skill you shortlist, fetch its actual SKILL.md and judge that text, not the registry blurb.
+   Record the URL and the line count you measured, for instance with `wc -l`.
+b) Give a URL for every factual claim, and name where each count came from.
+c) Confirm or refute the awesome-copilot judgement by reading the file yourself.
+d) Keep three categories apart and never let them blur: an established standard written for humans; an
+   agent skill that merely names such a standard; an agent skill that encodes checkable rules. Most
+   candidates are the middle kind. Classify each one.
+e) If the searches return nothing that meets the bar, report that. Do not pad a shortlist to look
+   productive. An entry you could not fetch stays off the shortlist or is labelled unread.
+
+RETURN:
+Fill the five fields of the output schema. Their contents here:
+  status:    done if you read enough to answer the central question; partial if the network or a rate
+             limit stopped you short; blocked if you got nothing.
+  result:    at most 30 lines. Line 1, on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra A4), your status, and what you did. Then: the direct answer to
+             "is there a community-accepted skill for this", yes with which or no with why the question
+             has no such answer; then a ranked shortlist of at most five, each with its URL, its category
+             under CHECK (d), what it actually contains in a sentence, and who it suits; then your verdict
+             on the awesome-copilot claim.
+  evidence:  one entry per verified fact: the command or URL, the line count or install count you
+             measured, and the date on the snapshot where the page carries one.
+  artifacts: any file you left in your own temporary directory, with its absolute path. Write nothing
+             outside it.
+  open:      what you could not confirm, what a rate limit cut short, and anything worth adopting that is
+             not a skill at all, such as a standard or a checklist a rule block could encode directly.

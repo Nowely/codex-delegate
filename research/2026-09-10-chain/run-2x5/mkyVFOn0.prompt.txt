@@ -1,0 +1,49 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+NETWORK: no
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Rewrite the opening of a README around the job its reader came to get done.
+
+The file is /Users/ruliny/Git/codex-delegate/README.md in the checkout you are sitting in. Rewrite lines
+1 to 21, its title, its opening paragraph and the section headed "Goal". Nothing below line 21 is yours
+to change. Read whatever you need of the repository to get the facts right.
+
+THE FRAME. Nobody reads a README for its own sake. Somebody arrived here carrying a problem, and the
+only question they are actually asking is whether this thing solves it. So:
+
+  First, work out what problem brings a person to this page. Not the problem the authors solved when
+  they built it, and not the problem the code is interesting for: the problem in the reader's own life
+  that made them go looking. State it to yourself in one sentence before you write anything.
+  Then write an opening whose first job is to answer, plainly: yes this is for you, and here is the
+  shape of the help you get. A reader who has that answer will read the rest. A reader who has to
+  assemble it from features will leave.
+
+Feature lists, capability inventories and statements of what the project stands for are not the answer.
+They are what a page writes instead of the answer.
+
+THE ACCURACY FLOOR, which is not negotiable and is the same for every writer doing this task: every
+statement you make about what this plugin is or does must be true of the code in this checkout. Do not
+narrow the subject to make a sentence concrete, and do not widen it to make a sentence impressive. For
+each claim about behaviour, know the file and line that backs it.
+
+Do not carry the current wording forward out of politeness. Do not preserve the "Goal" section as a
+section merely because it exists; decide what a reader with a job to do needs of it, if anything.
+
+CHECK:
+a) State the reader's problem in one sentence, in your evidence, before the rewrite. Say how you decided
+   it, from what you read.
+b) Back every behavioural claim in your new text with a file and line.
+c) Count the words before and after.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra V2), your status and what you did. Then your new opening,
+             verbatim and complete, ready to paste, as Markdown. Nothing else in this field.
+  evidence:  the reader's problem in one sentence and how you derived it; word count before and after;
+             what you cut; the file and line behind each behavioural claim you made.
+  artifacts: anything you left in your own temporary directory.
+  open:      anything you could not settle, including whether you guessed the reader's problem.

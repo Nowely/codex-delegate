@@ -1,0 +1,256 @@
+{
+ "workers": [
+  {
+   "id": "astra",
+   "engine": "gpt-6-astra",
+   "per": 8,
+   "w": 4,
+   "cc": 3
+  },
+  {
+   "id": "sol",
+   "engine": "gpt-5.6-sol",
+   "per": 8,
+   "w": 4,
+   "cc": 3
+  },
+  {
+   "id": "terraA",
+   "engine": "gpt-5.6-terra",
+   "per": 4,
+   "w": 2,
+   "cc": 2
+  },
+  {
+   "id": "terraB",
+   "engine": "gpt-5.6-terra",
+   "per": 4,
+   "w": 2,
+   "cc": 1
+  },
+  {
+   "id": "opusA",
+   "engine": "claude-opus-5",
+   "per": 4,
+   "w": 2,
+   "cc": 2
+  },
+  {
+   "id": "opusB",
+   "engine": "claude-opus-5",
+   "per": 4,
+   "w": 2,
+   "cc": 1
+  },
+  {
+   "id": "sonA",
+   "engine": "claude-sonnet-5",
+   "per": 2,
+   "w": 1,
+   "cc": 0
+  },
+  {
+   "id": "sonB",
+   "engine": "claude-sonnet-5",
+   "per": 2,
+   "w": 1,
+   "cc": 0
+  },
+  {
+   "id": "sonC",
+   "engine": "claude-sonnet-5",
+   "per": 2,
+   "w": 1,
+   "cc": 0
+  },
+  {
+   "id": "sonD",
+   "engine": "claude-sonnet-5",
+   "per": 2,
+   "w": 1,
+   "cc": 0
+  }
+ ],
+ "assignment": {
+  "astra": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:1-40",
+    "plugins/codex-delegate/CHANGELOG.md:41-80",
+    "plugins/codex-delegate/CHANGELOG.md:81-120",
+    "plugins/codex-delegate/CHANGELOG.md:121-160",
+    "plugins/codex-delegate/README.md:41-80",
+    "plugins/codex-delegate/README.md:81-120",
+    "plugins/codex-delegate/README.md:121-160",
+    "plugins/codex-delegate/README.md:161-200",
+    "plugins/codex-delegate/skills/seat/SKILL.md:1-40",
+    "plugins/codex-delegate/skills/seat/SKILL.md:41-80",
+    "plugins/codex-delegate/skills/seat/SKILL.md:81-120",
+    "plugins/codex-delegate/skills/seat/SKILL.md:121-160",
+    "plugins/codex-delegate/skills/seat/references/incidents.md:121-160",
+    "plugins/codex-delegate/skills/seat/references/incidents.md:161-200",
+    "plugins/codex-delegate/skills/seat/references/incidents.md:201-224",
+    "plugins/codex-delegate/skills/seat/references/parity.md:1-40",
+    "research/2026-09-10-chain/chain/cut-ledger.md:161-200",
+    "research/2026-09-10-chain/chain/cut-ledger.md:201-240",
+    "research/2026-09-10-chain/chain/cut-ledger.md:241-280",
+    "research/2026-09-10-chain/chain/cut-ledger.md:281-320",
+    "research/2026-09-10-chain/chain/audit.md:481-520",
+    "research/2026-09-10-chain/chain/audit.md:521-541",
+    "research/2026-09-10-chain/chain/README.md:1-40",
+    "research/2026-09-10-chain/chain/README.md:41-80"
+   ],
+   "code": [
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:1-200",
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:201-400",
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:401-600"
+   ]
+  },
+  "sol": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:161-200",
+    "plugins/codex-delegate/CHANGELOG.md:201-240",
+    "plugins/codex-delegate/CHANGELOG.md:241-280",
+    "plugins/codex-delegate/CHANGELOG.md:281-320",
+    "plugins/codex-delegate/README.md:201-240",
+    "plugins/codex-delegate/README.md:241-280",
+    "plugins/codex-delegate/README.md:281-291",
+    "plugins/codex-delegate/RELEASING.md:1-40",
+    "plugins/codex-delegate/skills/seat/SKILL.md:161-200",
+    "plugins/codex-delegate/skills/seat/SKILL.md:201-214",
+    "plugins/codex-delegate/skills/cleanup/SKILL.md:1-40",
+    "plugins/codex-delegate/skills/cleanup/SKILL.md:41-80",
+    "plugins/codex-delegate/skills/seat/references/parity.md:41-80",
+    "plugins/codex-delegate/skills/seat/references/parity.md:81-120",
+    "plugins/codex-delegate/skills/seat/references/parity.md:121-160",
+    "plugins/codex-delegate/skills/seat/references/parity.md:161-200",
+    "research/2026-09-10-chain/chain/cut-ledger.md:321-360",
+    "research/2026-09-10-chain/chain/cut-ledger.md:361-400",
+    "research/2026-09-10-chain/chain/cut-ledger.md:401-440",
+    "research/2026-09-10-chain/chain/cut-ledger.md:441-480",
+    "research/2026-09-10-chain/chain/README.md:81-120",
+    "research/2026-09-10-chain/chain/README.md:121-160",
+    "research/2026-09-10-chain/chain/README.md:161-200",
+    "research/2026-09-10-chain/chain/README.md:201-240"
+   ],
+   "code": [
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:601-800",
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:801-1000",
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:1001-1200"
+   ]
+  },
+  "terraA": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:321-360",
+    "plugins/codex-delegate/CHANGELOG.md:361-400",
+    "plugins/codex-delegate/RELEASING.md:41-75",
+    "plugins/codex-delegate/evals/README.md:1-40",
+    "plugins/codex-delegate/skills/cleanup/SKILL.md:81-103",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:1-40",
+    "plugins/codex-delegate/skills/seat/references/why-not-the-plugin.md:1-40",
+    "plugins/codex-delegate/skills/seat/references/why-not-the-plugin.md:41-80",
+    "research/2026-09-10-chain/chain/audit.md:1-40",
+    "research/2026-09-10-chain/chain/audit.md:41-80",
+    "research/2026-09-10-chain/chain/README.md:241-280",
+    "research/2026-09-10-chain/chain/README.md:281-304"
+   ],
+   "code": [
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:1201-1400",
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:1401-1600"
+   ]
+  },
+  "terraB": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:401-440",
+    "plugins/codex-delegate/CHANGELOG.md:441-480",
+    "plugins/codex-delegate/evals/README.md:41-80",
+    "plugins/codex-delegate/evals/README.md:81-120",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:41-80",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:81-120",
+    "plugins/codex-delegate/skills/seat/references/why-not-the-plugin.md:81-120",
+    "plugins/codex-delegate/skills/seat/references/why-not-the-plugin.md:121-126",
+    "research/2026-09-10-chain/chain/audit.md:81-120",
+    "research/2026-09-10-chain/chain/audit.md:121-160",
+    "research/2026-09-10-chain/chain/invisible-prerequisites.md:1-40",
+    "research/2026-09-10-chain/chain/invisible-prerequisites.md:41-50"
+   ],
+   "code": [
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:1601-1800"
+   ]
+  },
+  "opusA": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:481-520",
+    "plugins/codex-delegate/CHANGELOG.md:521-560",
+    "plugins/codex-delegate/evals/README.md:121-160",
+    "plugins/codex-delegate/evals/README.md:161-200",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:121-160",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:161-200",
+    "plugins/codex-delegate/skills/seat/references/result-gates.md:1-40",
+    "plugins/codex-delegate/skills/seat/references/result-gates.md:41-80",
+    "research/2026-09-10-chain/chain/audit.md:161-200",
+    "research/2026-09-10-chain/chain/audit.md:201-240"
+   ],
+   "code": [
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:1801-2000",
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:2001-2200"
+   ]
+  },
+  "opusB": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:561-600",
+    "plugins/codex-delegate/CHANGELOG.md:601-640",
+    "plugins/codex-delegate/evals/README.md:201-240",
+    "plugins/codex-delegate/evals/README.md:241-251",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:201-240",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:241-280",
+    "plugins/codex-delegate/skills/seat/references/result-gates.md:81-84",
+    "plugins/codex-delegate/skills/seat/references/adversarial-review.md:1-38",
+    "research/2026-09-10-chain/chain/audit.md:241-280",
+    "research/2026-09-10-chain/chain/audit.md:281-320"
+   ],
+   "code": [
+    "plugins/codex-delegate/skills/seat/scripts/driver.mjs:2201-2400"
+   ]
+  },
+  "sonA": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:641-680",
+    "plugins/codex-delegate/skills/orchestrate/SKILL.md:1-40",
+    "plugins/codex-delegate/skills/seat/references/environment-and-internals.md:281-313",
+    "research/2026-09-10-chain/chain/cut-ledger.md:1-40",
+    "research/2026-09-10-chain/chain/audit.md:321-360"
+   ],
+   "code": []
+  },
+  "sonB": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:681-720",
+    "plugins/codex-delegate/skills/orchestrate/SKILL.md:41-80",
+    "plugins/codex-delegate/skills/seat/references/incidents.md:1-40",
+    "research/2026-09-10-chain/chain/cut-ledger.md:41-80",
+    "research/2026-09-10-chain/chain/audit.md:361-400"
+   ],
+   "code": []
+  },
+  "sonC": {
+   "prose": [
+    "plugins/codex-delegate/CHANGELOG.md:721-728",
+    "plugins/codex-delegate/skills/orchestrate/SKILL.md:81-120",
+    "plugins/codex-delegate/skills/seat/references/incidents.md:41-80",
+    "research/2026-09-10-chain/chain/cut-ledger.md:81-120",
+    "research/2026-09-10-chain/chain/audit.md:401-440"
+   ],
+   "code": []
+  },
+  "sonD": {
+   "prose": [
+    "plugins/codex-delegate/README.md:1-40",
+    "plugins/codex-delegate/skills/orchestrate/SKILL.md:121-151",
+    "plugins/codex-delegate/skills/seat/references/incidents.md:81-120",
+    "research/2026-09-10-chain/chain/cut-ledger.md:121-160",
+    "research/2026-09-10-chain/chain/audit.md:441-480"
+   ],
+   "code": []
+  }
+ }
+}

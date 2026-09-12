@@ -1,0 +1,73 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Judge ten audits on ONE axis: which of them makes this repository's writing fit for a human to read.
+
+The repository is /Users/ruliny/Git/codex-delegate, the checkout you are sitting in. Ten agents audited its
+prose and comments, each carrying exactly one standard, and their returns are in /tmp/bakeoff/dossier.txt,
+labelled ENTRANT P1 through P10. Five standards, two agents each, models deliberately hidden and stripped
+from the text; you are one of the families, so do not try to infer which is which, and do not let a guess
+move a ranking.
+
+  Diataxis                                       P1, P2
+  verification against the implementation        P3, P4
+  a draft rule block for the owner's CLAUDE.md   P5, P6
+  riekelt/technical-writer house style           P7, P8
+  CONTROL, no standard given at all              P9, P10
+
+THE AXIS, in the owner's own words, translated: "The documentation must be human friendly. It must not
+contain irrelevant information, or things kept just in case. One has to evaluate critically and approach
+the choice of wording correctly. That is what I was looking for, not simply 'find the errors'."
+
+So: wording, redundancy, and relevance. Not factual accuracy. A separate judge already ranked these ten on
+whether their findings were true, and this seat exists because that was the wrong question. Accuracy enters
+here in one way only, as a floor: a rewrite that reads better while dropping or falsifying a fact the
+reader needed is not an improvement, it is a regression, and you must catch that.
+
+Facts already measured by the entrants, so you need not re-derive them: about 20,000 words of prose; near a
+fifth of its sentences run past 35 to 40 words, the worst at 129; 148 to 210 em dashes in the prose and 264
+more on comment lines; 432 occurrences of capitals used for emphasis on 245 distinct ordinary words;
+driver.mjs carries 1,305 comment lines against 3,779 non-blank lines of code; one CHANGELOG release runs 200
+lines, of which 74 are a note about an inode race; the word "seat" is used at README.md:7 and defined at
+README.md:157, and "coordinator" is never defined in README at all.
+
+CHECK:
+Do not grade these reports by how well they are written. Grade what each would DO to the repository.
+a) Choose three passages of the repository yourself, from different files, that a newcomer must get
+   through: one from README.md, one from a SKILL.md, one comment block from a .mjs source. For each, work
+   out what each entrant's proposal would actually do to it, and compare the outcomes. An entrant that
+   proposed nothing for a passage scores nothing there, and say so.
+b) For every replacement text an entrant supplied, count what it costs and what it buys: words before and
+   after, and which load-bearing facts survive. Name any rewrite that reads better and silently drops a
+   fact, a condition or a warning the reader needed. That is the failure mode this axis invites.
+c) Separate three things that reports on this axis constantly blur: a rule that removes words; a rule that
+   moves words elsewhere; and a rule that only counts words and proposes nothing. Say which of the three
+   each entrant actually delivered.
+d) Test the standards for what they would do to writing that is ALREADY good. Find two or three passages in
+   this repository that you judge genuinely well written for a human, and say which entrant's rule would
+   damage them. A standard that improves the worst prose and ruins the best is a bad trade.
+e) Answer the control question squarely. The owner's original question was whether a published
+   documentation standard is worth adopting at all. Two entrants had none. If neither on-axis standard beats
+   them on this axis, say so plainly; a proven negative is a good outcome here.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra J2), your status and what you did. Then:
+             1. The ranking on THIS axis, first to last, one line each: the label, its standard, and the one
+                reason it sits there.
+             2. Did either control beat the standards on this axis? Yes or no, with the evidence.
+             3. The single worst habit in this repository's writing, named concretely, and the entrant who
+                described it best.
+             4. Your instruction to the owner: the rule or the practice to adopt for wording and length,
+                written as text he can paste, kept as short as it can be while still deciding cases. If your
+                honest answer is that no rule will do this and only a review will, say that instead.
+             5. Any rewrite among the ten you would tell him NOT to apply, and why.
+  evidence:  the three passages you chose, what each proposal did to them, and your word counts before and
+             after. One entry per comparison.
+  artifacts: files you left in your own temporary directory, absolute paths. Write nothing outside it.
+  open:      what you could not settle, and where your own judgement of "reads well" is taste rather than
+             evidence.

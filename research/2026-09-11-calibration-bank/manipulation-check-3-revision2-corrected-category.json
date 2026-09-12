@@ -1,0 +1,1682 @@
+[
+ {
+  "token": "p001",
+  "id": "astra-tone-1",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p001",
+   "described": "Rationale for plugin name in tags shifts from organizational fact ('using the shared marketplace namespace') to benefit claim ('preventing confusion with sibling releases')",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p002",
+  "id": "astra-tone-2",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p002",
+   "described": "a describes the goal/result (establishing identity change), b describes the mechanism (retaining directories throughout)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p003",
+  "id": "astra-tone-3",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p003",
+   "described": "Conclusion shifts from 'providing a consistent safeguard against deletion based on missing information' to 'including when reads fail for reasons other than file absence' \u2014 one frames the behavior as a protective benefit, the other states the condition factually.",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p004",
+  "id": "astra-tone-4",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p004",
+   "described": "Clause explains the mechanism (completing verification before removal) vs the benefit (making cleanup predictable regardless of order)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p005",
+  "id": "astra-tone-5",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p005",
+   "described": "Ending changes from 'establish confidence in subsequent results' to 'checks behavior with the updated codex version'\u2014one frames purpose as building confidence, the other as verifying behavior.",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p006",
+  "id": "astra-tone-6",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p006",
+   "described": "a frames the mechanism as a protective goal, b describes it as a technical comparison",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p007",
+  "id": "astra-tone-7",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p007",
+   "described": "Version a describes the setting's scope (every permission level), version b describes its functional benefit (keeping zsh here-documents usable without broader permissions)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p008",
+  "id": "astra-tone-8",
+  "factor": "promotional-tone",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p008",
+   "described": "Version a explains the technical mechanism (write permissions declared separately for each call); version b focuses on the user experience benefit (making independent review convenient during ongoing work).",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p009",
+  "id": "astra-metaphor-1",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p009",
+   "described": "a uses the figure of speech 'leaves you halfway there' where b uses plain language 'cannot complete the migration'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p010",
+  "id": "astra-metaphor-2",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p010",
+   "described": "Replaces literal phrase 'in one location' with metaphorical phrase 'under a single roof'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p011",
+  "id": "astra-metaphor-3",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p011",
+   "described": "Phrasing changes from technical 'produce nonexistent paths' to figurative 'lead nowhere', same meaning",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p012",
+  "id": "astra-metaphor-4",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p012",
+   "described": "a: 'has a separate gate controlled by', b: 'remains separately controlled by' \u2014 minimal verb choice variation",
+   "category": "one is simply written better",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p013",
+  "id": "astra-metaphor-5",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p013",
+   "described": "Single word change: 'Do not respond to a refusal' becomes 'Do not sidestep a refusal' \u2014 'sidestep' is more precise about actively working around a refusal versus merely reacting to it.",
+   "category": "one is simply written better",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p014",
+  "id": "astra-metaphor-6",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p014",
+   "described": "Word choice: 'exceeded' (plain technical) vs 'sailed past' (metaphor)",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p015",
+  "id": "astra-metaphor-7",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p015",
+   "described": "Browser-mode vitest changes from 'hits a wall' to 'fails'\u2014metaphorical phrasing replaced with plain technical language.",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p016",
+  "id": "astra-metaphor-8",
+  "factor": "metaphor",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p016",
+   "described": "a uses 'are absent', b uses 'are left behind' \u2014 same meaning, different word choices",
+   "category": "one is simply written better",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p017",
+  "id": "astra-answer-1",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p017",
+   "described": "Version a begins with the selecting behavior and later describes the row structure; version b moves the row-structure description to the opening and the selecting behavior to the end",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p018",
+  "id": "astra-answer-2",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p018",
+   "described": "The sentence about forwarding CLAUDE_PLUGIN_DATA is moved from the end (a) to the beginning (b). No other changes.",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p019",
+  "id": "astra-answer-3",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p019",
+   "described": "the topic sentence is moved from the end (a) to the beginning (b), reordering all four sentences",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p020",
+  "id": "astra-answer-4",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p020",
+   "described": "Moves actionable main point from end to beginning; supporting evidence shifts to end",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p021",
+  "id": "astra-answer-5",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p021",
+   "described": "Key point about seats not inheriting wrapper ceiling moves from end of a to beginning of b",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p022",
+  "id": "astra-answer-6",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p022",
+   "described": "The sentence about exitCode 0 is at the end of a, moved to the beginning of b",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p023",
+  "id": "astra-answer-7",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p023",
+   "described": "Sentence order rearranged: the opening statement about checking repairs moves to the end, while the list of what didn't run moves to the front.",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p024",
+  "id": "astra-answer-8",
+  "factor": "answer-first",
+  "engine": "gpt-6-astra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p024",
+   "described": "Sentence about inspecting worktree fields moved from last position to first",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p025",
+  "id": "sol-tone-1",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p025",
+   "described": "Final sentence rewritten: a states the benefit of the sequence (leftovers easy to review); b names a tool and its specific action (Cleanup flags the directory).",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p026",
+  "id": "sol-tone-2",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p026",
+   "described": "a ends with benefit claim (catches mistakes), b ends with procedural requirement (must report count)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p027",
+  "id": "sol-tone-3",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p027",
+   "described": "Version a ends by explaining the rule's purpose (keeps evidence attributable), version b ends by restating what the rule applies to (the default command count)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p028",
+  "id": "sol-tone-4",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p028",
+   "described": "Version a states what the escaping does NOT do (does not serve JSON quoting's purpose). Version b states what it DOES do (prevents execution of hostile directory names).",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p029",
+  "id": "sol-tone-5",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p029",
+   "described": "a concludes with general capacity-planning implications from the measurements; b concludes with specific operational guidance (counting, draining, separating)",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p030",
+  "id": "sol-tone-6",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p030",
+   "described": "Final sentence replaces abstract benefit claim ('provide valuable protection') with concrete mechanism ('checked against...specification')",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p031",
+  "id": "sol-tone-7",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p031",
+   "described": "a describes problem (two inventories can share a file), b describes solution/benefit (unique filenames prevent cross-listing checks); b is also longer and more abstract",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p032",
+  "id": "sol-tone-8",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p032",
+   "described": "a states a plain fact (outcome unknown when no file), b frames the behavior as reliable signaling of uncertainty",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p033",
+  "id": "sol-metaphor-1",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p033",
+   "described": "Two different phrasings of the same instruction: 'configure the profile so its state-directory export is inherited' (technical and specific) versus 'make your startup settings a bridge carrying environmental state' (metaphorical and abstract).",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p034",
+  "id": "sol-metaphor-2",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p034",
+   "described": "Opening clause reframed from specific requirement (no uncommitted changes) to abstract principle (pristine VC as sole launchpad)",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p035",
+  "id": "sol-metaphor-3",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p035",
+   "described": "receiptOk explanation shifts from technical precision ('confirms solely which session... leaving commands, completion, and answer unchecked') to metaphor ('signpost toward... rather than a seal').",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p036",
+  "id": "sol-metaphor-4",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p036",
+   "described": "a uses 'single interval', b uses 'one narrow window of opportunity still standing open'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p037",
+  "id": "sol-metaphor-5",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p037",
+   "described": "Version a uses the metaphor 'marching in lockstep', version b uses the plain phrase 'set the identical value'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p038",
+  "id": "sol-metaphor-6",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p038",
+   "described": "Version a describes a worktree as a 'time capsule' metaphor. Version b uses literal technical language: 'contains the checked-in revision while excluding any changes not yet committed.'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p039",
+  "id": "sol-metaphor-7",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p039",
+   "described": "a uses 'fall through the cracks' (idiomatic) where b uses 'do not return' (plain)",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p040",
+  "id": "sol-metaphor-8",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p040",
+   "described": "Replaces metaphorical description ('anchors...firmly') with literal, precise description ('records the correspondence')",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p041",
+  "id": "sol-answer-1",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p041",
+   "described": "Primary instruction 'Use allow-no-commands only when commands are unnecessary' moves from opening in a to closing in b",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p042",
+  "id": "sol-answer-2",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p042",
+   "described": "The solution sentence (Match the selected row...) is at the end of a, moved to the beginning of b",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p043",
+  "id": "sol-answer-3",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p043",
+   "described": "The directive 'Give each seat one deliverable' moves from the opening to the end, shifting when the main instruction is stated.",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p044",
+  "id": "sol-answer-4",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p044",
+   "described": "Imperative sentence about not repeating standing rules moved from first to last position",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p045",
+  "id": "sol-answer-5",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p045",
+   "described": "Entire passage reordered: conclusion moves from end to beginning. a builds to the answer; b leads with it.",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p046",
+  "id": "sol-answer-6",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p046",
+   "described": "opening statement 'Network access and file-write rights are independent' moves from start to end",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p047",
+  "id": "sol-answer-7",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "on",
+  "checker": {
+   "pair": "p047",
+   "described": "Version a opens with the solution (Run Chromium), version b closes with it; the opening problem statement moves from second to first",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p048",
+  "id": "sol-answer-8",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-sol",
+  "aIs": "off",
+  "checker": {
+   "pair": "p048",
+   "described": "The concluding insight ('A successful check establishes structural compliance, not factual correctness') and the question ('What does a successfully constrained answer prove?') are repositioned from mid/end in a to the beginning in b, changing the logical flow from technical detail to conclusion.",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p049",
+  "id": "terraA-tone-1",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p049",
+   "described": "a ends by explaining why the ordering prevents mistakes; b ends by stating an exit code behavior",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p050",
+  "id": "terraA-tone-2",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p050",
+   "described": "Replaces negative constraint statement ('omitted entry may never run') with positive consequence statement ('makes every suite visible')",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p051",
+  "id": "terraA-tone-3",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p051",
+   "described": "Conclusion shifts from benefit-framing 'gives a fuller account of what that turn cost' to fact-stating 'records accumulated consumption during resumed session alone'",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p052",
+  "id": "terraA-tone-4",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p052",
+   "described": "a frames this as a benefit/feature (keeps data under owner control), b states it as a bare fact (stays subject to deletion)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p053",
+  "id": "terraA-metaphor-1",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p053",
+   "described": "Explanation of the result shifts from literal ('preserves repository contents and eliminates an obsolete ignore-file requirement') to figurative language ('keeps its working tree free of footprints, letting the old self-ignoring `.gitignore` fade away').",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p054",
+  "id": "terraA-metaphor-2",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p054",
+   "described": "Phrase 'hit a wall' (figurative obstacle) vs 'lack permission' (specific technical cause)",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p055",
+  "id": "terraA-metaphor-3",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p055",
+   "described": "Single word change: 'unearthed' (figurative) replaced by 'identified' (plain technical term).",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p056",
+  "id": "terraA-metaphor-4",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p056",
+   "described": "a explains by what is left out (parameter), b explains by what is relied on (defaults)",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p057",
+  "id": "terraA-answer-1",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p057",
+   "described": "Version a opens with the problem (previously failed), version b opens with the solution (app-server now starts); chronological order is reversed",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p058",
+  "id": "terraA-answer-2",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p058",
+   "described": "The first two sentences of a (describing the delegation probe's checks in detail) are moved to the end in b. The upgrade-related content moves to the front.",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p059",
+  "id": "terraA-answer-3",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p059",
+   "described": "the skip() explanation and the count-removal rationale are reordered; a puts the mechanism first, b puts the historical context first",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p060",
+  "id": "terraA-answer-4",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p060",
+   "described": "Moves key instruction from beginning to end; context and explanation occupy middle",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p061",
+  "id": "terraB-tone-1",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p061",
+   "described": "a explains mechanism ('stored in the private home for later runs'), b explains benefit ('isolated runs start without rebuilding their local working state')",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p062",
+  "id": "terraB-tone-2",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p062",
+   "described": "a presents a technical detail (how files appear in the diff), b explains the consequence for reviewers (easier to assess)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p063",
+  "id": "terraB-tone-3",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p063",
+   "described": "Technical enumeration ('schema-correct approval refusals, pins the reviewer, checks applied policy') becomes a single abstract concept ('a dependable rights layer') with a restated outcome.",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p064",
+  "id": "terraB-tone-4",
+  "factor": "promotional-tone",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p064",
+   "described": "Opening clause states ordering fact (cheapest to most expensive) vs states consequence/benefit (surface failures before checks finish)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p065",
+  "id": "terraB-metaphor-1",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p065",
+   "described": "Condition phrased as 'never wakes up' (metaphorical) versus 'does not activate' (technical language).",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p066",
+  "id": "terraB-metaphor-2",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p066",
+   "described": "a uses 'literal text', b uses 'harmless passenger' \u2014 technical vs. metaphorical",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p067",
+  "id": "terraB-metaphor-3",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "off",
+  "checker": {
+   "pair": "p067",
+   "described": "Version a uses the idiom 'could not keep an eye on the children', version b uses the plain phrase 'could not observe work while children ran'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p068",
+  "id": "terraB-metaphor-4",
+  "factor": "metaphor",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p068",
+   "described": "Version a has tangled phrasing: 'validates review output instead of trusting output as a lead, not a verdict.' Version b simplifies: 'treats server output as a lead, not a verdict.'",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p069",
+  "id": "terraB-answer-1",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p069",
+   "described": "the cause-effect chain is reversed; a leads with action/result then states constraint, b leads with constraint then concludes with result",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p070",
+  "id": "terraB-answer-2",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p070",
+   "described": "Reorders sentences: a leads with verdict then explanation; b establishes context first, then verdict with 'Therefore'",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p071",
+  "id": "terraB-answer-3",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p071",
+   "described": "Requirement 'seat needing caller MCP servers must use --host-home' moves from opening in a to closing with 'Therefore' in b",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p072",
+  "id": "terraB-answer-4",
+  "factor": "answer-first",
+  "engine": "gpt-5.6-terra",
+  "aIs": "on",
+  "checker": {
+   "pair": "p072",
+   "described": "The statement about TASK, CHECK, RETURN is at the start of a, moved to the end of b with Therefore, making it a conclusion",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p073",
+  "id": "opusB-tone-1",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p073",
+   "described": "Final clause shifts from stating what the command names ('the thread and the working directory that produced this report') to what a caller gains from it ('can repeat it without reconstructing anything by hand').",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p074",
+  "id": "opusB-tone-2",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p074",
+   "described": "Final clause provides different consequence of streaming: verifier chatter elimination vs removal of 64 MB ceiling",
+   "category": "something else",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p075",
+  "id": "opusB-tone-3",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p075",
+   "described": "Final clause shifts from describing mechanism ('see a hooks path of /dev/null and no external diff') to describing effect ('cannot execute anything the seat left behind').",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p076",
+  "id": "opusB-tone-4",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p076",
+   "described": "a warns of costs (invented detail), b prescribes alternative (mark inference with confidence)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p077",
+  "id": "opusB-metaphor-1",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p077",
+   "described": "Version a uses the metaphor 'kept a false green light over broken code', version b uses plain language 'let the suite pass while the code was wrong'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p078",
+  "id": "opusB-metaphor-2",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p078",
+   "described": "Version a uses the idiomatic phrase 'does not walk into a directory'; version b uses literal phrasing: 'does not begin work in a directory.'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p079",
+  "id": "opusB-metaphor-3",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p079",
+   "described": "a uses 'stops at the name' while b uses 'is only skin deep' to express that resemblance is superficial",
+   "category": "one is simply written better",
+   "detectability": "subtle",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p080",
+  "id": "opusB-metaphor-4",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p080",
+   "described": "Replaces metaphorical phrase 'hunted down' with literal phrase 'killed outright'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p081",
+  "id": "opusB-answer-1",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p081",
+   "described": "b adds question-and-answer structure ('Is that a failure? No...') and expands explanation; nearly double the length of a's direct statement",
+   "category": "one is noticeably longer",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p082",
+  "id": "opusB-answer-2",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p082",
+   "described": "a begins with the conclusion (inconclusive), b presents evidence/setup first then reaches the same conclusion; major reordering of narrative flow",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p083",
+  "id": "opusB-answer-3",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p083",
+   "described": "Complete structural rewrite: version a is direct/declarative about what cannot happen; version b sets up the scenario with a question-and-answer format to reveal the same failure.",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p084",
+  "id": "opusB-answer-4",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p084",
+   "described": "Main decision moved from opening to closing; narrative restructured with rhetorical question; version b longer overall",
+   "category": "the two differ in more than one of these at once",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p085",
+  "id": "opusA-tone-1",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p085",
+   "described": "Explanatory scope changes: a ties validation timing to parallel scope ('same scan that covers bounds'); b emphasizes the consequence of early validation ('a bad path costs nothing more than a usage error').",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p086",
+  "id": "opusA-tone-2",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p086",
+   "described": "a explains via constraint (no outranking), b explains via comparison (same as read seat)",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p087",
+  "id": "opusA-tone-3",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p087",
+   "described": "Version a provides specific line numbers (1989, 2152 and 2593), version b draws a logical conclusion (neither row rests on the README's word alone)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p088",
+  "id": "opusA-tone-4",
+  "factor": "promotional-tone",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p088",
+   "described": "Version a identifies the code as 'the block that creates the detached tree.' Version b replaces this with a methodological claim: 'and one site is enough for a claim this narrow.'",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p089",
+  "id": "opusA-metaphor-1",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p089",
+   "described": "a uses 'was blind to' (figure of speech) where b uses 'did not count' (plain)",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p090",
+  "id": "opusA-metaphor-2",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p090",
+   "described": "Replaces metaphorical phrase 'red flag over the claim' with literal phrase 'reason to distrust the claim'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p091",
+  "id": "opusA-metaphor-3",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p091",
+   "described": "Rationale phrasing shifts from plain 'rule stated earlier already settled' to figurative 'higher rung on this ladder has spoken'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p092",
+  "id": "opusA-metaphor-4",
+  "factor": "metaphor",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p092",
+   "described": "a uses direct language (would catch a new defect), b uses a figure of speech (has any teeth at all) for the same concept",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p093",
+  "id": "opusA-answer-1",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p093",
+   "described": "Structure shifts from narrative/chronological (starting with how the bug was found) to principle-first (starting with 'Measure the invariant, not a proxy for it'), with corresponding rephrasing of the problem.",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p094",
+  "id": "opusA-answer-2",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p094",
+   "described": "Answer moved from end to beginning; question-answer structure replaced with direct statement; version a noticeably longer",
+   "category": "the two differ in more than one of these at once",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p095",
+  "id": "opusA-answer-3",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p095",
+   "described": "Passage reordered: a states principle first, then examples; b leads with specific examples, then the general principle.",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p096",
+  "id": "opusA-answer-4",
+  "factor": "answer-first",
+  "engine": "claude-opus-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p096",
+   "described": "a uses statement-then-evidence narrative, b uses question-then-answer narrative",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p097",
+  "id": "sonD-tone-1",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p097",
+   "described": "Version a claims 'a real improvement over the base skill' (asserts superiority), version b states 'a delta over the base skill' (neutral factual difference)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p098",
+  "id": "sonD-tone-2",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p098",
+   "described": "Version a states a concrete fact about the fields: 'logged only inside the driver.' Version b states a purpose/benefit: 'keeping every claim checkable.'",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p099",
+  "id": "sonD-metaphor-1",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p099",
+   "described": "a uses 'used' (neutral) where b uses 'burned through' (idiomatic/colorful)",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p100",
+  "id": "sonD-metaphor-2",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p100",
+   "described": "Replaces metaphorical 'passes the baton' with technical term 'delegates'",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p101",
+  "id": "sonD-answer-1",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p101",
+   "described": "Recommendation moves from conclusion ('No: treat it as a report field') at end of a to opening statement in b, with anecdote following",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p102",
+  "id": "sonD-answer-2",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p102",
+   "described": "a states principle first then gives anecdote, b presents anecdote first then derives principle \u2014 opposite logical ordering",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p103",
+  "id": "sonA-tone-1",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p103",
+   "described": "Final clause changes from stating a fact ('the defaults stay the same for every call') to claiming a benefit ('so nothing can go wrong before it starts') \u2014 though the benefit claim is logically weaker.",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p104",
+  "id": "sonA-tone-2",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p104",
+   "described": "Consequence phrase: mechanism-focused (without stopping the run) vs benefit-focused (without masking a real regression)",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p105",
+  "id": "sonA-metaphor-1",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p105",
+   "described": "Term changes from 'exit code list' (plain, literal) to 'exit ladder' (figurative metaphor).",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p106",
+  "id": "sonA-metaphor-2",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p106",
+   "described": "a uses 'unaffected', b uses 'immune' \u2014 synonym with different precision and force",
+   "category": "one is simply written better",
+   "detectability": "subtle",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p107",
+  "id": "sonA-answer-1",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p107",
+   "described": "Version a frames by stating what a coordinator cannot see, version b frames by stating how the system actually works; one is problem-first, one is solution-first",
+   "category": "the main point sits in a different position",
+   "detectability": "noticeable",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p108",
+  "id": "sonA-answer-2",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p108",
+   "described": "Version a explains in one sentence why the check is needed. Version b restructures into problem-question-answer form across multiple sentences, building the logical argument differently.",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p109",
+  "id": "sonB-tone-1",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p109",
+   "described": "a ends by positioning code 12 within the taxonomy of documented failures; b ends by explaining the safety benefit (preventing misidentification)",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p110",
+  "id": "sonB-tone-2",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p110",
+   "described": "End changes from abstract consequence ('hostile caller cannot break these guarantees') to specific verification method ('verified by adversarial contract tests')",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p111",
+  "id": "sonB-metaphor-1",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p111",
+   "described": "Single word substitution: 'write access ends at the tree' in a vs 'sandbox ends at the tree' in b; sandbox is more figurative for the boundary",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p112",
+  "id": "sonB-metaphor-2",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p112",
+   "described": "a describes the records as unused, b describes them as dead \u2014 word choice difference",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p113",
+  "id": "sonB-answer-1",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p113",
+   "described": "Sentence order completely rearranged: the key insight ('A seat that did nothing is indistinguishable from a seat that found nothing') moves from the end to the opening, then the defect and receipt check details follow.",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p114",
+  "id": "sonB-answer-2",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p114",
+   "described": "Conclusion sentence moved from last to first, but version b ends without restating conclusion, leaving structure incomplete",
+   "category": "one is simply written better",
+   "detectability": "obvious",
+   "worseSide": "b"
+  }
+ },
+ {
+  "token": "p115",
+  "id": "sonC-tone-1",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p115",
+   "described": "Framing shifts from mechanism ('inline answer stays short and full text sits at answerPath') to user experience benefit ('a rushed reader is never buried in output they did not ask for').",
+   "category": "one side claims a benefit where the other states a plain fact",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p116",
+  "id": "sonC-tone-2",
+  "factor": "promotional-tone",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p116",
+   "described": "a emphasizes outcome (results land predictably), b describes mechanism (task writes on completion)",
+   "category": "one is simply written better",
+   "detectability": "noticeable",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p117",
+  "id": "sonC-metaphor-1",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "on",
+  "checker": {
+   "pair": "p117",
+   "described": "Version a uses the word 'range', version b uses the word 'ladder' to describe the set of permitted effort values",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "obvious",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p118",
+  "id": "sonC-metaphor-2",
+  "factor": "metaphor",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p118",
+   "described": "Version a uses 'swallowed every setting' (metaphorical); version b uses 'discarded every setting' (plain language). Same outcome, different descriptive framing.",
+   "category": "one uses a figure of speech where the other is plain",
+   "detectability": "subtle",
+   "worseSide": "neither"
+  }
+ },
+ {
+  "token": "p119",
+  "id": "sonC-answer-1",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p119",
+   "described": "a leads with the constraint (one-seat tasks need no judgement seat); b leads with the default behavior (half seats go to Codex by default)",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ },
+ {
+  "token": "p120",
+  "id": "sonC-answer-2",
+  "factor": "answer-first",
+  "engine": "claude-sonnet-5",
+  "aIs": "off",
+  "checker": {
+   "pair": "p120",
+   "described": "Reorders sentences: a opens with problem and question; b opens with answer (both platforms covered), then explains context",
+   "category": "the main point sits in a different position",
+   "detectability": "obvious",
+   "worseSide": "a"
+  }
+ }
+]

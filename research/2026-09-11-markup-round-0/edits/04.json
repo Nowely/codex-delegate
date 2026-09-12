@@ -1,0 +1,22 @@
+[
+ {
+  "name": "§1 trust claim",
+  "old": "You say what an agent may touch before it starts, and what it did is checked against the record of the\nturn rather than taken on its word: by default, an agent that ran nothing comes back failed, not finished.",
+  "new": "You say what an agent may touch before it starts. The rights it got and whether it ran anything are read\nfrom the record of the turn, not taken on its word: by default, an agent that ran nothing comes back\nfailed, not finished."
+ },
+ {
+  "name": "§4 marketplace removal",
+  "old": "Removing the\n*marketplace* instead uninstalls every plugin that came from it — run `/codex-delegate:cleanup` first if\nany of it matters.",
+  "new": "Removing the\n*marketplace* instead uninstalls every plugin that came from it and deletes their stored data too; copy\nthe directory named under [What it stores](#what-it-stores-and-what-leaves-your-machine) first if any\nof it matters."
+ },
+ {
+  "name": "§5 read grant",
+  "old": "It reads anything you can read; the only thing it\n  may write is a scratch space of its own, which is enough for most test suites but not for browser tests.",
+  "new": "It reads anything you can read, and your system\n  temp directory is the only thing it may write — enough for most test suites, not for browser tests."
+ },
+ {
+  "name": "§6 temp directory",
+  "old": "- **your system temp directory** — that scratch space, one per agent; your machine clears it.",
+  "new": "- **your system temp directory** — each agent's prompt file, and whatever a read-only agent writes while\n  it works."
+ }
+]

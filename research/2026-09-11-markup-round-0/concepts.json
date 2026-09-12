@@ -1,0 +1,50 @@
+[
+ {
+  "name": "quota / sign-in",
+  "pattern": "quota|signed in|sign-in|login status"
+ },
+ {
+  "name": "prompt file + permission",
+  "pattern": "prompt to a file|prompt file|permission to write|briefs each agent"
+ },
+ {
+  "name": "last commit / empty diff",
+  "pattern": "last commit|uncommitted|empty diff|stash"
+ },
+ {
+  "name": "writable scratch / tempdir",
+  "pattern": "scratch space|temp directory|TMPDIR"
+ },
+ {
+  "name": "work comes back as a diff",
+  "pattern": "comes back as a diff|harvest|what it did has been saved"
+ },
+ {
+  "name": "reaches the network",
+  "pattern": "network"
+ },
+ {
+  "name": "panel / second opinion",
+  "pattern": "panel|second opinion|refut"
+ },
+ {
+  "name": "several at once / fan-out",
+  "pattern": "several (?:run|read|at once)|fan-out|share one directory|at once"
+ },
+ {
+  "name": "proof a command ran",
+  "pattern": "ran nothing|having run nothing|what really ran|reports what ran|proof"
+ },
+ {
+  "name": "codex upgrade breaks a run",
+  "pattern": "codex.{0,20}upgrade|upgrade.{0,20}(?:codex|run)|untested"
+ },
+ {
+  "name": "stored data survives",
+  "pattern": "stored answers|run records|age out|keep-data"
+ },
+ {
+  "name": "rights per call",
+  "pattern": "rights|may touch|blast radius"
+ }
+]

@@ -1,0 +1,70 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+NETWORK: no
+MODEL: gpt-5.6-sol
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/schema.json
+EXPECT: driver\.mjs
+TASK:
+You are seat S2, and your role is refuter. A retrospective document proposes wording changes to a
+working plugin. Someone else is checking whether its facts are right. Your question is different and
+narrower: do the proposed remedies work?
+
+The document is at
+/var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/retro-shared.GDCnQbTu/retrospective.md
+
+Your current directory, /Users/ruliny/Git/codex-delegate, is the tree it proposes to change, at tag
+v0.13.0. Assume for your purposes that the document's diagnoses are accurate; judge only the cures.
+
+For each proposed fix, answer two questions:
+  (1) Does the replacement remove the defect it targets, for a reader who meets it mid-task rather
+      than reading the page front to back?
+  (2) Does it introduce a new defect, a new ambiguity, or a contradiction with text elsewhere in the
+      repository that the document does not mention?
+
+Default to refuted when you are uncertain. A cure you cannot show to be sound is not sound.
+
+Cover every remedy: the rung rename and the two comment replacements in 1.1, and separately the
+proposed stderr line; the three-edit table and the short-name scheme in 1.2; the scoping of the
+blocking-wait rule in 1.3; the replacement paragraph in 1.4; each of the six Tier 2 requirements; the
+reordering recommendation in Tier 3; and the two entries under "Rejected", where your question is
+whether the rejection itself is sound rather than whether the change is.
+
+Press hardest on these five, each of which you must rule on explicitly:
+
+  P1. The proposed stderr line reads "turn completed; final answer retained at <path>; N approval
+      requests declined". Determine on which code paths it would print, and whether it can print
+      while contradicting either the exit code or the report. Consider a turn that did not complete,
+      a turn with no answer, a report that was never published, and a cut turn.
+
+  P2. Dropping the word "Codex" from user-facing agent names removes the only vendor signal in the
+      name itself. Determine what else in the repository would still tell a reader which vendor ran
+      a given seat, and whether that is enough, given that the composition-announcement rule and the
+      short-name mapping live on pages the end user never reads.
+
+  P3. The replacement wording for 1.4 says a fresh managed worktree contains HEAD. Read the code that
+      builds a worktree for a resumed thread before ruling. If a resumed seat's tree is built from a
+      recorded base commit rather than from current HEAD, say whether the proposed wording is then
+      wrong in the same way the wording it replaces is wrong.
+
+  P4. Tier 2 proposes replacing the single COMMAND_BLOCKED token with a free-form record. Search the
+      whole repository, tests and evals included, for anything that produces, matches or counts that
+      token. Rule on what the replacement would break.
+
+  P5. Tier 3 proposes moving "What the user reads" and the composition rules above the launch recipe.
+      Rule on what that costs: name what a reader would now meet before the thing it constrains, and
+      whether any of the moved text depends on vocabulary the launch recipe introduces.
+
+CHECK:
+Ground your rulings in the tree, not in the document. For P4, the search must actually run and you
+must report the command and its hit count; a claim that nothing consumes the token is worthless
+without it. For P3, quote the code that chooses a worktree's base commit. For P1, name the function
+that writes the driver's closing output and say what it currently writes. A ruling you did not ground
+must be reported as unverifiable rather than asserted.
+
+RETURN:
+The five fields of the output schema. The first line of result is one sentence a reader can take on
+its own, beginning "gpt-5.6-sol S2:" followed by your status and what you did. In result, one line per
+remedy with a verdict of SOUND, SOUND WITH CAVEAT, REFUTED or UNVERIFIABLE, the remedy in a few words,
+and the deciding reason; then the five pressed items P1 to P5 in their own block, each with its
+verdict and the fact that decided it. Where you refute a cure, give the smallest change that would
+make it sound, in one sentence. In evidence, the commands you ran with their counts and the code you
+quoted. In open, the rulings you could not ground.

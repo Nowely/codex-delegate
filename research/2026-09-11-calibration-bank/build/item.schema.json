@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id","type","factor","source","code","instructionOn","instructionOff","variants"],
+        "properties": {
+          "id": {"type": "string"},
+          "type": {"type": "string", "enum": ["single-factor","code-comment"]},
+          "factor": {"type": "string", "enum": ["promotional-tone","metaphor","answer-first",""]},
+          "source": {"type": "string"},
+          "code": {"type": "string"},
+          "instructionOn": {"type": "string"},
+          "instructionOff": {"type": "string"},
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key","text","words"],
+              "properties": {
+                "key": {"type": "string", "enum": ["on","off","keep","rewrite","delete"]},
+                "text": {"type": "string"},
+                "words": {"type": "integer"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+NETWORK: no
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Rewrite the opening of a README so that it works for the person who lands on it.
+
+The file is /Users/ruliny/Git/codex-delegate/README.md in the checkout you are sitting in. Rewrite lines
+1 to 21, its title, its opening paragraph and the section headed "Goal". Nothing below line 21 is yours
+to change. Read whatever you need of the repository to get the facts right.
+
+WHO YOU ARE WRITING FOR. Hold this person in mind for every sentence, and write nothing they cannot use:
+
+  They have never seen this repository. They arrived from a link, or from a list of plugins. They may
+  not be an engineer at all, and if they are, they know nothing of this project's vocabulary. They will
+  give the page about thirty seconds before deciding to stay or to leave, and they are deciding exactly
+  that: is this thing for me. They do not yet care how it works, what it guarantees, or what it refuses
+  to do. Nobody has explained a single term to them, and they will not accept one on trust.
+
+Write the opening that keeps that person reading. If a sentence only makes sense to someone who already
+knows this project, it has failed and you rewrite it.
+
+THE ACCURACY FLOOR, which is not negotiable and is the same for every writer doing this task: every
+statement you make about what this plugin is or does must be true of the code in this checkout. Do not
+narrow the subject to make a sentence concrete, and do not widen it to make a sentence impressive. For
+each claim about behaviour, know the file and line that backs it.
+
+Do not carry the current wording forward out of politeness. Do not preserve the "Goal" section as a
+section merely because it exists; decide what a first-time reader needs of it, if anything, and where.
+
+CHECK:
+a) Read the current lines 1-21 and name, concretely, what each part costs your reader: a term used
+   before it means anything, a guarantee they cannot yet evaluate, a sentence they must re-read.
+b) Back every behavioural claim in your new text with a file and line.
+c) Count the words before and after.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra V1), your status and what you did. Then your new opening,
+             verbatim and complete, ready to paste, as Markdown. Nothing else in this field.
+  evidence:  word count before and after; what you cut and why your reader does not need it there; the
+             file and line behind each behavioural claim you made.
+  artifacts: anything you left in your own temporary directory.
+  open:      anything you could not settle, and any place you suspect you wrote for an expert by habit.

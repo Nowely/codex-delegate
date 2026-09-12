@@ -1,0 +1,395 @@
+[
+ {
+  "name": "ran-nothing qualified by default",
+  "pattern": "by default, an agent that ran nothing comes back failed",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "read grant = a temp directory only",
+  "pattern": "(?:your system|one) temp directory is the only thing it may write",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "temp fallback named",
+  "pattern": "the plugin's own when your shell names none",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "stashing named as not helping",
+  "pattern": "Stashing does not help",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "network honest: off in one line",
+  "pattern": "reach the network, or not — you say which",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:100-101 NETWORK: no leaves WEB_SEARCH; driver.mjs:2155 web_search disabled unless set; parity.md:15-16 committing: none"
+ },
+ {
+  "name": "update needs restart",
+  "pattern": "Restart Claude Code to apply an update",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "marketplace removal deletes data",
+  "pattern": "deletes their stored data",
+  "want": true,
+  "level": 3,
+  "how": "astra C2 and opus-a: `claude plugin marketplace remove nowely` in an isolated config → exit 0, seeded data gone, no prompt"
+ },
+ {
+  "name": "copy = the plugin's data directory",
+  "pattern": "copy this plugin's data directory first",
+  "want": true,
+  "level": 3,
+  "how": "astra C2 and opus-a: `claude plugin marketplace remove nowely` in an isolated config → exit 0, seeded data gone, no prompt"
+ },
+ {
+  "name": "rights mismatch stops the run",
+  "pattern": "the rights Codex reports are checked against that",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:1948-2020 assertSandbox on the thread-start response; ISSUES C5 for the two fields it does not read"
+ },
+ {
+  "name": "verdict from the record of the turn",
+  "pattern": "verdict comes from the record of the turn",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "reload-plugins as instruction",
+  "pattern": "run `\\/reload-plugins` there",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "four places, worktrees named",
+  "pattern": "\\.claude\\/worktrees` inside your repository",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "failed copy kept",
+  "pattern": "A copy whose run was cut short is kept",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:1854-1872 harvest excludes ignored, names them, removes the tree; opus: SIGTERM after threadId → worktreePreserved, exit 1"
+ },
+ {
+  "name": "app-server claim, sourced form",
+  "pattern": "only Codex interface with both per-call rights",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "continuation: rebuilt from saved work",
+  "pattern": "rebuilds its copy from its last saved work",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "killed run's lock reclaimed",
+  "pattern": "reclaimed by the\\s+next",
+  "want": false
+ },
+ {
+  "name": "OOM row: leaving no report",
+  "pattern": "leaving no report",
+  "want": false
+ },
+ {
+  "name": "NEG 04 'rights read from the turn'",
+  "pattern": "rights it got and whether it ran anything are read from the record of the turn",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'scratch space of its own'",
+  "pattern": "scratch space of its own",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'Nothing leaves your machine'",
+  "pattern": "Nothing leaves your machine",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'Commit or stash'",
+  "pattern": "Commit or stash",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'run cleanup first'",
+  "pattern": "cleanup` first",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'The install summary says'",
+  "pattern": "The install summary says",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'the write locks stay'",
+  "pattern": "the write locks stay",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'only … that takes rights per call'",
+  "pattern": "only Codex interface that takes rights per call",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'seat orchestrate cleanup'",
+  "pattern": "seat orchestrate cleanup",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'keeps the copy it had'",
+  "pattern": "keeps the copy it had",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'cleanup lists what the plugin left'",
+  "pattern": "cleanup` lists what the plugin left",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'a report path already used'",
+  "pattern": "a report path already used",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'continues from where it stopped'",
+  "pattern": "continues from where it stopped",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'lock lasts as long as its run'",
+  "pattern": "A write lock lasts as long as its run",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'failed turn's copy stay'",
+  "pattern": "failed turn's copy stays? until you remove (?:it|them)[.;]",
+  "want": false,
+  "level": 2,
+  "note": "pattern narrowed 2026-09-12 in round 09: the retired claim was the unconditional one; 09 states the condition"
+ },
+ {
+  "name": "CONTROL planted-absent",
+  "pattern": "zzz-never-present-zzz",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'grants anything else'",
+  "pattern": "grants anything else",
+  "want": false
+ },
+ {
+  "name": "trigger for a throwaway copy",
+  "pattern": "Let Codex try the fix in a throwaway copy",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:97 `SEAT: worktree <repo>`; the skill is model-invoked on phrasing"
+ },
+ {
+  "name": "NEG 'Lists what the plugin left on this machine'",
+  "pattern": "Lists what the plugin left on this machine",
+  "want": false
+ },
+ {
+  "name": "saved excludes ignored files",
+  "pattern": "with it anything git ignores",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:1854-1872 harvest excludes ignored, names them, removes the tree; opus: SIGTERM after threadId → worktreePreserved, exit 1"
+ },
+ {
+  "name": "web search is a separate switch",
+  "pattern": "web search is a separate switch",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:100-101 NETWORK: no leaves WEB_SEARCH; driver.mjs:2155 web_search disabled unless set; parity.md:15-16 committing: none"
+ },
+ {
+  "name": "parity: proof is what it adds",
+  "pattern": "What it adds is proof",
+  "want": true,
+  "level": 2,
+  "how": "the opening's second paragraph names the other thing it adds, a second model; parity.md:15-28 the lacks"
+ },
+ {
+  "name": "NEG 'one place the two differ'",
+  "pattern": "The one place the two differ is proof",
+  "want": false
+ },
+ {
+  "name": "standing instructions reach OpenAI too",
+  "pattern": "the plugin's standing instructions to it",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:3558 developerInstructions(), sent at :3794 with every thread"
+ },
+ {
+  "name": "private home shares sign-in and sessions",
+  "pattern": "your sign-in and four settings come in",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:1218-1228 auth.json and sessions linked; INHERITED :1049 four keys written :1279-1281 (opus F-c measured); reconcile :1650-1678 clean tree removed, dirty left (opus F-a measured); environment-and-internals.md:74-78"
+ },
+ {
+  "name": "NEG 'images you attached'",
+  "pattern": "images you attached",
+  "want": false
+ },
+ {
+  "name": "NEG 'commits are kept under refs' unconditional",
+  "pattern": "a crashed run's commits are kept under",
+  "want": false
+ },
+ {
+  "name": "retention numbers",
+  "pattern": "14 days or 400 entries",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:80-81 PRUNE_DAYS 14, PRUNE_MAX_ENTRIES 400; pruneDir called at 1145, 1535, 2991, 3003 — inside runs only; environment-and-internals.md:132-135 reports never pruned"
+ },
+ {
+  "name": "NEG 'sized too small'",
+  "pattern": "sized too small",
+  "want": false
+ },
+ {
+  "name": "failed command does not fail the run by default",
+  "pattern": "a command it must have\\s+run, or a check of your own that must pass, are gates you ask for",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:232-274 ladder, :266 no-commands floor, :3110 commandsRan; --expect-command exit 5 and --verify exit 9 (opus F-m); :2956-2963 and :3455 receiptOk reported, not a gate (opus F-7 measured receiptOk=false with exit 0)"
+ },
+ {
+  "name": "receipt proves the thread existed",
+  "pattern": "says whether Codex's own\\s+session file for the thread was found and read",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:232-274 ladder, :266 no-commands floor, :3110 commandsRan; --expect-command exit 5 and --verify exit 9 (opus F-m); :2956-2963 and :3455 receiptOk reported, not a gate (opus F-7 measured receiptOk=false with exit 0)"
+ },
+ {
+  "name": "NEG 'a turn happened at all is backed'",
+  "pattern": "That a turn happened\\s+at all is backed",
+  "want": false
+ },
+ {
+  "name": "missing report means unknown",
+  "pattern": "a missing report means unknown, never success",
+  "want": true,
+  "level": 3,
+  "how": "seat/SKILL.md:164-167 'a missing one means unknown, never success'; parity.md:113 overshoot ends runs with SIGTERM; opus-a: a SIGTERMed driver wrote its report (exit 4)"
+ },
+ {
+  "name": "NEG 'grants a different sandbox'",
+  "pattern": "grants a different sandbox",
+  "want": false
+ },
+ {
+  "name": "NEG 'pinned to'",
+  "pattern": "pinned to",
+  "want": false
+ },
+ {
+  "name": "choose model and rights",
+  "pattern": "Say which model and what\\s+it may touch",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:86 and :126 no header = a read seat; :132 MODEL: set when a seat needs a model other than the default; :57-58 the short names"
+ },
+ {
+  "name": "cleanup row lists what it covers",
+  "pattern": "Lists the agents' scratch, orchestration runs, throwaway copies and locks",
+  "want": true,
+  "level": 3,
+  "how": "orchestrate/SKILL.md:23-27 tree-wide greps and source reading go to seats; cleanup.mjs rows: runs, seats, worktrees, locks — opus F-b listing and deletion measured"
+ },
+ {
+  "name": "NEG 'not your answers, run records or reports'",
+  "pattern": "not your answers, run records or reports",
+  "want": false
+ },
+ {
+  "name": "NEG '.gitignore covers'",
+  "pattern": "\\.gitignore` covers",
+  "want": false
+ },
+ {
+  "name": "NEG 'The one thing it has'",
+  "pattern": "The one thing it has that a native subagent does not",
+  "want": false
+ },
+ {
+  "name": "NEG 'sharing only'",
+  "pattern": "sharing only",
+  "want": false
+ },
+ {
+  "name": "NEG 'a copy with unsaved files is left as it is'",
+  "pattern": "unsaved files is left as it is",
+  "want": false
+ },
+ {
+  "name": "NEG 'trimmed when a later run starts'",
+  "pattern": "trimmed when a\\s+later run starts",
+  "want": false
+ },
+ {
+  "name": "NEG 'a difference stops the run'",
+  "pattern": "a difference stops the run",
+  "want": false
+ },
+ {
+  "name": "NEG 'asked for that command by name'",
+  "pattern": "asked for that\\s+command by name",
+  "want": false
+ },
+ {
+  "name": "NEG 'That the thread existed is backed'",
+  "pattern": "That the thread existed is backed",
+  "want": false
+ },
+ {
+  "name": "refusal says why",
+  "pattern": "the refusal says why",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:1444-1456 three lock cases, each refusal carries its own instruction (opus F-e measured); :999-1007; quota :3776"
+ },
+ {
+  "name": "NEG 'stop the Codex processes'",
+  "pattern": "stop the Codex processes",
+  "want": false
+ },
+ {
+  "name": "NEG 'mutation-checked'",
+  "pattern": "mutation-checked",
+  "want": false
+ }
+]

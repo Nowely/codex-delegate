@@ -1,0 +1,13 @@
+{
+  "(opening)": 110,
+  "Quick start": 210,
+  "Commands": 140,
+  "Update and uninstall": 80,
+  "What a Codex agent can do, and what it may touch": 230,
+  "What it stores, and what leaves your machine": 190,
+  "Where parity stops": 110,
+  "Against the official `openai-codex` plugin": 90,
+  "How it works": 200,
+  "Troubleshooting": 180,
+  "Further reading": 50
+}

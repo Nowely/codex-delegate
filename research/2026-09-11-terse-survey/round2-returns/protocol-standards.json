@@ -1,0 +1,252 @@
+{
+  "items": [
+    {
+      "id": "iso-24495-1",
+      "url": "https://www.iso.org/standard/78907.html",
+      "opened": false,
+      "evidence": "Standard itself NOT opened — iso.org/obp and the ANSI preview PDF both returned HTTP 403 (curl: `403 text/html 5823` for webstore.ansi.org/preview-pages/ISO/preview_ISO+24495-1-2023.pdf; WebFetch 403 for iso.org/obp/ui). What I did open: (a) https://www.iplfederation.org/iso-standard/ — the International Plain Language Federation, co-author body, four principles verbatim; (b) PRIMARY-ADJACENT, fully read: IPLF + International Institute for Information Design, \"Document design pattern library in support of ISO 24495: Plain language\", development draft 0.6, June 2025, downloaded to /tmp/ISOpatternlibrary06.pdf (1.74 MB, image-only PDF; I OCR'd pages 1–12 with a Vision-framework helper I wrote at /tmp/ocrpdf.swift, output /tmp/isopat_ocr.txt). Its contents page (p.2) and pp.3–6 give the clause numbering it mirrors and two direct quotations from ISO 24495-1 pp. v and 1. Clause TITLES of Parts 2 and 3 came from a WebSearch result summary only — flagged, not treated as read.",
+      "whatItIs": "ISO 24495-1:2023 Plain language — Part 1: Governing principles and guidelines. 14 pages, ICS 01.140.10, TC 37, June 2023. Four governing principles, each expanded as a subclause of Clause 5: 5.1 Principle 1 Readers get what they need (relevant); 5.2 Principle 2 Readers can easily find what they need (findable); 5.3 Principle 3 Readers can easily understand what they find (understandable); 5.4 Principle 4 Readers can easily use the information (usable). Under each, guideline subclauses run from x.x.1 (\"Initial steps\") upward. The pattern library mirrors 5.1.2–5.1.7, 5.2.2–5.2.5, 5.3.2–5.3.5. ISO's own definition, quoted in the pattern library p.5: plain language \"puts readers first\" and considers what readers want and need to know, their interest/expertise/literacy, and the context of use (ISO 24495-1 p. v); scope is \"anybody who creates or helps create documents\" (p. 1).",
+      "measures": "Nothing directly. The load-bearing structural fact, from the pattern library p.5: ISO takes the view that if Principles 1–3 are followed the document should be usable, so Principle 4 \"does not contain further guidance on plain language, but instead discusses how to evaluate that usability has been achieved.\" So one quarter of the standard is an evaluation clause, not a writing clause. I could not open Clause 5.4 itself, so I cannot say which evaluation methods it names. The IPLF page asserts the standard \"rests on empirical research\" and was consensus-drafted by experts from 25 countries / 19 languages — authority plus an unverified bibliography, not a measurement reported in the standard.",
+      "verdict": "steal-a-part",
+      "weaknesses": "Paywalled, so every clause title I report is second-hand. The widely repeated \"~485 ideas, only ~7% on word choice\" figure came from a search summary and I could not verify it. Consensus standard: its warrant is committee agreement plus a bibliography, and no effect size is attached to any individual guideline. Its four principles are close to a restatement of the three outcomes plainlanguage.gov already used in the 1990s (find / understand / use), so adopting ISO wording buys vocabulary, not new evidence. Adding it as a mandatory pass would repeat the failure mode already measured on our side: standards produce audits, not rewriting.",
+      "practices": [
+        {
+          "practice": "Frame every audit question as one of four reader outcomes — did the reader GET what they need (relevant), FIND it (findable), UNDERSTAND it (understandable), USE it (usable) — and tag each measured failure with the outcome it broke, so the repair pass knows whether to add content, move it, reword it, or make it executable.",
+          "locus": "ISO 24495-1 Clause 5.1–5.4, as listed in IPLF pattern library p.5 (/tmp/isopat_ocr.txt, PAGE 5 block) and iplfederation.org/iso-standard/",
+          "evidenceForIt": "Asserted (committee consensus). Useful as a classification scheme, not as proof. Note it maps almost one-to-one onto our existing lie / placement / findability triage, adding only the 'usable' bucket.",
+          "costAndCollision": "Cheap: a tag on each failure. Collides with terse only if it becomes a four-pass checklist rather than a label."
+        },
+        {
+          "practice": "Treat usability as something you evaluate, not something you write: do not write a fourth set of style rules for 'usable' — spend that budget on testing the document with readers.",
+          "locus": "IPLF pattern library p.5, 'A note about Principle 4 (usable)' (/tmp/isopat_ocr.txt)",
+          "evidenceForIt": "Argued, by the body that co-wrote the standard. It is independent convergence with our own design, which is the interesting part.",
+          "costAndCollision": "No cost — it endorses what audit already does."
+        },
+        {
+          "practice": "Apply the decoration test: every visible element of a document must be explainable either as content or as a pattern that helps readers; anything you cannot account for that way is decoration and is a candidate for deletion, because it can mislead or act as clutter.",
+          "locus": "IPLF pattern library p.4, 'Use it to comment on design or explain your design to others' (/tmp/isopat_ocr.txt, PAGE 4)",
+          "evidenceForIt": "Argued, not measured. But it is a sharp, checkable question and it is exactly the kind of prompt the curse-of-knowledge pass can run over headings, badges, tables and diagrams.",
+          "costAndCollision": "Low. Fits the revise chain as one question inside an existing pass; do not make it a new pass."
+        },
+        {
+          "practice": "Challenge the template: when a document follows a genre template, ask what readers need before accepting the template's shape — 'visualize content by design rather than by default'.",
+          "locus": "IPLF pattern library p.4, 'How to use the pattern library' (/tmp/isopat_ocr.txt, PAGE 4)",
+          "evidenceForIt": "Asserted.",
+          "costAndCollision": "Free as a reader-profile prompt; expensive if it licenses wholesale restructuring on taste."
+        }
+      ]
+    },
+    {
+      "id": "plainlanguage-gov",
+      "url": "https://github.com/GSA/plainlanguage.gov",
+      "opened": true,
+      "evidence": "Opened the source repository, not the rendered site: `gh api repos/GSA/plainlanguage.gov/tarball/main` extracted to /tmp/plg/GSA-plainlanguage.gov-fd76947 (commit fd76947). Read in full: _pages/guidelines/index.md; _pages/guidelines/test/{index,paraphrase-testing,usability-testing,controlled-comparative-studies}.md; _pages/guidelines/concise/{write-short-sentences,write-short-paragraphs,write-short-sections}.md; _pages/resources/articles/plain-language-the-bottom-line.md; _pages/about/benefits.md. Read the rule text of _pages/guidelines/{words/use-simple-words-phrases, words/avoid-hidden-verbs, words/minimize-abbreviations, organize/add-useful-headings, web/avoid-faqs, conversational/use-active-voice, design/minimize-cross-references}.md. Enumerated the whole set: 41 rule pages plus 8 section indexes under _pages/guidelines/.",
+      "whatItIs": "The Federal Plain Language Guidelines — the official writing guidance for the Plain Writing Act of 2010, first written in the mid-90s for regulations. Eight sections: audience (3 rules), organize (7), words (8), concise (5), conversational (7), design (4), web (4), test (3). Stated goal on the index page: users can find what they need, understand what they find, and use what they find to meet their needs. Each rule page carries a `sources:` YAML block citing books and handbooks (Kimble, Garner, Redish, Charrow, SEC Plain English Handbook, Murawski) with page numbers — the citation apparatus points at authorities, not at experiments.",
+      "measures": "Yes, in one specific place: _pages/guidelines/test/ is a measurement method, not a style rule. Paraphrase testing: 6–9 one-on-one interviews, reader reads to a cue then restates the section in their own words, tester writes the reader's words down and never corrects them; wherever the reader misunderstood, the document has a defect. Usability testing: three people matching simple criteria, one hour each, short scenarios, think-aloud, then retest after changes. Controlled comparative studies: A/B with a stated success metric, explicitly placed last because it tells you IF content works but not WHY. Separately, _pages/resources/articles/plain-language-the-bottom-line.md carries field outcome data (mostly from Kimble, Writing for Dollars, Writing to Please): VBA letter calls per counselor 94→16 per month; FCC pleasure-boat regulation answer time 2.43→1.50 min experienced, 3.51→1.73 min inexperienced; Canadian form error rate 40%→20%; livestock certificate compliance 40%→95%; VBA beneficiary letter response 43%→65% saving ~$4.4M; Arizona DoR ~18,000 fewer calls in 2007.",
+      "verdict": "compose",
+      "weaknesses": "Two failure modes to avoid importing. (1) Hard numeric limits with no source: write-short-paragraphs.md asserts \"paragraphs of no more than 150 words in three to eight sentences\" and \"never be longer than 250 words\", attributed only to \"writing experts\", and its own `sources:` block cites two books without tying them to the numbers — this is exactly the rejected hard-limit shape. (2) Word-substitution lists: words/use-simple-words-phrases.md is a long don't-say/say table with a \"dirty dozen\" — the substrate of prose linters we already rejected as a gate. Also the field outcome numbers are uncontrolled before/after comparisons of whole redesigns (wording plus layout plus structure changed together), so they license 'rewriting works', not 'this rule works'. web/avoid-faqs.md is a reprinted DigitalGov blog post, weaker provenance than the rest. The register is regulations and letters to the public, not developer docs.",
+      "practices": [
+        {
+          "practice": "Run paraphrase testing as a cheap second measurement alongside the answer-key questions: have the fresh reader stop at fixed cues and restate the section in its own words, record the restatement verbatim, and mark every divergence from the code-derived answer key as a defect — even when the reader reports the text was clear.",
+          "locus": "_pages/guidelines/test/paraphrase-testing.md (whole page; the VBA 'service-connected disability' case is the demonstration that self-reported clarity is worthless)",
+          "evidenceForIt": "Argued plus case evidence: three documented VBA cases where every reader said the text was clear and several would still have taken the wrong action. Not a controlled study.",
+          "costAndCollision": "Directly compatible with audit's one-model-per-question design; adds one prompt shape. Costs extra seats — collides with terse's no-large-fan-outs rule if run at 6–9 readers per document."
+        },
+        {
+          "practice": "Fix the success metric before testing: state what result counts as success (fewer clarification questions, more correct completions, fewer wrong actions) before you touch the text, and measure that.",
+          "locus": "_pages/guidelines/test/controlled-comparative-studies.md, 'Define your goals'",
+          "evidenceForIt": "Argued; standard experimental hygiene.",
+          "costAndCollision": "Free. Already implicit in the answer-key design; making it explicit would sharpen the audit report."
+        },
+        {
+          "practice": "Order the measurements: small qualitative tests first (paraphrase, then usability), A/B last — a comparative test tells you whether the document works but not why it fails, so it cannot drive a repair pass.",
+          "locus": "_pages/guidelines/test/controlled-comparative-studies.md, opening paragraph; _pages/guidelines/test/index.md, 'Tests to explore'",
+          "evidenceForIt": "Argued.",
+          "costAndCollision": "Free, and it is an argument against turning our bake-off into the primary instrument."
+        },
+        {
+          "practice": "Plan to test at least twice — test, repair, retest — and treat the retest as also checking that the repair introduced no new failure.",
+          "locus": "_pages/guidelines/test/index.md, 'When to test'; _pages/guidelines/test/usability-testing.md, National Cancer Institute case ('People of Color Get Skin Cancer, Too' → 'Anyone Can Get Skin Cancer')",
+          "evidenceForIt": "Case evidence with a documented before/after change in reader interpretation; no numbers.",
+          "costAndCollision": "Doubles audit cost. Terse already does this implicitly by re-running the audit after revise; worth naming as a rule."
+        },
+        {
+          "practice": "Use question headings drawn from the reader's actual questions, so the table of contents doubles as the index; prefer statement headings over topic headings when you don't know the questions.",
+          "locus": "_pages/guidelines/organize/add-useful-headings.md ('Types of headings'); worked example in _pages/guidelines/concise/write-short-sections.md where §2653.30 becomes §2653.31–34 with question headings",
+          "evidenceForIt": "Argued, with before/after examples; sourced to Kimble 2006 pp.11, 165-174 and Murawski 1999 pp.9-10 in the page's `sources:` block.",
+          "costAndCollision": "Cheap and directly attacks findability failures. Collides with terse only in tone — question headings are wordier than topic headings."
+        },
+        {
+          "practice": "Address the reader as 'you' and name the actor in every obligation; convert nominalizations back into verbs ('we manage the program', not 'we are responsible for management of the program').",
+          "locus": "_pages/guidelines/audience/address-the-user.md; _pages/guidelines/conversational/use-active-voice.md; _pages/guidelines/words/avoid-hidden-verbs.md",
+          "evidenceForIt": "Asserted with before/after pairs and book citations; no experiment attached to the individual rule.",
+          "costAndCollision": "Near-zero cost, high overlap with what our unguided controls already produce. Include as a writing rule, never as a linted gate."
+        },
+        {
+          "practice": "Keep one topic per paragraph and one idea per sentence — but state it as a structural rule, never as a word count.",
+          "locus": "_pages/guidelines/concise/write-short-sentences.md ('Express only one idea in each sentence'); write-short-paragraphs.md ('Cover one topic in each paragraph')",
+          "evidenceForIt": "Asserted. The accompanying numeric limits (150/250 words) are unsourced on the page and should be dropped.",
+          "costAndCollision": "Free. Keeping the structural half and discarding the numeric half is precisely the already-decided position."
+        },
+        {
+          "practice": "Minimize cross-references: each one costs the reader short-term memory and most readers simply skip them.",
+          "locus": "_pages/guidelines/design/minimize-cross-references.md",
+          "evidenceForIt": "Argued, with a tax-regulation worked example; no measurement.",
+          "costAndCollision": "Fits terse. Tension with docs-as-code habits of linking rather than repeating — see writethedocs ARID."
+        }
+      ]
+    },
+    {
+      "id": "carroll-minimalism",
+      "url": "https://doi.org/10.1207/s15327051hci0302_2",
+      "opened": true,
+      "evidence": "PRIMARY, opened and read: Carroll, Smith-Kerker, Ford & Mazur-Rimetz, \"The Minimal Manual\", Human-Computer Interaction 3(2), 1987-1988, pp.123-153. Downloaded to /tmp/carroll1987.pdf from swcarpentry.github.io/swc-releases/2017.02/instructor-training/files/papers/carroll-minimal-manual-1987.pdf. The scan has no text layer (my stream extractor returned only the Taylor & Francis watermark), so I OCR'd PDF pages 3–33 with /tmp/ocrpdf.swift (Vision) into /tmp/carroll1987_ocr.txt and read §3.1 (article pp.130-131), §4 Method and Results (pp.136-140), §5 Method and Results (pp.142-146). Also downloaded Carroll & van der Meij, 'Ten Misconceptions about Minimalism', IEEE TPC 39, 1996, /tmp/carroll1996ten.pdf from ris.utwente.nl — also an image scan; NOT OCR'd, so I report nothing from it. The 1995 four-principle formulation (van der Meij & Carroll, Technical Communication 42(2):243-261) is paywalled at Ingenta/MIT Press: I did NOT open it; its Table 1 reaches me via a secondary literature review I did open in full — Peter Graham, 'Understanding Minimalism', DPTC102 Assignment 3, June 2000, /tmp/recon_min.pdf from static.aminer.org, pp.1-2 and pp.3-7.",
+      "whatItIs": "Two things. (1) The 1995 principles-and-heuristics framing (four principles, eleven heuristics), reported here from a secondary source: 1 Choose an action-oriented approach (1.1 provide an immediate opportunity to act; 1.2 encourage and support exploration; 1.3 respect the integrity of the user's activity); 2 Anchor the tool in the task domain (2.1 design instructional tasks that are real; 2.2 make components of instruction reflect the task structure); 3 Support error recognition and recovery (3.1 prevent mistakes where possible; 3.2 give error information where actions are error-prone or correction is hard; 3.3 support detection, diagnosis and correction; 3.4 put error information on the spot); 4 Support reading to do, study and locate (4.1 be brief, don't spell out everything; 4.2 provide closure for chapters). (2) The 1987 primary experiment, where the design moves are concrete and aggressive: the Minimal Manual is 45 pages, \"less than a quarter the length of the commercial training manual\" (pp.130-131), achieved by deleting all repetition, all previews and reviews, all rote practice exercises, the index, the 'welcome to word processing' introduction and the troubleshooting appendix; chapters average under three pages; chapter headings are task-oriented ('Centering and Underlining') so the table of contents itself works as the index; learners create their first document seven pages in; terminology is simplified (display module→screen). Development was iterative: subskill testing with about 20 learners in 2–8 hour sessions (§3.2) before criterion testing (§3.3).",
+      "measures": "Yes — this is the strongest measured evidence in the whole group, and I read the numbers in the paper. Experiment 1 (p.136-140, n=19: 10 Minimal Manual, 9 standard self-instruction; experienced typists, no experience with the system; up to 3 working days, 8 hr/day): MM required 40% less learning time, t(17)=3.06, p<.01; Figure 5 (p.139) gives MM 5.1+4.9 hr versus SS 8.5+7.9 hr (10.0 vs 16.4 hr); the advantage held for basic topics t(17)=2.93 p<.01 AND for advanced topics studied from the SAME shared manual, t(17)=2.17 p<.05; MM completed 2.7× as many performance subtasks, t(16)=3.63 p<.01 (28.9 vs 10.2), and 50% more on basic tasks alone, t(16)=2.11 p=.05 (12.1 vs 8.1); performance time 63.0 vs 86.4 min; efficiency .23 vs .11 subtasks/min, t(16)=2.90 p<.01. Experiment 2 (pp.142-146, n=32, 2×2 between subjects: manual MM/SS × instruction learn-while-doing/learn-by-the-book): MM completed 58% more subtasks, F(1,28)=5.31 p<.05; learn-while-doing completed 52% more than learn-by-the-book, F(1,28)=4.48 p<.05; MM achieved 93% more per unit time, F(1,28)=6.13 p<.05; MM spent 29% less of the first 90 minutes reading the manual and 20% more coordinating attention between manual and screen (n.s.); MM made 20% fewer errors (n.s.), used recommended recovery methods 60% more often (n.s.), and used the four specifically taught recovery methods significantly more, F(1,28)=7.48 p<.01; MM spent ~2 min in the reference library versus >20 min for SS.",
+      "verdict": "compose",
+      "weaknesses": "1987-88, IBM word processor, clerical typists, tutorial genre — external validity to a README read by a developer or an agent is an assumption, not a finding. Small n (19 and 32). In Experiment 2 most of the error and recovery differences were non-significant; the headline 40% comes from a single between-subjects contrast. The 45-page manual deleted the index and the troubleshooting appendix — a direct collision with ISO's 'findable' and with writethedocs' 'Complete' and 'Addressable'; Redish's later five-variant study (reported in the Graham review, 10 subjects per variant) found equal total time with and without overviews and better late-task times WITH overviews, and the reviewer criticizes that analysis for having no variance or significance testing. So 'delete the overview' is contested. Finally, the 1995 heuristics table reached me through a student literature review, not the journal.",
+      "practices": [
+        {
+          "practice": "Measure the document by time-to-first-success and by subtasks completed, not by reader opinion: the 1987 design was validated on learning time and on count of correctly completed subtasks scored from artifacts (files on disk, keystroke logs), never on whether readers said it was clear.",
+          "locus": "Carroll et al. 1987, §4.1 Scoring, p.139",
+          "evidenceForIt": "Measured. Two experiments, effect sizes and p-values above.",
+          "costAndCollision": "This is what our answer-key audit already approximates. Adding a 'how long to the first correct action' metric is cheap and would make the audit comparable across revisions."
+        },
+        {
+          "practice": "Delete ruthlessly and account for the deletions by category — repetition, previews, reviews, practice exercises, welcome sections, troubleshooting appendices — rather than trimming words everywhere.",
+          "locus": "Carroll et al. 1987, 'Slash the Verbiage', pp.130-131",
+          "evidenceForIt": "Measured, in combination with the other design moves: the resulting manual was <1/4 the length and produced 40% faster learning. The individual deletions were not isolated.",
+          "costAndCollision": "High value for terse; strongly aligned. Risk: deleting the index/appendix is the one deletion later work disputes."
+        },
+        {
+          "practice": "Get the reader acting within the first page or two — the minimal manual had learners create their first real document seven pages in — and label chapters by the reader's task, not by the system's parts, so the table of contents doubles as the index.",
+          "locus": "Carroll et al. 1987, 'Focus on Real Tasks and Activities', p.130; chapter-heading rule p.131",
+          "evidenceForIt": "Measured as part of the package; also the core of the 1995 Principle 1 and heuristic 2.2.",
+          "costAndCollision": "Cheap, and it is a concrete rewrite instruction rather than a checklist item — the failure mode our bake-off found in published standards."
+        },
+        {
+          "practice": "Write error recovery into the document at the point of the error: inventory the errors real users actually make, then place detection, diagnosis and correction information next to the step that triggers them.",
+          "locus": "Carroll et al. 1987, 'Support Error Recognition and Error Recovery', p.131; results pp.145-146; 1995 heuristics 3.1-3.4 via Graham 2000 p.2",
+          "evidenceForIt": "Mixed: the targeted recovery methods were used significantly more, F(1,28)=7.48 p<.01, but the error-count and recovery-time differences were not significant.",
+          "costAndCollision": "Adds length — a direct tension with terse. Justified only where the audit measured a failure at that step."
+        },
+        {
+          "practice": "Iterate against real readers between drafts before any comparative test: Carroll's team ran subskill testing with about 20 learners in 2–8 hour sessions and revised the manual against what they saw, then ran the controlled experiments.",
+          "locus": "Carroll et al. 1987, §3.2 Subskill Testing and §3.3 Criterion Testing, pp.132-136",
+          "evidenceForIt": "Described as the method that produced the artifact that then won two experiments.",
+          "costAndCollision": "Expensive in seats. Our cheap-model-per-question audit is the affordable analogue; worth stating that the audit stands in for this step."
+        },
+        {
+          "practice": "Keep chapters/sections short enough to finish (average under three pages) and give each one closure — a defined start and end state the reader returns to.",
+          "locus": "Carroll et al. 1987, p.131; 1995 heuristic 4.2 via Graham 2000 p.2",
+          "evidenceForIt": "Asserted in the design rationale; measured only as part of the whole package.",
+          "costAndCollision": "Aligned with terse. Note this is a section-level shape rule, not a sentence-level word limit."
+        },
+        {
+          "practice": "Treat the heuristics as things to select from and test per iteration, not as a checklist to satisfy: apply a limited set and usability-test each iteration.",
+          "locus": "Graham 2000, 'Problem solving by Heuristics', p.5, reading Carroll 1998b",
+          "evidenceForIt": "Argued by a secondary reviewer, citing Carroll's own complaint that readers misuse 'heuristic' as 'guideline'.",
+          "costAndCollision": "Free, and it is an independent restatement of why a mandatory pass underperforms."
+        }
+      ]
+    },
+    {
+      "id": "information-mapping-horn",
+      "url": "https://web.archive.org/web/20070101233841/http://www.stanford.edu/~rhorn/a/topic/stwrtng_infomap/artclStrctrdWrtngPrdigm.pdf",
+      "opened": true,
+      "evidence": "PRIMARY, opened and read in full (both are text-layer PDFs recovered from the Wayback Machine copy of Horn's Stanford page): (1) Robert E. Horn, 'Structured Writing as a Paradigm', chapter in Romiszowski & Dills eds., Instructional Development: State of the Art, Educational Technology Publications 1998 — /tmp/horn_paradigm.pdf, 6 pages, extracted to /tmp/horn_paradigm.txt; read sections 1-6, Notes 1-4 and the full reference list. (2) Robert E. Horn, 'Structured Writing at Twenty-Five', Performance and Instruction 32(February):11-17, 1993 — /tmp/horn_at25.pdf, extracted to /tmp/horn_at25.txt; read Section A and items 1-5 and 11. NOT opened: the 1969 primary report (Horn, Nicol, Kleinman & Grace, 'Information Mapping for Learning and Reference', ESD-TR-69-296) — apps.dtic.mil does not resolve from this sandbox (curl: 'Could not resolve host') and files.eric.ed.gov/fulltext/ED042322.pdf returns 404. Also opened: informationmapping.com/pages/information-mapping-methodology (vendor page; it shows a before/after benefits chart with NO numbers rendered, sourced only to 'Robert E. Horn's study at Harvard and Columbia universities').",
+      "whatItIs": "Structured writing / Information Mapping: replace the paragraph with the information BLOCK as the unit of analysis and of presentation. Horn's own definition (At-25, and repeated in the 1998 chapter): a block is one or more sentences and/or diagrams about a limited topic, usually not more than nine sentences, ALWAYS identified by a label. An information MAP is a collection of one to nine blocks all related to one topic. About 40 specified block types cover ~80% of 'relatively stable subject matter'; writers are expected to invent new block types for the other 20% against stated criteria. IMPORTANT CORRECTION to the popular account: Horn's own text names FOUR principles, not seven — chunking ('group all information into small manageable units'), relevance ('include in one chunk only information that relates to one main point based on that information's purpose or function for the reader'), consistency ('for similar subject matters, use similar words, labels, formats, organizations and sequences'), and labeling ('label every chunk and group of chunks according to specific criteria'). The number SEVEN in Horn belongs to the information TYPES — procedure, process, concept, structure, classification, principle, fact — used as content-analysis categories to drive questioning of subject-matter experts and to check completeness. The seven-principles list circulating online (adding integrated graphics, accessible detail, hierarchy of chunking and labeling) does not appear in either primary text I read; graphics and hierarchy appear there as separate components of the method, not as named principles. Labels come in three kinds: content labels, function labels (definition, example), and combinations. The 1998 chapter also reframes 'structuredness' as multi-dimensional scales (chunking, label visibility, label consistency, between-chunk sequencing) rather than a binary.",
+      "measures": "Weakly, and Horn says so himself. The 1998 chapter's evaluation section reports that Horn 1992b ('How High Can It Fly? Examining the Evidence on Information Mapping's Method', Lexington Institute — a volume published by Horn himself) summarizes ten studies, and quotes reviewer Ruth Clark (Performance and Instruction, Feb 1993, pp.43-44) saying she was surprised that most research evaluated learning outcomes rather than retrieval speed or accuracy: of the ten studies, seven on learning, two on retrieval time; in only two was study time controlled. A 1992 survey counted fifteen doctoral dissertations on structured writing. The one organizational number is self-report, not measurement: Holding 1985 at Pacific Telephone trained 180 managers and interviewed their supervisors — all supervisors said reading time decreased, mean reported decrease 32%, with 83% reporting faster approval of reports and memos. The vendor's current benefit chart traces to the same unpublished Harvard/Columbia work. Horn's Note 2 is a retraction worth recording: he originally took Miller's 7±2 literally and later concluded that subsequent chunking research means it must be used metaphorically, not as a literal limit.",
+      "verdict": "steal-a-part",
+      "weaknesses": "The evidence base is authority plus vendor-collected studies: the summary of the evidence was published by the method's inventor, and the headline organizational figure is supervisors' recollection, not a timed task. Horn concedes the field 'has generally had to rely on research from cognitive psychology, educational research, and other fields' and calls for isolating variables to find out how much each dimension of 'structure' contributes — i.e. after 25 years, no component-level effect size existed. The method is heavy: 40 block types, seven information types, formal labeling criteria and a proprietary format — the training-course shape that our bake-off found produces audits rather than rewriting. Adoption numbers (~150,000 trained, ~20,000/year) are market evidence, not efficacy. The 'nine sentences' and 'one to nine blocks' limits are the same hard-limit shape already rejected, and Horn himself downgraded their basis.",
+      "practices": [
+        {
+          "practice": "Label every chunk. Enforce the rule that no unit of text exists without a visible label, so a reader scanning only the labels gets the gist of the whole document.",
+          "locus": "Horn, 'Structured Writing at Twenty-Five' (1993), 'What are blocks?'; Horn, 'Structured Writing as a Paradigm' (1998), §4 'Making the structure visible with labels'",
+          "evidenceForIt": "Argued, with a stated mechanism (scan the labels, get the gist). Not isolated in any experiment Horn reports.",
+          "costAndCollision": "Cheap and directly attacks findability failures. Collides with terse's aesthetic if it produces a wall of bold micro-headings over two-sentence blocks."
+        },
+        {
+          "practice": "Enforce single-function chunks: ordinary paragraphs score low because they MIX functions (introduction plus definition in one paragraph); split a chunk whenever it serves two purposes.",
+          "locus": "Horn 1998, §4 'The Chunking Scale'",
+          "evidenceForIt": "Argued. This is the sharpest version of the one-topic-per-paragraph rule and it names the diagnostic (mixed function), which the plainlanguage.gov version does not.",
+          "costAndCollision": "Free to apply during the repair pass; a good decurse question ('what two jobs is this paragraph doing?')."
+        },
+        {
+          "practice": "Label by FUNCTION as well as by content — 'Definition', 'Example', 'Prerequisites' — and apply the labelling scheme systematically across similar material, so readers can predict where a kind of information lives.",
+          "locus": "Horn 1993, item 4 'Systematic Criteria for Labeling Modules' (three-fold approach: content labels, function labels, combinations)",
+          "evidenceForIt": "Argued.",
+          "costAndCollision": "Low cost. Overlaps with what Diataxis attempts but at the block level rather than as a document-wide mandatory partition — usable without reopening the rejected decision."
+        },
+        {
+          "practice": "Use an information-type taxonomy as a COMPLETENESS check during the answer-key stage: for the topic under audit, ask whether the document covers its procedure, process, concept, structure, classification, principle and fact aspects, and treat a missing one as a candidate audit question.",
+          "locus": "Horn 1993, item 2 'Analysis Categories of Information Types'",
+          "evidenceForIt": "Argued; Horn claims first-pass sorting of ~80% of content in every subject matter it was applied to — an unverified claim by the inventor.",
+          "costAndCollision": "Cheap as a question generator for the audit; expensive and wrong as an output format requirement."
+        },
+        {
+          "practice": "Do not use 7±2 as a literal limit on anything — the inventor of the rule's best-known application says subsequent chunking research means it must be treated metaphorically.",
+          "locus": "Horn 1998, Note 2",
+          "evidenceForIt": "Retraction by the primary author, citing subsequent research without naming it.",
+          "costAndCollision": "Free, and it is direct ammunition for the existing decision against hard numeric limits."
+        }
+      ]
+    },
+    {
+      "id": "writethedocs-www",
+      "url": "https://github.com/writethedocs/www",
+      "opened": true,
+      "evidence": "Opened via the GitHub API at main (repo is 474 MB so I did not clone). Listed the full tree; read in full: AGENTS.md; docs/style-guide.rst; docs/guide/writing/docs-principles.rst; vale/vale.ini; vale/guide.ini; vale/WTD/{SentenceLength,headings,contents,Branding,inclusivity,inclusivity-avoid}.yml; vale/TheEconomist/{style.md,Hectoring.yml,UnnecessaryWords.yml}; vale/proselint/README.md; .github/workflows/vale.yml; .github/workflows/spellcheck.yml. Enumerated the whole vale/ and codespell/ trees (48 rule files) and the headings of docs/guide/writing/style-guides.md.",
+      "whatItIs": "The Write the Docs community website source. The rule-shaped material is in four places, not in the prose. (1) vale/ — 6 project rules (WTD), the full proselint set (~30 files), and 2 borrowed Economist rules, driven by three configs: vale/vale.ini (whole docs/ tree), vale/guide.ini (docs/guide/), vale/news.ini (conference news). (2) .github/workflows/vale.yml — three matrix jobs, `reporter: github-pr-check`, `fail_on_error: true`, `filter_mode: file`, pinned vale 3.4.2; plus .github/workflows/spellcheck.yml running codespell with an ignore list. (3) docs/style-guide.rst — the site's own house style: sentence case for titles and H2/H3, lowercase hyphenated filenames, `:doc:` for internal cross-references, define jargon or drop it, define abbreviations before use 'especially ... if their meanings aren't easily discernible to non-native English speakers', gendered language avoided, brand casing ('Write the Docs', 'WTD'). (4) docs/guide/writing/docs-principles.rst — fifteen named principles in five layers: documentation (Precursory, Participatory); content (ARID, Skimmable, Exemplary, Consistent, Current); sources (Nearby, Unique); publications (Discoverable, Addressable, Cumulative, Complete, Beautiful); body (Comprehensive). Plus AGENTS.md, which is the repo's instruction file for AI contributors and points at the style guide.",
+      "measures": "Nothing about readers. The only thing measured is string presence: regex existence/substitution rules and spelling. Two configuration facts are worth more to us than any of its prose, and both are field evidence for decisions we already made. (a) vale/WTD/SentenceLength.yml declares 'Sentences should be less than 28 words' with `level: suggestion`, while vale/vale.ini and vale/guide.ini both set `MinAlertLevel = warning` — suggestions fall below the threshold, so the sentence-length rule is present in the repo but cannot surface in CI. (b) vale/vale.ini explicitly disables 16 proselint rules (Very, Typography, DateCase, DateSpacing, Diacritical, Uncomparables, Skunked, But, Cliches, Annotations, Needless, Nonwords, CorporateSpeak, Hyperbole, Spelling, DateMidnight) and TheEconomist.UnnecessaryWords, with the comment that the repo has 'a fair bit of legacy that violates the styles below'. One of those lines reads `proselint.Needless = NOsp` — a typo that vale will not read as 'NO', so that rule is probably still live; nobody noticed. The gate is real (`fail_on_error: true`) but it has been hollowed out to branding, sentence-case headings, spelling and a handful of inclusivity terms.",
+      "verdict": "steal-a-part",
+      "weaknesses": "docs-principles.rst is assertion throughout — fifteen adjectives with rationale paragraphs and zero measurement, and several of them pull against terse: 'Exemplary' wants examples and tutorials, 'Complete' wants full coverage of any characteristic you mention, 'Cumulative' wants prerequisite-first ordering, 'Beautiful' is taste. 'ARID' (Accept some Repetition In Documentation) is a direct licence for redundancy. The style guide is about this website's own pages, not about technical writing in general, and it says so ('It's just a start'). The vale corpus is mostly borrowed proselint, which is the linter family we already rejected as a gate; the interesting finding is that this community rejected most of it too, in practice rather than in argument.",
+      "practices": [
+        {
+          "practice": "If you ship a linter, gate only rules that cannot be wrong — project nouns, brand casing, heading case, spelling — and keep everything stylistic below the alert threshold. Write the Docs runs a blocking Vale job but has disabled 16 proselint rules and left its 28-word sentence rule at a level that never fires.",
+          "locus": "vale/vale.ini (MinAlertLevel = warning; 16 `= NO` lines); vale/WTD/SentenceLength.yml lines 1-6 (`level: suggestion`, max 28); .github/workflows/vale.yml (`fail_on_error: true`)",
+          "evidenceForIt": "Observed configuration of an actively maintained repo — the strongest field evidence in this group for the existing 'no prose linters as a gate' decision, because it shows a docs-focused community keeping the machinery and removing the judgement.",
+          "costAndCollision": "Costs nothing; it is a confirmation, not a new pass. Record the `proselint.Needless = NOsp` typo as a second-order lesson: rule configs rot silently because nothing measures them."
+        },
+        {
+          "practice": "Make scannability a stated, checkable property with three concrete tests: descriptive and concise headings; link text that names its destination (never 'click here' or 'this page'); and paragraphs and list items that lead with the identifiable concept. 'Write like a newspaper instead of a novel.'",
+          "locus": "docs/guide/writing/docs-principles.rst, 'Skimmable'",
+          "evidenceForIt": "Asserted, but each of the three is directly checkable by an audit reader and maps to a findability failure.",
+          "costAndCollision": "Free; already close to terse's house style."
+        },
+        {
+          "practice": "Treat incorrect documentation as worse than missing documentation, and prefer version-agnostic wording so the text needs less maintenance.",
+          "locus": "docs/guide/writing/docs-principles.rst, 'Current'",
+          "evidenceForIt": "Asserted.",
+          "costAndCollision": "Free, and it is an argument for the audit's code-derived answer key: the key is what detects the incorrect-not-missing case."
+        },
+        {
+          "practice": "Apply the completeness rule at the level of the CATEGORY, not the document: for any characteristic you choose to cover, cover all of it or none of it, and say up front when coverage is partial. A map showing fifty of a hundred fire hydrants is worse than one showing none.",
+          "locus": "docs/guide/writing/docs-principles.rst, 'Complete' (with the iconv man page / `iconv -l` example)",
+          "evidenceForIt": "Argued, with a good worked example; no measurement.",
+          "costAndCollision": "Cheap as an audit question ('is any list here half a list?'). Collides with aggressive deletion (Carroll) — deleting half a category is worse than deleting all of it."
+        },
+        {
+          "practice": "Accept bounded repetition in docs (ARID): DRY is a code principle, and refusing all repetition in documentation forces readers to chase cross-references.",
+          "locus": "docs/guide/writing/docs-principles.rst, 'ARID'",
+          "evidenceForIt": "Asserted, with a plausible mechanism.",
+          "costAndCollision": "Direct collision with terse's compression instinct, and with plainlanguage.gov's minimize-cross-references (which pushes the same way for the opposite reason). Worth recording as a tension, not a rule."
+        },
+        {
+          "practice": "Give every section a granular, stable address so readers can link to, bookmark and argue about a specific passage.",
+          "locus": "docs/guide/writing/docs-principles.rst, 'Addressable'",
+          "evidenceForIt": "Asserted.",
+          "costAndCollision": "Near-free in Markdown; matters for how audit reports cite failures."
+        },
+        {
+          "practice": "House rules worth copying verbatim: sentence case for titles and subheadings with an explicit exceptions list; lowercase hyphenated filenames; define or drop jargon; expand abbreviations before use, explicitly because of non-native English readers.",
+          "locus": "docs/style-guide.rst ('Naming conventions', 'Jargon', 'Abbreviations'); vale/WTD/headings.yml (capitalization rule with a 24-item exception list)",
+          "evidenceForIt": "Asserted, but mechanized — headings.yml shows the shape of a style rule that IS safe to gate: deterministic, with an explicit exception list.",
+          "costAndCollision": "Cheap. The exception-list pattern is the reusable part."
+        }
+      ]
+    }
+  ],
+  "groupNotes": "Five sources, four of which I opened as primary text; one (ISO 24495-1) is paywalled and I say so in its item. Two PDFs in this group are image-only scans with no text layer, so I wrote a small Vision-framework OCR helper (/tmp/ocrpdf.swift, compiled to /tmp/ocrpdf) to read Carroll et al. 1987 and the IPLF pattern library; that is why I can quote page-level numbers from Carroll rather than repeating the blog-circulated \"40%\" claim. Local copies I worked from, if anyone wants to re-check: /tmp/carroll1987.pdf + /tmp/carroll1987_ocr.txt, /tmp/horn_paradigm.pdf + .txt, /tmp/horn_at25.pdf + .txt, /tmp/recon_min.pdf + .txt, /tmp/ISOpatternlibrary06.pdf + /tmp/isopat_ocr.txt, /tmp/plg/GSA-plainlanguage.gov-fd76947/ (repo tarball, commit fd76947).\n\nWHAT I COULD NOT REACH. (1) ISO 24495-1:2023 itself: iso.org/obp, the ANSI preview PDF and iteh.ai all refused or carried no table of contents; the clause TITLES for Parts 2 and 3 that I report came from a search summary and are labelled as such. I never saw Clause 5.4, so I cannot tell you which evaluation methods the standard names. (2) van der Meij & Carroll 1995, \"Principles and Heuristics for Designing Minimalist Instruction\" (Technical Communication 42(2):243-261): paywalled at Ingenta and MIT Press. Its four principles and eleven heuristics reach this report through a student literature review I did open in full (Graham 2000). If those eleven heuristics matter for the library, the journal article should be bought or borrowed. (3) Carroll & van der Meij, \"Ten Misconceptions about Minimalism\" (IEEE TPC 39, 1996): downloaded but it is also an image scan and I did not spend the OCR time; nothing in this report comes from it. (4) Horn, Nicol, Kleinman & Grace 1969, the original Information Mapping report (ESD-TR-69-296): apps.dtic.mil does not resolve from this sandbox and ERIC has no full text; I used Horn's own 1993 and 1998 restatements instead, which is arguably better for our purpose since they are retrospective and self-critical. (5) Horn 1992b \"How High Can It Fly?\", the volume that actually summarizes the ten Information Mapping studies, is a Lexington Institute book I did not obtain; the ten-study breakdown reaches me through Horn's own 1998 chapter quoting reviewer Clark.\n\nEVIDENCE VERDICT, source by source. MEASURED: Carroll 1987 only — two controlled experiments, n=19 and n=32, with effect sizes and p-values I read in the paper, on a package of design moves (not on individual rules). FIELD OUTCOME DATA, UNCONTROLLED: plainlanguage.gov's bottom-line page — before/after call volumes, response rates, error rates and task times from whole-document redesigns; good for \"rewriting works\", useless for \"this rule works\". AUTHORITY AND ARGUMENT: ISO 24495-1 (committee consensus, bibliography unverified by me), Information Mapping (inventor-published evidence summary, one supervisor-self-report study at 32%, and Horn himself calling for component-level research that did not exist after 25 years), writethedocs (no measurement of readers at all; its linter measures strings). \n\nMOST USEFUL THING FOUND, beyond the practice lists: plainlanguage.gov's _pages/guidelines/test/ section is a complete, cheap, reader-based measurement protocol — paraphrase testing at 6-9 readers with verbatim restatement at fixed cues, usability testing at 3 readers with think-aloud scenarios, A/B last because it cannot tell you why. That is the closest published relative of our audit, and it is the part of the Federal Guidelines nobody quotes.",
+  "surprises": "Four findings cut against things we believe or against each other.\n\n1. ISO 24495-1 agrees with us about measurement, and the agreement is structural. One of its four governing principles — Principle 4, \"usable\" — contains no further writing guidance at all; ISO's position is that if Principles 1-3 are followed the document should be usable, so 5.4 discusses how to EVALUATE that usability was achieved (IPLF/IIID pattern library p.5, opened). A quarter of the world plain-language standard is an evaluation clause. That is independent convergence with terse's \"measure the document by its readers\", from a body with no connection to us.\n\n2. Write the Docs has the same hard-limit rule we rejected, and has quietly disabled it. vale/WTD/SentenceLength.yml says \"Sentences should be less than 28 words\" but carries `level: suggestion`, while vale/vale.ini and vale/guide.ini both set `MinAlertLevel = warning` — so it cannot fire in the blocking CI job. The same file disables 16 proselint rules with the comment that the repo has \"a fair bit of legacy that violates the styles below\". We reached \"no prose linters as a gate, no per-sentence word limits\" by bake-off; the largest docs community reached it by attrition. Also: one disable line reads `proselint.Needless = NOsp`, a typo nobody has noticed, which is a small lesson about unmeasured rule configs rotting.\n\n3. Horn's \"seven principles\" are not seven and are not what the internet says. In both primary texts I opened, Horn names FOUR principles for blocks — chunking, relevance, consistency, labeling. The number seven belongs to his information TYPES (procedure, process, concept, structure, classification, principle, fact). Every secondary summary I saw, including Wikipedia-derived ones, reports seven principles including \"accessible detail\" and \"integrated graphics\", which appear in the primary text as components of the method, not as named principles. And in Note 2 of the 1998 chapter Horn retracts the literal reading of Miller's 7±2 that the whole \"manageable unit of nine\" tradition rests on. If we cite Information Mapping anywhere, cite the four.\n\n4. The strongest measured source recommends deleting the things the other sources demand. Carroll's 45-page minimal manual deleted the index, the overview, the previews and reviews, and the troubleshooting appendix — and produced 40% faster learning and 2.7x the subtasks. ISO's Principle 2 (findable) and writethedocs' \"Complete\", \"Cumulative\" and \"Discoverable\" all push the other way, and Redish's five-variant study (reported in the Graham review) claims late-task times were better WITH overviews, though the reviewer notes that analysis reports no variance or significance testing. So \"delete the overview and the index\" is the one aggressive move in the package that is genuinely contested, and it is contested by weaker evidence than it. Worth an experiment of our own rather than a rule either way."
+}

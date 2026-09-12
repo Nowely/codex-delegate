@@ -1,0 +1,42 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+NETWORK: no
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Find out what is wrong with the writing in a repository, and propose the fix.
+
+The repository is /Users/ruliny/Git/codex-delegate, a Claude Code plugin. Its owner's verdict on the
+writing in it: "the documentation and the commenting is trash, it needs fixing." Both halves are in
+scope, the prose and the code comments.
+
+The corpus is the whole of it: README.md, CHANGELOG.md, RELEASING.md, evals/README.md, every SKILL.md
+under skills/ together with the reference pages beside them, and the comments in the .mjs sources under
+evals/ and skills/.
+
+You are read-only. Change nothing anywhere, inside the repository or outside it.
+
+You are given no standard, no framework and no checklist, and you have no network. That is deliberate.
+Other agents are reading this same repository each carrying a named published standard, and you are the
+control: the question you exist to answer is whether carrying one of those beats an agent using its own
+judgement on the material in front of it. So do not reconstruct a famous framework from memory and
+announce it as your method. Read the repository, work out what is actually wrong with it, and say so.
+
+CHECK:
+a) Quote every finding with its file and its line number, and enough text that the defect is visible. A
+   finding without a location is not a finding.
+b) Give counts: how many units you examined and how many failed. A unit is whatever you chose to judge,
+   a document, a section or a comment block. Say which you used and why.
+c) Where a finding claims that the text contradicts the code, verify it against the code and say how.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra C1), your status and what you did. Then (a) the most serious
+             defects you found, worst first, each with its location and quote; (b) your proposal, as the
+             concrete text or the concrete change you would make, not a description of one; (c) one
+             sentence naming the defect class you suspect you are worst at catching unaided.
+  evidence:  what you ran and read, with counts.
+  artifacts: files you left in your own temporary directory, absolute paths. Write nothing outside it.
+  open:      what you could not settle.

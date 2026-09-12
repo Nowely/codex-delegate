@@ -1,0 +1,94 @@
+{
+  "candidates": [
+    {
+      "id": "benchflow-ai/skillsbench",
+      "url": "https://github.com/benchflow-ai/skillsbench",
+      "kind": "benchmark",
+      "oneLine": "Gym-style benchmark that measures whether an agent equipped with a skill (a folder of instructions/scripts) actually completes the task, via an oracle-verified pass/fail test per task.",
+      "whyRelevant": "Directly named in the brief. It measures a skill artifact (structurally identical to what `terse` audits) by task success rate rather than by opinion about the skill's prose — the same 'measure, don't opine' move terse makes, but on task completion instead of Q&A. Unit of measurement: task success rate (oracle pass/fail per task, aggregated across models).",
+      "evidence": "Verified via `gh api repos/benchflow-ai/skillsbench` (1762 stars, pushed 2026-07-23) and its README (fetched via gh api, base64-decoded): 'SkillsBench measures how effectively agents leverage skills... through gym-style benchmarking,' with `bench eval run --agent oracle` as the pass/fail harness and a stated goal of tasks where 'SOTA performance <50%'."
+    },
+    {
+      "id": "taylor-1953-cloze-procedure",
+      "url": "https://journals.sagepub.com/doi/10.1177/107769905303000401",
+      "kind": "research",
+      "oneLine": "The founding readability protocol: delete every nth word from a passage, have readers fill blanks from context, score % correctly restored — a direct reader-performance measurement, not a formula.",
+      "whyRelevant": "This is the closest academic ancestor of terse's own method ('send one fresh cheap model per question through the .md files, score right answers'). Cloze substitutes fill-in-the-blank for Q&A but shares the core move: score a reader's actual output against ground truth in the text, don't opine on style. Unit of measurement: % of deleted words a reader correctly restores.",
+      "evidence": "Taylor, W.L. (1953), Journalism Quarterly 30(4):415-433, 'Cloze Procedure: A New Tool for Measuring Readability' — confirmed via WebSearch (SAGE journal listing, Semantic Scholar citation count 2565); I did not open the PDF itself, only search-result summaries and abstract-level descriptions from gwern.net's mirror listing and psycnet.apa.org."
+    },
+    {
+      "id": "schriver-1989-evaluating-text-quality",
+      "url": "https://ieeexplore.ieee.org/document/44536/",
+      "kind": "research",
+      "oneLine": "IEEE Trans. Professional Communication paper classifying text-evaluation methods on a continuum from text-focused (formulas, expert opinion) to reader-focused (comprehension tests, protocol analysis), arguing reader-focused methods catch problems the others miss.",
+      "whyRelevant": "Gives the academic taxonomy terse's audit skill sits inside: it names 'reader-focused' methods (comprehension performance) as the class that finds real problems, versus 'text-focused' methods (readability formulas, style linters — the exact things already rejected). Useful as the citation that justifies terse's approach in tech-comm literature. Unit of measurement: reader comprehension-test accuracy / protocol-analysis problem counts, contrasted against formula scores.",
+      "evidence": "Schriver, K.A. (1989), IEEE Transactions on Professional Communication, 32(4):239-255 — seen only via WebSearch summaries (National Writing Project abstract mirror, ResearchGate listing, Karen Schriver Associates PDF link); I did not open the full text directly. A cited follow-up (Lentz & Pander Maat) reportedly found experts predicted <15% of reader-identified problems, reinforcing the 'measure, don't opine' argument."
+    },
+    {
+      "id": "optimal-workshop-tree-testing",
+      "url": "https://www.optimalworkshop.com/product/tree-testing",
+      "kind": "methodology",
+      "oneLine": "Reverse-card-sort usability protocol: give participants a bare text hierarchy (no visuals/nav) and a task, measure whether/how directly they reach the right node.",
+      "whyRelevant": "This is a ready-made instrument for exactly the 'placement / findability' failure category terse's audit already classifies by hand. It gives named metrics (task success rate, directness/backtracking, first-click distribution) that could be run against a docs site's actual nav tree, complementing the per-question audit with a structural findability score. Unit of measurement: % of participants reaching the correct node, directness score (% with no backtracking), first-click agreement rate.",
+      "evidence": "WebSearch summary of Optimal Workshop, UXtweak, IxDF, and 'Information Architecture Authority' pages describing the Treejack protocol and its four metrics (task success rate, directness score, time-on-task, first-click distribution); I did not open the primary Optimal Workshop methodology page directly, only search snippets quoting it."
+    },
+    {
+      "id": "doc-detective/doc-detective",
+      "url": "https://github.com/doc-detective/doc-detective",
+      "kind": "linter",
+      "oneLine": "Open-source framework that parses documented steps out of your .md files and actually executes them against the running product/UI/API, emitting PASS/FAIL per assertion.",
+      "whyRelevant": "This measures the 'lie' failure category directly and mechanically: instead of deriving an answer key from code and asking a model, it runs the documented steps against the real product and checks whether the doc's claims hold. Complementary to terse's audit (which needs a live product/API to run against, unlike terse's static-file approach). Unit of measurement: PASS/FAIL per tested doc assertion (a JSON test report), aggregate = % of documented steps that actually work.",
+      "evidence": "Read directly via `gh api repos/doc-detective/doc-detective/contents/README.md`: 'You write tests, and Doc Detective runs them directly against your product... The results (PASS/FAIL and context) are output as a JSON object.' 131 stars per `gh search repos`."
+    },
+    {
+      "id": "explodinggradients/ragas",
+      "url": "https://github.com/explodinggradients/ragas",
+      "kind": "benchmark",
+      "oneLine": "LLM-as-judge RAG evaluation suite; Faithfulness decomposes an answer into atomic claims and checks each against source context, Answer Relevancy regenerates questions from the answer and cosine-compares to the original.",
+      "whyRelevant": "A transferable automated pipeline for the same 'model answers a question about the docs, score it' idea, but reference-free: instead of a human/code-derived answer key, it grounds-checks each claim against the source text itself, which could catch 'lie' failures (unsupported claims) without hand-building an answer key per question. Unit of measurement: Faithfulness score (fraction of extracted claims supported by context, 0-1) and Answer Relevancy (mean cosine similarity of LLM-regenerated questions to the original, 0-1).",
+      "evidence": "WebSearch summaries (Confident-AI blog, Medium writeups) describing RAGAS's claim-decomposition-and-verification mechanism and citing GPT-4o-mini as a typical judge model; I did not open the RAGAS GitHub repo or docs directly."
+    },
+    {
+      "id": "arxiv-2502.11150-poor-predictors-reading-ease",
+      "url": "https://arxiv.org/abs/2502.11150",
+      "kind": "research",
+      "oneLine": "2025 paper: builds an eye-tracking-based ground truth for real-time 'reading ease' and shows traditional formulas, ML readability systems, and frontier LLMs are all poor predictors of it, controlling for content.",
+      "whyRelevant": "The sharpest, most recent evidence for the 'standards produce audits, not rewriting' finding already reached: it independently shows readability scoring (formula or LLM-based) doesn't track what actually happens when someone reads, using a harder ground truth (eye-tracking) than terse's own reader-question protocol. Good citation to strengthen the rejection of readability-formula gates. Unit of measurement: correlation between a scoring method's output and eye-tracking-derived real-time reading-ease measures, with content variation controlled.",
+      "evidence": "Fetched directly via WebFetch of https://arxiv.org/abs/2502.11150. Confirmed abstract: 'real-time reading ease, captured with online reading measures using eye tracking... suggests that they are all poor predictors of reading ease in English.' Authors: Gruteke Klein, Frenkel, Shubi, Berzak."
+    },
+    {
+      "id": "Anni-Zou/DocBench",
+      "url": "https://github.com/Anni-Zou/DocBench",
+      "kind": "benchmark",
+      "oneLine": "229 real PDFs, 1102 QA pairs across 5 domains and 4 question types (text-only, multimodal, metadata, unanswerable), used to score LLM-based document-reading systems.",
+      "whyRelevant": "A structural template for a doc-QA harness, not a docs-quality measure per se — it scores the *reader* (an LLM system), not the *document*. Useful mainly for its question-type taxonomy (including an explicit 'unanswerable' class, which maps onto terse's 'placement/findability' idea of information genuinely absent) and for its human+GPT-4 question-generation pipeline. Unit of measurement: QA accuracy of a document-reading system against the answer set, broken out by question type.",
+      "evidence": "WebSearch summary of arXiv:2407.10701 and the GitHub repo listing (229 documents, 1102 questions, 5 domains, question types text-only/multi-modal/metadata/unanswerable); I did not open the paper PDF or repo contents directly."
+    },
+    {
+      "id": "allenai/qasper",
+      "url": "https://allenai.org/data/qasper",
+      "kind": "benchmark",
+      "oneLine": "1585 NLP papers, 5049 questions written by practitioners *before* they read the full paper, so questions reflect genuine information need rather than post-hoc quiz-writing.",
+      "whyRelevant": "The 'write the question before reading the answer' constraint is a methodological detail worth stealing for terse's own question-authoring step, since it forces questions to look like what a real reader would actually want to know rather than what a writer can most easily quiz on. Unit of measurement: answer-type-scored QA accuracy (Extractive/Abstractive/Yes-No/Unanswerable F1) against human-written answers.",
+      "evidence": "WebSearch summary citing Dasigi et al.'s QASPER paper stats (1585 papers, 5049 questions, 7993 answers by type); I did not open the paper or dataset page directly."
+    },
+    {
+      "id": "documentation-task-based-usability-testing",
+      "url": "https://www.uxmatters.com/mt/archives/2020/05/how-to-test-the-usability-of-documents.php",
+      "kind": "methodology",
+      "oneLine": "Standard UX-research protocol for docs: give a participant a realistic task ('find a way to send us a message'), watch whether they find/execute it, time-box, don't give away the answer in the task wording.",
+      "whyRelevant": "This is the human-subjects version of exactly what terse already automates with a cheap model — same 'can a fresh reader answer this / do this' logic, same warning against leading questions. Confirms terse's automation replicates an established qualitative method rather than inventing an ungrounded one, and adds guidance (avoid giving away the answer in the task, distinguish 'can't find it' from 'found it but couldn't understand it') that could sharpen the lie/placement/findability split. Unit of measurement: task success (found/didn't-find, or completed/didn't-complete), time-on-task; typically small-N (5-8) moderated sessions.",
+      "evidence": "WebSearch summary of UXmatters, Archbee, BetterDocs, and Document360 articles describing the task-design and session-running protocol, including the 'poor task tells users which button to click' vs. 'find a way to send us a message' contrast; I did not open the UXmatters article directly, only the search snippet quoting it."
+    },
+    {
+      "id": "search-and-ticket-deflection-instrumentation",
+      "url": "https://support.zendesk.com/hc/en-us/articles/4408832867226-Reporting-tools-for-measuring-self-service",
+      "kind": "other",
+      "oneLine": "Production telemetry proxies for doc quality at scale: zero-result search rate, search-success rate, contact-after-view rate, article helpfulness votes, ticket-deflection rate.",
+      "whyRelevant": "The only candidate here that measures docs passively, in production, at the fleet scale, rather than via a constructed reader/question — orthogonal to terse's per-repo audit and could flag which docs are worth auditing at all (e.g., high zero-result search terms, high contact-after-view rate). Not directly portable to a single markdown repo without a live search/support system behind it. Unit of measurement: % of searches returning zero results, % of searches leading to a support contact within N hours ('contact-after-view'), % of chatbot/KB interactions that avoid a ticket.",
+      "evidence": "WebSearch summaries of Zendesk help-center docs, Higher Logic, Gainsight, and eesel.ai articles naming these metrics (e.g., 'a 12% zero-result rate tells you the KB may be missing content'); I did not open any of these pages directly."
+    }
+  ],
+  "coverageNotes": "Covered directly with verified evidence: agent-skills benchmarks (skillsbench, confirmed via gh api), doc-testing-by-execution (Doc Detective, README read directly), readability-formula critique research (arXiv 2502.11150, fetched directly — this is the strongest, most current hit for 'research that says formulas don't predict comprehension'). Covered via WebSearch-only (not opened primary source): cloze protocol, Schriver's reader-focused-vs-text-focused taxonomy, tree testing/findability metrics, RAGAS/LLM-judge RAG metrics, DocBench and QASPER doc-QA datasets, task-based usability-testing protocol, and search/ticket-deflection instrumentation. I could not run or independently reproduce any of these protocols myself in this session — everything above is either a repo I inspected via gh api/gh search, or a page/abstract I fetched or saw summarized, not a measurement I performed. LLM-as-judge readability evals specific to *documentation* (as opposed to general RAG QA) turned up nothing more specific than RAGAS/DeepEval adapted post-hoc; I did not find a named 'DocEval' or equivalent aimed squarely at doc readability. SMOG and other classic formulas themselves were not separately researched beyond the Flesch-Kincaid critique thread, since the brief's real interest is the critique literature, not the formulas.",
+  "dropped": "ARES (an LLM-judge RAG eval framework mentioned as a RAGAS alternative, reportedly beating it on context-relevance alignment) — dropped for redundancy with RAGAS, not independently verified. DeepEval — same reason, redundant with RAGAS, would need its own verification to add value. Google's Season of Docs / Good Docs Project — template-and-process oriented, not a measurement protocol, so left out. Microsoft Learn's docs 'helpfulness' feedback-widget analytics — plausible fleet-scale instrumentation like the Zendesk entry, but I did not find or verify a citable writeup in the time available, so folded the concept into the generic search/ticket-deflection entry instead of adding a separate unverified one. SUS / Single Ease Question (MeasuringU) — generic post-task satisfaction scores, weaker fit than task-success-based tree testing and task-based usability testing already included, dropped to stay under the candidate cap."
+}

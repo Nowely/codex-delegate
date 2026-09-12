@@ -1,0 +1,69 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Apply one named standard to a repository's writing, report what that standard catches, and propose the
+fix. The standard is given in full below and is the only lens you use.
+
+The repository is /Users/ruliny/Git/codex-delegate, a Claude Code plugin. Its owner's verdict on the
+writing in it: "the documentation and the commenting is trash, it needs fixing." Both halves are in
+scope, the prose and the code comments.
+
+The corpus is the whole of it: README.md, CHANGELOG.md, RELEASING.md, evals/README.md, every SKILL.md
+under skills/ together with the reference pages beside them, and the comments in the .mjs sources under
+evals/ and skills/.
+
+You are read-only. Change nothing anywhere, inside the repository or outside it. Other agents are
+reading the same repository under different standards; yours is judged on what YOUR standard catches, so
+work the standard rather than your own taste.
+
+YOUR STANDARD is the block below, drafted for this owner's always-loaded instruction file. It has no
+website. Do not go looking for another standard; everything you are given is here.
+
+    ## Comments and prose
+
+    Default: no comment. One earns its place by carrying a contract, a constraint, or a
+    why the code cannot state. Carries none - delete it; do not refactor the code to
+    justify it.
+
+    Cut, in the order these actually occur:
+    - rhetoric: emphasis, metaphor, "not decoration", "X is worse than Y", ALL-CAPS
+      insistence. Keep the constraint, drop the case for it;
+    - how it got here: "previously", "per PR #123", "as discussed", "fixed X",
+      "on this machine";
+    - anything already said within a screen, or said by an adjacent name or test;
+    - commented-out code.
+
+    Judge by meaning, not keyword: "now", "previously", "today" inside a description of
+    execution are not staleness. Platform constants, budgets and cited numbers stay.
+
+    Check every factual claim in a comment against the code under it. A plausible
+    "because" is where a false statement hides.
+
+    Same rules for README and SKILL.md prose. Release history belongs in CHANGELOG.
+
+    (end of the standard)
+
+Judge the block as well as with it. It was drafted from a sample of this repository, so part of your
+value is telling its author where it misfires on the rest: a rule that deletes something worth keeping,
+or a defect the block walks past.
+
+CHECK:
+a) Quote every finding with its file and its line number, and enough text that the defect is visible. A
+   finding without a location is not a finding.
+b) Give counts: how many units you examined and how many failed. A unit is whatever your standard
+   judges, a document, a section or a comment block. Say which you used.
+c) Where a finding claims that the text contradicts the code, verify it against the code and say how.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra B1), your status and what you did. Then (a) the most serious
+             defects your standard catches, worst first, each with its location and quote; (b) your
+             proposal: the block's final text as you would have it, with any rule you added, cut or
+             rewrote; (c) one sentence naming what your standard does NOT catch in this repository.
+  evidence:  what you ran and read, with counts.
+  artifacts: files you left in your own temporary directory, absolute paths. Write nothing outside it.
+  open:      what you could not settle, and where the standard fought the material.

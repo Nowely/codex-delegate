@@ -1,0 +1,17 @@
+[
+  "Does the plugin need an OpenAI API key or a separate account of its own?",
+  "Can a Codex agent commit to my repository?",
+  "Where on disk do a run's answers and reports end up?",
+  "What happens to my stored data if I remove the marketplace rather than the plugin?",
+  "Can several Codex agents run at the same time, and is there a limit?",
+  "Does my code get sent to OpenAI, and what exactly leaves my machine?",
+  "How do I stop an agent from reaching the network?",
+  "Which codex-cli version is this measured against, and what should I expect on a newer one?",
+  "What does /codex-delegate:orchestrate do that a plain request in the conversation does not?",
+  "If an agent runs no commands at all, what does the plugin report, and can I change that?",
+  "How do I update the plugin, and does an update lose my stored answers?",
+  "Can I install without the marketplace, and what do I lose if I do?",
+  "Why would I use this instead of OpenAI's official openai-codex plugin?",
+  "Why can a read-only agent not run browser tests?",
+  "What should a bug report include?"
+]

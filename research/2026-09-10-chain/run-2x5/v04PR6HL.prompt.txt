@@ -1,0 +1,67 @@
+SEAT: read /Users/ruliny/Git/codex-delegate
+MODEL: gpt-6-astra
+OUTPUT_SCHEMA: /var/folders/mf/9v804k_57lq30kwtlr7468xr0000gn/T/codex-seat.zP378l2j/schema.json
+
+TASK:
+Judge a controlled experiment and tell its owner what to adopt.
+
+Ten agents audited the repository at /Users/ruliny/Git/codex-delegate, which is the checkout you are sitting
+in. Its owner's verdict on the writing in it was "the documentation and the commenting is trash, it needs
+fixing". Each agent carried exactly one standard and reported in one fixed shape. Their ten returns are in
+/tmp/bakeoff/dossier.txt, labelled ENTRANT P1 through P10.
+
+The design is a two-by-five factorial. Five standards, each given to two agents of DIFFERENT model
+families:
+
+  Diataxis                                       P1, P2
+  verification against the implementation        P3, P4
+  a draft rule block for the owner's CLAUDE.md   P5, P6
+  riekelt/technical-writer house style           P7, P8
+  CONTROL, no standard given at all              P9, P10
+
+Which entrant ran on which model is deliberately hidden from you, and the model names have been stripped
+from the text. You are one of the two families yourself, so this blinding is what stops you from favouring
+your own. Do not try to infer model identity, do not speculate about it in your answer, and do not let a
+guess influence a ranking.
+
+The control pair exists to answer the owner's original question, which was whether specialised
+documentation "skills" are worth adopting at all. If a standard cannot beat an agent that was handed
+nothing, the standard is not earning its place. Judge that squarely; a finding that the standards lost is
+a valid and useful outcome.
+
+CHECK:
+Grading reports by how convincing they read is exactly the failure this seat exists to avoid.
+a) VERIFY A SAMPLE AGAINST THE REPOSITORY. You have the checkout and a shell. Take at least twelve
+   findings, drawn from at least six different entrants, weighted toward the ones that would cost the most
+   if wrong, and check each against the actual files and code. Say for each: confirmed, refuted, or
+   overstated. A confirmed finding from a modest report outranks an eloquent unverified one.
+b) Look for the same defect reported by several entrants. Independent convergence is evidence; count how
+   many distinct defects were found by two or more, and how many by one only.
+c) Look for contradictions BETWEEN entrants: two reports that cannot both be right. Resolve each against
+   the code and name who was wrong.
+d) Judge coverage honestly. An entrant that examined 48 claims and an entrant that examined 1,365 units
+   are not comparable by raw counts; ask what each unit was worth.
+e) Read each entrant's own statement of what its standard does NOT catch, and check whether it is honest
+   or self-serving.
+f) Two of the ten delegated part of their own work to sub-agents that reported after their parent had
+   already finished. Those late sub-reports are NOT in the dossier and are not yours to grade. Treat each
+   entrant on the return it delivered. That two entrants split their work and ran out of time before it
+   came back is itself an observation you may record.
+
+RETURN:
+Fill the five fields of the output schema.
+  status:    done, partial or blocked.
+  result:    at most 30 lines. Line 1 on its own: one sentence a reader can take alone, naming your model
+             and seat id (Codex gpt-6-astra J1), your status and what you did. Then:
+             1. The ranking, first to last, one line each: the label, its standard, and the one reason it
+                sits there.
+             2. Did any standard beat the control? Answer yes or no, name which, and give the evidence. If
+                no, say so plainly.
+             3. Within each of the five pairs, did the two agents find the same defects? Where they
+                diverged, say what the divergence was about.
+             4. Your recommendation to the owner, as an instruction he can act on: which standard to adopt,
+                which to discard, and what to do that no entrant proposed.
+  evidence:  your sample verification, one entry per finding checked: the entrant, the claim, the command
+             or file and line you checked it against, and your verdict.
+  artifacts: files you left in your own temporary directory, absolute paths. Write nothing outside it.
+  open:      what you could not verify, and any place your own judgement could be biased.
