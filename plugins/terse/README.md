@@ -29,12 +29,13 @@ what order. It returns a skeleton — section titles, what each is for, what eac
 its reader at the third section, and nine of his nine objections were about what the document contained,
 where it sat and how much of it there was. None was about phrasing.
 
-**`/terse:rewrite`** takes a skeleton or an audit's run file and writes against it in four passes: who reads this, the writing
-rules, the curse of knowledge, then the measured failures one at a time. Three writers produce
-candidates, two judges score them on the failures rather than on taste, and you get the winner, the
-diff, a list of every cut of twenty words or more with its reason, and the file and line behind every
-behavioural claim. It writes into its own run directory. Applying anything to your files needs your
-word.
+**`/terse:rewrite`** takes a skeleton or an audit's run file and writes against it. Three writers produce
+candidates and two judges score them on the failures rather than on taste; the winner then goes through
+a loop of critics whose lenses do not overlap — the code, the rules, an adversarial reader, a task, a
+reader's questions — until a round finds nothing new and nothing got worse. Every round is kept as its
+own file. You get the winner, the diff, a list of every cut of twenty words or more with its reason, and
+the file and line behind every behavioural claim. It writes into its own run directory. Applying
+anything to your files needs your word.
 
 **`/terse:calibrate`** measures something the other two cannot see. A right answer is not the same as a
 text you would rather read, and in the field studies that report both, the two sometimes move in

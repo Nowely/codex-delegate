@@ -35,6 +35,10 @@ own first answer twice. The three that earned their place here: one against the 
 mechanical rules read as a grep would read them, and one hunting words whose score does not pay for
 their space.
 
+Every finding carries a reproducible check — the command and its output, or the file and line — and a
+finding without one is discarded. The coordinator's own re-verification of each finding was the slowest
+step of every round; a command is re-run in seconds, a code path is re-read in minutes.
+
 The one against the code does not check that the cited line exists. It checks that an independent reader
 of that code would state the same thing — level 2 of
 [the three](../../audit/references/truth-pass.md#three-levels-of-evidence). Every false claim this method
@@ -56,6 +60,11 @@ by which stage they belong to**:
 | these two sections repeat each other | stage 3 | a boundary, sometimes a merge |
 | this term is read as something else | stage 2 | every occurrence, everywhere |
 | every comparable document has X and we do not | stage 1 | a section, and its budget from another |
+
+On a document that already exists — inherited, or past its first round — the outer loop runs **first**:
+one adversarial reader over the whole document, with the right to run the code and the CLI, before any
+block is touched. On the run this comes from, that pass found thirteen defects older than the round it
+was asked about, which three earlier per-block reviews had all passed.
 
 That routing is what makes it a cycle over the whole flow rather than a polish pass. A finding that
 lands on stage 2 or 3 invalidates blocks written under the old answer, and rewriting them is the cost of
@@ -105,6 +114,17 @@ the evidence level reached. Then each round is mechanical rather than hopeful:
 4. Count the regressions. That number is the round's verdict; findings are its yield.
 
 A round that simplifies without re-verifying is not a round, it is a bet.
+
+Every ledger entry carries the level it was verified at, and an entry about a lifecycle at level 2 is
+provisional: three such entries — a ref kept, a lock reclaimed, no report left — were pinned as true and
+each fell to a run in the next wave. A ratchet on that ledger would have rejected the fixes. And a retired
+phrase is searched for everywhere it could survive, table cells included: one lived on with a capital
+letter while the ledger stayed green.
+
+Re-verifying from the code means the lifecycle, not the line. Round 06 of the same run made nine edits,
+each checked against a resolving line, and four were false: every one described what stays, what is
+removed, or what a continuation sees — a sequence of runs that no single line shows. The critic who found
+them ran the driver. A claim about a lifecycle is level 3 or it is a guess.
 
 ### When to stop
 
@@ -314,12 +334,21 @@ path in the document began with `~`. The check reported clean for three rounds, 
 reviews, while the document violated the rule in four places; an auditor found them by reading.
 
 So: **every mechanical check is itself tested, against a planted violation, before its output is
-believed.** One line, once:
+believed.** The checks ship in `scripts/` beside this skill, and so does the test:
 
 ```bash
-printf 'use --no-network and ~/.codex/sessions\n\n## How it works\n' > /tmp/planted.md
-node check.mjs /tmp/planted.md   # must report both, or the check is decoration
+node scripts/selftest.mjs                                  # every check against its planted violation
+node scripts/rule1.mjs DOC.md --except "What it stores"    # rule 1, with the stated exception
+node scripts/dup.mjs DOC.md concepts.json                  # one idea, one home
+node scripts/sections.mjs DOC.md                           # words per section, against the budget
+node scripts/ledger.mjs ledger.json 01.md 02.md … NN.md    # the ratchet; exit 1 when NN fails a row
+node scripts/round.mjs NN-1.md NN.md edits.json --ledger ledger.json   # the next round, by asserted edits
 ```
+
+`round.mjs` refuses an anchor that is not unique and refuses to overwrite a round, and each edit may
+declare the claims it introduces and the phrasings it retires, so the ledger grows from the rounds
+themselves. Rounds 04 to 07 of the run this file comes from are reproduced byte for byte from their
+`edits/NN.json`.
 
 A check that has never caught anything is indistinguishable from a check that cannot. And normalise
 whitespace before matching: a claim broken across a line has now defeated two checks in one project.

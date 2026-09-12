@@ -1,0 +1,33 @@
+#!/usr/bin/env node
+// Produce the next round from the previous one by asserted edits, and grow the ledger.
+// Usage: node round.mjs FROM.md TO.md EDITS.json [--ledger LEDGER.json]
+// EDITS.json = [{"name": "...", "old": "...", "new": "...",
+//                "claims": [{"name","pattern"}],   // verified claims this edit introduces  (want: true)
+//                "retire": [{"name","pattern"}]}]  // phrasings this edit removes as false   (want: false)
+// Every `old` must occur exactly once in FROM, or nothing is written. TO must not exist: a round is a
+// new file, never an overwrite. With --ledger, claims and retirements are appended (deduplicated by name).
+import fs from "node:fs";
+const args = process.argv.slice(2);
+const li = args.indexOf("--ledger"); const ledgerFile = li === -1 ? null : args[li + 1];
+const [from, to, editsFile] = args.filter((a, i) => li === -1 || (i !== li && i !== li + 1));
+if (!from || !to || !editsFile) { console.error("usage: node round.mjs FROM.md TO.md EDITS.json [--ledger LEDGER.json]"); process.exit(2); }
+if (fs.existsSync(to)) { console.error(`${to} exists; a round is a new file, never an overwrite`); process.exit(1); }
+let t = fs.readFileSync(from, "utf8");
+const edits = JSON.parse(fs.readFileSync(editsFile, "utf8"));
+for (const e of edits) {
+  const n = t.split(e.old).length - 1;
+  if (n !== 1) { console.error(`${e.name}: found ${n} time(s) in ${from}, expected exactly 1; nothing written`); process.exit(1); }
+  t = t.replace(e.old, e.new); console.log("ok ", e.name);
+}
+fs.writeFileSync(to, t);
+if (ledgerFile) {
+  const ledger = fs.existsSync(ledgerFile) ? JSON.parse(fs.readFileSync(ledgerFile, "utf8")) : [];
+  const byName = new Map(ledger.map((c) => [c.name, c]));
+  for (const e of edits) {
+    for (const c of e.claims ?? []) byName.set(c.name, { name: c.name, pattern: c.pattern, want: true });
+    for (const c of e.retire ?? []) byName.set(c.name, { name: c.name, pattern: c.pattern, want: false });
+  }
+  fs.writeFileSync(ledgerFile, JSON.stringify([...byName.values()], null, 1) + "\n");
+  console.log(`ledger: ${byName.size} claim(s)`);
+}
+console.log(`wrote ${to}`);

@@ -153,3 +153,23 @@ forensics remain in the repository references and release notes.
   clamped next to it — a gap of two trials in a 144-trial run — so repeats are now drawn only from
   originals with room behind them, a bank nominates more candidates than it needs, and the tool says so
   when it cannot place them all.
+- **The critics are a pool of lenses, and the sizes are the user's.** One measured round was reviewed by
+  one critic; the next by eleven — two Opus, one Codex astra, two sol, five luna, one Fable to dedup —
+  each with a lens the others do not have. The ones that found the most ran things: an adversarial
+  reader with an isolated `CLAUDE_CONFIG_DIR` and the driver found thirteen defects in one pass that
+  three reading-only reviews had passed, so on a document with a history the outer loop now runs
+  first. A reader seat told "do not run commands" read nothing, because Codex reads through the shell;
+  a reader is now told which one command it may run. Every finding carries a reproducible check, or it
+  is discarded: re-verifying a finding was the slowest step of every round, and a command re-runs in
+  seconds. `README.md`, `SKILL.md` and `bake-off.md` had three descriptions of one pool and now have one.
+- **A claim about a lifecycle is level 3 or a guess.** Nine edits in one round were each checked against
+  a resolving line and four were false — every one about what stays on disk, what is removed and when,
+  or what a continued run sees. The accuracy floor now says so.
+- **The checks ship as scripts**, under `skills/rewrite/scripts/`, with `selftest.mjs` planting a
+  violation for each and refusing to pass until every one is caught: `rule1.mjs`, `dup.mjs`,
+  `sections.mjs`, `ledger.mjs`, and `round.mjs`, which produces the next round from asserted
+  single-occurrence edits, refuses to overwrite a round, and grows the ledger from the claims each edit
+  declares. Four of the run's rounds are reproduced byte for byte from their `edits/NN.json`. `loop.md`
+  had told the reader to run a `check.mjs` that did not exist.
+- Defects found in passing now go in `ISSUES.md` at the repository root, and the repository's own
+  `CLAUDE.md` says so; the first four entries are codex-delegate's, found by this plugin's critics.

@@ -60,27 +60,40 @@ the code says this, or the behaviour was made to happen. The three levels are de
 level rather than the line is written there: **citing a line is the weakest of the three and the one
 that feels like proof.**
 
-This is a gate, not a preference, and level 1 does not clear it for anything a reader will act on. One
-false claim has shipped in this plugin's own history — a draft said a directory was never pruned when the
+This is a gate, not a preference, and level 1 does not clear it for anything a reader will act on. A
+claim about a lifecycle — what stays on disk, what is removed and when, what a continued or retried run
+sees — clears it only at level 3: run it. One measured round made nine edits, each checked against a
+resolving line, and the four that were false were all of that kind. One false
+claim has shipped in this plugin's own history — a draft said a directory was never pruned when the
 code prunes it by age and by count — and a fourteen-agent exercise inherited it into two of ten proposals
 before an adversarial reader caught it. A line number was available for that claim the whole time. What
 was missing was a reader of the code who would have said the same thing.
 
 ## Step 3. The writing, in rounds
 
-Announce it before spawning: how many writers, how many critics, which models, roughly what it costs.
-Wait for the user's word. Default pool, small on purpose:
+Announce it before spawning: how many writers, judges and critics, which models, roughly what it costs.
+Wait for the user's word. The bake-off pool — three writers, two judges — is in
+[bake-off.md](references/bake-off.md). The critics of the loop are a pool of their own, one seat per
+lens; the lenses are fixed and the sizes are the user's:
 
-| Seats | Job |
-|---|---|
-| 3 writers | one whole candidate each, same brief, different stance |
-| 3 critics | one against the code, one against the mechanical rules, one hunting water |
+| Lens | Reads | Where it ran best |
+|---|---|---|
+| the code, with the right to run it | every behavioural claim; level 3 for anything about a lifecycle | Claude Opus |
+| the mechanical rules and the water | the skeleton's rules as a grep would; words whose score does not pay | Claude Opus |
+| adversarial, whole document | every sentence a reader acts on; scope words; CLI experiments in an isolated config | Codex gpt-6-astra |
+| a task | a starting state and a goal, acted on from the document alone; the resulting state | Codex gpt-5.6-sol, two |
+| a reader's questions | three questions each, one `cat` and nothing else; where they guessed | Codex gpt-5.6-luna, five |
+| dedup and rank | every report above, into one list with a reproducible check per finding | Claude Fable, after the rest |
 
 Writers take a stance rather than an instruction to write well: plain, dense, concrete. Three drafts of
 one voice are one draft.
 
-Critics do not overlap. A single critic asked twice returns its own first answer twice; three lenses
-return three answers. Judges never see which model wrote which candidate.
+Critics do not overlap. A single critic asked twice returns its own first answer twice; lenses that
+differ return answers that differ. The ones that found the most were the ones that ran things: a critic
+with an isolated `CLAUDE_CONFIG_DIR` and the driver found thirteen defects in one pass that three
+reading-only reviews had passed. A reader seat told not to run commands reads nothing — Codex reads files
+through the shell — so a reader is told which one command it may run. Judges never see which model wrote
+which candidate.
 
 Then the loop — inner per block, outer over the whole document, findings routed by which stage owns them.
 Stop when two consecutive rounds find nothing new, and report the round counts. A count that stops
@@ -137,6 +150,8 @@ word, and a diff they have read is what earns it.
 - The three decisions before any sentence: [stages.md](../rethink/references/stages.md).
 - The writer brief, the judging sheet, and how the winner absorbs the losers:
   [bake-off.md](references/bake-off.md).
+- The checks, as scripts with a planted-violation self-test: [scripts/](scripts/) — `selftest.mjs`,
+  `rule1.mjs`, `dup.mjs`, `sections.mjs`, `ledger.mjs`, `round.mjs`.
 - The rules, fixed: [writing-rules.md](references/writing-rules.md).
 - The third pass, fixed: [curse-of-knowledge.md](references/curse-of-knowledge.md).
 - Run file and ledger formats: [ledgers.md](../audit/references/ledgers.md).

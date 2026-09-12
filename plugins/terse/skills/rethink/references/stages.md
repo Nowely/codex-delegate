@@ -251,6 +251,13 @@ order.
 **Then stop and put the structure in front of the owner.** Rewriting two thousand words against the
 wrong skeleton costs more than one round trip.
 
+**And keep the skeleton current.** It is the contract the mechanical rules and the word budgets are read
+from, and every later decision — a section added on survey evidence, a fact restored on the reader's word,
+a budget that grew to carry a true sentence — is written back into it. Measured on 2026-09-12: a rules
+critic reading the skeleton as written reported the Node floor, the uninstall block and three sections as
+violations, all of them decisions the reader had taken after the skeleton was agreed and none of them
+recorded in it. A skeleton nobody maintains measures the document against a document nobody agreed.
+
 ## The rules this produced
 
 Derived from what the owner changed, not from a standard. They are about content and order; the rules
