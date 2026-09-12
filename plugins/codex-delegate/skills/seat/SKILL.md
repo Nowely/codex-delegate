@@ -98,12 +98,15 @@ the report as `turnStatus: interrupted`, exit 1, nothing left running.
 so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own and never under `<DIR>`:
 `<DIR>` sits in `$TMPDIR`, the one root a read seat may write, and a file the seat leaves at that name blocks publication
 and then sits where you would read it as the seat's own report. Put it under the driver's state directory,
-`<state>/reports/<run>/report.json` with `<run>` unique; the driver makes every directory that path needs, at 0700,
-so it may name a root your own Write and `mkdir` are refused.
+`<state>/reports/<run>/report.json` with `<run>` unique, or, under the orchestrate mode, `<run>/<seat>/report.json`
+in the run directory that page names, one directory per seat; the driver makes every directory that path
+needs, at 0700, so it may name a root your own Write and `mkdir` are refused.
 The wrapper's completion notification is the seat's completion, and `<REPORT>` is what to read then: the
 wrapper's own lines say whether the file exists and what the first line of the answer is, nothing more. To
 continue a seat, write a second prompt file with `RESUME: <threadId>` and send the wrapper one more command
-of the same shape; it runs it the same way and notifies again (measured 2026-09-12).
+of the same shape; it runs it the same way and notifies again (measured 2026-09-12). A session with no
+message tool, headless `-p` among them, continues the thread with a second wrapper given the same file,
+at the cost of a second card (measured: the thread held both ways).
 
 Every driver call forwards that variable under its own name — the plugin's own data directory, where the
 driver's state and every Codex artifact the report names (`answerPath`, a worktree harvest) live. The

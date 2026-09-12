@@ -167,13 +167,18 @@ const wcL = (file) => {
 
 function scratchClone(dir) {
   const s = path.join(dir, "scratch");
-  const r = spawnSync("git", ["clone", "--local", "--quiet", ROOT, s], { encoding: "utf8" });
+  // ROOT is one plugin inside the monorepo, not a repository of its own: the clone is of its git
+  // toplevel, and the scratch a case works in is the plugin's own subdirectory of that clone.
+  const top = git(ROOT, "rev-parse", "--show-toplevel").trim();
+  if (!top) throw new Error(`no git toplevel above ${ROOT}`);
+  const r = spawnSync("git", ["clone", "--local", "--quiet", top, s], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`git clone --local failed: ${(r.stderr ?? "").trim().slice(0, 240)}`);
+  const sub = path.join(s, path.relative(top, ROOT));
   // Without this the "untouched" assertions below prove nothing: a clone that starts dirty makes an
   // empty porcelain impossible and a non-empty one meaningless.
-  const dirty = git(s, "status", "--porcelain").trim();
+  const dirty = git(sub, "status", "--porcelain").trim();
   if (dirty) throw new Error(`a fresh clone is already dirty: ${dirty.slice(0, 240)}`);
-  return s;
+  return sub;
 }
 
 // --------------------------------------------------------------- the session and its stream
@@ -420,8 +425,12 @@ function planProblems({ text, toolUses, scratch, head0 }) {
   // survives of the pair is the negative below, which needs no path to fire and no English to read.
   if (text.includes(".orchestrate/"))
     problems.push("the plan puts the run directory back inside the repository as `.orchestrate/`");
-  if (!CODEX_MODELS.some((m) => text.includes(m)))
-    problems.push(`no seat carries a Codex slug from the tier table (${CODEX_MODELS.join(", ")})`);
+  // The tier table pairs each slug with the short name the page's user-facing template uses ("Codex
+  // Terra T1"), so a plan written for the user names the seat either way; measured, three Opus plans for
+  // one task wrote "Terra, `gpt-5.6-terra`", "Codex Terra (cheap tier)" and "One Codex seat — Terra —".
+  // The word Codex itself is required a few lines below, so the name alone is what is read here.
+  if (!CODEX_MODELS.some((m) => text.includes(m)) && !/\b(Astra|Sol|Terra|Luna)\b/.test(text))
+    problems.push(`no seat carries a Codex model from the tier table (${CODEX_MODELS.join(", ")} or its short name)`);
   // Where the plan has a seat table, the rows ARE the seats and everything else is commentary about them:
   // measured, a plan that listed one Fable seat in a row and then wrote "one Fable seat, one gpt-6-astra
   // seat, caps respected" in a bullet counted its own summary as a second seat. A plan with no table is
@@ -579,7 +588,7 @@ test("plan only under Fable: the top pair is capped",
     problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, head0 }));
     // The top Codex seat by name, not by tier table membership: planProblems accepts any of the three
     // slugs, and for a design task the top row is the whole claim.
-    if (!lines(s.planText).some((l) => l.includes("gpt-6-astra")))
+    if (!lines(s.planText).some((l) => l.includes("gpt-6-astra") || /\bAstra\b/.test(l)))
       problems.push("the plan names no gpt-6-astra seat");
     return settle(dir, problems);
   });

@@ -26,7 +26,8 @@ forensics remain in the repository references and release notes.
   seat, and Haiku ran the block seven times of seven, short, long and stopped, at three output tokens a
   turn, so it is the pin. The orchestrate page follows: pass the wrapper no `model`, a seat is counted by
   the `orchestrate-live` suite as an Agent call whose prompt names the driver, and the wrapper is exempt
-  from the tag check.
+  from the tag check. Under the orchestrate mode `<REPORT>` is the run directory that page names, said on the
+  seat page now too, where the coordinator copies the path from.
 - The orchestrator's model table gains a **bulk tier** where it used to say "not used": Luna
   (`gpt-5.6-luna`) and Haiku, up to fifty alive at once, **outside the pool and not counted against the
   one-Astra one-Fable alive cap**. They are fast, cheap and not clever, so the row is for work that is
@@ -97,6 +98,12 @@ forensics remain in the repository references and release notes.
   could not tell from a server death (measured 2026-09-12 from the agent map's Stop). With a cut pending
   the server's death now settles the run on the cut's own reason, `interrupted`, exit 1, evidence kept;
   `lock.test.mjs` gains the tree-signal case, red on the previous driver.
+- Three eval cases that had been red since earlier changes: `orchestrate.test.mjs` still expected the
+  tier table's `unused` row after the bulk tier replaced it; `orchestrate-live.test.mjs` cloned the
+  plugin directory, which has not been a repository since the marketplace restructure, so four of its
+  five cases could not start, and it now clones the git toplevel and works in the plugin's subdirectory of
+  the clone; and its plan check demanded a Codex slug where the page's own template names the seat
+  "Codex Terra", so a plan written for the user failed it, and the short names now count.
 
 ## 0.13.0 — 2026-09-10
 

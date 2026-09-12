@@ -73,7 +73,7 @@ test("the tier table pairs all eight model names, one tier per row",
     /^\| top \| Fable \| `gpt-6-astra` \| Astra \| design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts\. Never implementation \|$/m,
     /^\| strong \| Opus \| `gpt-5\.6-sol` \| Sol \| write seats, non-trivial analysis \|$/m,
     /^\| cheap \| Sonnet \| `gpt-5\.6-terra` \| Terra \| mechanical, hard-to-get-wrong work \|$/m,
-    /^\| unused \| Haiku \| `gpt-5\.6-luna` \| Luna \| not used \|$/m,
+    /^\| bulk \| Haiku \| `gpt-5\.6-luna` \| Luna \| \*\*outside the pool, with a pool of its own\*\*: up to 50 alive at once\. .* \|$/m,
   ));
 
 // ------------------------------------------------------------------ A: what the mode is
