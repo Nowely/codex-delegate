@@ -91,6 +91,10 @@ it happened here, to three intermediate states, before this was written down.
 Beside them a `rounds.md`: one row per round with what produced it, its word count, the findings against
 it, and **its regression count**. That last column is the round's verdict. Findings are its yield.
 
+A round is frozen the moment its critics are launched. A fix applied to the file while they read it
+leaves them reviewing a document that no longer exists; it happened here, on round 04, and the fix went
+into 05 where it belonged.
+
 So carry a **ledger of verified claims** across rounds: the sentence, the claim, the file and line, and
 the evidence level reached. Then each round is mechanical rather than hopeful:
 
@@ -317,7 +321,8 @@ printf 'use --no-network and ~/.codex/sessions\n\n## How it works\n' > /tmp/plan
 node check.mjs /tmp/planted.md   # must report both, or the check is decoration
 ```
 
-A check that has never caught anything is indistinguishable from a check that cannot.
+A check that has never caught anything is indistinguishable from a check that cannot. And normalise
+whitespace before matching: a claim broken across a line has now defeated two checks in one project.
 
 ### And when a rule fires, ask whether the rule is wrong
 
