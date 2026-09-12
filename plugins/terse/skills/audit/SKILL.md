@@ -3,7 +3,7 @@ name: audit
 description: >-
   Measures a document against two rulers: whether fresh readers get the right answer, and whether every
   claim about behaviour is true of the code. Returns a reader profile, a claim ledger, reader scores and
-  the list of what broke. It never proposes wording; `revise` does that.
+  the list of what broke. It never proposes wording; `rewrite` does that.
 disable-model-invocation: true
 metadata:
   version: "0.1.0"
@@ -35,7 +35,7 @@ RUN="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/terse}/runs/$(date +%Y%m%d-%H%M%S)" &
 
 `CLAUDE_PLUGIN_DATA` is empty when this skill runs from a source checkout rather than an installed
 plugin, which is why the fallback is there. Name the absolute path in your report and in the run file;
-`revise` is given that path by the user and cannot guess it.
+`rewrite` is given that path by the user and cannot guess it.
 
 Write nothing into the audited repository. Not a report, not a note, not a fix.
 
@@ -136,7 +136,7 @@ mean nothing.
 
 Write the run file to `$RUN/audit.md` using the section contract in
 [ledgers.md](references/ledgers.md), then report to the user: the score, the failures with their
-causes, the refuted claims, and the absolute path. Offer `revise` as the next step; do not run it.
+causes, the refuted claims, and the absolute path. Offer `rewrite` as the next step; do not run it.
 
 ## Reference
 

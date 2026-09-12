@@ -1,7 +1,7 @@
 # Who reads this
 
 The profile is the first part of the chain and it does two jobs. Here it chooses the questions the
-measurement asks. In `revise` it is the brief the rewrite is written to. One artifact, both times, which
+measurement asks. In `rewrite` it is the brief the rewrite is written to. One artifact, both times, which
 is why it is written once and carried in the run file rather than re-derived.
 
 ## Where to get it

@@ -35,7 +35,7 @@ Read that as the limit of this skill rather than as its failure. It measures whi
 person prefers, and it does that honestly. What it cannot see is whether the document says the right
 things in the right order, which is what decided the question this measurement existed to serve. Before
 spending hours here, spend one evening on
-[structure-first.md](../revise/references/structure-first.md) and find out which axis your reader is
+[stages.md](../rethink/references/stages.md) and find out which axis your reader is
 actually judging on.
 
 ## What it costs, before anything else

@@ -909,7 +909,7 @@ seats. Every raw return from all three rounds is in the repository.
 four-pass rewrite stage by stage, the claim ledger C01–C67 that the plugin's ledger format comes from, the
 cut ledger, the prerequisite inventory, and forty Codex seat returns from the bake-off whose result
 decided most of the plugin's shape. Every 2026-09-10 number quoted anywhere in this file traces there. It
-was living outside version control until 2026-09-11, and the two reproduced blocks in `revise` now carry
+was living outside version control until 2026-09-11, and the two reproduced blocks in `rewrite` now carry
 the SHA-256 of their own text so the reproduction claim is checkable even without it.
 
 Weaknesses. The Codex seats were single-pass and unreplicated; where two inputs disagreed, both are

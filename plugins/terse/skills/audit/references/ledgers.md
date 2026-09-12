@@ -1,7 +1,7 @@
 # The run file and the three ledgers
 
-`audit` and `revise` are two skills and two invocations, possibly two sessions. Nothing passes between
-them except one file, so the file has a contract: fixed headings, fixed order, no renaming. `revise` is
+`audit` and `rewrite` are two skills and two invocations, possibly two sessions. Nothing passes between
+them except one file, so the file has a contract: fixed headings, fixed order, no renaming. `rewrite` is
 given the directory and reads the headings by name.
 
 ## The run file
@@ -36,7 +36,7 @@ One entry per wrong answer, each with a cause.
 What could not be settled, and anything the steps contradicted each other about.
 ```
 
-Two headings are load-bearing for `revise`: **Reader profile** is the brief it writes to, and **What
+Two headings are load-bearing for `rewrite`: **Reader profile** is the brief it writes to, and **What
 broke** is the fourth part of its chain. Without them it is three parts of a four-part method, and it
 has to say so.
 
@@ -85,9 +85,9 @@ Repair must: correct the scope sentence and remove both guarantees at their sour
 ```
 
 Name the cause with one of the four words — refuted, missing, placement, findability — because
-`revise` treats them differently. Name the ledger entries involved. State what a repair must achieve, not how to word it.
+`rewrite` treats them differently. Name the ledger entries involved. State what a repair must achieve, not how to word it.
 
-## The two ledgers `revise` returns
+## The two ledgers `rewrite` returns
 
 **Cut ledger.** Every removed passage of twenty words or more: where it was, what it said, and why it
 went. A cut without a reason is indistinguishable from losing something.

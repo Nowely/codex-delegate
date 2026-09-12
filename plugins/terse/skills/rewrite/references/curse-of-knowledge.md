@@ -1,7 +1,7 @@
 # The curse of knowledge
 
 Part three of the four-part chain. The text below is fixed. Run the three numbered steps in order and
-keep the inventory from step one; it is one of the artifacts `revise` returns.
+keep the inventory from step one; it is one of the artifacts `rewrite` returns.
 
 Camerer, Loewenstein & Weber (1989) and Newton (1990): once you know something you cannot accurately
 simulate the mind of someone who does not. Tappers tapping a song predicted listeners would name it half

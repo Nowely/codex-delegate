@@ -17,7 +17,7 @@
     },
     {
       "name": "terse",
-      "description": "Two user-invoked skills for documentation. The first measures it: fresh readers answer the questions your readers arrive with, and every claim about behaviour is checked against the code that backs it. The second repairs what broke, through a small bake-off judged on those measured failures, and proposes the result without touching your files.",
+      "description": "Four user-invoked skills for documentation. `audit` measures it: fresh readers answer the questions your readers arrive with, and every claim about behaviour is checked against the code that backs it. `rethink` decides what a document should be \u2014 what the genre already solved, what things are called, what is said in what order \u2014 and stops at a skeleton for your word. `rewrite` writes it, in a loop of critics that do not overlap rather than one pass. `calibrate` measures which forms of writing one person actually prefers. Nothing is written into your tree without you.",
       "author": {
         "name": "Nowely"
       },

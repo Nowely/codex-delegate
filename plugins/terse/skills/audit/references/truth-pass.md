@@ -68,7 +68,7 @@ plugin exists to avoid:
 - examples that illustrate rather than promise
 - recipes for tools this repository does not ship
 
-These belong to `revise`, under the writing rules. They do not enter the ledger.
+These belong to `rewrite`, under the writing rules. They do not enter the ledger.
 
 ## When no code backs the text
 

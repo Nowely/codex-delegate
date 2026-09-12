@@ -4,10 +4,11 @@ A Claude Code plugin that measures whether your documentation gives readers the 
 repairs what it measured. It sends fresh readers through your `.md` files and checks every claim about
 behaviour against the code, so a failure arrives with a line number and a cause rather than an opinion.
 
-Three skills. You invoke all three; none starts on its own.
+Four skills. You invoke all four; none starts on its own.
 
 ```
-/terse:audit   →  run file  →  /terse:revise  →  candidate + diff  →  /terse:audit again
+/terse:rethink  →  skeleton  →  /terse:rewrite  →  candidate + diff  →  /terse:audit
+/terse:audit    →  run file  →  /terse:rewrite  →  candidate + diff  →  /terse:audit again
    what broke                    what to write                          did it hold
 
 /terse:calibrate  →  which forms you prefer, measured on you, blind
@@ -21,7 +22,14 @@ real reader starts. It returns a score, the questions that failed, and why each 
 the true sentence sat where it misleads, or the answer was there and unfindable. It never suggests
 wording.
 
-**`/terse:revise`** takes that file and rewrites against it in four passes: who reads this, the writing
+**`/terse:rethink`** decides what a document should be before a sentence of it is written: what
+comparable documents in the same genre already solved, what things should be called, and what is said in
+what order. It returns a skeleton — section titles, what each is for, what each leaves out, a word budget
+— and stops there for your word. It exists because a draft written at ordinary quality was abandoned by
+its reader at the third section, and nine of his nine objections were about what the document contained,
+where it sat and how much of it there was. None was about phrasing.
+
+**`/terse:rewrite`** takes a skeleton or an audit's run file and writes against it in four passes: who reads this, the writing
 rules, the curse of knowledge, then the measured failures one at a time. Three writers produce
 candidates, two judges score them on the failures rather than on taste, and you get the winner, the
 diff, a list of every cut of twenty words or more with its reason, and the file and line behind every
@@ -36,7 +44,7 @@ preference can be told from a coin toss. The result is a set of rules in your ow
 for how far each model judge agrees with you, so a cheap screen can stand in for you without pretending
 to be you. A preference never overrides a measured comprehension failure; it settles ties.
 
-All three skills announce how many agents they are about to spawn, on which model, and wait.
+All four skills announce how many agents they are about to spawn, on which model, and wait.
 
 ## Install
 

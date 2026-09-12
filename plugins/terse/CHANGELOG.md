@@ -83,7 +83,28 @@ forensics remain in the repository references and release notes.
   never which. It answers a real complaint — both metaphor items in the first sitting came back as ties
   with a note saying the difference was invisible — and it changes the question the session asks, which
   `SKILL.md` now states in place rather than leaving to be discovered.
-- `skills/revise/references/structure-first.md`, for a document whose shape is what is wrong rather than
+- **`revise` is split into `rethink` and `rewrite`**, because one name could not say what it did once the
+  method grew three stages in front of the writing. `rethink` decides what a document should be — what
+  the genre already solved, what things are called, what is said in what order — and **stops at a
+  skeleton for the user's word**. `rewrite` writes it. The split follows a boundary that was already
+  there: twice in one session the work stopped at exactly that point, because stages 1 to 3 are cheap and
+  arguable and stage 4 is expensive and mechanical.
+- **The writing is a loop, not a pass.** Blocks are drafted, criticised by three lenses that do not
+  overlap — one against the code, one reading the mechanical rules as a grep would, one hunting words
+  whose score does not pay for their space — rewritten, and checked again. When every block goes quiet
+  the whole document goes back through critics who read it end to end, because no block-local critic can
+  see across blocks: on the run this came from, one such critic found a single claim stated four times in
+  four sections, each defensible where it stood, about 120 words of pure repetition that every per-block
+  pass had passed. Findings are routed by the stage that owns them, and a finding about a term or a
+  boundary goes back to `rethink` rather than being patched in a sentence. It stops when two consecutive
+  rounds find nothing new — not at a score, because a critic asked for findings always produces findings.
+- The method gained two axes nobody had named. **Presentation** is surveyed from the markdown source
+  rather than from a rendering, with each device costed: a nav line and horizontal rules are free, a
+  badge row costs credibility the moment one badge is untrue. **Vocabulary** gets a stage of its own,
+  because a term that misleads misleads in every structure: this plugin's sibling called its delegated
+  agents "seats" while claiming they were the equal of native subagents, and the dominant sense of "seat"
+  in software is a licence slot. Where a document's thesis is that A is like B, call A by B's word.
+- `skills/rethink/references/stages.md`, for a document whose shape is what is wrong rather than
   its sentences. It carries the measurement that forced it: ten sections written at ordinary quality
   were handed to a reader who stopped at the third and returned nine objections, **none of them about
   wording** — every one was about what the document contained, where it sat, or how much of it there
