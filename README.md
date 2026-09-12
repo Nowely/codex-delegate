@@ -12,6 +12,7 @@ Then install what you need:
 | Plugin | Install | What it does |
 | --- | --- | --- |
 | [codex-delegate](plugins/codex-delegate/) | `/plugin install codex-delegate@nowely` | Runs OpenAI Codex as a subagent beside Claude's own agents. Each call declares what Codex may write; the report says what actually ran. |
+| [terse](plugins/terse/) | `/plugin install terse@nowely` | Measures whether documentation gives readers the right answer — fresh readers per question, every behavioural claim checked against the code — and repairs what it measured. |
 
 ## Layout
 
