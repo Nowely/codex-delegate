@@ -3731,6 +3731,13 @@ function spawnServer() {
     // use it; the code stays 4, because the transport really did fail.
     if (rootThreadId) {
       process.stderr.write(`codex-delegate: ${e.message}\n`);
+      // A server that dies while this driver is already cutting the turn is not a crash: a harness that
+      // stops a seat signals the whole process tree, so codex takes the SIGTERM beside the driver and
+      // is gone before the grace ends. The cut is the verdict — interrupted, or the budget that fired —
+      // and the report reads as it would had the server closed the turn itself. Measured 2026-09-12:
+      // a seat stopped from the agent map reported `failed`/4, and its reader could not tell the
+      // cancellation from a server death.
+      if (pendingCut) { if (cutGraceTimer) clearTimeout(cutGraceTimer); finish(pendingCut.reason); return; }
       turnError = turnError ?? { codexErrorInfo: "crashed", message: e.message, crashed: signal ?? code };
       finish("failed", EXIT.TRANSPORT);
       return;
