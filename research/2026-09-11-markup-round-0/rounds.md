@@ -14,6 +14,7 @@ ratchet is a diff. A round is frozen the moment its critics are launched.
 | [05-critics.md](05-critics.md) | 1443 | the coordinator, against the critics' findings on its own edits only; ledger, rule 1 and duplication re-run | folded into 06's review | 0 |
 | [06-preexisting.md](06-preexisting.md) | 1578 | the coordinator, 9 edits against the 8 confirmed pre-existing defects; then 1 Opus critic against the code, who measured 4 of the claims by running the driver, the CLI and `codex exec` | 9 verdicts, 10 regressions listed, 4 unsettled | **4**, plus 2 overstatements |
 | [07-lifecycle.md](07-lifecycle.md) | 1611 | the coordinator, 8 edits against 06's review, each re-verified from the code; then a wave of eleven — 2 Opus, 1 Astra, 2 Sol, 5 Luna, 1 Fable to dedup — see [reviews/07/](reviews/07/) | 87 deduplicated: 41 sentence, 12 unsettled, 9 scope, 7 structure, 7 superseded, 6 code, 5 method | **5** of its own: 2 false, 3 overstated |
+| [08-review.md](08-review.md) | 1711 | the coordinator, 27 edits against the wave's list and the owner's five decisions, each with a check; `budgets.json`, `tasks.json`, `questions.json` written; then 3 critics — Opus with a stub codex, Astra, a Sol reader who had never seen the plugin — see [reviews/08/](reviews/08/) | Opus 14, Astra 9 (7 shared), the reader: "not yet" | **10** of its own: 4 false, 5 overstated, 1 vaguer; 4 of the writer's 27 stated checks did not hold |
 
 Beside them: [skeleton.md](skeleton.md), the structure all of these were written against, and
 [structure-map.md](structure-map.md), the first block audit.
@@ -139,6 +140,25 @@ The five method findings from the dedup stage, each verified:
 What the wave did not reach: no live Codex turn, no in-session lens (`/reload-plugins` on an open session,
 the first-run permission prompt, the two slash commands), no Linux, no naive whole-document reader asked
 "would you ship this". The full list is in the dedup file.
+
+### 08 — ten regressions in twenty-seven edits, and the first "would you send it" since the draft
+
+Every one of the ten is a qualification added to make a sentence truer that the code then exceeded in
+detail: "not your reports" (cleanup deletes an orchestrate run's reports), "sharing only your sign-in
+and sessions" (four settings come too), "a copy with unsaved files is left as it is" (ignored files do
+not count), "trimmed when a later run starts" (when one is written), "pinned" (a warning), the lock
+cure (three cases, the common one needs nothing). Both code critics ran the driver against a stub
+server; the writer verified by reading, and four of the writer's own stated checks were wrong.
+
+The regression count by round: 02 → 1, 03 → 2, 04 → 1, 05 → 0, 06 → 6, 07 → 5, 08 → 10. It is rising.
+The sections that regress are the three that grew — *What it stores*, *How it works*, *Troubleshooting*
+— and they regress because they transcribe mechanism at a resolution the code always exceeds, which the
+skeleton's own rule 2 (generated reference is linked, never transcribed) had forbidden.
+
+The reader who had never seen the plugin said **not yet**: nothing tells them how to choose the model or
+the rights for an ordinary request, and the pinned version reads as fragility. Their cuts: the Russian
+trigger line, "Both are yours to start", the forensics fragment; the official-plugin argument and the
+session-file detail read as written for the author. None of that is a lifecycle sentence.
 
 ### Still open after 07, the reader's call
 

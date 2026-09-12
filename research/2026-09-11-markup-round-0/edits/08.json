@@ -1,0 +1,397 @@
+[
+ {
+  "name": "opening: the run stops on a different grant (F9/F24)",
+  "old": "You say what an agent may touch before it starts, and the run stops if the server grants anything else.",
+  "new": "You say what an agent may touch before it starts, and the run stops if Codex grants a different sandbox\nor network than that.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:1991-2017 assertReadSandbox checks type, egress, workspace root, writable roots; excludeSlashTmp not checked (ISSUES C5)"
+  },
+  "claims": [
+   {
+    "name": "rights mismatch stops the run",
+    "pattern": "the run stops if Codex grants a different sandbox\\s+or network than that"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'grants anything else'",
+    "pattern": "grants anything else"
+   }
+  ]
+ },
+ {
+  "name": "quick start: pinned and last measured (F41)",
+  "old": "codex-cli **0.153.4**, the build this was measured against. A newer codex is untested, and an upgrade\n  of it is the likeliest thing to break a run",
+  "new": "codex-cli **0.153.4**, the build this is pinned to and was last measured on. A newer codex is untested,\n  and an upgrade of it is the likeliest thing to break a run",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:36 PINNED_CODEX; parity.md:3-4 says the figures were not re-measured for the pin"
+  }
+ },
+ {
+  "name": "quick start: cut 'Then ask for the work' (F67)",
+  "old": "Then ask for the work in the conversation.\n\n```text\nyou     Have Codex",
+  "new": "```text\nyou     Have Codex",
+  "check": {
+   "level": 1,
+   "how": "water; the Commands section says it"
+  }
+ },
+ {
+  "name": "quick start: prompt file sentence shorter (F69)",
+  "old": "Claude briefs each agent by writing its prompt to a file outside your project, so the first run asks your\npermission to write there.",
+  "new": "Claude writes each agent's prompt outside your project, so the first run asks permission to write there.",
+  "check": {
+   "level": 1,
+   "how": "harness behaviour; unsettled (F43); wording only"
+  }
+ },
+ {
+  "name": "commands: lead sentence shorter (F66)",
+  "old": "Most of the time you type nothing special — you name Codex, or ask for a second opinion, and the plugin\ntakes it from there:",
+  "new": "You name Codex, or ask for a second opinion, and the plugin takes it from there:",
+  "check": {
+   "level": 1,
+   "how": "water"
+  }
+ },
+ {
+  "name": "commands: trigger for a throwaway copy (F51, decision 5)",
+  "old": "Get Codex to refute the second finding.\n",
+  "new": "Get Codex to refute the second finding.\nLet Codex try the fix in a throwaway copy.\n",
+  "check": {
+   "level": 2,
+   "how": "seat/SKILL.md:97 `SEAT: worktree <repo>`; the skill is model-invoked on phrasing"
+  },
+  "claims": [
+   {
+    "name": "trigger for a throwaway copy",
+    "pattern": "Let Codex try the fix in a throwaway copy"
+   }
+  ]
+ },
+ {
+  "name": "commands: orchestrate row shorter (F71)",
+  "old": "Agrees one plan with you, then pushes every verbose step — tests, tree-wide greps, diffs, logs — onto",
+  "new": "Agrees a plan with you, then pushes the verbose steps — tests, greps, diffs, logs — onto",
+  "check": {
+   "level": 1,
+   "how": "water"
+  }
+ },
+ {
+  "name": "commands: cleanup row honest (F4)",
+  "old": "| `/codex-delegate:cleanup` | Lists what the plugin left on this machine, suggests what to remove, deletes only what you pick. |",
+  "new": "| `/codex-delegate:cleanup` | Lists the scratch and run directories the plugin left on this machine — not your answers, run records or reports — suggests what to remove, deletes only what you pick. |",
+  "check": {
+   "level": 3,
+   "how": "cleanup.mjs:846-847 rows; measured 2026-09-12: seeded answer and report, --list --json returned no rows (ISSUES C2)"
+  },
+  "claims": [
+   {
+    "name": "cleanup row honest",
+    "pattern": "not your answers, run records or reports"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'Lists what the plugin left on this machine'",
+    "pattern": "Lists what the plugin left on this machine"
+   }
+  ]
+ },
+ {
+  "name": "update: full uninstall command (F25)",
+  "old": "claude plugin uninstall codex-delegate@nowely   # add --keep-data to keep your answers and run records",
+  "new": "claude plugin uninstall codex-delegate@nowely --keep-data   # keeps your answers and run records; drop the flag to delete them",
+  "check": {
+   "level": 3,
+   "how": "sol1 task reader ran `claude plugin uninstall codex-delegate@nowely --keep-data` → exit 0; opus-a: without the flag the data dir was deleted"
+  }
+ },
+ {
+  "name": "update: the marketplace-removal command shown (F27, decision 3; F28)",
+  "old": "Removing the\n*marketplace* instead uninstalls every plugin that came from it and deletes their stored data too; if this\nplugin's matters, copy its data directory, named under\n[What it stores](#what-it-stores-and-what-leaves-your-machine), first.",
+  "new": "Removing the\n*marketplace* instead uninstalls every plugin that came from it and deletes their stored data, without\nasking:\n\n```bash\nclaude plugin marketplace remove nowely   # copy this plugin's data directory first, if it exists and matters\n```\n\nThat directory is named under [What it stores](#what-it-stores-and-what-leaves-your-machine).",
+  "check": {
+   "level": 3,
+   "how": "astra C2 and opus-a: `claude plugin marketplace remove nowely` in an isolated config → exit 0, seeded data gone, no prompt"
+  },
+  "claims": [
+   {
+    "name": "copy = the plugin's data directory",
+    "pattern": "copy this plugin's data directory first"
+   },
+   {
+    "name": "marketplace removal deletes data",
+    "pattern": "deletes their stored data"
+   }
+  ]
+ },
+ {
+  "name": "rights: saved excludes ignored files; kept when cut short (F2, F13)",
+  "old": "- **Writes in a throwaway copy of the repository.** Made for it, removed once what it did has been\n  saved, and kept for you to look at when the turn or the saving fails.",
+  "new": "- **Writes in a throwaway copy of the repository.** Made for it, removed once what it did has been\n  saved — its edits and new files, not anything your `.gitignore` covers — and kept for you to look at\n  when the turn, the saving, or the run itself is cut short.",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:1854 --exclude-standard, 1863-1872 ignored counted not archived; opus-a: SIGTERM at 16 s and --timeout 14 → 'worktree PRESERVED (run ended before disposition)'"
+  },
+  "claims": [
+   {
+    "name": "failed copy kept",
+    "pattern": "kept for you to look at\\s+when the turn, the saving, or the run itself is cut short"
+   },
+   {
+    "name": "saved excludes ignored files",
+    "pattern": "not anything your `.gitignore` covers"
+   }
+  ]
+ },
+ {
+  "name": "rights: network switch, web search, parity sentence (F21/F22 decision 2, F5)",
+  "old": "reach the network — off in one line.\nSeveral run at once, and read-only ones can share one directory, unless your tooling keeps a daemon, a\nsocket or a pid file there. The one place the two differ is proof, and that is what\n[How it works](#how-it-works) is about.",
+  "new": "reach the network, or not — you say which; the model's own web search is a separate switch, off unless\nyou ask. Several run at once, and read-only ones can share one directory, unless your tooling keeps a\ndaemon, a socket or a pid file there. The one thing it has that a native subagent does not is proof —\n[How it works](#how-it-works); what it lacks is in [Where parity stops](#where-parity-stops).",
+  "check": {
+   "level": 2,
+   "how": "seat/SKILL.md:100-101 NETWORK: no leaves WEB_SEARCH; driver.mjs:2155 web_search disabled unless set; parity.md:15-16 committing: none"
+  },
+  "claims": [
+   {
+    "name": "network honest: off in one line",
+    "pattern": "reach the network, or not — you say which"
+   },
+   {
+    "name": "web search is a separate switch",
+    "pattern": "web search is a separate switch"
+   },
+   {
+    "name": "parity: proof is what it adds",
+    "pattern": "The one thing it has that a native subagent does not is proof"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'one place the two differ'",
+    "pattern": "The one place the two differ is proof"
+   }
+  ]
+ },
+ {
+  "name": "stores: standing instructions reach OpenAI (F15)",
+  "old": "What reaches OpenAI is the turn — your prompt, and whatever the\nagent read on the way to its answer — exactly as if you had run `codex` yourself.",
+  "new": "What reaches OpenAI is the turn — your prompt, whatever the\nagent read on the way to its answer, and the plugin's standing instructions to it — as if you had run\n`codex` yourself.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:3558 developerInstructions(), sent at :3794 with every thread"
+  },
+  "claims": [
+   {
+    "name": "standing instructions reach OpenAI too",
+    "pattern": "the plugin's standing instructions to it"
+   }
+  ]
+ },
+ {
+  "name": "stores: data directory bullet (F16, F20, F23, F64)",
+  "old": "- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, write locks, the\n  worktree ledger, images you attached, the scratch of read-only agents started from a shell that names no\n  temp directory, and a Codex home of the plugin's own, so your own Codex plugins, skills and memories\n  cannot steer a turn.",
+  "new": "- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, write locks, the\n  ledger of throwaway copies, and a Codex home of the plugin's own, sharing only your sign-in and your\n  session files, so your own Codex plugins, skills and memories cannot steer a turn.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:1218-1228 links auth.json and sessions into the private home; `grep copyFileSync|cpSync driver.mjs` → none; attach-pasted.mjs:207-226 removes pasted/ at run end"
+  },
+  "claims": [
+   {
+    "name": "private home shares sign-in and sessions",
+    "pattern": "sharing only your sign-in and your\\s+session files"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'images you attached'",
+    "pattern": "images you attached"
+   }
+  ]
+ },
+ {
+  "name": "stores: worktrees bullet (F1, F17)",
+  "old": "- **`.claude/worktrees` inside your repository** — the throwaway copies while a turn runs, and a failed\n  turn's copy until you remove it or a later run finds it clean; a crashed run's commits are kept under\n  `refs/codex-delegate/`.",
+  "new": "- **`.claude/worktrees` inside your repository** — the throwaway copies while a turn runs, and a failed\n  turn's copy until you remove it or a later throwaway-copy run finds it clean and removes it, keeping any\n  commits under `refs/codex-delegate/`; a copy with unsaved files is left as it is, commits and all.",
+  "check": {
+   "level": 3,
+   "how": "driver.mjs:1650-1682 dirty tree → continue before the ref; reconcile called only from createWorktree :1689; opus-a: commit + untracked file → no refs/codex-delegate/* after a --worktree run"
+  },
+  "claims": [
+   {
+    "name": "crash refs only for a clean tree",
+    "pattern": "finds it clean and removes it, keeping any\\s+commits under"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'commits are kept under refs' unconditional",
+    "pattern": "a crashed run's commits are kept under"
+   }
+  ]
+ },
+ {
+  "name": "stores: sessions bullet shorter (F65)",
+  "old": "- **`~/.codex/sessions`**, your own Codex home — each turn's full transcript lands there, so a check on\n  what really ran has something to read.",
+  "new": "- **`~/.codex/sessions`**, your own Codex home — each turn's full transcript lands there.",
+  "check": {
+   "level": 1,
+   "how": "water; §9 states the use"
+  }
+ },
+ {
+  "name": "stores: retention numbers, lock sentence cut (F12, F3)",
+  "old": "Answers, run records and that scratch age out by count and by age; reports and the private home stay until\nyou remove them. A write lock goes when its run ends, and one a killed run left behind is reclaimed by the\nnext.",
+  "new": "Answers, run records and a read-only agent's scratch age out — 14 days or 400 entries, trimmed when a\nlater run starts; reports and the private home stay until you remove them.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:80-81 PRUNE_DAYS 14, PRUNE_MAX_ENTRIES 400; pruneDir called at 1145, 1535, 2991, 3003 — inside runs only; environment-and-internals.md:132-135 reports never pruned"
+  },
+  "claims": [
+   {
+    "name": "retention numbers",
+    "pattern": "14 days or 400 entries"
+   }
+  ],
+  "retire": [
+   {
+    "name": "killed run's lock reclaimed",
+    "pattern": "reclaimed by the\\s+next"
+   }
+  ]
+ },
+ {
+  "name": "parity: cannot commit to your repository (F33, F68)",
+  "old": "By default a Codex agent cannot commit: its rights stop short of your repository's git directory, so the\nwork comes back as a diff. Granting that directory is a widening to decide on its own.",
+  "new": "By default a Codex agent cannot commit to your repository: its rights stop short of its git directory, so\nthe work comes back as a diff. Grant that directory only deliberately.",
+  "check": {
+   "level": 2,
+   "how": "parity.md:15-16 `the same, committing | none`"
+  }
+ },
+ {
+  "name": "parity: declined approval, not 'sized too small' (F19, F35)",
+  "old": "It cannot widen its rights mid-run: the request is refused and recorded, and the run ends saying they\nwere sized too small — nothing pauses to ask you.",
+  "new": "It cannot widen its rights mid-run: the request is refused and recorded, and the run ends on a declined\napproval — nothing in the run pauses to ask you.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:248 exit 6 'an approval request was declined'; :2360 stderr; 'sized too small' only in comments :20, :2431"
+  },
+  "retire": [
+   {
+    "name": "NEG 'sized too small'",
+    "pattern": "sized too small"
+   }
+  ]
+ },
+ {
+  "name": "against: shorter close (F70)",
+  "old": "Neither\nfailure announces itself: both runs come back looking successful.",
+  "new": "Both\ncome back looking successful.",
+  "check": {
+   "level": 1,
+   "how": "water"
+  }
+ },
+ {
+  "name": "how: what the verdict certifies; the receipt (F10 decision 1, F14, F72)",
+  "old": "The exit code comes from what the turn actually did, not from what it says it did. That a turn happened\nat all is backed by Codex's own session file, opened and its first record read rather than matched by\nname.",
+  "new": "The exit code comes from what the turn actually did, not from what it says it did — by default, that it\nran something under those rights; a command that failed does not fail the run unless you asked for that\ncommand by name, and a turn meant to run nothing can say so. That the thread existed is backed by Codex's\nown session file, opened and read, not matched by name.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:232-274 ladder: no rung for a failed command, --expect-command and --allow-no-commands at :266; :2956-2963 receipt checks session_meta id only"
+  },
+  "claims": [
+   {
+    "name": "failed command does not fail the run by default",
+    "pattern": "a command that failed does not fail the run"
+   },
+   {
+    "name": "receipt proves the thread existed",
+    "pattern": "That the thread existed is backed by"
+   }
+  ],
+  "retire": [
+   {
+    "name": "NEG 'a turn happened at all is backed'",
+    "pattern": "That a turn happened\\s+at all is backed"
+   }
+  ]
+ },
+ {
+  "name": "how: help and help-all (F11)",
+  "old": "The flags, the report's fields and every exit code are the driver's own help, which is where they stay\naccurate:",
+  "new": "Flags, report fields and exit codes live in the driver's own help, `--help` and `--help-all`:",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:455-458 '--help-all lists the rest'"
+  }
+ },
+ {
+  "name": "clone: shorter, orchestrate as the example (F62, F34)",
+  "old": "That last line belongs in your shell profile — Claude Code has to inherit it, and nothing else supplies\nit on this route, where the driver refuses to start rather than invent a location under your home. The\nmodes lose the plugin's prefix here: `/seat`, not `/codex-delegate:seat`; `/cleanup` runs only from the\nplugin install.",
+  "new": "That last line belongs in your shell profile — Claude Code must inherit it; without it the driver refuses\nto start. The modes lose the plugin's prefix here: `/orchestrate`, not `/codex-delegate:orchestrate`;\n`/cleanup` runs only from the plugin install.",
+  "check": {
+   "level": 2,
+   "how": "driver.mjs:999-1007 no state directory → exit 2; cleanup/SKILL.md:29 ${CLAUDE_PLUGIN_ROOT} (ISSUES C1)"
+  }
+ },
+ {
+  "name": "troubleshooting row 1: the symptom names the copy (F18)",
+  "old": "| the agent reports success and changed nothing | it ran against your last commit",
+  "new": "| an agent working in a throwaway copy reports success and changed nothing | it ran against your last commit",
+  "check": {
+   "level": 2,
+   "how": "seat/SKILL.md:85-86 a headerless prompt is a read seat in the current directory, which changes nothing by design"
+  }
+ },
+ {
+  "name": "troubleshooting row 2: report path refusal; lock cure (F7, F3)",
+  "old": "| the run is refused before it starts | the report's `error` says why: a full Codex quota window, a held write lock, no state directory | for quota, wait or use a Claude subagent; for a lock, wait for the run that holds it or give each run its own directory |",
+  "new": "| the run is refused before it starts | the report says why — a full Codex quota window, a held write lock, no state directory; a refusal about the report path itself is on stderr only and leaves whatever was at that path untouched | for quota, wait or use a Claude subagent; for a lock, wait for the run that holds it — or, when that run is dead, stop the Codex processes the refusal names — or give each run its own directory |",
+  "check": {
+   "level": 3,
+   "how": "astra probe 'taken-report': exit 2, stdout empty, old file unchanged (driver.mjs:940-944); driver.mjs:1447 refusal names `kill -TERM -<pgid>`; opus-a reproduced with a stub codex"
+  },
+  "claims": [
+   {
+    "name": "lock cure names the process group",
+    "pattern": "stop the Codex processes the refusal names"
+   }
+  ]
+ },
+ {
+  "name": "troubleshooting row 3: missing report means unknown (F6)",
+  "old": "| a run dies mid-way in a large fan-out, leaving no report | out of memory — runs are killed, not queued | ask for fewer at once |",
+  "new": "| a run dies mid-way in a large fan-out | most likely memory — runs are killed, not queued; a missing report means unknown, never success | ask for fewer at once |",
+  "check": {
+   "level": 3,
+   "how": "seat/SKILL.md:164-167 'a missing one means unknown, never success'; parity.md:113 overshoot ends runs with SIGTERM; opus-a: a SIGTERMed driver wrote its report (exit 4)"
+  },
+  "claims": [
+   {
+    "name": "missing report means unknown",
+    "pattern": "a missing report means unknown, never success"
+   }
+  ],
+  "retire": [
+   {
+    "name": "OOM row: leaving no report",
+    "pattern": "leaving no report"
+   }
+  ]
+ },
+ {
+  "name": "further reading: mutation claim dated (F40)",
+  "old": "Young code, but every test case was mutation-checked and the survivors listed",
+  "new": "Young code, but the test cases were mutation-checked on 2026-08-31 and the survivors listed",
+  "check": {
+   "level": 2,
+   "how": "evals/README.md:174-177 nine mutants over 117 cases on 2026-08-31; twelve suites now"
+  }
+ }
+]

@@ -25,11 +25,10 @@
  },
  {
   "name": "network honest: off in one line",
-  "pattern": "reach the network — off in one line",
+  "pattern": "reach the network, or not — you say which",
   "want": true,
   "level": 2,
-  "provisional": true,
-  "note": "narrowed: web search is a separate switch (seat/SKILL.md:100-101); F21"
+  "how": "seat/SKILL.md:100-101 NETWORK: no leaves WEB_SEARCH; driver.mjs:2155 web_search disabled unless set; parity.md:15-16 committing: none"
  },
  {
   "name": "update needs restart",
@@ -41,21 +40,22 @@
   "name": "marketplace removal deletes data",
   "pattern": "deletes their stored data",
   "want": true,
-  "level": 3
+  "level": 3,
+  "how": "astra C2 and opus-a: `claude plugin marketplace remove nowely` in an isolated config → exit 0, seeded data gone, no prompt"
  },
  {
   "name": "copy = the plugin's data directory",
-  "pattern": "copy its data directory",
+  "pattern": "copy this plugin's data directory first",
   "want": true,
-  "level": 2
+  "level": 3,
+  "how": "astra C2 and opus-a: `claude plugin marketplace remove nowely` in an isolated config → exit 0, seeded data gone, no prompt"
  },
  {
   "name": "rights mismatch stops the run",
-  "pattern": "the run stops if the server grants anything else",
+  "pattern": "the run stops if Codex grants a different sandbox\\s+or network than that",
   "want": true,
   "level": 2,
-  "provisional": true,
-  "note": "narrowed: the assertion ignores excludeSlashTmp (ISSUES C5); F9"
+  "how": "driver.mjs:1991-2017 assertReadSandbox checks type, egress, workspace root, writable roots; excludeSlashTmp not checked (ISSUES C5)"
  },
  {
   "name": "verdict from the record of the turn",
@@ -77,9 +77,10 @@
  },
  {
   "name": "failed copy kept",
-  "pattern": "kept for you to look at when the turn (?:or the saving )?fails",
+  "pattern": "kept for you to look at\\s+when the turn, the saving, or the run itself is cut short",
   "want": true,
-  "level": 2
+  "level": 3,
+  "how": "driver.mjs:1854 --exclude-standard, 1863-1872 ignored counted not archived; opus-a: SIGTERM at 16 s and --timeout 14 → 'worktree PRESERVED (run ended before disposition)'"
  },
  {
   "name": "app-server claim, sourced form",
@@ -95,11 +96,8 @@
  },
  {
   "name": "killed run's lock reclaimed",
-  "pattern": "reclaimed by the next",
-  "want": true,
-  "level": 2,
-  "provisional": true,
-  "note": "overstated: reclaimed only once the codex process group is gone too (driver.mjs:1365); F3"
+  "pattern": "reclaimed by the\\s+next",
+  "want": false
  },
  {
   "name": "crash commits kept under refs",
@@ -112,10 +110,7 @@
  {
   "name": "OOM row: leaving no report",
   "pattern": "leaving no report",
-  "want": true,
-  "level": 2,
-  "provisional": true,
-  "note": "overstated: a SIGTERMed run writes its report; parity.md:113 says SIGTERM; F6"
+  "want": false
  },
  {
   "name": "NEG 04 'rights read from the turn'",
@@ -212,5 +207,131 @@
   "pattern": "zzz-never-present-zzz",
   "want": false,
   "level": 2
+ },
+ {
+  "name": "NEG 'grants anything else'",
+  "pattern": "grants anything else",
+  "want": false
+ },
+ {
+  "name": "trigger for a throwaway copy",
+  "pattern": "Let Codex try the fix in a throwaway copy",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:97 `SEAT: worktree <repo>`; the skill is model-invoked on phrasing"
+ },
+ {
+  "name": "cleanup row honest",
+  "pattern": "not your answers, run records or reports",
+  "want": true,
+  "level": 3,
+  "how": "cleanup.mjs:846-847 rows; measured 2026-09-12: seeded answer and report, --list --json returned no rows (ISSUES C2)"
+ },
+ {
+  "name": "NEG 'Lists what the plugin left on this machine'",
+  "pattern": "Lists what the plugin left on this machine",
+  "want": false
+ },
+ {
+  "name": "saved excludes ignored files",
+  "pattern": "not anything your `.gitignore` covers",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:1854 --exclude-standard, 1863-1872 ignored counted not archived; opus-a: SIGTERM at 16 s and --timeout 14 → 'worktree PRESERVED (run ended before disposition)'"
+ },
+ {
+  "name": "web search is a separate switch",
+  "pattern": "web search is a separate switch",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:100-101 NETWORK: no leaves WEB_SEARCH; driver.mjs:2155 web_search disabled unless set; parity.md:15-16 committing: none"
+ },
+ {
+  "name": "parity: proof is what it adds",
+  "pattern": "The one thing it has that a native subagent does not is proof",
+  "want": true,
+  "level": 2,
+  "how": "seat/SKILL.md:100-101 NETWORK: no leaves WEB_SEARCH; driver.mjs:2155 web_search disabled unless set; parity.md:15-16 committing: none"
+ },
+ {
+  "name": "NEG 'one place the two differ'",
+  "pattern": "The one place the two differ is proof",
+  "want": false
+ },
+ {
+  "name": "standing instructions reach OpenAI too",
+  "pattern": "the plugin's standing instructions to it",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:3558 developerInstructions(), sent at :3794 with every thread"
+ },
+ {
+  "name": "private home shares sign-in and sessions",
+  "pattern": "sharing only your sign-in and your\\s+session files",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:1218-1228 links auth.json and sessions into the private home; `grep copyFileSync|cpSync driver.mjs` → none; attach-pasted.mjs:207-226 removes pasted/ at run end"
+ },
+ {
+  "name": "NEG 'images you attached'",
+  "pattern": "images you attached",
+  "want": false
+ },
+ {
+  "name": "crash refs only for a clean tree",
+  "pattern": "finds it clean and removes it, keeping any\\s+commits under",
+  "want": true,
+  "level": 3,
+  "how": "driver.mjs:1650-1682 dirty tree → continue before the ref; reconcile called only from createWorktree :1689; opus-a: commit + untracked file → no refs/codex-delegate/* after a --worktree run"
+ },
+ {
+  "name": "NEG 'commits are kept under refs' unconditional",
+  "pattern": "a crashed run's commits are kept under",
+  "want": false
+ },
+ {
+  "name": "retention numbers",
+  "pattern": "14 days or 400 entries",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:80-81 PRUNE_DAYS 14, PRUNE_MAX_ENTRIES 400; pruneDir called at 1145, 1535, 2991, 3003 — inside runs only; environment-and-internals.md:132-135 reports never pruned"
+ },
+ {
+  "name": "NEG 'sized too small'",
+  "pattern": "sized too small",
+  "want": false
+ },
+ {
+  "name": "failed command does not fail the run by default",
+  "pattern": "a command that failed does not fail the run",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:232-274 ladder: no rung for a failed command, --expect-command and --allow-no-commands at :266; :2956-2963 receipt checks session_meta id only"
+ },
+ {
+  "name": "receipt proves the thread existed",
+  "pattern": "That the thread existed is backed by",
+  "want": true,
+  "level": 2,
+  "how": "driver.mjs:232-274 ladder: no rung for a failed command, --expect-command and --allow-no-commands at :266; :2956-2963 receipt checks session_meta id only"
+ },
+ {
+  "name": "NEG 'a turn happened at all is backed'",
+  "pattern": "That a turn happened\\s+at all is backed",
+  "want": false
+ },
+ {
+  "name": "lock cure names the process group",
+  "pattern": "stop the Codex processes the refusal names",
+  "want": true,
+  "level": 3,
+  "how": "astra probe 'taken-report': exit 2, stdout empty, old file unchanged (driver.mjs:940-944); driver.mjs:1447 refusal names `kill -TERM -<pgid>`; opus-a reproduced with a stub codex"
+ },
+ {
+  "name": "missing report means unknown",
+  "pattern": "a missing report means unknown, never success",
+  "want": true,
+  "level": 3,
+  "how": "seat/SKILL.md:164-167 'a missing one means unknown, never success'; parity.md:113 overshoot ends runs with SIGTERM; opus-a: a SIGTERMed driver wrote its report (exit 4)"
  }
 ]

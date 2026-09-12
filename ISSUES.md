@@ -45,10 +45,10 @@ call; what it lacks is a per-call approval policy that survives the managed clam
 "the only surface with both per-call rights and a machine-checkable execution signal", stands if "rights"
 means both together; the row should say which. Level 2.
 
-### C5. The read-level sandbox assertion ignores `excludeSlashTmp`
+### C5. The read-level sandbox assertion ignores `excludeSlashTmp` and `excludeTmpdirEnvVar`
 
 `assertReadSandbox` (`skills/seat/scripts/driver.mjs:1991-2017`) checks the sandbox type, egress, the
-workspace root and the writable roots, and never reads `excludeSlashTmp`, a field the pinned schema
+workspace root and the writable roots, and never reads `excludeSlashTmp` or `excludeTmpdirEnvVar`, fields the pinned schema
 carries (`schema-0.153.4/v2/ThreadStartResponse.json:1086`) and every report records as `true`. A server
 that reported `false` — `/tmp` writable beside `$TMPDIR` — would pass the assertion. `grep -n
 excludeSlashTmp driver.mjs` returns nothing. Level 2; a synthetic response through the unchanged function
