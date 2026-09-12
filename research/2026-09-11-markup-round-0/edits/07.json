@@ -1,0 +1,42 @@
+[
+ {
+  "name": "warning: continuation rebuilt from last saved work",
+  "old": "Commit first. A continued agent keeps the copy it had: to show it new commits, start a\n> fresh one.",
+  "new": "Commit first. A continued agent rebuilds its copy from its last saved work, not from your new\n> commits: for those, start a fresh one."
+ },
+ {
+  "name": "§5 kept on turn or saving failure",
+  "old": "and kept for you to look at when the turn fails.",
+  "new": "and kept for you to look at when the turn or the saving fails."
+ },
+ {
+  "name": "§6 data-dir bullet restructured",
+  "old": "- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, write locks, a Codex\n  home of the plugin's own, so your own Codex plugins, skills and memories cannot steer a turn, and the\n  scratch of agents started from a shell that names no temp directory.",
+  "new": "- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, reports, write locks, the\n  worktree ledger, images you attached, the scratch of read-only agents started from a shell that names no\n  temp directory, and a Codex home of the plugin's own, so your own Codex plugins, skills and memories\n  cannot steer a turn."
+ },
+ {
+  "name": "§6 worktrees bullet: lifecycle and refs",
+  "old": "- **`.claude/worktrees` inside your repository** — the throwaway copies, while a turn runs and after one\n  fails.",
+  "new": "- **`.claude/worktrees` inside your repository** — the throwaway copies while a turn runs, and a failed\n  turn's copy until you remove it or a later run finds it clean; a crashed run's commits are kept under\n  `refs/codex-delegate/`."
+ },
+ {
+  "name": "§6 closing: pruning, no cleanup promise, locks",
+  "old": "Answers, run records and that scratch age out by count and by age. Reports, the private home and a failed\nturn's copy stay until you remove them; `/codex-delegate:cleanup` lists what the plugin left. A write lock\nlasts as long as its run.",
+  "new": "Answers, run records and that scratch age out by count and by age; reports and the private home stay until\nyou remove them. A write lock goes when its run ends, and one a killed run left behind is reclaimed by the\nnext."
+ },
+ {
+  "name": "§9 the sourced claim, made precise",
+  "old": "driving `codex app-server`, the Codex interface that\nreports back both the rights it applied and what each command did.",
+  "new": "driving `codex app-server`, the only Codex interface with\nboth per-call rights — sandbox and approval policy — and a machine-checkable record of what ran."
+ },
+ {
+  "name": "row 2: three causes that reach the report, lock cure",
+  "old": "| the run is refused before it starts | the report's `error` says why: a full Codex quota window, a held write lock, a report path already used, no state directory | read it; for quota, wait or use a Claude subagent |",
+  "new": "| the run is refused before it starts | the report's `error` says why: a full Codex quota window, a held write lock, no state directory | for quota, wait or use a Claude subagent; for a lock, wait for the run that holds it or give each run its own directory |"
+ },
+ {
+  "name": "row 3: the OOM symptom, no cut",
+  "old": "| a run dies mid-way in a large fan-out | out of memory — runs are killed, not queued — or the idle cut, which the report names and offers to resume | ask for fewer at once; a cut run continues from where it stopped |",
+  "new": "| a run dies mid-way in a large fan-out, leaving no report | out of memory — runs are killed, not queued | ask for fewer at once |"
+ }
+]

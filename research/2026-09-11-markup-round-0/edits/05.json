@@ -1,0 +1,17 @@
+[
+ {
+  "name": "¶3: rights asserted before the turn; verdict from the turn's record",
+  "old": "You say what an agent may touch before it starts. The rights it got and whether it ran anything are read\nfrom the record of the turn, not taken on its word: by default, an agent that ran nothing comes back\nfailed, not finished.",
+  "new": "You say what an agent may touch before it starts, and the run stops if the server grants anything else.\nIts verdict comes from the record of the turn, not from what it reports: by default, an agent that ran\nnothing comes back failed, not finished."
+ },
+ {
+  "name": "§4: which directory to copy",
+  "old": "and deletes their stored data too; copy\nthe directory named under [What it stores](#what-it-stores-and-what-leaves-your-machine) first if any\nof it matters.",
+  "new": "and deletes their stored data too; if this\nplugin's matters, copy its data directory, named under\n[What it stores](#what-it-stores-and-what-leaves-your-machine), first."
+ },
+ {
+  "name": "§6: output files land there too",
+  "old": "- **your system temp directory** — each agent's prompt file, and whatever a read-only agent writes while\n  it works.",
+  "new": "- **your system temp directory** — each agent's prompt and output files, and whatever a read-only agent\n  writes while it works."
+ }
+]

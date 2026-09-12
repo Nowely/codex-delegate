@@ -1,0 +1,216 @@
+[
+ {
+  "name": "ran-nothing qualified by default",
+  "pattern": "by default, an agent that ran nothing comes back failed",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "read grant = a temp directory only",
+  "pattern": "(?:your system|one) temp directory is the only thing it may write",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "temp fallback named",
+  "pattern": "the plugin's own when your shell names none",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "stashing named as not helping",
+  "pattern": "Stashing does not help",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "network honest: off in one line",
+  "pattern": "reach the network — off in one line",
+  "want": true,
+  "level": 2,
+  "provisional": true,
+  "note": "narrowed: web search is a separate switch (seat/SKILL.md:100-101); F21"
+ },
+ {
+  "name": "update needs restart",
+  "pattern": "Restart Claude Code to apply an update",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "marketplace removal deletes data",
+  "pattern": "deletes their stored data",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "copy = the plugin's data directory",
+  "pattern": "copy its data directory",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "rights mismatch stops the run",
+  "pattern": "the run stops if the server grants anything else",
+  "want": true,
+  "level": 2,
+  "provisional": true,
+  "note": "narrowed: the assertion ignores excludeSlashTmp (ISSUES C5); F9"
+ },
+ {
+  "name": "verdict from the record of the turn",
+  "pattern": "verdict comes from the record of the turn",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "reload-plugins as instruction",
+  "pattern": "run `\\/reload-plugins` there",
+  "want": true,
+  "level": 3
+ },
+ {
+  "name": "four places, worktrees named",
+  "pattern": "\\.claude\\/worktrees` inside your repository",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "failed copy kept",
+  "pattern": "kept for you to look at when the turn (?:or the saving )?fails",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "app-server claim, sourced form",
+  "pattern": "only Codex interface with both per-call rights",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "continuation: rebuilt from saved work",
+  "pattern": "rebuilds its copy from its last saved work",
+  "want": true,
+  "level": 2
+ },
+ {
+  "name": "killed run's lock reclaimed",
+  "pattern": "reclaimed by the next",
+  "want": true,
+  "level": 2,
+  "provisional": true,
+  "note": "overstated: reclaimed only once the codex process group is gone too (driver.mjs:1365); F3"
+ },
+ {
+  "name": "crash commits kept under refs",
+  "pattern": "refs\\/codex-delegate\\/",
+  "want": true,
+  "level": 2,
+  "provisional": true,
+  "note": "false as written: only a clean tree gets the ref (driver.mjs:1663-1682); wave on 07, F1"
+ },
+ {
+  "name": "OOM row: leaving no report",
+  "pattern": "leaving no report",
+  "want": true,
+  "level": 2,
+  "provisional": true,
+  "note": "overstated: a SIGTERMed run writes its report; parity.md:113 says SIGTERM; F6"
+ },
+ {
+  "name": "NEG 04 'rights read from the turn'",
+  "pattern": "rights it got and whether it ran anything are read from the record of the turn",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'scratch space of its own'",
+  "pattern": "scratch space of its own",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'Nothing leaves your machine'",
+  "pattern": "Nothing leaves your machine",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'Commit or stash'",
+  "pattern": "Commit or stash",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'run cleanup first'",
+  "pattern": "cleanup` first",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'The install summary says'",
+  "pattern": "The install summary says",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'the write locks stay'",
+  "pattern": "the write locks stay",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'only … that takes rights per call'",
+  "pattern": "only Codex interface that takes rights per call",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'seat orchestrate cleanup'",
+  "pattern": "seat orchestrate cleanup",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'keeps the copy it had'",
+  "pattern": "keeps the copy it had",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'cleanup lists what the plugin left'",
+  "pattern": "cleanup` lists what the plugin left",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'a report path already used'",
+  "pattern": "a report path already used",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'continues from where it stopped'",
+  "pattern": "continues from where it stopped",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'lock lasts as long as its run'",
+  "pattern": "A write lock lasts as long as its run",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "NEG 'failed turn's copy stay'",
+  "pattern": "failed turn's copy stay",
+  "want": false,
+  "level": 2
+ },
+ {
+  "name": "CONTROL planted-absent",
+  "pattern": "zzz-never-present-zzz",
+  "want": false,
+  "level": 2
+ }
+]
