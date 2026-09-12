@@ -83,6 +83,14 @@ after:   a scratch space of its own, one per agent                     ← short
 granted roots are exactly that. Neither "of its own" nor "one per agent" survives contact with it. The
 sentence got better by every measure this method had, and became a lie.
 
+**Every round is kept as its own file**, named for the pass that produced it — `00-draft.md`,
+`01-candidate.md`, `02-revision.md`, `03-repair.md`. A round that is not a file cannot be diffed, and the
+ratchet is a diff. Overwriting the working document in place destroys the evidence the next round needs;
+it happened here, to three intermediate states, before this was written down.
+
+Beside them a `rounds.md`: one row per round with what produced it, its word count, the findings against
+it, and **its regression count**. That last column is the round's verdict. Findings are its yield.
+
 So carry a **ledger of verified claims** across rounds: the sentence, the claim, the file and line, and
 the evidence level reached. Then each round is mechanical rather than hopeful:
 
