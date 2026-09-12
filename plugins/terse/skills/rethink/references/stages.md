@@ -126,14 +126,39 @@ What a survey of the source turns up, and what each costs:
 | a banner image | recognition | making and maintaining one |
 | an ASCII diagram of the flow | what runs, in what order, in parallel or not — in one glance | it must be maintained beside the thing it draws |
 
-Take the free ones. Take a badge only where it is true of this project — a row of seven where three
-point at registries you do not publish to is a claim about how established you are, and a reader checks.
+The first five are free; a badge costs credibility the moment one of them is untrue, and a row of seven
+where three point at registries you do not publish to is a claim about how established you are, which a
+reader checks.
+
+**The last two rows of that table were wrong when first written, and the survey caught it.** They came
+from one example — a project that uses horizontal rules and ASCII diagrams well — and the slice of
+most-used documents does not use either: emoji headings, box diagrams and rules between sections are on
+its do-not-copy list. A device inferred from one document is folklore with a citation. Weight by use
+applies to presentation exactly as it applies to structure, and the first draft of this very table
+broke that rule.
 
 One caution against over-formatting, measured: in Morkes & Nielsen 1997 the "scannable" arm — bullets,
 bold keywords, more headings — was the only version that did **worse** than the promotional control on
 how well readers understood the document's organisation, while improving task time. Formatting that
 helps a reader find things can cost them the shape of the whole. Devices that separate parts are safer
 than devices that chop prose into fragments.
+
+### A rejection of content can be a rejection of its format
+
+Before deleting a fact a reader called noise, try it in another form. The reader is reporting what the
+page did to them, and what a page does is presentation as much as content — they are not obliged to tell
+the two apart, and usually cannot.
+
+Measured on 2026-09-12. A reader called a runtime version and a `PATH` requirement rubbish — "nobody
+says you need Node when they tell you how to install codex" — and they were deleted. A survey of six
+slices then proposed restoring them, unanimously, with the usage evidence behind it: the direct
+competitor at thirty-three thousand stars states its Node floor, and our own document elsewhere warns
+that an upgrade of the wrapped tool is the likeliest thing to break a run, which is unactionable without
+the version that was measured. Shown that, the same reader restored all three and said: *"possibly I did
+not like the format that information was presented in."*
+
+So: a deletion driven by a reader's objection is provisional until the fact has been tried as a titled
+list, as a table row, and as a clause. Only then is it noise rather than noise-shaped.
 
 ## Stage 2. The words themselves
 
@@ -170,6 +195,33 @@ addressed by the code.
 
 The general form: **where a document's thesis is that A is like B, call A by B's word.** Any other
 choice is an argument against the document.
+
+### Headings are terms, and the check runs both ways
+
+A section name is a word doing the same job as any other: a reader scans for the one they expect. An
+invented heading can be more precise and still be unfindable, and unfindable is the more expensive
+failure — precision that nobody reaches is not precision.
+
+So stage 2 covers two vocabularies, and stage 1 is where the evidence for both comes from. The surveys
+report what comparable documents call things; that list is the input here, not a stylistic aside. The
+two stages are coupled, and running stage 2 on intuition is running it on folklore.
+
+Measured on 2026-09-12: a draft shipped **Install and first run**, **When something goes wrong** and
+**Where the details live**, while the surveyed documents used **Quick start**, **Troubleshooting** and
+**Further reading** — three conventions the draft had reinvented without noticing, one of which the
+survey had already named as universal in the genre.
+
+The check runs in both directions, and neither default is safe:
+
+- **The project's own word against the domain's.** If the genre has an established term, deviating costs
+  findability and has to be paid for.
+- **The domain's word against this document's meaning.** A convention can still be wrong here. One
+  heading in that same draft stayed invented on purpose: `Limitations` is the genre's word, but the
+  document's thesis is parity, so its limits are *where parity stops*, and the conventional label would
+  have flattened the claim the whole document is making.
+
+State which you chose and why, in the skeleton, for every heading that departs from convention. A
+departure nobody defended is a departure nobody decided.
 
 ## Stage 3. The structure, decided before any prose
 

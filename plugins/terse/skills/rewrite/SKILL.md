@@ -54,10 +54,17 @@ Assemble it once, for every writer, in this order:
 Copy the fixed parts; do not paraphrase them. They were measured in the form they are in.
 
 Add the accuracy floor verbatim: **every statement about behaviour must be true of the code in this
-checkout, and the writer must know the file and line that backs it.** This is a gate, not a preference.
-One false claim has shipped in this plugin's own history — a draft said a directory was never pruned when
-the code prunes it by age and count — and a fourteen-agent exercise inherited it into two of ten
-proposals before an adversarial reader caught it.
+checkout, and the writer must record which level of evidence it actually reached** — the line resolves,
+the code says this, or the behaviour was made to happen. The three levels are defined in
+[truth-pass.md](../audit/references/truth-pass.md#three-levels-of-evidence), and the reason to name the
+level rather than the line is written there: **citing a line is the weakest of the three and the one
+that feels like proof.**
+
+This is a gate, not a preference, and level 1 does not clear it for anything a reader will act on. One
+false claim has shipped in this plugin's own history — a draft said a directory was never pruned when the
+code prunes it by age and by count — and a fourteen-agent exercise inherited it into two of ten proposals
+before an adversarial reader caught it. A line number was available for that claim the whole time. What
+was missing was a reader of the code who would have said the same thing.
 
 ## Step 3. The writing, in rounds
 

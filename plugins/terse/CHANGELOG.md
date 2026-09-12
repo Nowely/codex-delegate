@@ -89,6 +89,28 @@ forensics remain in the repository references and release notes.
   skeleton for the user's word**. `rewrite` writes it. The split follows a boundary that was already
   there: twice in one session the work stopped at exactly that point, because stages 1 to 3 are cheap and
   arguable and stage 4 is expensive and mechanical.
+- The loop learned four things by being run on a real document, each after a failure it did not catch.
+  **A structure map** — the document seen as blocks, every column derived rather than asserted, written
+  by someone other than the writer — because prose does not present its own shape and a critic handed a
+  finished document reviews sentences. **A contradiction check**, because the duplication counter scores
+  two statements that cannot both be true as unrelated: one draft said an agent reaches the network by
+  default and opened the next section with "Nothing leaves your machine". **A task gate**, because every
+  other check stops at reading: three fresh readers were given a starting state and a goal and scored on
+  the state they produced, which is the only evidence at level 3 anywhere in the method. And **a
+  ratchet** — no round may make anything worse — because the one repair run under all of the above
+  applied nine verified fixes correctly and broke two true sentences while doing it.
+- **Compression is how regression enters**, and the method now says so with the measurement. The knapsack
+  principle pushes toward cutting, and the first thing cut is the qualification that made a claim true:
+  "your system temp directory is the only thing it may write" became "a scratch space of its own, one per
+  agent" — shorter, cleaner, and false of `driver.mjs:2001-2015`, which grants exactly the caller's own
+  shared `$TMPDIR`. So verified claims are carried in a ledger across rounds, every changed sentence is
+  intersected with it, and every hit is re-verified from the code rather than from the ledger.
+- Two checks were found to be worth less than they claimed, and both were checks this plugin wrote.
+  The rule-1 grep excluded paths beginning with a tilde, reported clean for three rounds through two
+  independent reviews, and missed four real violations. The accuracy floor asked writers to know the file
+  and line — which `truth-pass.md` had already named the weakest of its three evidence levels, "the one
+  that feels like proof". Every false claim this document produced had a resolving line number. **A
+  mechanical check is now tested against a planted violation before its output is believed.**
 - **The writing is a loop, not a pass.** Blocks are drafted, criticised by three lenses that do not
   overlap — one against the code, one reading the mechanical rules as a grep would, one hunting words
   whose score does not pay for their space — rewritten, and checked again. When every block goes quiet
