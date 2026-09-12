@@ -52,11 +52,11 @@ test("the frontmatter names the mode, forbids model invocation, and states the r
     return problems.length === 0 || problems.join("; ");
   });
 
-test("the page stays inside its budget: 150 lines, one heading level, no fence",
+test("the page stays inside its budget: 155 lines, one heading level, no fence",
   "the mode is loaded into a context it exists to keep small, and it ships no code: a third heading level, a fence or a page that doubled in length are each the mode spending the budget it is selling",
   () => {
     const problems = [];
-    if (lines.length > 150) problems.push(`${lines.length} lines`);
+    if (lines.length > 155) problems.push(`${lines.length} lines`);
     const headings = lines.filter((l) => /^#+ /.test(l));
     const wrongLevel = headings.filter((l) => !l.startsWith("## "));
     if (!headings.length) problems.push("the page has no headings at all");

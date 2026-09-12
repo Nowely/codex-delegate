@@ -67,6 +67,7 @@ pool, and the pool is the same whatever you are: at most one Fable seat and one 
 the top-row roles in turn, architect for one task and judge for the next, and the strong and cheap seats the alive cap admits.
 **Prefer Luna to Haiku in the bulk row**: measured better and smarter, and four times cheaper. The bulk row does not
 count against the alive cap and never takes a top-row role; announce its count before spawning, like any other fan-out.
+The unit of a bulk fan-out is one claim, one address, a verbatim quote, and a verdict from a closed set that describes the subject and never the brief: whether an address moved or was wrong is a judgement about your own input, and it stays out of the set (measured 2026-09-12: a broken path in every brief drew the same verdict from nineteen of twenty seats).
 
 - Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat;
   untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line, and every Codex seat carries one
@@ -111,8 +112,10 @@ in the brief.
 ## Verification
 
 - Scout inline first: the work-list is yours, before any fan-out.
+- Critique the split before the fan-out: a top-row seat reads the decomposition, not the subject, for what the cut lost, what the wording added, which items are two and which the fan-out's rights cannot decide; twenty seats on a bad split agree and are all wrong (measured 2026-09-12: it caught two claims true at one release and false at the next, and they never reached the fan-out).
 - Adversarial verify: a refuter defaults to `refuted` when it is uncertain.
 - Perspective-diverse verify: vary the angle across verifiers instead of N identical refuters.
+- Read a unanimous fan-out as evidence about the prompt first: open one return whole before you trust the tally (measured 2026-09-12: nineteen of twenty verdicts answered one broken path in every prompt).
 - Judge panel for a design task.
 - Completeness critic at the end: what is missing, unverified, unread.
 - No silent caps: name every seat, check or item you dropped.
