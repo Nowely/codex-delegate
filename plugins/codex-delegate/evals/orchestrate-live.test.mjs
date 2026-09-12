@@ -26,8 +26,9 @@
 //     build's stream carry `Agent`, so both spellings count and neither alone is safe;
 //   - the last line is {type:"result"} and its `result` is the final text;
 //   - --plugin-dir loaded codex-delegate:seat and codex-delegate:orchestrate. There is no
-//     codex-seat agent any more: a Codex seat is a background Bash task running the driver, so a seat is
-//     counted here as a Bash tool_use whose command names driver.mjs and --seat-file;
+//     codex-seat agent: a Codex seat is a general-purpose wrapper (an Agent call) whose prompt runs the
+//     driver as a background Bash task, so a seat is counted here as an Agent/Task tool_use whose prompt
+//     names driver.mjs and --seat-file;
 //   - this machine's managed settings set disableBypassPermissionsMode: "disable", so
 //     --dangerously-skip-permissions is accepted and then ignored, and in -p mode there is no prompt to
 //     answer: every write and every non-trivial Bash is auto-denied. --permission-mode acceptEdits with an
@@ -106,9 +107,9 @@ const note = (line) => console.log(`      ${line}`);
 
 const CODEX_MODELS = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"];
 const SIBLING_SKILLS = ["codex-delegate:seat", "seat"];
-// A Codex seat is one Bash call: the driver, a seat file and a report file. Both flags, because a Bash
-// call that merely mentions the driver is `--help`, a probe, or the coordinator reading a report back.
-const seatCommand = (u) => (u.name === "Bash" ? String(u.input.command ?? "") : "");
+// A Codex seat is one Agent call whose prompt carries the driver, a seat file and a report file. Both
+// flags, because a prompt that merely mentions the driver is a probe or the coordinator reading a report.
+const seatCommand = (u) => (u.name === "Agent" || u.name === "Task" ? String(u.input.prompt ?? "") : "");
 const isSeatCall = (u) => /driver\.mjs/.test(seatCommand(u)) && /--seat-file/.test(seatCommand(u));
 const seatCalls = (toolUses) => toolUses.filter(isSeatCall);
 // Both, because one build answers with both: `Task` in the init line's tool list, `Agent` in the tool_use
@@ -166,13 +167,18 @@ const wcL = (file) => {
 
 function scratchClone(dir) {
   const s = path.join(dir, "scratch");
-  const r = spawnSync("git", ["clone", "--local", "--quiet", ROOT, s], { encoding: "utf8" });
+  // ROOT is one plugin inside the monorepo, not a repository of its own: the clone is of its git
+  // toplevel, and the scratch a case works in is the plugin's own subdirectory of that clone.
+  const top = git(ROOT, "rev-parse", "--show-toplevel").trim();
+  if (!top) throw new Error(`no git toplevel above ${ROOT}`);
+  const r = spawnSync("git", ["clone", "--local", "--quiet", top, s], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`git clone --local failed: ${(r.stderr ?? "").trim().slice(0, 240)}`);
+  const sub = path.join(s, path.relative(top, ROOT));
   // Without this the "untouched" assertions below prove nothing: a clone that starts dirty makes an
   // empty porcelain impossible and a non-empty one meaningless.
-  const dirty = git(s, "status", "--porcelain").trim();
+  const dirty = git(sub, "status", "--porcelain").trim();
   if (dirty) throw new Error(`a fresh clone is already dirty: ${dirty.slice(0, 240)}`);
-  return s;
+  return sub;
 }
 
 // --------------------------------------------------------------- the session and its stream
@@ -260,7 +266,7 @@ function untaggedAgentCalls(text) {
     // The script arrives as source when the field is named and as JSON when it is not, so the escaped
     // quotes of the fallback are undone before the pattern reads it.
     const flat = call.replace(/\\(["'])/g, "$1");
-    // Every agent() in a script is a CLAUDE seat now — a Codex seat is a Bash task and no agentType — so
+    // Every agent() in a script is a CLAUDE seat — a Codex seat is a wrapper Agent call and no agentType — so
     // tagged means one of exactly three model names. `model: undefined` and a fourth spelling are untagged.
     if (!/["']?model["']?\s*:\s*["'](opus|sonnet|fable)["']/.test(flat)) found.push(call.slice(0, 100));
   }
@@ -382,8 +388,8 @@ function stopSeats(scratch, dir, toolUses = []) {
 // once: nothing was delegated, nothing was written, no run directory exists yet.
 function stoppedAtPlan(toolUses, scratch, head0) {
   const problems = [];
-  // A Codex seat is a Bash call now, so counting Agent and Workflow alone would let a plan turn launch
-  // every Codex seat it described and still read as stopped.
+  // A Codex seat is a wrapper Agent call, counted twice here (as an Agent call and as a seat call) so a
+  // plan turn that launched one reads as not stopped whichever list a reader checks.
   const fanned = [...agentCalls(toolUses), ...workflowCalls(toolUses), ...seatCalls(toolUses)];
   if (fanned.length) problems.push(`the plan did not stop: ${fanned.map((u) => (isSeatCall(u) ? "Bash(seat)" : u.name)).join(", ")} ran before "go"`);
   const dirty = git(scratch, "status", "--porcelain").trim();
@@ -419,8 +425,12 @@ function planProblems({ text, toolUses, scratch, head0 }) {
   // survives of the pair is the negative below, which needs no path to fire and no English to read.
   if (text.includes(".orchestrate/"))
     problems.push("the plan puts the run directory back inside the repository as `.orchestrate/`");
-  if (!CODEX_MODELS.some((m) => text.includes(m)))
-    problems.push(`no seat carries a Codex slug from the tier table (${CODEX_MODELS.join(", ")})`);
+  // The tier table pairs each slug with the short name the page's user-facing template uses ("Codex
+  // Terra T1"), so a plan written for the user names the seat either way; measured, three Opus plans for
+  // one task wrote "Terra, `gpt-5.6-terra`", "Codex Terra (cheap tier)" and "One Codex seat — Terra —".
+  // The word Codex itself is required a few lines below, so the name alone is what is read here.
+  if (!CODEX_MODELS.some((m) => text.includes(m)) && !/\b(Astra|Sol|Terra|Luna)\b/.test(text))
+    problems.push(`no seat carries a Codex model from the tier table (${CODEX_MODELS.join(", ")} or its short name)`);
   // Where the plan has a seat table, the rows ARE the seats and everything else is commentary about them:
   // measured, a plan that listed one Fable seat in a row and then wrote "one Fable seat, one gpt-6-astra
   // seat, caps respected" in a bullet counted its own summary as a second seat. A plan with no table is
@@ -578,7 +588,7 @@ test("plan only under Fable: the top pair is capped",
     problems.push(...planProblems({ text: s.planText, toolUses: s.toolUses, scratch, head0 }));
     // The top Codex seat by name, not by tier table membership: planProblems accepts any of the three
     // slugs, and for a design task the top row is the whole claim.
-    if (!lines(s.planText).some((l) => l.includes("gpt-6-astra")))
+    if (!lines(s.planText).some((l) => l.includes("gpt-6-astra") || /\bAstra\b/.test(l)))
       problems.push("the plan names no gpt-6-astra seat");
     return settle(dir, problems);
   });
@@ -806,9 +816,10 @@ test("the full run under Opus: plan, go, run",
         problems.push(`slug("  Hello World ") returned ${JSON.stringify(slug("  Hello World "))}, not "hello-world"`);
     } catch (e) { problems.push(`lib/slug.mjs does not import: ${e.message}`); }
 
-    // Every Agent call is a Claude seat now: a Codex seat is a Bash task, so there is no subagent type to
-    // exempt and an untagged call is an untagged Claude seat, whatever it was meant to be.
+    // Every Claude Agent call is tagged. The one exemption is the shipped Codex wrapper, whose model is
+    // pinned in agents/codex-seat.md and which the page tells the coordinator to pass no model to.
     const untagged = agentCalls(s2.toolUses)
+      .filter((u) => !/codex-seat$/.test(String(u.input.subagent_type ?? "")))
       .filter((u) => !["opus", "sonnet", "fable"].includes(String(u.input.model ?? "")));
     if (untagged.length)
       problems.push(`${untagged.length} Claude Agent call(s) carry no opus/sonnet/fable tag: ${untagged.map((u) => `${u.input.subagent_type ?? "?"}=${JSON.stringify(u.input.model ?? null)}`).join(", ")}`);
@@ -819,15 +830,15 @@ test("the full run under Opus: plan, go, run",
     if (inScript.length)
       problems.push(`${inScript.length} agent() call(s) in a Workflow script carry no opus/sonnet/fable model: ${inScript.join(" | ")}`);
 
-    // A Codex seat is one Bash call carrying the driver, a seat file and a report file. The report file
+    // A Codex seat is one wrapper call whose prompt carries the driver, a seat file and a report file. The report file
     // is also the only place the run's own evidence is: there is no registry to ask, so the calls name
     // where to look and the files answer for what ran.
     const seatCallsRan = seatCalls(s2.toolUses);
     if (!seatCallsRan.length)
-      problems.push(`no Codex seat ran: ${s2.toolUses.filter((u) => u.name === "Bash").length} Bash call(s), none naming driver.mjs with --seat-file`);
+      problems.push(`no Codex seat ran: ${agentCalls(s2.toolUses).length} Agent call(s), none whose prompt names driver.mjs with --seat-file`);
     const noBackground = seatCallsRan.filter((u) => u.input.run_in_background !== true);
     if (noBackground.length)
-      problems.push(`${noBackground.length} seat call(s) ran in the foreground, so the coordinator waited on the pipe instead of the notification`);
+      problems.push(`${noBackground.length} seat wrapper(s) ran in the foreground, so the coordinator waited on the call instead of the notification`);
     const noReportFlag = seatCallsRan.filter((u) => !/--report-file/.test(seatCommand(u)));
     if (noReportFlag.length)
       problems.push(`${noReportFlag.length} seat call(s) name no --report-file, so their report is only in a task's output`);

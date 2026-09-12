@@ -745,6 +745,42 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     });
 }
 
+// The children of a pid, as a harness that stops a task walks them: the driver's own child here is the
+// fixture server, and `pgrep -P` is on macOS and on the Linux CI image alike.
+const childPids = (pid) => String(spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" }).stdout ?? "")
+  .split("\n").map((l) => Number(l.trim())).filter((n) => Number.isInteger(n) && n > 0);
+
+test("SIGTERM to the driver and then to its server, inside the grace, reports the turn as interrupted and not as a crash",
+  "a harness that stops a seat signals the whole process tree, so codex takes the SIGTERM beside the driver and dies before the grace ends; measured 2026-09-12 from the agent map's Stop: the report said failed/4 for a cancellation, and its reader could not tell a stop from a server death",
+  async () => {
+    reapSurvivors();
+    const d = freshDir("sig-tree");
+    const rpcLog = path.join(d, "rpc-tree.log");
+    const reportFile = path.join(tempDir("codex-lock-report-tree-"), "report.json");
+    const { p, done, stderrSoFar } = spawnRun(d, { args: ["--report-file", reportFile], env: { FAKE_RPC_LOG: rpcLog } });
+    const notReady = await readyToSignal(p, stderrSoFar, rpcLog);
+    if (notReady) return notReady;
+    const kids = childPids(p.pid);
+    if (!kids.length) { p.kill("SIGKILL"); reapSurvivors(); return "the driver had no child to signal"; }
+    // The driver first, as the measured stop delivered it: its handler starts the cut, and only then does
+    // the server's death arrive, which is the order the crash branch used to misread.
+    p.kill("SIGTERM");
+    if (!await waitFor(() => /cutting the turn \(interrupted\)/.test(stderrSoFar()))) { p.kill("SIGKILL"); reapSurvivors(); return "the driver never announced the cut"; }
+    for (const pid of kids) { try { process.kill(pid, "SIGTERM"); } catch {} }
+    const { code, out } = await done;
+    const orphans = survivorsAlive();
+    const lockLeft = fs.existsSync(lockFor(d));
+    reapSurvivors();
+    if (orphans.length) return `the tree signal left ${orphans.length} descendant(s) behind: ${orphans.join(",")}`;
+    if (lockLeft) return `the tree signal left the cwd lock at ${lockFor(d)}`;
+    let r = null;
+    try { r = JSON.parse(out); } catch { return `the tree signal produced no JSON report (${out.length} bytes of stdout)`; }
+    if (r.turnStatus !== "interrupted") return `the report did not say the turn was interrupted: ${JSON.stringify(r.turnStatus)}, turnError ${JSON.stringify(r.turnError)}`;
+    if (code !== 1) return `the tree signal exited ${code}, expected 1 (the turn did not complete)`;
+    if (!fs.existsSync(reportFile)) return `the tree signal left no report at ${reportFile}`;
+    return true;
+  });
+
 test("a run signalled before its thread exists writes the pre-turn report to its file",
   "a seat stopped during setup is the case a caller cannot tell from a seat still starting: the notification fires either way, so the same file has to carry the refusal — with no turn status and no answer invented for a turn that never ran",
   async () => {

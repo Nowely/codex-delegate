@@ -49,20 +49,64 @@ task while the coordinator orchestrates and checks it.
 
 ## One call
 
-One background Bash task per seat. Write the prompt to a file with the Write tool, then run this, with
-`run_in_background: true` and no `&` of your own:
+One background Agent call per seat: a native subagent, the **wrapper**, that launches the driver, waits for
+it and returns when the report exists. Only a subagent is a subagent to Claude Code: a Bash task, whatever
+its description says, is not on the agent map, is not stopped from it and is not continued by a message
+(measured 2026-09-12 against the VS Code extension 2.1.269, whose map lists `local_agent` tasks alone). The
+wrapper is what makes a Codex seat read like a Claude seat: one card under its description, Stop on the
+card, one completion notification, and a message to continue it.
+
+Write the prompt to a file with the Write tool, then spawn the wrapper with the Agent tool:
+`subagent_type: codex-delegate:codex-seat`, `run_in_background: true`, and a `description` of
+`Codex <short name> <id>: <task in a few words>` — `Astra` for `gpt-6-astra`, `Sol` for `gpt-5.6-sol`,
+`Terra` for `gpt-5.6-terra`, `Luna` for `gpt-5.6-luna` — so the card the user sees names the agent, its
+vendor and its task, and not the command line. That type is the agent this plugin ships,
+[agents/codex-seat.md](../../agents/codex-seat.md): a relay with the Bash tool alone and its model pinned
+in its own file, so its context is half a `general-purpose` subagent's (measured 2026-09-12: 8.2k against
+15.4k tokens on the same seat). Pass it no `model`; the seat's model is the `MODEL:` line in its prompt
+file. A clone-and-symlink install links that file into `~/.claude/agents/` ([README](../../README.md#install)),
+where its type is the bare `codex-seat`.
+
+The wrapper's message is the block below with its four placeholders filled in and nothing added or
+removed; it never sees the seat's prompt. Inside it the driver runs as a background task,
+`run_in_background: true` and no `&` of your own, and the wait after it is a foreground command the
+wrapper repeats until the report is there, so the card stays working for as long as the seat does
+(measured: an eleven-minute seat took two waits) and Stop on it reaches the driver: the harness ends the
+wrapper's tasks with it, the driver takes the `SIGTERM`, cuts the turn, sweeps its codex and publishes
+the report as `turnStatus: interrupted`, exit 1, nothing left running.
+
+    1. Run this exact command with the Bash tool, with run_in_background: true, and description "<DESCRIPTION>":
 
     CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" node "${CLAUDE_SKILL_DIR}/scripts/driver.mjs" --seat-file "<DIR>/prompt.txt" --report-file "<REPORT>" > "<DIR>/out.json" 2> "<DIR>/err.txt"
 
-The call's `description` is `Codex <short name> <id>: <task in a few words>` — `Astra` for `gpt-6-astra`, `Sol`
-for `gpt-5.6-sol`, `Terra` for `gpt-5.6-terra`, `Luna` for `gpt-5.6-luna` — so the row the user sees names the
-agent, its vendor and its task, and not the command line. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
+    2. Then run this exact command with the Bash tool, in the foreground, with timeout 600000, and description "<DESCRIPTION>, waiting":
+
+    R="<REPORT>"; E="<DIR>/err.txt"; while [ ! -f "$R" ]; do P=$(sed -n 's/^codex-delegate: pid=\([0-9]*\).*/\1/p' "$E" 2>/dev/null | head -1); if [ -n "$P" ] && ! kill -0 "$P" 2>/dev/null; then break; fi; sleep 5; done; test -f "$R" && echo WAIT_DONE=report || echo WAIT_DONE=driver-gone
+
+    If that command ends without printing a WAIT_DONE line (the tool stopped it at its timeout), run the
+    very same command again, as many times as needed, until a WAIT_DONE line is printed. Never end your
+    turn before a WAIT_DONE line is printed.
+
+    3. Then run this one command in the foreground:
+
+    node -e 'try{const r=require("<REPORT>");console.log("EXIT="+r.exitCode);console.log("FIRST="+String(r.answer||"").split("\n")[0])}catch(e){console.log("EXIT=unknown");console.log("FIRST=")}'; test -f "<REPORT>" && echo FILE=exists || echo FILE=missing
+
+    4. Your final message is exactly the WAIT_DONE line, the three lines step 3 printed, then one line
+       REPORT=<REPORT>. Nothing else.
+
+`<DESCRIPTION>` is the Agent call's own description. `<DIR>` is one `mktemp -d "${TMPDIR:-/tmp}/codex-seat.XXXXXXXX"` per seat: Write and Read expand nothing,
 so they need the absolute path it prints. `<REPORT>` is an absolute path of this seat's own and never under `<DIR>`:
 `<DIR>` sits in `$TMPDIR`, the one root a read seat may write, and a file the seat leaves at that name blocks publication
 and then sits where you would read it as the seat's own report. Put it under the driver's state directory,
-`<state>/reports/<run>/report.json` with `<run>` unique; the driver makes every directory that path needs, at 0700,
-so it may name a root your own Write and `mkdir` are refused.
-The task's exit notification is the seat's completion, and `<REPORT>` is what to read then.
+`<state>/reports/<run>/report.json` with `<run>` unique, or, under the orchestrate mode, `<run>/<seat>/report.json`
+in the run directory that page names, one directory per seat; the driver makes every directory that path
+needs, at 0700, so it may name a root your own Write and `mkdir` are refused.
+The wrapper's completion notification is the seat's completion, and `<REPORT>` is what to read then: the
+wrapper's own lines say whether the file exists and what the first line of the answer is, nothing more. To
+continue a seat, write a second prompt file with `RESUME: <threadId>` and send the wrapper one more command
+of the same shape; it runs it the same way and notifies again (measured 2026-09-12). A session with no
+message tool, headless `-p` among them, continues the thread with a second wrapper given the same file,
+at the cost of a second card (measured: the thread held both ways).
 
 Every driver call forwards that variable under its own name — the plugin's own data directory, where the
 driver's state and every Codex artifact the report names (`answerPath`, a worktree harvest) live. The
@@ -186,7 +230,7 @@ write its own would be grading itself. Declare gates on the command line instead
   prove is in
   [environment-and-internals.md](references/environment-and-internals.md#receipt-validation-and-reporting).
 - Evidence of success is root-thread-only: a Codex subagent thread's commands are liveness, not evidence.
-- To stop a seat, stop its Bash task, or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`:
+- To stop a seat, stop its wrapper — Stop on the agent map or `TaskStop` — or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`:
   the driver interrupts the turn, writes the report it had earned and sweeps the codex process group.
 
 ## Prompt shape

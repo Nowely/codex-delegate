@@ -70,8 +70,8 @@ count against the alive cap and never takes a top-row role; announce its count b
 
 - Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat;
   untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line, and every Codex seat carries one
-  with a slug from the table, never the config default: a Codex seat is a Bash task, so no tool-side `model` or `effort`
-  option reaches it, and one written there would be silently spent on nothing.
+  with a slug from the table, never the config default: a Codex seat runs inside the `codex-seat` wrapper, whose model is pinned in its
+  own file, so pass that Agent call no `model`; one written there, or an `effort`, is spent on the wrapper alone and never reaches Codex.
 - Subagents may spawn subagents, but a Fable seat never spawns Fable: it tags its own Agent calls `opus` or `sonnet`; only you launch
   the pool's Fable seat.
 - Send no `EFFORT:` line; the user's configured Codex effort is inherited by every `MODEL:`. In a Workflow, `effort: 'low'` is
@@ -100,7 +100,7 @@ Allocate inside those bounds by judgement, not to fill a band. Several writers a
 
 ## Mechanism
 
-A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true: `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The task's exit notification is when you read that report. It is not an `agentType` and there is no other route to it. Stop one by stopping its task. The Bash call carries a `description` of the form "Codex <short name> <id>: <task in a few words>", so the row the user sees names the agent, its vendor and its task, not the command line.
+A Codex seat is one background Agent call, the sibling's `One call` verbatim: the `codex-delegate:codex-seat` wrapper, its message the sibling's block with `<DIR>`, `<REPORT>` and the description filled in, which runs the driver as a background Bash task and waits for the report. `<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates. The wrapper's completion notification is when you read that report. The wrapper is an `agentType` of its own, `codex-delegate:codex-seat` (bare `codex-seat` on the clone route); what the agent map shows is its card under the description, and Stop on that card reaches the driver. Stop one by stopping its wrapper. The Agent call carries a `description` of the form "Codex <short name> <id>: <task in a few words>", so the card the user sees names the agent, its vendor and its task, not the command line.
 Wait on every seat you launch in the background, Claude or Codex, with `TaskOutput(<task_id>, block: true, timeout: 600000)`, again while the task still runs, and never end your turn with a seat alive: a headless session ends with the turn and the task is killed with it (measured 2026-09-08).
 Your user's invocation of this skill authorises Workflow. A Workflow reports nothing until its last agent returns, so a seat that ends early stays invisible behind its siblings (measured 2026-09-08: a seat's exit at minute 9 surfaced only when the user asked, while its sibling ran 18 minutes). Launch independent Claude seats as background Agent calls, one notification each; use Workflow only for a chain a script must decide (refute, then judge), and the Agent tool for continuing an agent. Load the `workflow-authoring` skill before writing the script when the session lists it.
 `agent(prompt, {label, phase, schema, model, effort, agentType, isolation})` returns the agent's final text, or the validated

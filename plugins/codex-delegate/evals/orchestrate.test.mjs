@@ -73,7 +73,7 @@ test("the tier table pairs all eight model names, one tier per row",
     /^\| top \| Fable \| `gpt-6-astra` \| Astra \| design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts\. Never implementation \|$/m,
     /^\| strong \| Opus \| `gpt-5\.6-sol` \| Sol \| write seats, non-trivial analysis \|$/m,
     /^\| cheap \| Sonnet \| `gpt-5\.6-terra` \| Terra \| mechanical, hard-to-get-wrong work \|$/m,
-    /^\| unused \| Haiku \| `gpt-5\.6-luna` \| Luna \| not used \|$/m,
+    /^\| bulk \| Haiku \| `gpt-5\.6-luna` \| Luna \| \*\*outside the pool, with a pool of its own\*\*: up to 50 alive at once\. .* \|$/m,
   ));
 
 // ------------------------------------------------------------------ A: what the mode is
@@ -195,11 +195,11 @@ test("D2 the orchestrator's own model is read out of the system prompt",
   () => says("Your own model is in your system prompt (\"You are powered by the model named ...\"); nothing else carries it."));
 
 test("D3 every Claude Agent call is tagged, fable only for the one Fable seat, and a Codex seat's model is its own header line",
-  "an untagged subagent silently inherits the session model, so a fan-out meant to be cheap runs at the top tier; and a Codex seat is a Bash task, so a model or effort written as a tool option is spent on nothing while the seat runs on the config default",
+  "an untagged subagent silently inherits the session model, so a fan-out meant to be cheap runs at the top tier; and a Codex seat runs inside the shipped wrapper, whose model is pinned in its file, so a model or effort written as a tool option is spent on the wrapper while the seat runs on its `MODEL:` line",
   () => says(
     "Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat",
     "every Codex seat carries one with a slug from the table, never the config default",
-    "a Codex seat is a Bash task, so no tool-side `model` or `effort` option reaches it",
+    "is spent on the wrapper alone and never reaches Codex",
   ));
 
 test("D4 one Fable seat and one gpt-6-astra seat alive at a time",
@@ -283,23 +283,24 @@ test("E6 the writer may run the suite, but the deciding evidence comes from else
 
 // ------------------------------------------------------------------ F: mechanism and verification
 
-test("F1 a Codex seat is a background Bash task and no agentType, and the Workflow signature names what a script may still do",
-  "Workflow is for the chain a script must decide; a batch of independent Claude seats runs as Agent calls so each seat's end reaches the orchestrator (measured 2026-09-08: a Workflow hid a seat's exit for nine minutes); and with the relay agent gone, a page that still offered a Codex agentType would send every Codex seat to a subagent type that does not exist",
+test("F1 a Codex seat is a background Agent call of the shipped codex-seat type, and the Workflow signature names what a script may still do",
+  "Workflow is for the chain a script must decide; a batch of independent Claude seats runs as Agent calls so each seat's end reaches the orchestrator (measured 2026-09-08: a Workflow hid a seat's exit for nine minutes); and the wrapper is the shipped agent codex-delegate:codex-seat, which is what the agent map shows (measured 2026-09-12: only an Agent call has a card there, Stop on it reaches the driver, a message continues it), so a page that sent the seat anywhere else would lose the card or double the wrapper's context",
   () => {
     const prose = says(
       "authorises Workflow",
-      "A Codex seat is one background Bash task, the sibling's `One call` verbatim, with `run_in_background` true",
+      "A Codex seat is one background Agent call, the sibling's `One call` verbatim",
       "`<DIR>` is the sibling's own `mktemp -d`, holding `prompt.txt`, `out.json` and `err.txt`, and `<REPORT>` is `<run>/<seat>/report.json` under the run directory above, which the driver creates",
-      "The task's exit notification is when you read that report",
-      "It is not an `agentType` and there is no other route to it",
+      "The wrapper's completion notification is when you read that report",
+      "The wrapper is an `agentType` of its own, `codex-delegate:codex-seat`",
       "Launch independent Claude seats as background Agent calls, one notification each",
       "Load the `workflow-authoring` skill before writing the script when the session lists it.",
       "`agent(prompt, {label, phase, schema, model, effort, agentType, isolation})`",
       "`pipeline(items, ...stages)` runs items through stages with no barrier, `parallel(thunks)` is a barrier",
       "A subagent's final text is its return value, not a message to a human",
     );
-    // The negative half: the agent this release deleted, offered again by name, is a seat that never runs.
-    if (/codex-seat/.test(text)) return "the page names the codex-seat agent again";
+    // The negative half: the retired relay took the prompt itself; the shipped wrapper never does, so the
+    // page must not hand it one.
+    if (/codex-seat[^\n]*(writes|write) the prompt/i.test(text)) return "the page hands the wrapper the prompt again";
     return prose;
   });
 
@@ -331,9 +332,9 @@ test("F4 every row of the Result table",
     /^\| a Claude seat that returns `blocked` \| do not retry, report it \|$/m,
   ));
 
-test("F5 the Bash call's description names the agent by its model",
-  "a Codex seat surfaces as a Bash row, so without a description the user reads a command line of flags where a Claude seat shows an agent and its text; the two sides stop looking like one run, which is the whole point of naming it there, and the model is the name a person can use, where the word this page calls it by is one they cannot",
-  () => says("The Bash call carries a `description` of the form \"Codex <short name> <id>: <task in a few words>\", so the row the user sees names the agent, its vendor and its task, not the command line."));
+test("F5 the wrapper's description names the agent by its model",
+  "a Codex seat surfaces as the wrapper's card, so without a description the user reads a generic agent where a Claude seat shows its task; the two sides stop looking like one run, which is the whole point of naming it there, and the model is the name a person can use, where the word this page calls it by is one they cannot",
+  () => says("The Agent call carries a `description` of the form \"Codex <short name> <id>: <task in a few words>\", so the card the user sees names the agent, its vendor and its task, not the command line."));
 
 test("F6 a background seat is waited on with TaskOutput, and no turn ends with one alive",
   "a background task does not keep a headless session alive: when the coordinator ends its turn Claude Code exits and kills the task, which is how the live gate lost a seat mid-turn (measured 2026-09-08); TaskOutput blocking is the native wait, and without the timeout named the coordinator cannot know one call covers ten minutes and no more",

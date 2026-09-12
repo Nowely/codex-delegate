@@ -3,8 +3,9 @@
 //
 //   node evals/agent-contract.test.mjs
 //
-// There is no relay agent any more: the coordinator writes the prompt and runs the driver itself, in a
-// background Bash task, so the ONE call and the field table are both SKILL.md's. This suite compares
+// The shipped agent, agents/codex-seat.md, is a mechanical wrapper: the coordinator writes the prompt and
+// hands the wrapper the exact commands, which run the driver as a background Bash task, so the ONE call
+// and the field table are both SKILL.md's and the agent file carries only the relay's standing rules. This suite compares
 // that page, and the orchestrate page that re-cuts it, with the driver they describe.
 
 import fs from "node:fs";
@@ -202,12 +203,12 @@ test("the report file is what the coordinator reads, and a missing one is unknow
   () => {
     const problems = [];
     for (const phrase of [
-      "The task's exit notification is the seat's completion",
+      "The wrapper's completion notification is the seat's completion",
       "`<REPORT>` is an absolute path of this seat's own and never under `<DIR>`",
       "`<REPORT>` is the report, the same JSON the run also wrote to `<DIR>/out.json`",
       "it is written whole or not at all, and a missing one means unknown, never success",
       "with an `OUTPUT_SCHEMA:` line, `answerJson` is that answer already parsed",
-      "To stop a seat, stop its Bash task, or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`",
+      "To stop a seat, stop its wrapper — Stop on the agent map or `TaskStop` — or send `SIGTERM` to the pid on the first line of `<DIR>/err.txt`",
     ]) if (!flat.includes(phrase)) problems.push(`the page no longer says: ${JSON.stringify(phrase)}`);
     // Each of those is a promise the driver has to keep. The mode, the no-clobber rule, the pid line and
     // the signal handling are MEASURED elsewhere — cli.test.mjs's report-file flows and the lock suite's
@@ -259,7 +260,7 @@ test("what the user reads is prose the coordinator writes, in the user's languag
       "say what an agent may write, and where, in ordinary words",
     ]) if (!sectionFlat.includes(phrase)) problems.push(`the section no longer says: ${JSON.stringify(phrase)}`);
     // The two user-facing templates, on both pages, are the only places the word reached the user by
-    // instruction rather than by accident: the Bash row's description and the example first line. They
+    // instruction rather than by accident: the wrapper's description and the example first line. They
     // are pinned as a pair because a fix to one page alone leaves the other still teaching the old form.
     for (const [name, text] of [["seat", flat], ["orchestrate", orchestrate.replace(/\s+/g, " ")]]) {
       if (!text.includes("`Codex <short name> <id>: <task in a few words>`")
@@ -268,6 +269,26 @@ test("what the user reads is prose the coordinator writes, in the user's languag
       if (/seat <id>, <model>|Seat W5, Sonnet/.test(text))
         problems.push(`${name} still teaches a user-facing template built on the page's own noun`);
     }
+    return problems.length === 0 || problems.join("; ");
+  });
+
+test("the shipped wrapper is the agent the page names: Bash alone, a pinned model, and a body that never answers the task",
+  "the page sends every seat to codex-delegate:codex-seat, so the file has to exist under agents/ with that name; Bash alone is what halves its context (measured 2026-09-12: 8.2k against 15.4k tokens for general-purpose), and a wrapper allowed Read or Write is a relay that can rewrite a prompt, which is the measured failure the retired relay had",
+  () => {
+    const problems = [];
+    const agentPath = path.join(ROOT, "agents", "codex-seat.md");
+    if (!fs.existsSync(agentPath)) return "agents/codex-seat.md is not shipped";
+    const agent = fs.readFileSync(agentPath, "utf8");
+    const fm = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(agent);
+    if (!fm) return "agents/codex-seat.md has no frontmatter";
+    const [, head, body] = fm;
+    if (!/^name: codex-seat$/m.test(head)) problems.push("the agent is not named codex-seat");
+    if (!/^tools: Bash$/m.test(head)) problems.push("the agent's tools are not exactly Bash");
+    if (!/^model: (sonnet|haiku|opus)$/m.test(head)) problems.push("the agent pins no model");
+    for (const phrase of ["Do not answer the task yourself", "Do not create or edit files", "Do not change any flag, path, or environment variable"])
+      if (!body.replace(/\s+/g, " ").includes(phrase)) problems.push(`the agent body no longer says: ${JSON.stringify(phrase)}`);
+    for (const phrase of ["`subagent_type: codex-delegate:codex-seat`", "A clone-and-symlink install links that file into `~/.claude/agents/`", "Pass it no `model`"])
+      if (!flat.includes(phrase)) problems.push(`the page no longer says: ${JSON.stringify(phrase)}`);
     return problems.length === 0 || problems.join("; ");
   });
 

@@ -14,7 +14,7 @@ and one qualification.
 | `Explore` (read-only) | `--cwd <repo>` | reads and runs node tests with constraints; see `--help` |
 | agent with `isolation: "worktree"` | `--worktree <repo>` | writes in a tree of its own, not the live one; see [Worktree lifecycle](../SKILL.md#worktree-lifecycle) |
 | the same, committing | none | a seat's sandbox ends at its own tree; the work returns as a diff ([Git-directory grant](environment-and-internals.md#git-directory-grant)) |
-| one-call wrapped subagent | one background Bash call, `--seat-file` in and `--report-file` out | the call is the seat's lifetime and the file is the delivery; see `--help` |
+| one-call wrapped subagent | one background Agent call, a Sonnet wrapper around one driver run, `--seat-file` in and `--report-file` out | the wrapper is the seat's lifetime, its card is the seat's on the agent map, and the file is the delivery; see `--help` |
 | fan-out of many agents | concurrent driver invocations | memory-bound rather than throttled; see [Fan-out and reporting](#fan-out-and-reporting) |
 | stopping a running agent | `SIGTERM` to the announced pid, or stopping its task | the turn is interrupted and the report it earned is still written; see `--help` |
 | continuing an agent's context | `--resume <threadId\|last>` | rights are declared again per call; see `--help` |
@@ -118,7 +118,7 @@ has no call cap and notifies on completion (measured).
 
 | Launch shape | Notification behaviour | Use when |
 | --- | --- | --- |
-| one background Bash call per seat | each reports as its own call ends | normal fan-out |
+| one wrapper Agent call per seat | each reports as its wrapper ends | normal fan-out |
 | Workflow agents | each reports by phase | verification and synthesis are staged |
 | one shell that ends in `wait` | reports after the slowest child | the next step requires all results |
 

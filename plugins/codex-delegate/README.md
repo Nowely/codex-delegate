@@ -87,11 +87,15 @@ mkdir -p ~/.claude/skills                           # absent on a machine that h
 ln -s "$PWD/skills/seat" ~/.claude/skills/seat
 ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
 ln -s "$PWD/skills/cleanup" ~/.claude/skills/cleanup
+mkdir -p ~/.claude/agents
+ln -s "$PWD/agents/codex-seat.md" ~/.claude/agents/codex-seat.md
 ```
 
-On this clone-and-symlink route the skill is `seat` and the modes are `/orchestrate` and
-`/cleanup`; on the plugin route they are `codex-delegate:seat`, `/codex-delegate:orchestrate`
-and `/codex-delegate:cleanup`.
+On this clone-and-symlink route the skill is `seat`, the modes are `/orchestrate` and `/cleanup`, and
+the wrapper every seat runs inside is the agent `codex-seat`; on the plugin route they are
+`codex-delegate:seat`, `/codex-delegate:orchestrate`, `/codex-delegate:cleanup` and
+`codex-delegate:codex-seat`. Agents are read when Claude Code starts, so a link made during a session
+is seen by the next one.
 
 The `mkdir -p` is not decoration: without it every `ln -s` call fails with `No such file or directory`
 on a fresh account, which is exactly the account this route is written for.
