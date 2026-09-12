@@ -7,6 +7,26 @@ forensics remain in the repository references and release notes.
 
 ### Changed
 
+- A Codex seat is launched through a shipped **wrapper**, the agent `codex-delegate:codex-seat`
+  (`agents/codex-seat.md`: Haiku, the Bash tool alone, a body that never touches a prompt): one background
+  Agent call whose message is the seat page's fixed block, running the driver as a background Bash task and
+  waiting in a foreground loop until the report exists. The clone route links the same file into
+  `~/.claude/agents/`, where the type is the bare `codex-seat`. Measured 2026-09-12 against the VS Code
+  extension 2.1.269, whose agent map lists `local_agent` tasks alone, so a Bash task never had a card and
+  could not be stopped or continued from there: with the wrapper a seat has a card under its description,
+  Stop on it reaches the driver (the harness ends the wrapper's tasks, the driver takes the `SIGTERM`, cuts
+  the turn, sweeps its codex and publishes the report), one completion notification arrives, and a message
+  to the wrapper carrying a `RESUME:` seat file continues the thread (a picked integer came back plus one;
+  a headless coordinator reading the page, given no message tool, continued it with a second wrapper
+  instead, and the thread held). A subagent has no `TaskOutput`, and a
+  wrapper that ends its turn with the driver running is resumed when the task ends, after thirteen minutes
+  in one run, but shows as finished on the map meanwhile, which is why the wait is a repeated foreground
+  command with the tool's ten-minute ceiling; eleven-minute seats took two of them, on Sonnet and on Haiku.
+  Bash alone halves the wrapper's context, 8.2k tokens against 15.4k for `general-purpose` on the same
+  seat, and Haiku ran the block seven times of seven, short, long and stopped, at three output tokens a
+  turn, so it is the pin. The orchestrate page follows: pass the wrapper no `model`, a seat is counted by
+  the `orchestrate-live` suite as an Agent call whose prompt names the driver, and the wrapper is exempt
+  from the tag check.
 - The orchestrator's model table gains a **bulk tier** where it used to say "not used": Luna
   (`gpt-5.6-luna`) and Haiku, up to fifty alive at once, **outside the pool and not counted against the
   one-Astra one-Fable alive cap**. They are fast, cheap and not clever, so the row is for work that is
@@ -68,6 +88,15 @@ forensics remain in the repository references and release notes.
 - The manifest's homepage names the plugin's own directory in the marketplace rather than the
   repository it used to be. The published release notes that linked files and comparisons by the old
   `v*` tags were repointed at the renamed ones; those links had gone dead when the old tags did.
+
+### Fixed
+
+- A server killed beside the driver during a cut is the cut's verdict, not a crash. A harness that stops
+  a seat signals the whole process tree, so codex took the `SIGTERM` next to the driver and died inside
+  the one-second grace, and the child-exit handler reported `failed`, exit 4: a cancellation a coordinator
+  could not tell from a server death (measured 2026-09-12 from the agent map's Stop). With a cut pending
+  the server's death now settles the run on the cut's own reason, `interrupted`, exit 1, evidence kept;
+  `lock.test.mjs` gains the tree-signal case, red on the previous driver.
 
 ## 0.13.0 — 2026-09-10
 
