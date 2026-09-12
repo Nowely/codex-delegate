@@ -60,11 +60,13 @@ run directory: its artifact is its report, and a brief that asks a Codex read se
 | top | Fable | `gpt-6-astra` | Astra | design, mentoring, final review and verdict, decomposition you cannot do, a case stuck after two failed attempts. Never implementation |
 | strong | Opus | `gpt-5.6-sol` | Sol | write seats, non-trivial analysis |
 | cheap | Sonnet | `gpt-5.6-terra` | Terra | mechanical, hard-to-get-wrong work |
-| unused | Haiku | `gpt-5.6-luna` | Luna | not used |
+| bulk | Haiku | `gpt-5.6-luna` | Luna | **outside the pool, with a pool of its own**: up to 50 alive at once. Fast, cheap and not clever — work that is wide rather than deep, and where a wrong answer does not quietly corrupt something. What to spend them on is yours to decide |
 
 Your own model is in your system prompt ("You are powered by the model named ..."); nothing else carries it. You are outside the
 pool, and the pool is the same whatever you are: at most one Fable seat and one `gpt-6-astra` seat alive at a time, each taking
 the top-row roles in turn, architect for one task and judge for the next, and the strong and cheap seats the alive cap admits.
+**Prefer Luna to Haiku in the bulk row**: measured better and smarter, and four times cheaper. The bulk row does not
+count against the alive cap and never takes a top-row role; announce its count before spawning, like any other fan-out.
 
 - Tag every Claude Agent call with an explicit `model`: `opus` or `sonnet`, and `fable` only for the one Fable seat;
   untagged, a subagent inherits your session model. A Codex seat's model is its `MODEL:` line, and every Codex seat carries one

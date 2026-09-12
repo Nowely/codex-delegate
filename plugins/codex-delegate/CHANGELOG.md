@@ -5,6 +5,15 @@ forensics remain in the repository references and release notes.
 
 ## Unreleased
 
+### Changed
+
+- The orchestrator's model table gains a **bulk tier** where it used to say "not used": Luna
+  (`gpt-5.6-luna`) and Haiku, up to fifty alive at once, **outside the pool and not counted against the
+  one-Astra one-Fable alive cap**. They are fast, cheap and not clever, so the row is for work that is
+  wide rather than deep and where a wrong answer does not quietly corrupt something; which work that is
+  stays the orchestrator's judgement rather than a fixed list. Prefer Luna to Haiku — measured better and
+  smarter, and four times cheaper.
+
 ### Fixed
 
 - The standalone recipe no longer puts a seat's report inside `$TMPDIR`, the one root a read seat may
