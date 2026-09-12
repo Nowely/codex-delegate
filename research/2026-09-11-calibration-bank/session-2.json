@@ -1,0 +1,778 @@
+{
+  "bank": "terse-calibration-1",
+  "fingerprint": "s3:1936:139:astra-tone-1,astra-tone-2,astra-tone-3,astra-tone-4,astra-tone-5,astra-tone-6,astra-tone-7,astra-tone-8,astra-metaphor-1,astra-metaphor-2,astra-metaphor-3,astra-metaphor-4,astra-metaphor-5,astra-metap",
+  "participant": "ruliny",
+  "seed": 20260911,
+  "started": "2026-09-11T19:15:36.164Z",
+  "answers": [
+    {
+      "trial": 0,
+      "itemId": "terraA-tone-3",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 43515,
+      "msToChoice": 42330,
+      "at": "2026-09-11T19:19:04.747Z"
+    },
+    {
+      "trial": 1,
+      "itemId": "opusB-answer-3",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 18644,
+      "msToChoice": 17511,
+      "at": "2026-09-11T19:19:23.399Z"
+    },
+    {
+      "trial": 2,
+      "itemId": "sonA-metaphor-1",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 18542,
+      "msToChoice": 16287,
+      "at": "2026-09-11T19:19:41.951Z"
+    },
+    {
+      "trial": 3,
+      "itemId": "sol-answer-8",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 45012,
+      "msToChoice": 35504,
+      "at": "2026-09-11T19:20:26.970Z"
+    },
+    {
+      "trial": 4,
+      "itemId": "sonC-metaphor-1",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 6366,
+      "msToChoice": 5508,
+      "at": "2026-09-11T19:20:33.342Z"
+    },
+    {
+      "trial": 5,
+      "itemId": "opusB-tone-1",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 18610,
+      "msToChoice": 16406,
+      "at": "2026-09-11T19:20:51.958Z"
+    },
+    {
+      "trial": 6,
+      "itemId": "terraA-cc-1",
+      "factor": "code-comment",
+      "type": "code-comment",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": [
+        "rewrite",
+        "keep",
+        "delete"
+      ],
+      "choice": "o2",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 39568,
+      "msToChoice": 37985,
+      "at": "2026-09-11T19:21:31.532Z"
+    },
+    {
+      "trial": 7,
+      "itemId": "sonA-metaphor-2",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 10816,
+      "msToChoice": 8674,
+      "at": "2026-09-11T19:21:42.353Z"
+    },
+    {
+      "trial": 8,
+      "itemId": "terraB-tone-4",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 9740,
+      "msToChoice": 8811,
+      "at": "2026-09-11T19:21:52.099Z"
+    },
+    {
+      "trial": 9,
+      "itemId": "terraB-answer-3",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 38127,
+      "msToChoice": 13765,
+      "at": "2026-09-11T19:22:30.231Z"
+    },
+    {
+      "trial": 10,
+      "itemId": "whole-2",
+      "factor": "whole-text",
+      "type": "whole-text",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 13882,
+      "msToChoice": 6512,
+      "at": "2026-09-11T19:22:44.120Z"
+    },
+    {
+      "trial": 11,
+      "itemId": "astra-tone-1",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 15948,
+      "msToChoice": 14177,
+      "at": "2026-09-11T19:23:00.073Z"
+    },
+    {
+      "trial": 12,
+      "itemId": "astra-metaphor-5",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 3783,
+      "msToChoice": 2554,
+      "at": "2026-09-11T19:23:03.860Z"
+    },
+    {
+      "trial": 13,
+      "itemId": "opusB-answer-2",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 21096,
+      "msToChoice": 20192,
+      "at": "2026-09-11T19:23:24.961Z"
+    },
+    {
+      "trial": 14,
+      "itemId": "sol-metaphor-6",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 18757,
+      "msToChoice": 13298,
+      "at": "2026-09-11T19:23:43.725Z"
+    },
+    {
+      "trial": 15,
+      "itemId": "sonC-answer-1",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 17225,
+      "msToChoice": 16309,
+      "at": "2026-09-11T19:24:00.956Z"
+    },
+    {
+      "trial": 16,
+      "itemId": "sol-answer-8",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": 3,
+      "presentedOptions": null,
+      "choice": "tie",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 19895,
+      "msToChoice": 2379,
+      "at": "2026-09-11T19:24:20.857Z"
+    },
+    {
+      "trial": 17,
+      "itemId": "sonD-tone-1",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 11955,
+      "msToChoice": 8447,
+      "at": "2026-09-11T19:24:32.820Z"
+    },
+    {
+      "trial": 18,
+      "itemId": "astra-cc-2",
+      "factor": "code-comment",
+      "type": "code-comment",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": [
+        "delete",
+        "rewrite",
+        "keep"
+      ],
+      "choice": "o1",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 17245,
+      "msToChoice": 12874,
+      "at": "2026-09-11T19:24:50.073Z"
+    },
+    {
+      "trial": 19,
+      "itemId": "opusA-tone-2",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 40082,
+      "msToChoice": 32624,
+      "at": "2026-09-11T19:25:30.161Z"
+    },
+    {
+      "trial": 20,
+      "itemId": "sonA-metaphor-2",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": 7,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 7440,
+      "msToChoice": 6594,
+      "at": "2026-09-11T19:25:37.607Z"
+    },
+    {
+      "trial": 21,
+      "itemId": "opusA-answer-1",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 25582,
+      "msToChoice": 22981,
+      "at": "2026-09-11T19:26:03.198Z"
+    },
+    {
+      "trial": 22,
+      "itemId": "sonD-metaphor-1",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 11739,
+      "msToChoice": 5972,
+      "at": "2026-09-11T19:26:14.945Z"
+    },
+    {
+      "trial": 23,
+      "itemId": "opusA-answer-4",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 13978,
+      "msToChoice": 9920,
+      "at": "2026-09-11T19:26:28.930Z"
+    },
+    {
+      "trial": 24,
+      "itemId": "opusA-tone-3",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 15775,
+      "msToChoice": 11278,
+      "at": "2026-09-11T19:26:44.710Z"
+    },
+    {
+      "trial": 25,
+      "itemId": "sol-metaphor-2",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 8335,
+      "msToChoice": 7585,
+      "at": "2026-09-11T19:26:53.051Z"
+    },
+    {
+      "trial": 26,
+      "itemId": "opusA-metaphor-2",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "left",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 5624,
+      "msToChoice": 4691,
+      "at": "2026-09-11T19:26:58.680Z"
+    },
+    {
+      "trial": 27,
+      "itemId": "sonB-tone-2",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 20511,
+      "msToChoice": 11748,
+      "at": "2026-09-11T19:27:19.198Z"
+    },
+    {
+      "trial": 28,
+      "itemId": "opusB-answer-2",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": 13,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 31698,
+      "msToChoice": 26860,
+      "at": "2026-09-11T19:27:50.901Z"
+    },
+    {
+      "trial": 29,
+      "itemId": "astra-answer-6",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 22807,
+      "msToChoice": 22045,
+      "at": "2026-09-11T19:28:13.715Z"
+    },
+    {
+      "trial": 30,
+      "itemId": "sol-cc-3",
+      "factor": "code-comment",
+      "type": "code-comment",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": [
+        "delete",
+        "rewrite",
+        "keep"
+      ],
+      "choice": "o1",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 37232,
+      "msToChoice": 27995,
+      "at": "2026-09-11T19:28:50.955Z"
+    },
+    {
+      "trial": 31,
+      "itemId": "sonB-answer-1",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 17447,
+      "msToChoice": 16818,
+      "at": "2026-09-11T19:29:08.410Z"
+    },
+    {
+      "trial": 32,
+      "itemId": "opusB-metaphor-3",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 8493,
+      "msToChoice": 6476,
+      "at": "2026-09-11T19:29:16.910Z"
+    },
+    {
+      "trial": 33,
+      "itemId": "terraB-tone-2",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 27511,
+      "msToChoice": 25193,
+      "at": "2026-09-11T19:29:44.425Z"
+    },
+    {
+      "trial": 34,
+      "itemId": "whole-7",
+      "factor": "whole-text",
+      "type": "whole-text",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 13441,
+      "msToChoice": 8369,
+      "at": "2026-09-11T19:29:57.871Z"
+    },
+    {
+      "trial": 35,
+      "itemId": "opusB-metaphor-2",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 11382,
+      "msToChoice": 10253,
+      "at": "2026-09-11T19:30:09.258Z"
+    },
+    {
+      "trial": 36,
+      "itemId": "sol-answer-3",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 38631,
+      "msToChoice": 37844,
+      "at": "2026-09-11T19:30:47.897Z"
+    },
+    {
+      "trial": 37,
+      "itemId": "sol-tone-4",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 35423,
+      "msToChoice": 34165,
+      "at": "2026-09-11T19:31:23.328Z"
+    },
+    {
+      "trial": 38,
+      "itemId": "astra-tone-7",
+      "factor": "promotional-tone",
+      "type": "single-factor",
+      "onLeft": true,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 12950,
+      "msToChoice": 11466,
+      "at": "2026-09-11T19:31:36.282Z"
+    },
+    {
+      "trial": 39,
+      "itemId": "opusA-metaphor-1",
+      "factor": "metaphor",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "right",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 11024,
+      "msToChoice": 9528,
+      "at": "2026-09-11T19:31:47.311Z"
+    },
+    {
+      "trial": 40,
+      "itemId": "astra-answer-6",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": 29,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 5324,
+      "msToChoice": 4086,
+      "at": "2026-09-11T19:31:52.640Z"
+    },
+    {
+      "trial": 41,
+      "itemId": "sol-answer-6",
+      "factor": "answer-first",
+      "type": "single-factor",
+      "onLeft": false,
+      "isRepeatOf": null,
+      "presentedOptions": null,
+      "choice": "unjudgeable",
+      "flags": {
+        "loserAlsoGood": false,
+        "bothWeak": false
+      },
+      "comment": "",
+      "ms": 3336,
+      "msToChoice": 2578,
+      "at": "2026-09-11T19:31:55.982Z"
+    }
+  ],
+  "breaks": []
+}

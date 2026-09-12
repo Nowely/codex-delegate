@@ -6,7 +6,7 @@ claim in `plugins/terse/references/prior-art.md` dated 2026-09-10 traces here.
 
 ## Why this had to be copied
 
-`plugins/terse/skills/revise/references/writing-rules.md` and `curse-of-knowledge.md` each carry a block
+`plugins/terse/skills/rewrite/references/writing-rules.md` and `curse-of-knowledge.md` each carry a block
 reproduced byte for byte from `chain-source-prompt.txt` below. Until now that provenance could only be
 checked against a folder on one laptop. The two files now also carry the SHA-256 of their own block, so
 drift is detectable even where this archive is not.

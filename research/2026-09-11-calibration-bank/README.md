@@ -13,7 +13,7 @@ span properties, `fidelity.mjs` for whether an item really comes from the lines 
 Run it with:
 
 ```bash
-node plugins/terse/skills/calibrate/scripts/session.mjs \
+node research/2026-09-11-calibration-bank/tool/scripts/session.mjs \
   --bank research/2026-09-11-calibration-bank/bank.json \
   --out <somewhere outside the repository>/session.json --participant <name> --seed <n>
 ```
@@ -23,7 +23,7 @@ node plugins/terse/skills/calibrate/scripts/session.mjs \
 **English project documentation in this repository.** The estimand travels with the bank and does not
 leave it: results describe one person, on passages from these files, and say nothing about other people
 or about text from anywhere else. The decision to build no Russian items is recorded in
-[item-bank.md](../../plugins/terse/skills/calibrate/references/item-bank.md).
+[item-bank.md](tool/references/item-bank.md).
 
 | | Files | Words |
 |---|---|---|
@@ -194,3 +194,33 @@ honest answer is to place none rather than to clamp one next to its original.
   claims a benefit, the other states a fact. That is what makes it length-matched and single-span, and it
   is a narrower question than "does promotional language help", which is what the 27%-of-usability figure
   behind the factor was measuring.
+
+## The run on the owner, and the result
+
+One sitting, 2026-09-11, participant `ruliny`, seed 20260911, 42 answers before the owner stopped;
+`session-2.json` beside this file is the record, copied in from the plugin's data directory on 2026-09-12.
+Mapped from side to variant with the recorded `onLeft`:
+
+| Factor | n | on | off | tie | unjudgeable | two-sided sign test on on/off |
+|---|---|---|---|---|---|---|
+| metaphor | 12 | 10 | 2 | 0 | 0 | p = 0.039 |
+| promotional tone | 11 | 6 | 4 | 0 | 1 | p = 0.75 |
+| answer-first | 14 | 4 | 2 | 1 | 7 | p = 0.69 |
+| code-comment | 3 | — | — | — | — | three-way, too few to read |
+| whole-text | 2 | 1 | 1 | | | — |
+
+Metaphor separated at 0.05 and not at the Bonferroni level of 0.0167 the plan set for three factors, on
+twelve answers of the twenty-eight the plan needed. Tone is undetermined. Answer-first is unjudgeable: eight
+of fourteen answers were a tie or a refusal, and the owner said why — "answer-first feels indifferent",
+"the choice is between complex and simpler English". Four items were shown twice; none came back with
+the same on/off choice both times, three of them because at least one showing was refused. Median time to
+a choice: 7.6 s for metaphor, 14 s for tone, 17.5 s for answer-first.
+
+The owner stopped the session with five objections, none of them about an item: the answer-first pairs
+felt indifferent; the whole-text pairs "just differ"; the tool restarted instead of resuming; the pairs
+read as complex versus simpler English rather than as a single factor; the code-comment items needed
+context. The same evening the owner read a ten-section draft and rejected it on nine grounds, none of
+them phrasing (`../2026-09-11-markup-round-0/`). **The instrument measures an axis that did not decide
+whether that reader would ship a document.** The skill was retired from the plugin on 2026-09-12 and
+its tool moved to `tool/` here; the blind-pair machinery is intact for a judge of one round against the
+next, if that judge is ever built.
