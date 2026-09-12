@@ -1,0 +1,188 @@
+# codex-delegate
+
+A Claude Code plugin that runs OpenAI Codex agents the way Claude Code runs its own subagents.
+
+You say what an agent may touch before it starts: read only, write in a throwaway copy of your
+repository, or write in one directory you name. What it did is checked against the record of the turn
+rather than taken on its word — by default, an agent that ran nothing comes back failed, not finished.
+
+A review, a refutation or a competing implementation from the same model is one model's opinion twice.
+So one task can go to a panel of Claude and Codex agents, each answer attributed to the model that gave
+it.
+
+## Quick start
+
+```bash
+claude plugin marketplace add Nowely/agent-skills
+claude plugin install codex-delegate@nowely
+```
+
+The install summary says whether the plugin is active or whether to run `/reload-plugins`: an install
+from the shell does not reach a session that is already open.
+
+You need:
+
+- `codex` on your `PATH` and signed in — check with `codex login status`
+- Node 22 or newer
+- codex-cli **0.153.4**, the build this was measured against. A newer codex is untested, and an upgrade
+  of it is the likeliest thing to break a run.
+
+Then ask for the work in the conversation.
+
+```text
+you     Have Codex review the last commit and run the tests.
+
+Claude  One Codex agent, gpt-5.6-sol. It reads your files, runs commands and
+        reaches the network; it writes nothing of yours.
+
+        Codex gpt-5.6-sol A1 — reviewed the commit and ran the suite green.
+        Two findings, both in error handling. …
+```
+
+Two things the first run teaches. Claude writes each agent's prompt under `$TMPDIR`, outside your
+project, so you are asked to allow it once. And an agent works under your own Codex sign-in and spends
+your quota: when that window is full, the run is refused before it starts.
+
+<details>
+<summary>Installing from a clone instead</summary>
+
+```bash
+git clone https://github.com/Nowely/agent-skills.git
+mkdir -p ~/.claude/skills
+for s in seat orchestrate cleanup; do ln -s "$PWD/agent-skills/plugins/codex-delegate/skills/$s" ~/.claude/skills/$s; done
+export CODEX_DELEGATE_STATE_DIR="$HOME/.local/state/codex-delegate"
+```
+
+That last line belongs in your shell profile — Claude Code has to inherit it, and nothing else supplies
+it on this route. The modes lose the plugin's prefix here: `/seat`, not `/codex-delegate:seat`.
+`claude plugin update` does not touch a clone.
+
+</details>
+
+## Commands
+
+Most of the time you type nothing special — you name Codex, or ask for a second opinion, and the plugin
+takes it from there:
+
+```text
+Have Codex check whether this lock is actually held.
+Put this on a panel — two of you and one Codex.
+Get Codex to refute the second finding.
+Проверь через gpt, вторая имплементация.
+No codex on this one, just you.
+```
+
+| Command | What it does |
+|---|---|
+| `/codex-delegate:orchestrate` | Agrees one plan with you, then pushes every verbose step — tests, tree-wide greps, diffs, logs — onto Claude and Codex agents, so the main conversation stays small. |
+| `/codex-delegate:cleanup` | Lists what the plugin left on this machine, suggests what to remove, deletes only what you pick. |
+
+Both are yours to start; nothing invokes them on your behalf.
+
+## Update and uninstall
+
+```bash
+claude plugin marketplace update nowely
+claude plugin update codex-delegate@nowely
+```
+
+Restart Claude Code or run `/reload-plugins` to apply it. Your stored answers and run records survive an
+update.
+
+To remove it, `claude plugin uninstall codex-delegate@nowely`. Removing the *marketplace* instead
+uninstalls every plugin installed from it and takes their stored data with it — run
+`/codex-delegate:cleanup` first if any of it matters.
+
+## What a Codex agent can do, and what it may touch
+
+Three kinds of access, one per call:
+
+- **Reads and runs commands, writes nothing of yours.** It reads anything you can read, and `$TMPDIR` is
+  the only thing it may write — enough to run your tests. Several read agents share a directory at once.
+- **Writes in a throwaway copy of the repository.** Made for it, removed once the work is saved, and the
+  work comes back as a diff.
+- **Writes in a directory you name.** Your live files: you choose the blast radius.
+
+> [!WARNING]
+> A throwaway copy starts at your **last commit**. Uncommitted edits, untracked files and installed
+> dependencies are not in it, so an agent asked about work in progress finds nothing and reports success
+> on an empty diff. Commit or stash first.
+
+An agent keeps what a native subagent can do: several at once, stop one and keep what it earned, continue
+one with rights set again, hand it an image, demand JSON against your schema, reach the network — off in
+one line. The one place the two differ is proof, and that is what
+[How it works](#how-it-works) is about.
+
+## What it stores, and what leaves your machine
+
+Nothing leaves your machine. It stays in two places, plus your Codex account:
+
+- **`$TMPDIR`** — the prompt file named above, and whatever a read-only agent writes while it works.
+- **`~/.claude/plugins/data/codex-delegate-nowely`** — answers, run records, write locks, and a Codex
+  home private to the plugin that keeps your own Codex configuration and MCP servers out of the turn. On
+  the clone route this is `CODEX_DELEGATE_STATE_DIR`, which has no default: without it a run refuses to
+  start rather than inventing a location under your home.
+
+Answers and run records age out by count and by age; the Codex home and the write locks stay.
+
+## Where parity stops
+
+By default a Codex agent cannot commit: its rights stop short of your repository's git directory, so the
+work comes back as a diff. Granting that directory is a widening to decide on its own.
+
+It cannot widen its rights mid-run: the request is refused and recorded, and the run ends saying they
+were sized too small — nothing pauses to ask you.
+
+Browser tests need a writing agent: the override Chromium needs is a file in the tree.
+
+A fan-out is bounded by your machine's memory: overshooting gets runs killed, not queued.
+
+What was measured, and when: [parity.md](skills/seat/references/parity.md).
+
+## Against the official `openai-codex` plugin
+
+The same idea, richer in places, but not a substitute where rights matter. On a managed machine the
+approval policy it hardcodes is overridden and its writes come back declined. On every machine it sends a
+sandbox parameter that takes away the temp directory a read-only agent needs to run tests — so a review
+agent launched through it reviews by reading and reports a confident verdict having run nothing. Nothing
+fails: the declined run still exits 0.
+
+[The forensics](skills/seat/references/why-not-the-plugin.md), with line numbers and upstream issue
+state.
+
+## How it works
+
+One Codex agent is one dependency-free Node script driving `codex app-server`, the only Codex interface
+that takes rights per call and reports what ran.
+
+The rights the server says it applied are checked against the ones asked for; a difference stops the run.
+The exit code comes from what the turn actually did, not from what it says it did. Proof it ran at all is
+Codex's own session file, opened and read, not just matched by name.
+
+The flags, the report's fields and every exit code are the driver's own help, which is where they stay
+accurate:
+
+```bash
+node ~/.claude/plugins/marketplaces/nowely/plugins/codex-delegate/skills/seat/scripts/driver.mjs --help
+```
+
+## Troubleshooting
+
+| What you see | What it means | What to do |
+|---|---|---|
+| the agent reports success and changed nothing | it ran against your last commit, not your working tree | commit or stash, then ask again |
+| the run is refused before it starts | your Codex quota window is full | wait, or use a Claude subagent |
+| a run dies mid-way in a large fan-out | out of memory — runs are killed, not queued | ask for fewer at once |
+| a run fails after a `codex` upgrade | the interface underneath is experimental | report it, with versions |
+
+Report a problem at [issues](https://github.com/Nowely/agent-skills/issues) with `codex --version`, the
+plugin version, and the run record the report names.
+
+## Further reading
+
+- The manual the agent reads: [SKILL.md](skills/seat/SKILL.md)
+- What parity was measured, and when: [parity.md](skills/seat/references/parity.md)
+- Environment, receipts, locks, worktrees: [environment-and-internals.md](skills/seat/references/environment-and-internals.md)
+
+Young code, but every test case was mutation-checked and the survivors listed
+([evals](evals/README.md)). Changes in [CHANGELOG.md](CHANGELOG.md). MIT — see [LICENSE](LICENSE).
