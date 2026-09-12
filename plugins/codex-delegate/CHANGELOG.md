@@ -3,6 +3,19 @@
 Hand-written per release from the tagged git log. Dates are the tagged commit dates; detailed
 forensics remain in the repository references and release notes.
 
+## Unreleased
+
+### Changed
+
+- The orchestrate page gains three rules from the 2026-09-12 ledger-verification round. A top-row seat
+  critiques the decomposition before any fan-out: the Fable critique caught two claims true at 0.13.0
+  and false at 0.14.0 that a fan-out would have returned as "false" and the synthesis read as findings
+  refuted. The bulk tier has a unit: one claim, one address, a verbatim quote, a verdict from a closed
+  set that describes the subject and never the brief; nineteen of twenty Luna seats answered a broken
+  path in their prompt with the same verdict word. A unanimous fan-out is read as evidence about the
+  prompt first, one return whole before the tally. The page's line budget in
+  `evals/orchestrate.test.mjs` moves from 150 to 155 for a page of 152 lines.
+
 ## 0.14.0 — 2026-09-12
 
 ### Changed
