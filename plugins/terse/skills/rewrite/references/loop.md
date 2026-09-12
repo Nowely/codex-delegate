@@ -31,9 +31,9 @@ Write the block, hand it to critics, rewrite against what they found, hand it ba
 a check; it is a first opinion.
 
 Critics work in parallel and with **different lenses**, because a single critic asked twice returns its
-own first answer twice. The three that earned their place here: one against the code, one against the
-mechanical rules read as a grep would read them, and one hunting words whose score does not pay for
-their space.
+own first answer twice. The lenses, one seat each, are the table in `SKILL.md` step 4; the least a round
+runs is three — the code with the right to run it, the mechanical rules read as a grep would read them,
+and the water.
 
 Every finding carries a reproducible check — the command and its output, or the file and line — and a
 finding without one is discarded. The coordinator's own re-verification of each finding was the slowest
@@ -104,43 +104,44 @@ A round is frozen the moment its critics are launched. A fix applied to the file
 leaves them reviewing a document that no longer exists; it happened here, on round 04, and the fix went
 into 05 where it belonged.
 
-So carry a **ledger of verified claims** across rounds: the sentence, the claim, the file and line, and
-the evidence level reached. Then each round is mechanical rather than hopeful:
+So carry a **ledger of verified claims** across rounds — `ledger.json`, one entry per claim: the pattern
+that finds it, whether it must be present or absent, and **the level it was verified at**. Then each round
+is mechanical rather than hopeful:
 
-1. Diff the round against what it replaced, sentence by sentence.
-2. Intersect the changed sentences with the ledger.
-3. **Every hit is re-verified from the code, not from the ledger.** A ledger entry proves the old sentence
-   was true, which is exactly the thing a rewrite can end.
-4. Count the regressions. That number is the round's verdict; findings are its yield.
+1. Each edit in `edits/NN.json` declares the claims it introduces and the phrasings it retires, with the
+   level and the check that reached it; `round.mjs` grows the ledger from them.
+2. `ledger.mjs` runs over every round. A wanted claim absent from the new round, or a retired phrase
+   present in it, fails the round. A retired phrase is searched for everywhere it could survive, table
+   cells included: one lived on with a capital letter while the ledger stayed green.
+3. **Every changed sentence is re-verified from the code, not from the ledger** — a ledger entry proves
+   the old sentence was true, which is exactly the thing a rewrite can end. For a claim about a
+   lifecycle — what stays, what is removed, what a continuation sees — from a run, not a line: three
+   level-2 entries (a ref kept, a lock reclaimed, no report left) were pinned as true and each fell to a
+   run in the next wave, and the round before that had made nine edits against resolving lines of which
+   four were false, all of that kind. A level-2 entry about a lifecycle is provisional and says so.
+4. Count the regressions — the sentences the round introduced that its critics showed false or
+   overstated. That number is the round's verdict; findings are its yield.
 
 A round that simplifies without re-verifying is not a round, it is a bet.
-
-Every ledger entry carries the level it was verified at, and an entry about a lifecycle at level 2 is
-provisional: three such entries — a ref kept, a lock reclaimed, no report left — were pinned as true and
-each fell to a run in the next wave. A ratchet on that ledger would have rejected the fixes. And a retired
-phrase is searched for everywhere it could survive, table cells included: one lived on with a capital
-letter while the ledger stayed green.
-
-Re-verifying from the code means the lifecycle, not the line. Round 06 of the same run made nine edits,
-each checked against a resolving line, and four were false: every one described what stays, what is
-removed, or what a continuation sees — a sequence of runs that no single line shows. The critic who found
-them ran the driver. A claim about a lifecycle is level 3 or it is a guess.
 
 ### When to stop
 
 Not at a score. A critic asked for findings will always produce findings, so a target number invites
 either padding or capitulation.
 
-Two conditions, and the first one is the ratchet:
+**The loop stops when the owner reads the round and says whether they would send it as it is.** That
+judgement is the measurement every round exists to prepare for, and no count of findings stands in for
+it. Two conditions say when a round is worth their time:
 
-- **No regressions in the last two rounds.** Nothing that was verified true has become false or vaguer.
-- **No new class of defect in the last two rounds.** Individual findings are expected to keep arriving;
+- **No regressions in the last two waves.** Nothing the rounds introduced was shown false or vaguer.
+- **No new class of defect in the last two waves.** Individual findings are expected to keep arriving;
   what should stop arriving is a *kind* of failure the machinery had no check for.
 
-The second condition is deliberately about classes rather than counts, because a method under
-construction earns a new check every round, and each new check finds things the last round could not
-see. That is the machinery growing. Counting those as failures to converge would stop the loop exactly
-when it is paying best.
+The second condition is about classes rather than counts, because a method under construction earns a
+new check every round, and each new check finds things the last round could not see. That is the
+machinery growing. On the run this comes from, seven rounds never met either condition, and the wave
+after the seventh found forty-one sentence defects — the conditions describe when to hand over, not when
+the document is right.
 
 Cap the rounds, and report the cap as a result rather than a success — a document still producing new
 classes at the cap has a stage-3 problem nobody has named.

@@ -173,3 +173,15 @@ forensics remain in the repository references and release notes.
   had told the reader to run a `check.mjs` that did not exist.
 - Defects found in passing now go in `ISSUES.md` at the repository root, and the repository's own
   `CLAUDE.md` says so; the first four entries are codex-delegate's, found by this plugin's critics.
+- **The skill was rewritten to say what the loop actually does**, after a reflection round found it
+  describing two pools, two gates and none of its own artifacts. `rewrite` now has one bake-off for the
+  first candidate and then rounds: an `edits/NN.json` with a check per claim, `round.mjs`, the shipped
+  checks, one seat per lens, a dedup seat, the coordinator's verification, and a `rounds.md` row whose
+  verdict is the regression count. The gate is three checks — no regression, a task gate, question
+  readers — and **the stop is the owner reading the round**: seven rounds never met the old stopping
+  rule, and the wave after the seventh found forty-one defects. The lens table carries the costs one wave
+  measured. `loop.md`'s ledger procedure is one numbered list instead of four paragraphs written at four
+  different times, and a ledger entry carries the level it was verified at; `round.mjs` marks a level-2
+  lifecycle claim provisional. `bake-off.md` gained the brief for the skeleton route and a check per
+  changed claim in both briefs. `audit` gained the task readers as its level-3 step and "harmful" as a
+  fifth cause. The skeleton must carry a budget for every section, the added ones included.

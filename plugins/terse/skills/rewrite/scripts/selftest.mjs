@@ -28,19 +28,23 @@ const l = path.join(tmp, "l.json"), f1 = path.join(tmp, "01.md"), f2 = path.join
 fs.writeFileSync(l, JSON.stringify([{ name: "kept", pattern: "commit\\s+first", want: true }, { name: "bad", pattern: "Commit or stash", want: false }, { name: "control", pattern: "zzz", want: false }]));
 fs.writeFileSync(f1, "Commit or stash. commit\nfirst.\n"); fs.writeFileSync(f2, "Nothing here.\n");
 const g = run("ledger.mjs", [l, f1, f2]);
-check("ledger sees a claim broken across a line", /kept\s+yes/.test(g.out));
-check("ledger reports an unwanted phrase", /bad\s+YES/.test(g.out));
-check("ledger reports a lost claim in the last file", /kept\s+yes\s+LOST/.test(g.out));
+check("ledger sees a claim broken across a line", /kept\s+L\S*\s+yes/.test(g.out));
+check("ledger reports an unwanted phrase", /bad\s+L\S*\s+YES/.test(g.out));
+check("ledger reports a lost claim in the last file", /kept\s+L\S*\s+yes\s+LOST/.test(g.out));
 check("ledger exits 1 when the last file fails", g.code === 1);
 // round: refuses a non-unique anchor, refuses to overwrite, grows the ledger
 const e = path.join(tmp, "e.json"), from = path.join(tmp, "from.md"), to = path.join(tmp, "to.md"), lg = path.join(tmp, "lg.json");
 fs.writeFileSync(from, "alpha beta alpha\n");
 fs.writeFileSync(e, JSON.stringify([{ name: "x", old: "alpha", new: "gamma" }]));
 check("round refuses an anchor that occurs twice", run("round.mjs", [from, to, e]).code === 1 && !fs.existsSync(to));
-fs.writeFileSync(e, JSON.stringify([{ name: "x", old: "beta", new: "gamma", claims: [{ name: "g", pattern: "gamma" }], retire: [{ name: "b", pattern: "beta" }] }]));
+fs.writeFileSync(e, JSON.stringify([{ name: "x", old: "beta", new: "gamma", check: { level: 2, how: "read" }, claims: [{ name: "g stays", pattern: "gamma" }], retire: [{ name: "b", pattern: "beta" }] }]));
 const h = run("round.mjs", [from, to, e, "--ledger", lg]);
 check("round writes the new file", h.code === 0 && fs.readFileSync(to, "utf8") === "alpha gamma alpha\n");
-check("round grows the ledger with a claim and a retirement", JSON.parse(fs.readFileSync(lg, "utf8")).length === 2);
+const grown = JSON.parse(fs.readFileSync(lg, "utf8"));
+check("round grows the ledger with a claim and a retirement", grown.length === 2);
+check("a claim inherits its edit's level", grown.find((c) => c.name === "g stays")?.level === 2);
+check("a level-2 lifecycle claim is marked provisional", grown.find((c) => c.name === "g stays")?.provisional === true);
+check("the ledger prints the level and the provisional mark", /g stays\s+L2~/.test(run("ledger.mjs", [lg, to]).out));
 check("round refuses to overwrite a round", run("round.mjs", [from, to, e]).code === 1);
 // sections
 const s = run("sections.mjs", [d]);

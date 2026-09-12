@@ -88,11 +88,3 @@ and a fresh `--report-file`, the driver exits 2 and writes `{"ok":false,"exitCod
 disagree; either the help sentence is wrong or "argument error" needs to say it means the flag parser
 only. Level 3.
 
-## terse
-
-### T2. The writer brief serves the audit route only
-
-`skills/rewrite/references/bake-off.md:46-51` — "name them 01-reader-pass, 02-writing-pass,
-03-prerequisite-pass … Six fresh readers have been measured against the current file and their failures
-are in part four". `skills/rewrite/SKILL.md` sends both routes, skeleton and audit, to that brief; the
-skeleton route has none. Level 1.

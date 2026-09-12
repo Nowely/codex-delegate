@@ -21,7 +21,7 @@ from one model family. Until that is corrected, read a narrow win on length as a
 | writers | 3 | one whole candidate each, same brief, different angle |
 | judges | 2 | a third only when the two split |
 
-The critics of the loop that follows are a different pool, one seat per lens, in `SKILL.md` step 3.
+The critics of the loop that follows are a different pool, one seat per lens, in `SKILL.md` step 4.
 
 Claude agents by default. When the `codex-delegate` plugin is installed, give one writer seat and one
 judge seat to Codex: a panel that does not share a single model's blind spots is worth more than a larger
@@ -68,6 +68,34 @@ b) Back every behavioural claim with a file and line.
 c) List what you were tempted to cut and kept, because it is a condition, a limit or a warning at a
    point where a reader decides.
 d) Report the word count before and after.
+e) For every claim about behaviour you changed or added: the level of evidence reached — the line
+   resolves, the code says this, or you made it happen — and the command or line. A claim about a
+   lifecycle (what stays, what is removed, what a continuation sees) at level 2 is a guess; run it.
+```
+
+## The writer brief, skeleton route
+
+When there is no audit and the writing starts from a skeleton `rethink` agreed, send the skeleton's entry
+for the section — its purpose, what it excludes, its word budget — with the writing rules and the curse
+of knowledge, then this:
+
+```
+Write <SECTION> of <FILE> against the skeleton entry above: its purpose is what the section buys the
+reader, its exclusions are not yours to restore, and its budget is a design decision, not a limit to
+fill. Your angle is <ANGLE>.
+
+Do not modify the repository. Write your draft into your own temporary directory and name the path.
+
+THE ACCURACY FLOOR: every statement about behaviour must be true of the code in this checkout, and
+you must record which level of evidence it reached — the line resolves, the code says this, or you
+made it happen. A claim about a lifecycle at level 2 is a guess; run it.
+
+CHECK:
+a) For each sentence about behaviour, the level and the command or line.
+b) What the skeleton's purpose asked for that you could not write, and why.
+c) List what you were tempted to cut and kept, because it is a condition, a limit or a warning at a
+   point where a reader decides.
+d) Report the word count against the budget.
 ```
 
 The instruction to keep intermediate drafts is not bookkeeping. In the measured run the drafts showed

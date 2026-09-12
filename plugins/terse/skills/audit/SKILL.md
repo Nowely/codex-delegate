@@ -100,6 +100,17 @@ readers who reported no confusion answered wrong, and the one who called the sec
 confusing answered right. If a reader volunteers the judgement, keep it as a hint and keep it out of the
 score.
 
+## Step 5b. The task readers
+
+Beside the question readers, two readers carrying a task: a starting state and an outcome they want,
+acting from the documentation alone, with no answer key and no source. Check the state they produce, not
+what they say. It is the only evidence at level 3 an audit makes, and it finds the failure a question
+cannot: a recipe whose every sentence is true and whose sequence leaves the reader worse off — measured
+on 2026-09-12, "commit or stash first" reverted a reader's tree and showed the agent nothing. Report
+beside the result which sections no task reached; a gate that passes everything has described the tasks,
+not the document. The readers' forced guesses are the yield: ask for every place the text made them
+invent something, and treat a guess that turned out right exactly like one that turned out wrong.
+
 ## Step 6. The score and what broke
 
 The score is right answers over questions. Report steps taken and departures from the documentation
@@ -113,6 +124,7 @@ Give every wrong answer a cause, because the cause decides what a rewrite must d
 | missing | the documentation does not answer the question anywhere | write the answer, and say where it goes |
 | placement | the sentence is true and sits where it misleads | put it at the decision — by moving it, or by repeating it there |
 | findability | true, in the right place, not found | change the path to it |
+| harmful | every sentence true, the sequence leaves the reader worse off | repair the recipe, and test it by running it |
 
 Keep the causes apart. Two of six failures on 2026-09-10 were refuted claims, and a rewrite aimed at
 findability would have carried both forward in cleaner prose. A true sentence under the wrong heading is

@@ -256,7 +256,9 @@ from, and every later decision — a section added on survey evidence, a fact re
 a budget that grew to carry a true sentence — is written back into it. Measured on 2026-09-12: a rules
 critic reading the skeleton as written reported the Node floor, the uninstall block and three sections as
 violations, all of them decisions the reader had taken after the skeleton was agreed and none of them
-recorded in it. A skeleton nobody maintains measures the document against a document nobody agreed.
+recorded in it. A skeleton nobody maintains measures the document against a document nobody agreed. Every section
+carries a budget, the ones added later included: a section without one cannot be over it, and the one
+run where three were added without budgets ended 600 words over a total nobody had revised.
 
 ## The rules this produced
 

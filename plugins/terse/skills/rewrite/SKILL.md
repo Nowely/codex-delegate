@@ -69,41 +69,60 @@ code prunes it by age and by count — and a fourteen-agent exercise inherited i
 before an adversarial reader caught it. A line number was available for that claim the whole time. What
 was missing was a reader of the code who would have said the same thing.
 
-## Step 3. The writing, in rounds
+## Step 3. The first candidate
 
 Announce it before spawning: how many writers, judges and critics, which models, roughly what it costs.
-Wait for the user's word. The bake-off pool — three writers, two judges — is in
-[bake-off.md](references/bake-off.md). The critics of the loop are a pool of their own, one seat per
-lens; the lenses are fixed and the sizes are the user's:
+Wait for the user's word.
 
-| Lens | Reads | Where it ran best |
-|---|---|---|
-| the code, with the right to run it | every behavioural claim; level 3 for anything about a lifecycle | Claude Opus |
-| the mechanical rules and the water | the skeleton's rules as a grep would; words whose score does not pay | Claude Opus |
-| adversarial, whole document | every sentence a reader acts on; scope words; CLI experiments in an isolated config | Codex gpt-6-astra |
-| a task | a starting state and a goal, acted on from the document alone; the resulting state | Codex gpt-5.6-sol, two |
-| a reader's questions | three questions each, one `cat` and nothing else; where they guessed | Codex gpt-5.6-luna, five |
-| dedup and rank | every report above, into one list with a reproducible check per finding | Claude Fable, after the rest |
+The first candidate comes from a bake-off — three writers with different stances, two judges scoring on
+the failures rather than on taste — in [bake-off.md](references/bake-off.md). That is the only bake-off.
+Every round after it edits the round before. If the user refuses the fan-out, write one candidate yourself
+from the same brief and report that the comparison step was skipped.
 
-Writers take a stance rather than an instruction to write well: plain, dense, concrete. Three drafts of
-one voice are one draft.
+## Step 4. The rounds
 
-Critics do not overlap. A single critic asked twice returns its own first answer twice; lenses that
-differ return answers that differ. The ones that found the most were the ones that ran things: a critic
-with an isolated `CLAUDE_CONFIG_DIR` and the driver found thirteen defects in one pass that three
-reading-only reviews had passed. A reader seat told not to run commands reads nothing — Codex reads files
-through the shell — so a reader is told which one command it may run. Judges never see which model wrote
-which candidate.
+A round is one file produced from the previous one: its edits declared, its checks run, its critics
+launched, their findings deduplicated and verified — in that order, and nothing in it edited once the
+critics start. The shape of the loop and why each part is there: [loop.md](references/loop.md).
 
-Then the loop — inner per block, outer over the whole document, findings routed by which stage owns them.
-Stop when two consecutive rounds find nothing new, and report the round counts. A count that stops
-falling means the answer is upstream, in `rethink`. Details in [loop.md](references/loop.md); the writer
-brief and the judging sheet are in [bake-off.md](references/bake-off.md).
+1. **Write `edits/NN.json`.** For each edit: the exact `old` text, which must occur once; the `new`
+   text; the claims it introduces and the phrasings it retires as false; and for every claim about
+   behaviour a `check` — the level reached and the command or line that reached it. A claim about a
+   lifecycle at level 2 is a guess.
+2. **Produce the round**: `node scripts/round.mjs NN-1.md NN.md edits/NN.json --ledger ledger.json`. It
+   refuses an anchor that is not unique and refuses to overwrite a round.
+3. **Run the checks**: `rule1.mjs`, `dup.mjs`, `sections.mjs` against the skeleton's budgets,
+   `ledger.mjs` over every round so far. A failure is fixed in a new `edits/NN.json`; the round file is
+   never touched.
+4. **Launch the critics**, one seat per lens, then the dedup seat over their reports. A finding without a
+   reproducible check is discarded.
+5. **Verify the list yourself**, from the command each finding carries, and route each: a sentence goes to
+   the next round's edits; a boundary or a term goes back to `rethink`; a code defect goes to the
+   repository's `ISSUES.md`; a question the document does not answer goes to the user.
+6. **Record the round** in `rounds.md`: what produced it, its words, the findings against it, and **its
+   regression count** — the sentences it introduced that its critics showed false or overstated. That
+   number is the verdict; findings are the yield.
 
-If the user refuses the fan-out, write one candidate yourself from the same brief and report that the
-comparison step was skipped.
+The lenses are fixed and the sizes are the user's. Costs are what one wave of eleven measured on
+2026-09-12, on a 1600-word README:
 
-## Step 4. The safeguards
+| Lens | Reads | Where it ran best | Cost |
+|---|---|---|---|
+| the code, with the right to run it | every behavioural claim; level 3 for anything about a lifecycle | Claude Opus | ~180k tokens, 17 min |
+| the mechanical rules and the water | the skeleton's rules as a grep would; words whose score does not pay | Claude Opus | ~70k tokens, 7 min |
+| adversarial, whole document | every sentence a reader acts on; scope words; CLI experiments in an isolated config | Codex gpt-6-astra | ~40 commands, 5 min |
+| a task | a starting state and a goal, acted on from the document alone; the resulting state | Codex gpt-5.6-sol, two | ~20 commands, 5 min each |
+| a reader's questions | three questions each, one `cat` and nothing else; where they guessed | Codex gpt-5.6-luna, five | ~1 min each |
+| dedup and rank | every report above, into one list with a reproducible check per finding | Claude Fable, after the rest | ~160k tokens, 15 min |
+
+The ones that found the most were the ones that ran things: a critic with an isolated
+`CLAUDE_CONFIG_DIR` and the driver found thirteen defects in one pass that three reading-only reviews had
+passed, and one wave found forty-one sentence defects in a document six rounds of one or two critics had
+already reviewed. A reader seat told not to run commands reads nothing — Codex reads files through the
+shell — so a reader is told which one command it may run. Judges and critics never learn which model
+wrote what.
+
+## Step 5. The safeguards
 
 These override the writing rules wherever they collide, and the rules say so themselves.
 
@@ -117,32 +136,40 @@ they knew what the tool was, and both remarked on it: position is not repaired b
 claim beats a truer one when a reader meets both, so a weakened claim has to be the only claim left
 standing, not an accurate footnote under a confident headline.
 
-## Step 5. What you return
+## Step 6. What you return
 
-Into the run directory, never into the audited tree:
+Into a run directory of its own — `research/<date>-<slug>/` in the repository, never into the audited
+tree:
 
-- the winning candidate, whole
-- the diff against the original
-- the repair list: each measured failure, what changed, and where
-- the cut ledger — every removed passage of twenty words or more, with its reason
-- the invisible-prerequisite inventory
-- the file and line behind every behavioural claim you changed or added
-- word count before and after
-- the findings per round, and which stage each belonged to
+- every round as its own file, `00-…` to `NN-…`, named for the pass that produced it
+- `edits/NN.json` for every round after the first, `ledger.json`, `concepts.json`
+- `skeleton.md`, kept current with every decision taken after it was agreed
+- `rounds.md`: one row per round with its producer, words, findings and regression count
+- `reviews/NN/`: every critic's report and the dedup, verbatim
+- the diff of the last round against the original, and the cut ledger — every removed passage of twenty
+  words or more, with its reason
+- word count before and after, and the findings per round with the stage each belonged to
 
-Formats for the middle three are in [ledgers.md](../audit/references/ledgers.md).
+Formats for the ledgers are in [ledgers.md](../audit/references/ledgers.md).
 
-## Step 6. The gate
+## Step 7. The gate, and the stop
 
-A rewrite is not finished because it reads better. Re-run `/terse:audit` on the candidate with the same
-questions, the same key, the same entry file and the same model. Three outcomes are refusals:
+Three checks before the user reads, none of them tradeable against another:
 
-- the score fell
-- a control question that passed now fails
-- a claim that was confirmed is now refuted — the rewrite introduced a false statement
+- **no regression in the last round** — the ledger passes and the critics showed nothing it introduced to
+  be false or overstated;
+- **a task gate** — two fresh readers given a starting state and a goal, acting from the document alone,
+  checked on the state they produce; the only level-3 evidence the loop makes, and its forced guesses are
+  the yield;
+- **question readers** — one fresh reader per question a reader arrives with, `.md` files only; this is
+  `audit`'s own protocol at round size, and re-running `/terse:audit` with the same key is the same
+  measurement at full size.
 
-Report the two scores side by side. Then stop: applying the candidate to the user's files needs their
-word, and a diff they have read is what earns it.
+**The loop stops when the user reads the round and says whether they would send it as it is.** Every
+round before that exists to make that read worth their time. Two consecutive waves with no regression and
+no new class of defect is the signal to hand the round over, not a finish: a critic asked for findings
+always produces findings. Then stop; applying the candidate to the user's files needs their word, and a
+diff they have read is what earns it.
 
 ## Reference
 

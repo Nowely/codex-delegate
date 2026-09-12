@@ -2,7 +2,8 @@
 // Produce the next round from the previous one by asserted edits, and grow the ledger.
 // Usage: node round.mjs FROM.md TO.md EDITS.json [--ledger LEDGER.json]
 // EDITS.json = [{"name": "...", "old": "...", "new": "...",
-//                "claims": [{"name","pattern"}],   // verified claims this edit introduces  (want: true)
+//                "check":  {"level": 1|2|3, "how": "command or file:line"},   // how the edit's claims were verified
+//                "claims": [{"name","pattern"}],   // verified claims this edit introduces  (want: true, level from check)
 //                "retire": [{"name","pattern"}]}]  // phrasings this edit removes as false   (want: false)
 // Every `old` must occur exactly once in FROM, or nothing is written. TO must not exist: a round is a
 // new file, never an overwrite. With --ledger, claims and retirements are appended (deduplicated by name).
@@ -24,7 +25,9 @@ if (ledgerFile) {
   const ledger = fs.existsSync(ledgerFile) ? JSON.parse(fs.readFileSync(ledgerFile, "utf8")) : [];
   const byName = new Map(ledger.map((c) => [c.name, c]));
   for (const e of edits) {
-    for (const c of e.claims ?? []) byName.set(c.name, { name: c.name, pattern: c.pattern, want: true });
+    for (const c of e.claims ?? []) byName.set(c.name, { name: c.name, pattern: c.pattern, want: true,
+      level: e.check?.level ?? null, ...(e.check?.how ? { how: e.check.how } : {}),
+      ...(e.check?.level === 2 && /lifecycle|stays|removed|continu|resum|reclaim|kept|prun/i.test(c.name + " " + c.pattern) ? { provisional: true } : {}) });
     for (const c of e.retire ?? []) byName.set(c.name, { name: c.name, pattern: c.pattern, want: false });
   }
   fs.writeFileSync(ledgerFile, JSON.stringify([...byName.values()], null, 1) + "\n");
